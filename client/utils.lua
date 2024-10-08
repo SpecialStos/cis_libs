@@ -1,5 +1,11 @@
 -- cis_libs/client/utils.lua
 
+function DebugLog(message)
+    if Config.Debug then
+        print("[cis_libs] " .. tostring(message))
+    end
+end
+
 function Round(num, numDecimalPlaces)
     return tonumber(string.format("%." .. (numDecimalPlaces or 0) .. "f", num))
 end
@@ -8,53 +14,51 @@ function GetDistanceBetweenCoords(x1, y1, z1, x2, y2, z2)
     return #(vector3(x1, y1, z1) - vector3(x2, y2, z2))
 end
 
-function DebugLog(message)
-    if Config.Debug then
-        print("[cis_libs] " .. tostring(message))
-    end
-end
-
-function DrawText3D(x, y, z, text)
+-- Utility function for DrawText3D
+function DrawText3D(x, y, z, text, settings)
     local onScreen, _x, _y = World3dToScreen2d(x, y, z)
     local p = GetGameplayCamCoords()
     local distance = GetDistanceBetweenCoords(p.x, p.y, p.z, x, y, z, 1)
     local scale = (1 / distance) * 2
     local fov = (1 / GetGameplayCamFov()) * 100
     local scale = scale * fov
+    
     if onScreen then
-        SetTextScale(0.35, 0.35)
-        SetTextFont(4)
+        -- Use settings if provided, otherwise use default values
+        local textScale = settings and settings.scale or vec2(0.35, 0.35)
+        local font = settings and settings.font or 4
+        local color = settings and settings.color or {255, 255, 255, 215}
+        local center = settings and settings.center or 1
+        
+        SetTextScale(textScale.x, textScale.y)
+        SetTextFont(font)
         SetTextProportional(1)
-        SetTextColour(255, 255, 255, 215)
+        SetTextColour(color[1], color[2], color[3], color[4])
         SetTextEntry("STRING")
-        SetTextCentre(1)
+        SetTextCentre(center)
         AddTextComponentString(text)
-        DrawText(_x,_y)
+        DrawText(_x, _y)
+        
+        -- Apply dropshadow if enabled in settings
+        if settings and settings.dropshadow and settings.dropshadow.enabled then
+            SetTextDropshadow(table.unpack(settings.dropshadow.color))
+            SetTextDropShadow()
+        end
+        
+        -- Apply edge if enabled in settings
+        if settings and settings.edge and settings.edge.enabled then
+            SetTextEdge(table.unpack(settings.edge.color))
+        end
+        
+        -- Apply outline if enabled in settings
+        if settings and settings.outline then
+            SetTextOutline()
+        end
+        
+        -- Draw background rectangle (always drawn in original function)
         local factor = (string.len(text)) / 370
-        DrawRect(_x,_y+0.0125, 0.015+ factor, 0.03, 0, 0, 0, 100)
+        DrawRect(_x, _y + 0.0125, 0.015 + factor, 0.03, 0, 0, 0, 100)
     end
-end
-
-function CreatePed(hash, coords, heading)
-    RequestModel(hash)
-    while not HasModelLoaded(hash) do
-        Wait(5)
-    end
-
-    local ped = CreatePed(4, hash, coords, false, false)
-    FreezeEntityPosition(ped, true)
-    SetEntityHeading(ped, heading)
-    SetEntityAsMissionEntity(ped, true, true)
-    SetPedHearingRange(ped, 0.0)
-    SetPedSeeingRange(ped, 0.0)
-    SetPedAlertness(ped, 0.0)
-    SetPedFleeAttributes(ped, 0, 0)
-    SetBlockingOfNonTemporaryEvents(ped, true)
-    SetPedCombatAttributes(ped, 46, true)
-    SetPedFleeAttributes(ped, 0, 0)
-    SetPedDropsWeaponsWhenDead(ped, false)
-    FreezeEntityPosition(ped, false)
-    return ped
 end
 
 function RandomFloat(lower, greater)
@@ -69,30 +73,6 @@ function GetTableSize(t)
     return count
 end
 
-function GetAngleDifference(ped, ped2)
-    local pedRotation = GetEntityRotation(ped)
-    local pedForwardVector = vector3(-math.sin(pedRotation.z), math.cos(pedRotation.z), 0)
-    local pedToPed2Vector = vector3(ped2.x - ped.x, ped2.y - ped.y, ped2.z - ped.z)
-    pedToPed2Vector = pedToPed2Vector / #pedToPed2Vector
-    local dotProduct = pedForwardVector.x * pedToPed2Vector.x + pedForwardVector.y * pedToPed2Vector.y + pedForwardVector.z * pedToPed2Vector.z
-    local angle = math.acos(dotProduct)
-    return math.deg(angle)
-end
-
-function PedHasSight(ped, ped2)
-    if HasEntityClearLosToEntity(ped, ped2, 17) then
-        local pedForwardVector = GetEntityForwardVector(ped)
-        local pedToPed2Vector = vector3(ped2.x - ped.x, ped2.y - ped.y, ped2.z - ped.z)
-        pedToPed2Vector = pedToPed2Vector / #pedToPed2Vector
-   
-        local dotProduct = pedForwardVector.x * pedToPed2Vector.x + pedForwardVector.y * pedToPed2Vector.y + pedForwardVector.z * pedToPed2Vector.z
-        local angle = math.deg(math.acos(dotProduct))
-   
-        return angle < 90
-    end
-    return false
-end
-
 -- Export all functions
 exports('Round', Round)
 exports('GetDistanceBetweenCoords', GetDistanceBetweenCoords)
@@ -101,5 +81,3 @@ exports('DrawText3D', DrawText3D)
 exports('CreatePed', CreatePed)
 exports('RandomFloat', RandomFloat)
 exports('GetTableSize', GetTableSize)
-exports('GetAngleDifference', GetAngleDifference)
-exports('PedHasSight', PedHasSight)

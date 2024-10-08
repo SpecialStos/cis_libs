@@ -1,5 +1,5 @@
 Security = {}
-Security.EventPrefix = "cis_BetterFightEvolved" -- The prefix for all the events. This is used to prevent unauthorized events from being triggered.
+Security.EventPrefix = "cis_libs" -- The prefix for all the events. This is used to prevent unauthorized events from being triggered.
 Security.Debug = false -- Enable debug mode (Prints in server console)
 Security.AuthorizedResources = { -- Authorized resources that can trigger events
     "example", --Add your resources here.
@@ -24,3 +24,10 @@ AddEventHandler('cis_BetterFightEvolved_anticheat:server:alert', function(messag
 	end
 end)
 --CUSTOM ALERT HERE--
+
+
+function GetLibsPrefix()
+	return Security.EventPrefix
+end
+
+exports('GetLibsPrefix', GetLibsPrefix)
