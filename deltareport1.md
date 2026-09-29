@@ -367,7 +367,61 @@ on *every* driver including oxmysql.
 brief describes: it is not a wrong-answer-on-the-wrong-driver, it is a guaranteed 15-second stall
 on the right one.
 
-### 9.3 `server/callback.lua` may repeat the `self` trap — **unmeasured, flagged not fixed**
+### 9.3 `server/callback.lua` remote dispatch **CONFIRMED BROKEN** — every argument is lost
+
+> **Measured live 2026-09-29 on a Qbox server.** This was the highest-priority
+> unmeasured item in the programme. The answer is worse than "may be broken".
+
+**The measurement.** `cis_libstest` 2.0 registers a real handler on its own
+resource and dispatches through the exact path in question:
+
+```lua
+exports['cis_libs']:RegisterCallback('cis:probe:bind', 'cis_libstest:cis_test:capture')
+exports['cis_libs']:AwaitCallback('cis:probe:bind', 'ALPHA', 99)
+```
+
+**The result.** The handler was invoked but recorded **zero arguments**
+(`n = 0`). Not shifted by one — *empty*. Expected `src`, `'ALPHA'`, `99`; got
+nothing.
+
+```
+probe: remote handler binding -- the remote handler recorded nothing
+probe: argument types survive the boundary  (the handler recorded 0 arguments)
+probe: vector3 arguments survive the boundary  (the handler recorded nothing)
+```
+
+**What is and is not broken.** Control flow reaches the handler — the
+`returnValue` and `returnsSeveral` probes both returned their values correctly,
+so the lookup, the call, and the return path all work. Only the **arguments**
+are lost, at or after the `__cfx_functionReference` call boundary.
+
+`invoke` does:
+
+```lua
+local target = exports[ref.resource]
+fn = target and target[ref.export]
+if not isCallable(fn) then ... end
+local results = table.pack(pcall(fn, src, ...))
+```
+
+`isCallable` accepts the reference table, so the guard passes. The arguments
+are then dropped in the call itself. So the reference is **bound** (it needs no
+`self` — the earlier reading of 9.3 as an unbound-method shift was wrong) but
+it is **not argument-forwarding**.
+
+**Consequence.** Every `Cis.callback.register(name, 'resource:exportName')`
+handler receives no arguments. `cis_storeRobberies` is the only product using
+`Cis.callback.register` and registers a **local function**, not a remote
+reference, so **no shipped product is affected today**. The remote path has
+simply never worked.
+
+**Fix direction.** Stop calling an export across the boundary to obtain
+behaviour. Either (a) pass the payload out of band — the caller stores
+arguments in a table and the handler reads it, or (b) the `Cis.callback.register`
+API takes a *named remote entry point* and cis_libs dispatches through a net
+event carrying data, which does cross intact. (a) is smaller and testable.
+
+### 9.3a (was 9.3) `server/callback.lua` remote dispatch — superseded by 9.3 above
 
 ```lua
 local target = exports[ref.resource]
@@ -384,9 +438,7 @@ If it is unbound, every remote handler invoked through `Cis.callback.register(na
 receives `src` as its `self` and every argument shifts one slot left — the same class of silent
 defect as the original, in the one path that was built specifically to be safe.
 
-`cis_storeRobberies` is the only product using `Cis.callback.register`, and it registers a local
-function, so no product is known to be affected today. This needs the probe treatment `MEMORY.md`
-§6 describes before the path is trusted.
+*(Superseded: measured live — see 9.3 above.)*
 
 ### 9.4 A guard gap found by testing, not by reading
 

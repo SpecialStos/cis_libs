@@ -114,10 +114,53 @@ Carried forward. Full detail in `deltareport1.md` §9.
 |---|---|---|
 | 9.1 | `Cis.framework.notify` realm-asymmetric signature | pinned, not fixed — 3 products affected |
 | 9.2 | `Cis.db.transaction` always times out, returns `nil` | pinned, not fixed — 2 products affected |
-| 9.3 | `server/callback.lua` remote dispatch may repeat the `self` trap | unmeasured, flagged |
+| 9.3 | `server/callback.lua` remote dispatch loses every argument | **CONFIRMED LIVE.** Handler invoked with `n = 0`. Not a shift — the arguments are dropped. No shipped product affected (`cis_storeRobberies` registers a local function, not a remote reference), so the path has simply never worked. Full measurement in `deltareport1.md` §9.3 |
 | 2 | `AuthorizedResources` read once at load | corrected in `MEMORY.md`; not fixed |
 
 **9.2 invalidates the brief's defect 3.** The brief states the contract is
 `false, 'transactions require oxmysql'`. That string is unreachable through any export; the
 measured contract is `nil` after a 15-second stall, on every driver. §0.1a Decision 1's rule
 applies: freeze the interface, not the brief's description of it.
+
+
+---
+
+## RUN 1 — first live run of cis_libstest 2.0
+
+**Date:** 2026-09-29 · Qbox server, 1 client connected
+
+**Outcome:** server suite 34 passed / 3 failed / 12 skipped. The client's 48
+tests were received but the report was never written — `collect()` threw on a
+non-existent `version()` native. Fixed.
+
+**The result that mattered: defect 9.3 is confirmed.**
+
+| Probe | Result |
+|---|---|
+| `remote handler binding` | **FAILED** — the handler recorded **zero** arguments |
+| `argument types survive` | skipped — handler recorded 0 arguments |
+| `vector3 arguments survive` | skipped — handler recorded nothing |
+| `remote handler return value` | passed — returns come back correctly |
+| `multiple return values collapse` | passed — only the first crosses |
+
+Control flow reaches the handler and the return value crosses intact. Only the
+**arguments** are lost. So the reference is bound (contradicting the earlier
+"unbound method" reading) but is not argument-forwarding. See
+`deltareport1.md` §9.3 for the full analysis and fix direction.
+
+**Three harness bugs the run exposed, all mine:**
+
+1. `version()` is not a FiveM native. It threw inside `collect()`, so **no
+   report was written at all**. Replaced with `GetResourceMetadata`.
+2. The suite read `Config` and `Security` directly. Those are **cis_libs's**
+   globals and are `nil` in a separate VM — the same cross-VM mistake made
+   earlier in this programme. Both tests now read through `GetConfigSummary()`.
+3. `GetNormalizedPlayer` returns a **well-formed table even for a source that
+   does not exist**, echoing the requested id with `name` and `job` nil. The
+   test now asserts that truth and names it: a caller cannot distinguish
+   "no such player" from "this framework cannot tell you". That is defect 5
+   showing up in practice.
+
+**Also confirmed with the driver's own error:** `oxmysql: Transaction
+parameters must be array or object, received 'undefined'` — defect 9.2's arity
+mismatch, now with first-party evidence.

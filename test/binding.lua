@@ -18,6 +18,7 @@
 local passed, failed = 0, 0
 local failures = {}
 
+TEST_CASES = {}
 local function check(cond, msg)
     if cond then
         passed = passed + 1
@@ -25,6 +26,7 @@ local function check(cond, msg)
         failed = failed + 1
         failures[#failures + 1] = msg
     end
+    TEST_CASES[#TEST_CASES + 1] = { name = msg, status = cond and 'passed' or 'failed' }
 end
 
 -- Declared first: loadFor closes over it, and a Lua local is not visible to a

@@ -24,6 +24,7 @@ end
 local failed = 0
 local passed = 0
 
+TEST_CASES = {}
 local function expect(cond, msg)
     if cond then
         passed = passed + 1
@@ -31,6 +32,7 @@ local function expect(cond, msg)
         failed = failed + 1
         io.stderr:write('FAIL: ' .. msg .. '\n')
     end
+    TEST_CASES[#TEST_CASES + 1] = { name = msg, status = cond and 'passed' or 'failed' }
 end
 
 local function vec(x, y, z)

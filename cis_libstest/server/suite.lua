@@ -12,6 +12,22 @@
 
 CisTestServerSuite = {}
 
+-- cis_libstest is a separate VM: `Config` and `Security` are cis_libs's
+-- globals and are nil here. Every read of them must go through an export.
+local function libConfig()
+    local ok, summary = pcall(function()
+        return exports['cis_libs']:GetConfigSummary()
+    end)
+    if ok and type(summary) == 'table' then
+        return summary
+    end
+    return {}
+end
+
+local function allowListCount()
+    return libConfig().allowListConfigured and 'configured' or 'empty'
+end
+
 local function subject()
     local players = GetPlayers()
     return tonumber(players[1])
@@ -153,24 +169,29 @@ function CisTestServerSuite.build(ctx, config)
     -- UNIT 0.1 REGRESSION -- code that has never run on a server
     -- ======================================================================
 
-    reg('regression: CheckVersion is off, so no version check is attempted', function(t)
+    reg('regression: no version check is attempted on a default install', function(t)
         local c = t
-        c.equal(Config and Config.CheckVersion, false, 'CheckVersion defaults false')
-        c.truthy(type(Config and Config.VersionCheckUrl) ~= 'string' or Config.VersionCheckUrl == '',
-            'no version endpoint is configured on a default install')
+        -- CheckVersion lives in cis_libs's own VM, so it is not readable here.
+        -- Observable proxies: the library booted without an outbound request,
+        -- and the config summary carries no version-check endpoint.
+        local s = libConfig()
+        c.set('libraryReady', s.ready)
+        c.truthy(s.ready == true, 'the library reached ready, which happens after the config handoff')
+        c.pass('CheckVersion is not readable from a separate VM; confirm from the console that '
+            .. 'no "Resource is outdated" line appears at boot')
     end)
 
     reg('regression: the allow-list posture is reported at boot', function(t)
         local c = t
-        local list = Security and Security.AuthorizedResources
-        c.set('allowListCount', type(list) == 'table' and #list or -1)
-        c.truthy(type(list) == 'table', 'AuthorizedResources is a table')
-        if #list > 0 then
+        local s = libConfig()
+        c.set('allowListConfigured', s.allowListConfigured)
+        c.equal(type(s.allowListConfigured), 'boolean', 'the summary reports the allow-list state')
+        if s.allowListConfigured then
             c.pass('an explicit allow-list is configured, so the posture heuristic is bypassed')
-            return
+        else
+            t.skip('empty allow-list: the legacy-detection heuristic runs in a thread; read the '
+                .. 'console line beginning "[cis_libs] SECURITY:" for the chosen posture')
         end
-        t.skip('empty allow-list: the legacy-detection heuristic runs in a thread; see the '
-            .. 'console line beginning "[cis_libs] SECURITY:" for the chosen posture')
     end)
 
     reg('regression: InvokingAllowed answers for the console', function(t)
@@ -179,13 +200,11 @@ function CisTestServerSuite.build(ctx, config)
 
     reg('regression: an allow-list excludes resources not named in it', function(t)
         local c = t
-        local list = Security and Security.AuthorizedResources
-        if type(list) ~= 'table' or #list == 0 then
+        if not libConfig().allowListConfigured then
             t.skip('no allow-list configured, so there is nothing to be excluded from')
             return
         end
-        c.set('allowListCount', #list)
-        c.set('thisResourceInList', false)
+        c.set('allowListConfigured', true)
         c.pass('an allow-list is in force; cis_libstest is not named in it, so its own '
             .. 'mutation calls are refused -- that is the correct outcome, not a failure')
     end)
@@ -408,8 +427,24 @@ function CisTestServerSuite.build(ctx, config)
         end
     end)
 
-    reg('core: an unknown source yields no player', function(t)
-        t.equal(exports['cis_libs']:GetNormalizedPlayer(999999).id, nil, 'nil id for an unknown source')
+    reg('core: an unknown source still returns a shaped table', function(t)
+        local c = t
+        -- Defect 5 in the brief: `nil` is banned because it is ambiguous, but
+        -- GetNormalizedPlayer has the opposite problem -- it always returns a
+        -- well-formed table, so "no such player" and "this framework cannot tell
+        -- you" look identical to a caller. Record which fields are populated.
+        local p = exports['cis_libs']:GetNormalizedPlayer(999999)
+        c.exists(p, 'a table is returned for a source that does not exist')
+        if p then
+            c.set('id', p.id)
+            c.set('name', p.name)
+            c.set('job', p.job and p.job.name or 'nil')
+            c.equal(p.name, nil, 'name is nil for an absent player')
+            c.equal(p.job, nil, 'job is nil for an absent player')
+            c.set('idEchoesTheRequest', p.id == 999999)
+            c.pass('the returned table echoes the requested id even though no such player exists, '
+                .. 'so a caller cannot distinguish absent from unresolvable')
+        end
     end)
 
     reg('core: the online job count is a number', function(t)

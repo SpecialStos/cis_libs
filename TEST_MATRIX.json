@@ -1,0 +1,118 @@
+{
+  "generatedAt": "2026-09-29T19:21:22.183Z",
+  "generator": "tools/test-matrix.js",
+  "purpose": "Every test case across every layer in one file. A \"not run\" layer is recorded explicitly so this file never implies coverage that does not exist.",
+  "summary": {
+    "total": 286,
+    "passed": 286,
+    "failed": 0,
+    "skipped": 0
+  },
+  "layers": {
+    "unit": {
+      "status": "ran",
+      "passed": 105,
+      "failed": 0,
+      "total": 105,
+      "suite": "test/run.lua",
+      "note": "shared/ modules; the grid is fuzzed against a brute-force reference"
+    },
+    "binding": {
+      "status": "ran",
+      "passed": 27,
+      "failed": 0,
+      "total": 27,
+      "suite": "test/binding.lua",
+      "note": "exports-boundary argument slots; guards the self trap"
+    },
+    "contracts": {
+      "status": "ran",
+      "passed": 154,
+      "failed": 0,
+      "total": 154,
+      "suite": "test/contracts.lua",
+      "note": "api.lua contract vs the real registered surface"
+    },
+    "server": {
+      "status": "not run",
+      "note": "no cis_libstest report found; run /cistest on a server"
+    },
+    "client": {
+      "status": "not run",
+      "note": "no cis_libstest report found; run /cistest on a server"
+    }
+  },
+  "coverage": {
+    "note": "What is NOT covered. Integration coverage needs a running fxserver and a player in-game, so it is manual by construction.",
+    "gaps": [
+      "No CI runs the live layers. cis_libstest needs a server and a connected player.",
+      "The mutating tier is off by default, so doors, entity sync, inventory writes and database queries are unexercised.",
+      "Multi-player behaviour -- per-player rate-limit isolation, callback key binding -- is untested; the suite runs one client.",
+      "The module-restart race is untested by design. It is defect 6 in the brief and remains unsolved.",
+      "Only one framework and one inventory provider have been exercised.",
+      "Resource-stop and resource-restart behaviour is untested."
+    ]
+  },
+  "caseCount": 5,
+  "cases": [
+    {
+      "name": "unit",
+      "status": "passed",
+      "realm": "pure",
+      "player": null,
+      "durationMs": null,
+      "message": "105 passed, 0 failed",
+      "detail": null,
+      "values": {
+        "suite": "test/run.lua",
+        "note": "shared/ modules; the grid is fuzzed against a brute-force reference"
+      }
+    },
+    {
+      "name": "binding",
+      "status": "passed",
+      "realm": "pure",
+      "player": null,
+      "durationMs": null,
+      "message": "27 passed, 0 failed",
+      "detail": null,
+      "values": {
+        "suite": "test/binding.lua",
+        "note": "exports-boundary argument slots; guards the self trap"
+      }
+    },
+    {
+      "name": "contracts",
+      "status": "passed",
+      "realm": "pure",
+      "player": null,
+      "durationMs": null,
+      "message": "154 passed, 0 failed",
+      "detail": null,
+      "values": {
+        "suite": "test/contracts.lua",
+        "note": "api.lua contract vs the real registered surface"
+      }
+    },
+    {
+      "name": "server integration suite",
+      "status": "not run",
+      "realm": "server",
+      "player": null,
+      "durationMs": null,
+      "message": "no cis_libstest report found; run /cistest on a server",
+      "detail": null,
+      "values": {}
+    },
+    {
+      "name": "client integration suite",
+      "status": "not run",
+      "realm": "client",
+      "player": null,
+      "durationMs": null,
+      "message": "no cis_libstest report found; run /cistest on a server",
+      "detail": null,
+      "values": {}
+    }
+  ]
+}
