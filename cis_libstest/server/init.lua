@@ -11,41 +11,6 @@ local collected = true
 -- defined, so without this it resolves to a nil global at call time.
 local collect
 
-local function stamp()
-    return tostring(os.time())
-end
-
-local function version()
-    return GetResourceMetadata(GetCurrentResourceName(), 'version', 0)
-end
-
-local function writeReport(payload)
-    local name = CisTestConfig.OutputFile or ('cis-test-report-%s.json'):format(stamp())
-    local body = CisTestReport.encode(payload, '  ')
-
-    -- -1 means "body is a plain string of known length"
-    local written = SaveResourceFile(GetCurrentResourceName(), name, body, -1)
-    if written then
-        print(('[cis_libstest] report written: %s/%s'):format(GetCurrentResourceName(), name))
-    else
-        print(('[cis_libstest] FAILED to write report %s'):format(name))
-    end
-    return name, body
-end
-
-local function printEntry(prefix, entry)
-    if not CisTestConfig.Verbose then
-        return
-    end
-    local line = ('[%s] %-9s %s'):format(prefix, entry.status, entry.name)
-    if entry.status == 'failed' and entry.message then
-        line = line .. ' -- ' .. tostring(entry.message)
-    elseif entry.status == 'skipped' and entry.message then
-        line = line .. ' (' .. tostring(entry.message) .. ')'
-    end
-    print(line)
-end
-
 -- Records what arrives from the client-side relay. This is the only way a
 -- consumer resource can observe a zone or proximity callback, because a
 -- function cannot cross the exports boundary -- an event name can.
@@ -74,8 +39,6 @@ for _, kind in ipairs({ 'zoneEnter', 'zoneExit', 'zoneInside', 'nearEnter', 'nea
     RegisterNetEvent('cis_libstest:' .. kind, record(kind))
 end
 
--- Returned to cis_libs as a callable reference table, which is how a handler
--- in another resource is reached.
 -- `src` is the first argument cis_libs passes to any handler. Echoing it back
 -- lets a client prove the source survived a real net event, which a
 -- resource-local TriggerEvent cannot (it sets no source at all).
@@ -103,25 +66,36 @@ local function clearPending(src)
     end
 end
 
--- ---------------------------------------------------------------- client intake
-RegisterNetEvent('cis_libstest:submit', function(results)
-    local src = source
-    if type(src) ~= 'number' or src <= 0 then
+local function printEntry(prefix, entry)
+    if not CisTestConfig.Verbose then
         return
     end
-    if type(results) ~= 'table' then
-        print(('[cis_libstest] client %d submitted a malformed report'):format(src))
-        pendingClientIds[src] = nil
-        collect()
-        return
+    local line = ('[%s] %-9s %s'):format(prefix, entry.status, entry.name)
+    if entry.status == 'failed' then
+        line = line .. ' -- ' .. tostring(entry.message)
+        if entry.detail then
+            line = line .. ' (' .. tostring(entry.detail) .. ')'
+        end
+    elseif entry.status == 'skipped' then
+        line = line .. ' (' .. tostring(entry.message) .. ')'
     end
-    clientSubmissions[src] = results
-    clearPending(src)
-    print(('[cis_libstest] client %d reported %d tests'):format(src, #results))
-    collect()
-end)
+    print(line)
+end
 
--- ------------------------------------------------------------------- assembly
+-- ------------------------------------------------------------ report writing
+local function writeReport(payload)
+    local name = CisTestConfig.OutputFile or ('cis-test-report-%s.json'):format(tostring(os.time()))
+    local body = CisTestReport.encode(payload, '  ')
+    local written = SaveResourceFile(GetCurrentResourceName(), name, body, -1)
+    if written then
+        print(('[cis_libstest] report written: %s/%s'):format(GetCurrentResourceName(), name))
+    else
+        print(('[cis_libstest] FAILED to write report %s'):format(name))
+    end
+    return name, body
+end
+
+-- -------------------------------------------------------------- aggregation
 local function clientRows()
     local rows = {}
     for id, report in pairs(clientSubmissions) do
@@ -148,8 +122,8 @@ end
 local function totalSummary(serverReport, rows)
     local summary = {
         total = 0, passed = 0, failed = 0, skipped = 0, durationMs = 0,
-        serverTotal = 0, serverFailed = 0,
-        clientTotal = 0, clientFailed = 0,
+        serverTotal = 0, serverFailed = 0, serverSkipped = 0,
+        clientTotal = 0, clientFailed = 0, clientSkipped = 0,
         clientsReporting = 0,
     }
     for _, e in ipairs(serverReport) do
@@ -159,6 +133,8 @@ local function totalSummary(serverReport, rows)
         summary.durationMs = summary.durationMs + (e.durationMs or 0)
         if e.status == 'failed' then
             summary.serverFailed = summary.serverFailed + 1
+        elseif e.status == 'skipped' then
+            summary.serverSkipped = summary.serverSkipped + 1
         end
     end
     for _, e in ipairs(rows) do
@@ -168,6 +144,8 @@ local function totalSummary(serverReport, rows)
         summary.durationMs = summary.durationMs + (e.durationMs or 0)
         if e.status == 'failed' then
             summary.clientFailed = summary.clientFailed + 1
+        elseif e.status == 'skipped' then
+            summary.clientSkipped = summary.clientSkipped + 1
         end
     end
     for _ in pairs(clientSubmissions) do
@@ -180,9 +158,9 @@ end
 -- `running` tracks suite execution, `collected` tracks whether this run has
 -- already produced a report; they are not the same flag.
 --
--- Assigned, not `local function`: a `local function collect` here would create
--- a second local that shadows the forward declaration above, leaving the one
--- captured by the submit handler permanently nil.
+-- Assigned, not `local function collect`: a `local function collect` here
+-- would create a second local that shadows the forward declaration above,
+-- leaving the one captured by the submit handler permanently nil.
 collect = function()
     if collected then
         return
@@ -203,6 +181,7 @@ collect = function()
             gameBuild = GetGameBuildNumber(),
             startedAt = os.time(),
             mutating = CisTestConfig.RunMutating,
+            teleporting = CisTestConfig.RunTeleport,
             -- Config lives in cis_libs's own VM; read it through the export.
             framework = library and library.framework or 'UNKNOWN',
             inventory = library and library.inventory or 'UNKNOWN',
@@ -221,19 +200,26 @@ collect = function()
 
     local name = writeReport(payload)
 
-    print(('[cis_libstest] ===== %d tests | %d passed | %d failed | %d skipped ====='):format(
-        payload.summary.total, payload.summary.passed, payload.summary.failed, payload.summary.skipped))
+    print(('[cis_libstest] ===== %d tests | %d passed | %d failed | %d skipped =====')
+        :format(payload.summary.total, payload.summary.passed,
+            payload.summary.failed, payload.summary.skipped))
     if payload.summary.failed > 0 then
         for _, e in ipairs(serverReport) do
             if e.status == 'failed' then
-                print(('  SERVER FAILED: %s -- %s'):format(e.name, tostring(e.message)))
+                print(('  SERVER FAILED: %s -- %s (%s)')
+                    :format(e.name, tostring(e.message), tostring(e.detail)))
             end
         end
         for _, e in ipairs(rows) do
             if e.status == 'failed' then
-                print(('  CLIENT FAILED [player %s]: %s -- %s'):format(tostring(e.player), e.name, tostring(e.message)))
+                print(('  CLIENT FAILED [player %s]: %s -- %s')
+                    :format(tostring(e.player), e.name, tostring(e.message)))
             end
         end
+    end
+    if payload.summary.skipped > 0 then
+        print(('  %d skipped. A skip is NOT a pass -- read each reason before trusting the run.')
+            :format(payload.summary.skipped))
     end
     print(('[cis_libstest] full results: %s'):format(name))
 
@@ -243,13 +229,30 @@ collect = function()
     pendingCount = 0
 end
 
+-- ------------------------------------------------------------- client intake
+RegisterNetEvent('cis_libstest:submit', function(results)
+    local src = source
+    if type(src) ~= 'number' or src <= 0 then
+        return
+    end
+    clearPending(src)
+    if type(results) ~= 'table' then
+        print(('[cis_libstest] client %d submitted a malformed report'):format(src))
+        collect()
+        return
+    end
+    clientSubmissions[src] = results
+    print(('[cis_libstest] client %d reported %d tests'):format(src, #results))
+    collect()
+end)
+
 -- ------------------------------------------------------------------ execution
 local function runSuite()
     if running then
         print('[cis_libstest] already running')
         return
     end
-    if not Cis.wait(15000) then
+    if not exports['cis_libs']:WaitReady(15000) then
         print('[cis_libstest] cis_libs did not become ready; aborting')
         return
     end
@@ -260,12 +263,14 @@ local function runSuite()
     reports = CisTestReport.new()
     clientSubmissions = {}
     pendingClientIds = {}
+    pendingCount = 0
+    relay = {}
 
     local ctx = CisTestReport.context(reports, 'server')
     local suite = CisTestServerSuite.build(ctx, CisTestConfig)
 
-    print(('[cis_libstest] running %d server tests (mutating=%s)...'):format(
-        #suite.tests, tostring(CisTestConfig.RunMutating)))
+    print(('[cis_libstest] running %d server tests (mutating=%s teleport=%s)...')
+        :format(#suite.tests, tostring(CisTestConfig.RunMutating), tostring(CisTestConfig.RunTeleport)))
 
     reports.server = CisTestRunner.execute(suite, reports, CisTestConfig, function(entry)
         printEntry('server', entry)
@@ -281,12 +286,13 @@ local function runSuite()
                 TriggerClientEvent('cis_libstest:run', pid)
             end
         end
-        print(('[cis_libstest] waiting up to %dms for %d client(s)...'):format(
-            CisTestConfig.ClientWaitMs, pendingCount))
+        print(('[cis_libstest] waiting up to %dms for %d client(s)...')
+            :format(CisTestConfig.ClientWaitMs, pendingCount))
         CreateThread(function()
             Wait(CisTestConfig.ClientWaitMs)
             if pendingCount > 0 then
-                print(('[cis_libstest] %d client(s) did not report in time; continuing'):format(pendingCount))
+                print(('[cis_libstest] %d client(s) did not report in time; continuing')
+                    :format(pendingCount))
             end
             collect()
         end)
@@ -297,8 +303,8 @@ end
 
 RegisterCommand('cistest', function(src)
     if src ~= 0 then
-        local framework = exports['cis_libs']:GetFramework()
-        if not (framework.HasPermission and framework.HasPermission(src, 'admin')) then
+        local f = exports['cis_libs']:GetFramework()
+        if not (f.HasPermission and f.HasPermission(src, 'admin')) then
             TriggerClientEvent('cis_libs:client:showNotification', src, 'admin only')
             return
         end
@@ -308,8 +314,8 @@ end, false)
 
 RegisterCommand('cistest_server', function(src)
     if src ~= 0 then
-        local framework = exports['cis_libs']:GetFramework()
-        if not (framework.HasPermission and framework.HasPermission(src, 'admin')) then
+        local f = exports['cis_libs']:GetFramework()
+        if not (f.HasPermission and f.HasPermission(src, 'admin')) then
             return
         end
     end
@@ -319,8 +325,9 @@ end, false)
 
 AddEventHandler('onResourceStart', function(name)
     if name == 'cis_libs' then
-        print(('[cis_libstest] ready. Run /cistest from the console, or cistest as admin.'))
-        print(('[cis_libstest] mutating tests are %s'):format(
-            CisTestConfig.RunMutating and 'ENABLED' or 'disabled (set RunMutating = true in config.lua)'))
+        print('[cis_libstest] ready. Run /cistest from the console, or cistest as admin.')
+        print(('[cis_libstest] mutating tests %s | teleport tests %s')
+            :format(CisTestConfig.RunMutating and 'ENABLED' or 'disabled',
+                CisTestConfig.RunTeleport and 'ON' or 'OFF'))
     end
 end)

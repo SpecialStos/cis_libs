@@ -51,8 +51,24 @@ function CisTestRunner.register(runner, name, fn, options)
         name = name,
         fn = fn,
         timeoutMs = options.timeoutMs,
+        -- Tags gate on config so a category can be switched off wholesale.
         mutating = options.mutating and true or false,
+        probe = options.probe and true or false,
+        teleport = options.teleport and true or false,
     }
+end
+
+function CisTestRunner.enabled(runner, test, config)
+    if test.mutating and not config.RunMutating then
+        return false, 'mutating tests disabled (set RunMutating = true to enable)'
+    end
+    if test.probe and not config.RunProbes then
+        return false, 'boundary probes disabled (set RunProbes = true to enable)'
+    end
+    if test.teleport and not config.RunTeleport then
+        return false, 'teleport tests disabled (set RunTeleport = false to run them)'
+    end
+    return true
 end
 
 function CisTestRunner.execute(runner, report, config, onProgress)
@@ -65,8 +81,9 @@ function CisTestRunner.execute(runner, report, config, onProgress)
         -- exact object, so a failure or a crash always lands on the right row.
         local ctx = CisTestReport.context(report, test.name)
 
-        if test.mutating and not config.RunMutating then
-            ctx.skip('mutating tests disabled (set RunMutating = true to enable)')
+        local allowed, reason = CisTestRunner.enabled(runner, test, config)
+        if not allowed then
+            ctx.skip(reason)
         else
             local err, timedOut = CisTestRunner.run(test.fn, ctx, test.timeoutMs)
             if err then

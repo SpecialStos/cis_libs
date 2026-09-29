@@ -422,6 +422,26 @@ expect(multi.entries[1].status == 'passed', 'a failure in test 2 does not mark t
 expect(multi.entries[4].status == 'skipped', 'a failure in test 2 does not mark test 4 skipped')
 
 io.stdout:write(('passed=%d failed=%d\n'):format(passed, failed))
+-- ------------------------------------------------- integration-harness probes
+-- cis_libstest/shared/probe.lua holds the boundary measurement helpers. They
+-- are pure, so they are tested here rather than only on a live server.
+expect(CisTestProbe.describe('text') == 'string(text)', 'describe renders a string')
+expect(CisTestProbe.describe(42) == 'number(42)', 'describe renders a number')
+expect(CisTestProbe.describe({ x = 1, y = 2, z = 3 }) == 'vector(1,2,3)',
+    'describe recognises a vector by x/y')
+expect(CisTestProbe.describe({ a = 1 }) == 'table(1)', 'describe renders a plain table')
+
+-- A returned function arrives as a callable reference TABLE, so a
+-- type() == 'function' check rejects a handler that works. isCallable is the
+-- correct test and every caller depends on it being right.
+local okRef, kindRef = CisTestProbe.isCallable({ __cfx_functionReference = 'r:1:1' })
+expect(okRef and kindRef == '__cfx_functionReference', 'a function reference is callable')
+local okFn, kindFn = CisTestProbe.isCallable(function() end)
+expect(okFn and kindFn == 'function', 'a plain function is callable')
+expect(not CisTestProbe.isCallable({ plain = 'table' }), 'a plain table is not callable')
+expect(not CisTestProbe.isCallable('text'), 'a string is not callable')
+expect(not CisTestProbe.isCallable(nil), 'nil is not callable')
+
 if failed > 0 then
     os.exit(1)
 end

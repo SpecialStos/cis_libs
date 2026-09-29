@@ -1,52 +1,33 @@
 # cis_libstest
 
-Integration test harness for `cis_libs`. Exercises the API on client and
-server and writes a single JSON report into this resource's folder.
+Integration test harness for `cis_libs`. Exercises the real API on both realms —
+including teleport-driven zone enter/exit — and writes one JSON report.
 
-This is a **separate FiveM resource**. It cannot run inside `cis_libs`.
+**94 tests**: 46 server, 48 client. It is a **separate FiveM resource**; it cannot
+run inside `cis_libs`.
 
 ## Install
 
-1. Copy the `cis_libstest` folder into your server's `resources/` directory, as
-   a sibling of `cis_libs`.
-2. In `server.cfg`, **after** `cis_libs`:
+1. Copy the `cis_libstest` folder into `resources/`, as a sibling of `cis_libs`.
+2. In `server.cfg`, after `cis_libs`:
 
 ```
 ensure cis_libs
 ensure cis_libstest
 ```
 
-If you keep it inside the `cis_libs` repository, copy the folder out rather than
-nesting it — a resource directory cannot live inside another resource.
+3. Join the server as at least one player, then run `/cistest` in the server
+   console or in-game chat as an admin.
 
-## Run
+The report is written to `cis_libstest/cis-test-report-<unix timestamp>.json`.
+
+## Commands
 
 | Command | Scope |
 |---|---|
-| `cistest` (console) | Server suite + every connected client |
-| `cistest` (in game, admin) | Same |
+| `cistest` | Server suite + every connected client |
 | `cistest_server` | Server suite only |
-| `cistest_client` (in game) | Client suite only, reports straight to the server |
-
-The report is written to
-`cis_libstest/cis-test-report-<unix-timestamp>.json`.
-
-## Safety
-
-Some tests change real state: they add and remove inventory items, register
-doors, spawn synced entities, and would write database rows. **These are
-skipped by default.** You will see them reported as `skipped`, not `failed`.
-
-To run them, edit `config.lua`:
-
-```lua
-CisTestConfig = {
-    RunMutating = true,   -- DANGER: only on a test instance
-}
-```
-
-With mutating tests off, the suite is safe to run against a live server — it
-only reads.
+| `cistest_client` | Client suite only; results still go to the server |
 
 ## Configuration
 
@@ -54,95 +35,110 @@ only reads.
 
 | Key | Default | Notes |
 |---|---|---|
-| `RunMutating` | `false` | Enables state-changing tests. Read this warning twice |
-| `TimeoutMs` | `8000` | Per-test deadline. Raise for a genuinely slow database |
+| `RunMutating` | `false` | Enables state-changing tests. **Read this warning twice** |
+| `RunProbes` | `true` | Boundary measurement. Read-only and safe |
+| `RunTeleport` | `true` | **Set `false` when heartbeat anti-cheat is running** |
+| `TimeoutMs` | `8000` | Per-test deadline. Raise for a slow database |
 | `OutputFile` | `nil` | Defaults to `cis-test-report-<timestamp>.json` |
 | `RunClientTests` | `true` | Ask connected clients to participate |
-| `ClientWaitMs` | `15000` | How long to wait for client results |
+| `ClientWaitMs` | `25000` | Teleport and multi-player tests are slow |
 | `Verbose` | `true` | Print a line per test |
+
+## Safety
+
+Tests are tagged. A tag whose config switch is off is reported as `skipped`
+with the reason — **a skip is not a pass.**
+
+- **`mutating`** — changes real state: inventory items, doors, synced entities,
+  database queries. **Off by default.** Enable with `RunMutating = true` only on
+  a test instance.
+- **`teleport`** — moves the player and holds them for seconds at a time.
+  `phylax_ac` has kicked a player for exactly this. Set `RunTeleport = false`
+  when it is running.
+- **`probe`** — read-only. These measure boundary behaviour and are safe.
+
+## What changed in 2.0
+
+The harness was rebuilt. The point of most of it is that **several behaviours
+were documented but never measured**, and a test that repeats an assumption is
+worse than no test.
+
+**New: boundary probes.** `probe: remote handler binding -- is
+exports[res][name] unbound?` settles defect 9.3. `cis_libs`'s remote-handler
+dispatch does:
+
+```lua
+local target = exports[ref.resource]
+local fn = target and target[ref.export]
+pcall(fn, src, ...)
+```
+
+`MEMORY.md` §1 measured the bracket **call** form as unbound. Nobody ever
+measured whether the bracket **lookup** returns an unbound function or an
+already-bound callable reference. The answer decides whether every remote
+handler silently drops its first argument. One run settles it either way, and
+the report records what actually arrived.
+
+Also new: argument typing across the boundary, `vector3` transit, whether a
+remote handler's return value survives the call, and confirmation that multiple
+return values collapse to the first.
+
+**New: Unit 0.1 regression coverage** — `CheckVersion` default, the allow-list
+posture, and the database driver diagnostic. That code has never run on a
+server.
+
+**New: open defects pinned as tests.** 9.1 (`notify` realm asymmetry), 9.2
+(`db.transaction` times out and returns `nil`), and the allow-list being read
+once at load. Pinned, not fixed, because fixing them is a behaviour change.
+
+**New: per-test tags** so a whole category can be switched off.
+
+**Fixed:** the two remote-handler tests previously "fixed" by weakening the
+assertion. They now assert the argument arrived in the right slot, or fail with
+`the remote handler recorded nothing`.
 
 ## Report format
 
 ```json
 {
-  "meta": {
-    "resource": "cis_libstest",
-    "version": "1.0.0",
-    "gameBuild": 4500,
-    "framework": "QBCORE",
-    "inventory": "ox_inventory",
-    "database": "oxmysql",
-    "startedAt": 1756425600,
-    "mutating": false,
-    "ready": true
-  },
+  "meta": { "resource": "cis_libstest", "framework": "QBOX", "mutating": false, "...": "..." },
   "summary": {
-    "total": 81, "passed": 74, "failed": 2, "skipped": 5,
-    "serverTotal": 38, "serverFailed": 1,
-    "clientTotal": 43, "clientFailed": 1,
-    "clientsReporting": 1,
-    "durationMs": 4310
+    "total": 94, "passed": 80, "failed": 2, "skipped": 12,
+    "serverTotal": 46, "serverFailed": 0, "serverSkipped": 4,
+    "clientTotal": 48, "clientFailed": 2, "clientSkipped": 8,
+    "clientsReporting": 1
   },
-  "server": [
-    {
-      "name": "server: callback register + local call",
-      "status": "passed",
-      "durationMs": 0,
-      "values": {}
-    }
-  ],
-  "client": [
-    {
-      "player": 3,
-      "name": "client: ped handle is valid",
-      "status": "failed",
-      "message": "expected 0, got 12345",
-      "durationMs": 1,
-      "values": {}
-    }
-  ]
+  "server": [ { "name": "...", "status": "passed|failed|skipped", "durationMs": 1,
+                "message": "...", "detail": "...", "values": {} } ],
+  "client": [ { "player": 5, "name": "...", "status": "...", "values": {} } ]
 }
 ```
 
-`status` is one of `passed`, `failed`, or `skipped`. Key order is deterministic,
-so two runs of an unchanged system produce diffable output.
+`values` carries the measured data per test — argument counts, entity counts,
+distances, the chosen posture. When a test is inconclusive it says so in
+`message` and reports `skipped`, rather than quietly passing.
 
-## What is covered
+## Reading a run
 
-**Server (38 tests)** — resource lifecycle, config delivery, ready state, grid
-and pending and histogram internals, config secret-leak checks, the JSON
-encoder, callback register / call / await / unknown-name / crash containment /
-source validation / numeric-argument passthrough, client-targeted callbacks,
-forged-response rejection, the framework bridge, normalised player shape,
-unknown source handling, job counts, inventory read and roundtrip, door
-registration and state, unauthorised door requests, entity sync create /
-remove / coords validation / no-op upsert, the rate limiter, security reports,
-logging at all four levels, Discord queue depth, and `net.on` registration.
-
-**Client (43 tests)** — lifecycle, config delivery, ready state, server id, ped
-handle, coords and their per-frame memoisation, heading, vehicle and seat
-plausibility, weapon shape and non-mutation, cache subscriptions, `near()`
-registration, the `Globals` table, box / sphere / poly zone creation and
-containment, `onEnter` and `inside` callbacks actually firing, zone removal,
-zone debug stats, target availability and create/remove, door registration,
-closest-door proximity, unknown door handling, synced entity listing, model
-streaming success and failure, inventory count and `has()` agreement, unknown
-callback handling, the utility helpers, `CreatePed`, vehicle properties, closest
-vehicle, weapon data, logging, and a check that client errors reach the console
-with debug disabled.
-
-Tests whose dependency is absent are reported as `skipped` with a reason rather
-than failing — no target provider, no nearby vehicle, no database.
+1. Read the `SUMMARY` console line first.
+2. **If anything is `skipped`, read the reason.** A suite reporting 80 passed
+   and 14 skipped has verified 80 things, not 94.
+3. `detail` on a failure names the cause. `remove returned false (create=false)`
+   is a different bug from `remove returned false after create returned true`.
+4. `probe:` tests settle open questions. Read their `values` before writing them
+   up.
 
 ## Unit tests
 
-The harness's JSON encoder and report contexts are covered by the pure test
-suite, which needs no FiveM:
+The harness's own pure modules — the JSON encoder, the runner's report contexts,
+and the probe helpers — are covered by the main suite, which needs no FiveM
+server:
 
 ```
-node test/run.js
+npm test
 ```
 
-`shared/report.lua` is deliberately free of natives so it can be tested that
-way. If you change the encoder, run it — a broken array or escape makes every
-saved report unparseable.
+**296 assertions** across three suites. If you change the encoder, the report
+shape, or `isCallable`, keep those passing. `isCallable` is load-bearing: a
+returned function arrives as a callable reference *table*, and a
+`type() == 'function'` check rejects handlers that work.
