@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-29T19:21:22.183Z",
+  "generatedAt": "2026-09-29T19:55:50.017Z",
   "generator": "tools/test-matrix.js",
   "purpose": "Every test case across every layer in one file. A \"not run\" layer is recorded explicitly so this file never implies coverage that does not exist.",
   "summary": {

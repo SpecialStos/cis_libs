@@ -39,7 +39,7 @@ shipped pattern matches the call shape instead.
 
 ### Product usage enumeration
 
-**`PRODUCT_USAGE.md`** — §0.1a Decision 1.
+**`MEMORY.md` §4.3** — §0.1a Decision 1.
 
 - **37 proxy calls** and **7 export calls** consumed across the products. All 44 verified to
   exist. **Zero broken references.**
@@ -93,7 +93,7 @@ One subagent. Gate run and checked by the orchestrator afterwards.
    the grep matches the literal call shape and `binding.lua` never reached the proxy wrappers that
    reorder. `contracts.lua` closes it: **11 planted mutations, 11 caught**, against 2 of 7 before.
 3. **It found three live defects and correctly did not fix them** (Unit 0.1 forbids behaviour
-   changes). All three verified independently and recorded in `deltareport1.md` §9.
+   changes). All three verified independently and recorded in `MEMORY.md` §6.
 4. **It caught an error in my `MEMORY.md`**, which claimed `Security.AuthorizedResources` is
    "re-read on demand". It is read once at load. Corrected.
 
@@ -108,13 +108,13 @@ One subagent. Gate run and checked by the orchestrator afterwards.
 
 ## Defects open after Unit 0.1
 
-Carried forward. Full detail in `deltareport1.md` §9.
+Carried forward. Full detail in `MEMORY.md` §6.
 
 | # | Defect | Status |
 |---|---|---|
 | 9.1 | `Cis.framework.notify` realm-asymmetric signature | pinned, not fixed — 3 products affected |
 | 9.2 | `Cis.db.transaction` always times out, returns `nil` | pinned, not fixed — 2 products affected |
-| 9.3 | `server/callback.lua` remote dispatch loses every argument | **CONFIRMED LIVE.** Handler invoked with `n = 0`. Not a shift — the arguments are dropped. No shipped product affected (`cis_storeRobberies` registers a local function, not a remote reference), so the path has simply never worked. Full measurement in `deltareport1.md` §9.3 |
+| 9.3 | `server/callback.lua` remote dispatch loses every argument | **CONFIRMED LIVE.** Handler invoked with `n = 0`. Not a shift — the arguments are dropped. No shipped product affected (`cis_storeRobberies` registers a local function, not a remote reference), so the path has simply never worked. Full measurement in `MEMORY.md` §6 |
 | 2 | `AuthorizedResources` read once at load | corrected in `MEMORY.md`; not fixed |
 
 **9.2 invalidates the brief's defect 3.** The brief states the contract is
@@ -146,7 +146,7 @@ non-existent `version()` native. Fixed.
 Control flow reaches the handler and the return value crosses intact. Only the
 **arguments** are lost. So the reference is bound (contradicting the earlier
 "unbound method" reading) but is not argument-forwarding. See
-`deltareport1.md` §9.3 for the full analysis and fix direction.
+`MEMORY.md` §6 for the full analysis and fix direction.
 
 **Three harness bugs the run exposed, all mine:**
 

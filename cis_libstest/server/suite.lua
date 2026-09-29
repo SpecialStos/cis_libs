@@ -244,7 +244,7 @@ function CisTestServerSuite.build(ctx, config)
 
     reg('defect 9.1: framework.notify is realm-asymmetric', function(t)
         t.skip('the asymmetry is between realms; observed from the client suite. '
-            .. 'See deltareport1.md section 9.1.')
+            .. 'See MEMORY.md section 6.')
     end)
 
     reg('defect: the allow-list is read once at load', function(t)

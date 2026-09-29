@@ -29,7 +29,7 @@ A manifest that is only ever written does not prevent that. A manifest that CI
 compares against the source does.
 
 **It is a contract, not a census.** It does not record which exports a given
-consumer happens to call. That is `PRODUCT_USAGE.md` and `COMPATIBILITY.md`,
+consumer happens to call. That is `MEMORY.md` §4.3 and `COMPATIBILITY.md`,
 which are documentation and are allowed to be out of date. `api.lua` is allowed
 to be out of date only if CI has gone red.
 

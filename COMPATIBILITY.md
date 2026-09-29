@@ -20,7 +20,7 @@ too. A surface nobody calls is still a surface somebody may be about to call, an
 **Where the facts come from.** The export tables, the parameter lists and the
 net events below were extracted from source by `tools/lua-exports.js`, not
 transcribed from `DOCUMENTATION.md`. `npm run test:api` fails if the tables and
-the source ever disagree. Usage marks come from `PRODUCT_USAGE.md`. Behaviour
+the source ever disagree. Usage marks come from `MEMORY.md` §4.3. Behaviour
 comes from `MEMORY.md`. Known defects come from the contract test suite in
 `test/contracts.lua`, which pins them rather than fixing them.
 
@@ -175,7 +175,7 @@ products actually make are a *subset* of what is protected.
 
 `cis_BetterFightEvolved` and `cis_pacificBankRobbery` make **zero** calls, and
 the deployed `[standalone]/` copies of the other four show far less usage than
-the source copies. `PRODUCT_USAGE.md` §1 records that the deployed tree is stale
+the source copies. `MEMORY.md` §4.3 records that the deployed tree is stale
 and the **source copies in `Desktop/ZCode/` are authoritative**. The freeze
 baseline is therefore taken from the source copies, and the deployed tree must
 be re-synced from source before the next release. No commit in this repository
@@ -340,7 +340,7 @@ Reached with `exports['cis_libs']:Name(...)`. **91 distinct names**; sixteen are
 registered in both realms with different signatures.
 
 "Reached by" is the `Cis.*` proxy that wraps it, if any. "Called by production
-code" is from `PRODUCT_USAGE.md` §4, plus the deployed-copy calls recorded there.
+code" is from `MEMORY.md` §4.3, plus the deployed-copy calls recorded there.
 
 ### 6.1 Server — 52
 
@@ -711,7 +711,7 @@ covered.
 
 `server/player.lua` holds a `CisHistogram` store in a module local
 (`CisHistogram` itself is pure, the store is not) and is a thirteenth on the same
-rule; it is listed separately below for consistency with `deltareport1.md` §3,
+rule; it is listed separately below for consistency with `MEMORY.md` §5.1,
 which counted twelve.
 
 ### 10.1 Also stateful, found in this pass
@@ -803,7 +803,7 @@ Not shims. Listed so the 3.0 review does not have to rediscover them.
 1. Declare `deprecated = true` and an `['until']` in `api.lua`. The validator
    (`E011`, `E013`) refuses a deprecation with no destination or no end date.
 2. Ship at least one full major of coexistence with a call-site warning.
-3. Confirm no product depends on it — `PRODUCT_USAGE.md` is the record, and it
+3. Confirm no product depends on it — `MEMORY.md` §4.3 is the record, and it
    is only as current as the last source scan.
 4. Delete it and bump `api`. Consumers pinned to the prior major get the typed
    refusal from §3.1, not a silent wrong answer.
@@ -873,7 +873,7 @@ The client `Notify` export takes `(message, kind)`. A consumer calling
 the **message** and `nil` as the kind. The one-argument form works. The two
 branches disagree with each other, and the two-argument form is the broken one.
 
-`PRODUCT_USAGE.md` records `Cis.framework.notify` as consumed by tcvs,
+`MEMORY.md` §4.3 records `Cis.framework.notify` as consumed by tcvs,
 storeRobberies and HawkEye and does not distinguish the arities, so the blast
 radius is unknown. `Pinned by`: *"client notify: DEFECT PINNED — the kind is sent
 in the message slot"*.
@@ -997,7 +997,7 @@ Stated so nobody infers more than is here.
 
 - **It freezes a working tree, not a release.** `git log` in this repository is
   four commits, all `v0.0.1` / `v0.1.0`; `fxmanifest.lua` declares `1.0.0` and 27
-  of 52 Lua files have never been committed. `deltareport1.md` §0 records that
+  of 52 Lua files have never been committed. `MEMORY.md` §4.1 records that
   the artifact the six products actually consume is **not in this tree**, so the
   real-world trustworthiness of the existing shims cannot be verified from here.
   This document is accurate about the code in this repository and about nothing

@@ -582,7 +582,7 @@ function CisTestClientSuite.build(ctx, config)
         c.set('threw', not ok)
         c.truthy(ok, 'the call did not throw')
         c.pass('argument routing for a two-argument call is ambiguous across realms; '
-            .. 'see deltareport1.md section 9.1')
+            .. 'see MEMORY.md section 6')
     end)
 
     -- ======================================================================
