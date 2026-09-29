@@ -2,6 +2,7 @@ local Database = {
     driver = nil,
     ready = false,
     warned = false,
+    transactionWarned = false,
 }
 
 local function driverName()
@@ -236,11 +237,37 @@ function Database.Delete(sql, params, cb)
     Database.Query(sql, params, cb)
 end
 
+-- Only oxmysql exposes a transaction export. The other three drivers cannot be
+-- made to work, and the failure otherwise surfaces as a bare `nil` in a
+-- consumer's code with nothing on the console to connect it to. Say so once,
+-- at boot, naming the driver and the setting that has to change.
+local function transactionSupportDiagnostic()
+    if not Database.ready or Database.driver == 'oxmysql' then
+        return
+    end
+    print(('[cis_libs] DATABASE: driver %q does not support transactions.')
+        :format(tostring(Database.driver)))
+    print('  Cis.db.transaction cannot be made to work on it. The refusal string is')
+    print('  "transactions require oxmysql" and the fix is to set')
+    print(('  Config.Framework.Database.Type = "oxmysql" (it is %q right now).')
+        :format(tostring(driverName())))
+    print('  See COMPATIBILITY.md section 13.2 for the exact current return contract.')
+end
+
 function Database.Transaction(queries, cb)
     if not Database.ready then
         return missing(cb)
     end
     if Database.driver ~= 'oxmysql' then
+        -- Console only, and only the first time. The return contract below is
+        -- byte-identical to what it has always been; a consumer that reads the
+        -- refusal is not disturbed by the extra line.
+        if not Database.transactionWarned then
+            Database.transactionWarned = true
+            local caller = GetInvokingResource and GetInvokingResource() or nil
+            print(('[cis_libs] DATABASE: Cis.db.transaction refused; called by %s.')
+                :format(caller and tostring(caller) or 'cis_libs'))
+        end
         if cb then
             cb(false, 'transactions require oxmysql')
         end
@@ -286,6 +313,7 @@ Database.Init()
 if Database.driver then
     print('cis_libs: database initialized (' .. Database.driver .. ')')
 end
+transactionSupportDiagnostic()
 
 AddEventHandler('onResourceStart', function(resourceName)
     if Database.ready then
@@ -298,5 +326,9 @@ AddEventHandler('onResourceStart', function(resourceName)
         if Database.driver then
             print('cis_libs: database initialized (' .. Database.driver .. ')')
         end
+        -- A driver that starts after cis_libs never saw the boot diagnostic
+        -- above, so say it here instead of leaving the gap unexplained.
+        Database.transactionWarned = false
+        transactionSupportDiagnostic()
     end
 end)

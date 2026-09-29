@@ -1,6 +1,29 @@
 Config = {}
 
-Config.CheckVersion = true -- Prints on console and logs it in Master Logs.
+-- Off by default, and that is a security decision, not an oversight.
+--
+-- When this was on, every single boot fired an outbound HTTPS GET to a
+-- hardcoded personal GitHub Pages URL, unconditionally and with no operator
+-- opt-in. That is three problems at once:
+--
+--   * supply chain -- a third party who controls that host controls what this
+--     library tells the operator it is, and any script content it chooses to
+--     echo into a WARN line. A commercial product should not phone home.
+--   * air-gapped and offline servers -- the request has no timeout of its own
+--     and the boot thread waits on it.
+--   * consent -- a server owner was never asked.
+--
+-- The endpoint is a CIsoko-controlled path that does not resolve yet, so even
+-- a server that opts in before the endpoint is published gets a failed request
+-- and the existing "Version check failed; continuing startup." warning, with
+-- nothing leaving the machine that matters. Point this at your own mirror to
+-- use the feature; leave it off for a production posture.
+Config.CheckVersion = false
+
+-- Only read when Config.CheckVersion is true. No third-party host is named
+-- anywhere in this resource any more -- the previous hardcoded URL was a
+-- personal GitHub Pages address and has been removed.
+Config.VersionCheckUrl = "https://api.cisoko.net/v1/cis_libs/version.txt"
 
 Config.CallbackTimeout = 10000
 

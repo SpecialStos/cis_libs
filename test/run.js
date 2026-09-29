@@ -15,6 +15,28 @@ lualib.luaL_openlibs(L)
 lua.lua_pushstring(L, toLua(path.join(__dirname, 'binding.lua')))
 lua.lua_setglobal(L, toLua('arg'))
 
+// Files the contract tests need to read as text. fengari's io library in the
+// node build has no `open`, so the contents are injected from here.
+const INJECTED_FILES = [
+  'init.lua',
+  'configs/master_config.lua',
+  'configs/security_config.lua',
+  'server/version.lua',
+  'server/security.lua',
+  'server/database.lua',
+  'fxmanifest.lua',
+]
+
+function injectFiles(L) {
+  lua.lua_createtable(L)
+  for (const rel of INJECTED_FILES) {
+    const body = fs.readFileSync(path.join(root, rel), 'utf8')
+    lua.lua_pushstring(L, toLua(body))
+    lua.lua_setfield(L, -2, toLua(rel))
+  }
+  lua.lua_setglobal(L, toLua('CIS_TEST_FILES'))
+}
+
 function runFile(rel) {
   const src = fs.readFileSync(path.join(root, rel), 'utf8')
   const status = lauxlib.luaL_dostring(L, toLua(src))
@@ -29,5 +51,7 @@ runFile('shared/pending.lua')
 runFile('shared/config.lua')
 runFile('shared/histogram.lua')
 runFile('cis_libstest/shared/report.lua')
+injectFiles(L)
 runFile('test/run.lua')
 runFile('test/binding.lua')
+runFile('test/contracts.lua')

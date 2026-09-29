@@ -14,7 +14,7 @@ on:
 
 jobs:
   unit:
-    name: unit + binding
+    name: unit + binding + contracts + api contract
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +30,19 @@ jobs:
       - name: Run test suite
         run: npm test
 
+      - name: Validate api.lua against the registered surface
+        # api.lua is a contract, not a comment. The validator reads what the
+        # resource actually registers -- names and parameter lists, out of the
+        # source -- and fails on the difference.
+        run: npm run test:api
+
+      - name: Prove the api.lua validator still rejects drift
+        # A validator that has only ever been seen to pass has not been tested.
+        # This asserts the real manifest is clean AND that each deliberately
+        # broken fixture in test/api/broken/ still fails with the diagnostic it
+        # was built to trigger. Delete a fixture and this step fails.
+        run: npm run test:api-selftest
+
       - name: Fail if the exports binding regresses
         # Guards the `self` trap documented in MEMORY.md section 1.
         # A bracket-form export call shifts every argument one slot left and
@@ -37,7 +50,7 @@ jobs:
         # (exports[..][..]( ) rather than a specific quote style, so a
         # regression written with double quotes is caught too. Comment lines are
         # excluded so the documentation of the trap does not trip its own
-        # tripwire; test/binding.lua is the real check.
+        # tripwire; test/binding.lua and test/contracts.lua are the real checks.
         run: |
           hits=$(grep -rnE 'exports\[[^]]+\]\[[^]]*\]\(' --include=*.lua . \
                  | grep -vE ':[[:space:]]*--' || true)
@@ -47,6 +60,21 @@ jobs:
             exit 1
           fi
           echo "No unbound exports calls found."
+
+      - name: No third-party host in the shipped source
+        # The version check used to fire an outbound GET to a personal GitHub
+        # Pages URL on every boot. The endpoint is config now, and this keeps it
+        # that way: a hardcoded host in the source is a supply-chain risk, not a
+        # feature. test/contracts.lua checks the same thing behaviourally.
+        run: |
+          hits=$(grep -rnE 'https?://[A-Za-z0-9.-]+\.(github\.io|githubusercontent\.com)' \
+                 --include=*.lua . | grep -vE ':[[:space:]]*--' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Hardcoded third-party version host found in a Lua source file."
+            echo "$hits"
+            exit 1
+          fi
+          echo "No hardcoded third-party version hosts found."
 
       - name: Lua syntax check
         # FiveM backtick hashes (`` `WEAPON_UNARMED` ``) are not valid standard

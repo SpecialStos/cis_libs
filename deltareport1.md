@@ -323,3 +323,77 @@ not the defect"* resolves each case:
 Non-blocking but cheap, and it makes an existing gate enforceable: add a `package.json` and a CI job
 running `node test/run.js`. Without them, Unit 0.1's "run the tests" gate is unverifiable from a clean
 checkout, and any future subagent is asked to prove facts it can only quote.
+
+---
+
+## Addendum — defects found during Unit 0.1 (2026-09-29)
+
+Found after the original audit. **Pinned by `test/contracts.lua`, not fixed** — Unit 0.1's
+non-goals forbid behaviour changes, and each of these requires one.
+
+### 9.1 `Cis.framework.notify` has a realm-asymmetric signature — **confirmed**
+
+```lua
+function Cis.framework.notify(srcOrNil, message, kind)
+    if IS_SERVER then return exportCall('Notify', srcOrNil, message, kind) end
+    if message == nil then return exportCall('Notify', srcOrNil, kind) end
+    return exportCall('Notify', message, kind)
+end
+```
+
+The client export is `Notify(message, kind)` — two parameters — while the proxy takes three and
+reads the first as `srcOrNil`. A two-argument call resolves differently per realm:
+
+| Call | Server | Client |
+|---|---|---|
+| `notify(nil, 'Hi', 'error')` | player `nil`, message `'Hi'` | message `'Hi'` ✓ |
+| `notify('Hi', 'error')` | player `'Hi'`, message `'error'` | message `'error'` ✓ form, but src leaks |
+
+`cis_tcvs`, `cis_storeRobberies`, and `cis_HawkEyeSurveillance` all call this. The fix is a
+separate entry point per realm or a typed options table; the interface is frozen until 3.0.
+
+### 9.2 `Cis.db.transaction` always times out and returns `nil` — **confirmed**
+
+`Database.Transaction(queries, cb)` has arity 2. `exportAwait` calls `method(sql, params, cb)` —
+so `cb` receives the **query list**, is never invoked, the promise never resolves, and the await
+burns its full 15-second timeout before returning `nil`.
+
+This means the `'transactions require oxmysql'` string at `server/database.lua:245` is
+**unreachable through any export.** The contract in the brief (§1.8 defect 3) and in
+`deltareport1.md` §6 describes behaviour that cannot occur. The real contract is `nil` after 15s,
+on *every* driver including oxmysql.
+
+`cis_housing` and `cis_phone` both call `Cis.db.transaction`. This is worse than the defect the
+brief describes: it is not a wrong-answer-on-the-wrong-driver, it is a guaranteed 15-second stall
+on the right one.
+
+### 9.3 `server/callback.lua` may repeat the `self` trap — **unmeasured, flagged not fixed**
+
+```lua
+local target = exports[ref.resource]
+fn = target and target[ref.export]     -- bracket lookup on the exports table
+...
+local results = table.pack(pcall(fn, src, ...))
+```
+
+`MEMORY.md` §1 established that the bracket form yields an **unbound method**. Whether
+`exports[res][name]` returns an unbound function or an already-bound callable reference was
+**never measured** — we only measured the *return value* of an export, which does arrive callable.
+
+If it is unbound, every remote handler invoked through `Cis.callback.register(name, 'res:export')`
+receives `src` as its `self` and every argument shifts one slot left — the same class of silent
+defect as the original, in the one path that was built specifically to be safe.
+
+`cis_storeRobberies` is the only product using `Cis.callback.register`, and it registers a local
+function, so no product is known to be affected today. This needs the probe treatment `MEMORY.md`
+§6 describes before the path is trusted.
+
+### 9.4 A guard gap found by testing, not by reading
+
+Reordering `Cis.callback.callClient`'s parameters from `(name, src, …)` to `(src, name, …)` —
+a plausible future refactor — **passed both `test/binding.lua` and the CI grep**. The grep
+matches only the literal bracket-call shape; `binding.lua` never reached the four proxy wrappers
+in `init.lua` that reorder before delegating.
+
+`test/contracts.lua` (154 assertions) now covers argument slots for every proxy. Eleven planted
+mutations, eleven caught, against two of seven before.

@@ -181,8 +181,10 @@ Recorded because the *reasoning* matters more than the diff.
 - **Callback keys were not bound to a player.** Keys are sequential integers, so
   a client could guess another player's pending key and resolve it with forged
   data. Keys are now bound to the player they were sent to.
-- **`Security.AuthorizedResources` was read once** and never rebuilt; it is now
-  re-read on demand.
+- **`Security.AuthorizedResources` is read once at load** by `rebuildAuthorized()`
+  in `server/security.lua` and is never rebuilt, so a runtime console change to
+  the list is ignored. *(An earlier draft of this file claimed it was fixed;
+  it is not. Verified against the source during Unit 0.1.)*
 - `lastChange[src]` in the doorlock never cleared on disconnect (leak).
 
 ### Correctness

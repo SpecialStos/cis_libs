@@ -5,7 +5,10 @@
   "description": "FiveM library and framework bridge. Tests run under fengari; no FiveM server required.",
   "license": "SEE LICENSE IN LICENSE.md",
   "scripts": {
-    "test": "node test/run.js"
+    "test": "node test/run.js",
+    "test:api": "node tools/validate-api.js --api api.lua --resource .",
+    "test:api-selftest": "node tools/validate-api.js --selftest",
+    "test:all": "npm run test && npm run test:api-selftest && npm run test:api"
   },
   "devDependencies": {
     "fengari": "^0.1.5"

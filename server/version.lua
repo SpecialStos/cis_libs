@@ -29,10 +29,28 @@ local function checkVersion(url, currentVersion)
     end, 'GET')
 end
 
+-- The endpoint comes from config. There is no hardcoded host in this file: a
+-- default-on outbound request to a third party on every boot is a supply-chain
+-- risk, stalls on an air-gapped server, and is a phone-home a commercial
+-- product should not make. `Config.CheckVersion` ships false, so on a default
+-- install nothing here is reached at all.
+local function versionCheckUrl()
+    local url = Config and Config.VersionCheckUrl
+    if type(url) ~= 'string' or url == '' then
+        return nil
+    end
+    return url
+end
+
 CreateThread(function()
     if Config and Config.CheckVersion then
+        local url = versionCheckUrl()
+        if not url then
+            Logging.Warn('Config.CheckVersion is on but Config.VersionCheckUrl is not set; skipping version check.')
+            return
+        end
         local currentVersion = GetResourceMetadata(GetCurrentResourceName(), 'version', 0)
-        checkVersion('https://specialstos.github.io/versionCheck/cis_libs.txt', currentVersion)
+        checkVersion(url, currentVersion)
     end
 end)
 
