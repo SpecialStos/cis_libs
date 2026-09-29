@@ -1,228 +1,392 @@
--- cis_libs/framework/framework_server.lua
-
-local Framework = {}
 FrameworkLoaded = false
+CisFramework = {}
+local Framework = CisFramework
+local provider = 'NONE'
+local QBCore, ESX, QBX
 
-Citizen.CreateThread(function()
-    while Config == nil do
-        Citizen.Wait(100)
+local function waitResource(name, timeout)
+    local deadline = GetGameTimer() + (timeout or 5000)
+    while GetResourceState(name) ~= 'started' and GetGameTimer() < deadline do
+        Wait(50)
     end
+    return GetResourceState(name) == 'started'
+end
 
-    if Config.Framework.Type == "QBCORE" or Config.Framework.Type == "QBOX" then
-        QBCore = exports['qb-core']:GetCoreObject()
-        FrameworkLoaded = true
-    elseif Config.Framework.Type == "ESX" or Config.Framework.Type == "ESX-LEGACY" then
-        if Config.Framework.Type == "ESX-LEGACY" then
-            ESX = exports["es_extended"]:getSharedObject()
-        else
-            TriggerEvent('esx:getSharedObject', function(obj) ESX = obj end)
+local function detect()
+    local configured = string.upper((Config and Config.Framework and Config.Framework.Type) or 'NONE')
+    if configured == 'QBCORE' then
+        if waitResource('qb-core', 5000) then
+            local ok, core = pcall(function()
+                return exports['qb-core']:GetCoreObject()
+            end)
+            if ok and core then
+                QBCore = core
+                provider = 'QBCORE'
+                return
+            end
+            print('cis_libs: qb-core started but GetCoreObject failed')
         end
-        FrameworkLoaded = true
+    elseif configured == 'QBOX' then
+        if waitResource('qbx_core', 5000) then
+            local ok, core = pcall(function()
+                return exports.qbx_core:GetCoreObject()
+            end)
+            if ok and core then
+                QBX = core
+                QBCore = core
+                provider = 'QBOX'
+                return
+            end
+            print('cis_libs: qbx_core started but GetCoreObject failed')
+        end
+        if waitResource('qb-core', 2000) then
+            local ok, core = pcall(function()
+                return exports['qb-core']:GetCoreObject()
+            end)
+            if ok then
+                QBCore = core
+                provider = 'QBCORE'
+                return
+            end
+        end
+    elseif configured == 'ESX' or configured == 'ESX-LEGACY' then
+        if waitResource('es_extended', 5000) then
+            local ok, obj = pcall(function()
+                return exports['es_extended']:getSharedObject()
+            end)
+            if ok then
+                ESX = obj
+            end
+            if not ESX then
+                local deadline = GetGameTimer() + 3000
+                while ESX == nil and GetGameTimer() < deadline do
+                    TriggerEvent('esx:getSharedObject', function(shared)
+                        ESX = shared
+                    end)
+                    Wait(50)
+                end
+            end
+            if ESX then
+                provider = configured
+                return
+            end
+        end
     else
-        FrameworkLoaded = true
+        provider = 'NONE'
+        return
     end
-end)
+    print('cis_libs: Framework provider unavailable; using standalone mode')
+    provider = 'NONE'
+    if Config and Config.Framework then
+        Config.Framework.Type = 'NONE'
+    end
+end
 
 function Framework.IsLoaded()
     return FrameworkLoaded
 end
 
-function Framework.GetOnlineJobCount(jobs)
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Checking online job count for: " .. json.encode(jobs))
-    end
-
-    local count = 0
-    local allPlayers = Framework.GetPlayers()
-
-    -- Convert single job string to table for consistent processing
-    if type(jobs) == "string" then
-        jobs = {jobs}
-    end
-
-    for _, playerId in ipairs(allPlayers) do
-        local player = Framework.GetPlayer(playerId)
-        if player then
-            local playerJob = Framework.GetPlayerJob(playerId)
-            if playerJob and playerJob.name then
-                for _, job in ipairs(jobs) do
-                    if playerJob.name == job then
-                        count = count + 1
-                        break -- Count the player once even if they match multiple requested jobs
-                    end
-                end
-            end
-        end
-    end
-
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Online job count result: " .. count)
-    end
-
-    return count
-end
-
 function Framework.GetPlayers()
-    if Config.Framework.Type == "QBCORE" or Config.Framework.Type == "QBOX" then
+    if provider == 'QBCORE' and QBCore and QBCore.Functions then
         return QBCore.Functions.GetPlayers()
-    elseif Config.Framework.Type == "ESX" or Config.Framework.Type == "ESX-LEGACY" then
+    end
+    if (provider == 'ESX' or provider == 'ESX-LEGACY') and ESX then
         return ESX.GetPlayers()
     end
-    return {}
+    return GetPlayers()
 end
 
 function Framework.GetPlayer(serverId)
-    if Config.Framework.Type == "QBCORE" or Config.Framework.Type == "QBOX" then
+    if provider == 'QBOX' and GetResourceState('qbx_core') == 'started' then
+        local ok, player = pcall(function()
+            return exports.qbx_core:GetPlayer(serverId)
+        end)
+        if ok and player then
+            return player
+        end
+    end
+    if (provider == 'QBCORE' or provider == 'QBOX') and QBCore and QBCore.Functions then
         return QBCore.Functions.GetPlayer(serverId)
-    elseif Config.Framework.Type == "ESX" or Config.Framework.Type == "ESX-LEGACY" then
+    end
+    if (provider == 'ESX' or provider == 'ESX-LEGACY') and ESX then
         return ESX.GetPlayerFromId(serverId)
     end
     return nil
 end
 
 function Framework.GiveItem(serverId, item, amount)
-    local Player = Framework.GetPlayer(serverId)
-    if Player then
-        if Config.Framework.Type == "QBCORE" or Config.Framework.Type == "QBOX" then
-            Player.Functions.AddItem(item, amount)
-        elseif Config.Framework.Type == "ESX" or Config.Framework.Type == "ESX-LEGACY" then
-            Player.addInventoryItem(item, amount)
-        end
-    end
+    return InventoryAdd(serverId, item, amount)
 end
 
-function Framework.GiveMoney(serverId, amount, moneyType)
-    local Player = Framework.GetPlayer(serverId)
-    if Player then
-        if Config.Framework.Type == "QBCORE" or Config.Framework.Type == "QBOX" then
-            if moneyType ~= "markedbills" then
-                Player.Functions.AddMoney(moneyType, amount)
-            else
-                Player.Functions.AddItem("markedbills", 1, false, {worth = amount})
-            end
-        elseif Config.Framework.Type == "ESX" or Config.Framework.Type == "ESX-LEGACY" then
-            if moneyType == "markedbills" then
-                Player.addInventoryItem("markedbills", 1, {worth = amount})
-            else
-                Player.addAccountMoney(moneyType, amount)
-            end
-        end
-    end
+function Framework.RemoveItem(source, item, amount)
+    return InventoryRemove(source, item, amount)
 end
 
 function Framework.HasItem(source, item)
-    local Player = Framework.GetPlayer(source)
-    if not Player then return false end
+    return InventoryHas(source, item, 1)
+end
 
-    if Config.Framework.Inventory == "ox_inventory" then
-        local count = exports.ox_inventory:Search(source, 'count', item)
-        return count > 0
-    elseif Config.Framework.Inventory == "qb-inventory" or Config.Framework.Inventory == "qs-inventory" then
-        return Player.Functions.GetItemByName(item) ~= nil
-    elseif Config.Framework.Inventory == "codem-inventory" then
-        return exports['codem-inventory']:HasItem(source, item, 1)
-    elseif Config.Framework.Inventory == "typical" then
-        if Config.Framework.Type == "QBCORE" or Config.Framework.Type == "QBOX" then
-            return Player.Functions.GetItemByName(item) ~= nil
-        elseif Config.Framework.Type == "ESX" or Config.Framework.Type == "ESX-LEGACY" then
-            local item = Player.getInventoryItem(item)
-            return item and item.count > 0
+function Framework.GiveMoney(serverId, amount, moneyType)
+    local player = Framework.GetPlayer(serverId)
+    if not player then
+        return false
+    end
+    moneyType = moneyType or 'cash'
+    if provider == 'QBCORE' or provider == 'QBOX' then
+        if moneyType == 'markedbills' then
+            return InventoryAdd(serverId, 'markedbills', 1, { worth = amount })
         end
+        if player.Functions and player.Functions.AddMoney then
+            -- AddMoney reports false on a rejected transaction; do not paper over it.
+            return player.Functions.AddMoney(moneyType, amount) and true or false
+        end
+        if GetResourceState('qbx_core') == 'started' then
+            local ok, result = pcall(function()
+                return exports.qbx_core:AddMoney(serverId, moneyType, amount, 'cis_libs')
+            end)
+            return ok and result and true or false
+        end
+    elseif provider == 'ESX' or provider == 'ESX-LEGACY' then
+        if moneyType == 'markedbills' then
+            return InventoryAdd(serverId, 'markedbills', 1, { worth = amount })
+        end
+        local ok = pcall(function()
+            return player.addAccountMoney(moneyType, amount)
+        end)
+        return ok
     end
     return false
 end
 
-function Framework.RemoveItem(source, item, amount)
-    local Player = Framework.GetPlayer(source)
-    if not Player then return false end
-
-    if Config.Framework.Inventory == "ox_inventory" then
-        return exports.ox_inventory:RemoveItem(source, item, amount)
-    elseif Config.Framework.Inventory == "qb-inventory" or Config.Framework.Inventory == "qs-inventory" then
-        return Player.Functions.RemoveItem(item, amount)
-    elseif Config.Framework.Inventory == "codem-inventory" then
-        return exports['codem-inventory']:RemoveItem(source, item, amount)
-    elseif Config.Framework.Inventory == "typical" then
-        if Config.Framework.Type == "QBCORE" or Config.Framework.Type == "QBOX" then
-            return Player.Functions.RemoveItem(item, amount)
-        elseif Config.Framework.Type == "ESX" or Config.Framework.Type == "ESX-LEGACY" then
-            return Player.removeInventoryItem(item, amount)
+function Framework.RemoveMoney(serverId, amount, moneyType)
+    local player = Framework.GetPlayer(serverId)
+    if not player then
+        return false
+    end
+    moneyType = moneyType or 'cash'
+    if provider == 'QBCORE' or provider == 'QBOX' then
+        if moneyType == 'markedbills' then
+            return InventoryRemove(serverId, 'markedbills', 1)
         end
+        if player.Functions and player.Functions.RemoveMoney then
+            return player.Functions.RemoveMoney(moneyType, amount) and true or false
+        end
+        if GetResourceState('qbx_core') == 'started' then
+            local ok, result = pcall(function()
+                return exports.qbx_core:RemoveMoney(serverId, moneyType, amount, 'cis_libs')
+            end)
+            return ok and result and true or false
+        end
+    elseif provider == 'ESX' or provider == 'ESX-LEGACY' then
+        if moneyType == 'markedbills' then
+            return InventoryRemove(serverId, 'markedbills', 1)
+        end
+        local ok = pcall(function()
+            return player.removeAccountMoney(moneyType, amount)
+        end)
+        return ok
     end
     return false
 end
 
 function Framework.GetPlayerIdentifier(serverId)
-    local Player = Framework.GetPlayer(serverId)
-    if Player then
-        if Config.Framework.Type == "QBCORE" or Config.Framework.Type == "QBOX" then
-            return Player.PlayerData.citizenid
-        elseif Config.Framework.Type == "ESX" or Config.Framework.Type == "ESX-LEGACY" then
-            return Player.identifier
-        end
+    local player = Framework.GetPlayer(serverId)
+    if not player then
+        return nil
+    end
+    if provider == 'QBCORE' or provider == 'QBOX' then
+        return player.PlayerData and player.PlayerData.citizenid
+    end
+    if provider == 'ESX' or provider == 'ESX-LEGACY' then
+        return player.identifier
     end
     return nil
 end
 
 function Framework.GetPlayerJob(serverId)
-    local Player = Framework.GetPlayer(serverId)
-    if Player then
-        if Config.Framework.Type == "QBCORE" or Config.Framework.Type == "QBOX" then
-            return Player.PlayerData.job
-        elseif Config.Framework.Type == "ESX" or Config.Framework.Type == "ESX-LEGACY" then
-            return Player.job
-        end
+    local player = Framework.GetPlayer(serverId)
+    if not player then
+        return nil
+    end
+    if provider == 'QBCORE' or provider == 'QBOX' then
+        return player.PlayerData and player.PlayerData.job
+    end
+    if provider == 'ESX' or provider == 'ESX-LEGACY' then
+        return player.job
     end
     return nil
 end
 
 function Framework.SetPlayerJob(serverId, job, grade)
-    local Player = Framework.GetPlayer(serverId)
-    if Player then
-        if Config.Framework.Type == "QBCORE" or Config.Framework.Type == "QBOX" then
-            Player.Functions.SetJob(job, grade)
-        elseif Config.Framework.Type == "ESX" or Config.Framework.Type == "ESX-LEGACY" then
-            Player.setJob(job, grade)
-        end
-        TriggerClientEvent('cis_libs:jobUpdated', serverId, {name = job, grade = grade})
+    local player = Framework.GetPlayer(serverId)
+    if not player then
+        return
     end
+    if provider == 'QBCORE' or provider == 'QBOX' then
+        if player.Functions and player.Functions.SetJob then
+            player.Functions.SetJob(job, grade)
+        elseif GetResourceState('qbx_core') == 'started' then
+            pcall(function()
+                exports.qbx_core:SetJob(serverId, job, grade)
+            end)
+        end
+    elseif provider == 'ESX' or provider == 'ESX-LEGACY' then
+        player.setJob(job, grade)
+    end
+    CisRememberJob(serverId, { name = job, grade = grade })
+    TriggerClientEvent('cis_libs:jobUpdated', serverId, { name = job, grade = grade })
 end
 
 function Framework.HasPermission(serverId, permission)
-    local Player = Framework.GetPlayer(serverId)
-    if Player then
-        if Config.Framework.Type == "QBCORE" or Config.Framework.Type == "QBOX" then
+    local player = Framework.GetPlayer(serverId)
+    if not player then
+        return false
+    end
+    if provider == 'QBCORE' or provider == 'QBOX' then
+        if QBCore and QBCore.Functions and QBCore.Functions.HasPermission then
             return QBCore.Functions.HasPermission(serverId, permission)
-        elseif Config.Framework.Type == "ESX" or Config.Framework.Type == "ESX-LEGACY" then
-            local xPlayer = ESX.GetPlayerFromId(serverId)
-            return xPlayer.getGroup() == permission
         end
+        if GetResourceState('qbx_core') == 'started' then
+            local ok, result = pcall(function()
+                return exports.qbx_core:HasPermission(serverId, permission)
+            end)
+            return ok and result or false
+        end
+    elseif provider == 'ESX' or provider == 'ESX-LEGACY' then
+        return player.getGroup and player.getGroup() == permission
     end
     return false
 end
 
--- Server callback for job count
-Framework.CreateCallback = Framework.CreateCallback or function(name, cb)
-    -- Implementation depends on the framework, this is a generic example
-    RegisterNetEvent(name)
-    AddEventHandler(name, function(...)
-        local source = source
-        cb(source, function(...)
-            TriggerClientEvent(name .. ':response', source, ...)
+function Framework.GetOnlineJobCount(jobs)
+    return CisJobCount(jobs)
+end
+
+function Framework.CreateCallback(name, cb)
+    CisRegisterCallback(name, function(src, ...)
+        local result
+        cb(src, function(...)
+            result = table.pack(...)
         end, ...)
+        if result then
+            return table.unpack(result, 1, result.n)
+        end
     end)
 end
 
-Framework.CreateCallback('cis_libs:getOnlineJobCount', function(source, cb, jobs)
-    cb(Framework.GetOnlineJobCount(jobs))
+function Framework.Notify(src, message, kind)
+    TriggerClientEvent('cis_libs:client:showNotification', src, message, kind)
+end
+
+local function esxAccounts(player)
+    if not player or type(player.getAccounts) ~= 'function' then
+        return nil
+    end
+    local ok, accounts = pcall(function()
+        return player.getAccounts()
+    end)
+    if not ok or type(accounts) ~= 'table' then
+        return nil
+    end
+    local out = {}
+    for i = 1, #accounts do
+        local account = accounts[i]
+        if account and account.name then
+            out[account.name] = account.money
+        end
+    end
+    return out
+end
+
+function Framework.NormalizedPlayer(src)
+    local player = Framework.GetPlayer(src)
+    local job = Framework.GetPlayerJob(src)
+    local name, money, metadata
+    if player then
+        if player.PlayerData and player.PlayerData.charinfo then
+            local info = player.PlayerData.charinfo
+            name = ((info.firstname or '') .. ' ' .. (info.lastname or '')):gsub('^%s+', ''):gsub('%s+$', '')
+        elseif type(player.getName) == 'function' then
+            local ok, value = pcall(function()
+                return player.getName()
+            end)
+            name = ok and value or nil
+        end
+        if player.PlayerData then
+            money = player.PlayerData.money
+            metadata = player.PlayerData.metadata
+        else
+            -- ESX keeps money in accounts and metadata on the xPlayer itself.
+            money = esxAccounts(player)
+            local ok, value = pcall(function()
+                return player.get('metadata')
+            end)
+            if ok then
+                metadata = value
+            end
+        end
+    end
+    return {
+        id = src,
+        name = name,
+        job = job,
+        identifier = Framework.GetPlayerIdentifier(src),
+        money = money,
+        metadata = metadata,
+    }
+end
+
+exports('GetFramework', function()
+    if not CisReadyState.wait(15000) then
+        return Framework
+    end
+    local deadline = GetGameTimer() + 15000
+    while not FrameworkLoaded and GetGameTimer() < deadline do
+        Wait(50)
+    end
+    return Framework
 end)
 
--- Export functions
-exports('GetFramework', function()
-    -- Wait until FrameworkLoaded is true
-    while not FrameworkLoaded do
-        Citizen.Wait(100) -- Wait for 100 milliseconds
-    end
+exports('GetNormalizedPlayer', function(src)
+    return Framework.NormalizedPlayer(src)
+end)
 
-    return Framework
+exports('Notify', function(src, message, kind)
+    Framework.Notify(src, message, kind)
+end)
+
+CreateThread(function()
+    detect()
+    FrameworkLoaded = true
+    CisReadyState.markReady()
+    CisRegisterCallback('cis_libs:getOnlineJobCount', function(_, jobs)
+        return Framework.GetOnlineJobCount(jobs)
+    end)
+    for _, id in ipairs(GetPlayers()) do
+        local src = tonumber(id)
+        if src then
+            CisRememberJob(src, Framework.GetPlayerJob(src))
+        end
+    end
+end)
+
+AddEventHandler('QBCore:Server:PlayerLoaded', function(player)
+    local src = player and (player.PlayerData and player.PlayerData.source or player.source)
+    if src then
+        CisRememberJob(src, Framework.GetPlayerJob(src))
+        TriggerClientEvent('cis_libs:client:inventory', src, InventorySnapshot(src))
+    end
+end)
+
+AddEventHandler('esx:playerLoaded', function(src)
+    CisRememberJob(src, Framework.GetPlayerJob(src))
+    TriggerClientEvent('cis_libs:client:inventory', src, InventorySnapshot(src))
+end)
+
+AddEventHandler('QBCore:Server:OnJobUpdate', function(src, job)
+    CisRememberJob(src, job)
+end)
+
+AddEventHandler('esx:setJob', function(src, job)
+    CisRememberJob(src, job)
 end)

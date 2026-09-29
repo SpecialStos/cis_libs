@@ -1,0 +1,16 @@
+{
+  "name": "cis_libs",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FiveM library and framework bridge. Tests run under fengari; no FiveM server required.",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "scripts": {
+    "test": "node test/run.js"
+  },
+  "devDependencies": {
+    "fengari": "^0.1.5"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

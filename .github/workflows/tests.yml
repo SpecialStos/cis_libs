@@ -1,0 +1,68 @@
+name: tests
+
+# Pure-Lua suites only. They run under fengari with no FiveM server and no
+# game assets, so this is safe to run on every push.
+#
+# The integration harness (cis_libstest) needs a running fxserver and is NOT
+# run here. It is gated separately, by hand, on a test instance.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    name: unit + binding
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run test suite
+        run: npm test
+
+      - name: Fail if the exports binding regresses
+        # Guards the `self` trap documented in MEMORY.md section 1.
+        # A bracket-form export call shifts every argument one slot left and
+        # silently corrupts the whole API. The pattern matches the CALL shape
+        # (exports[..][..]( ) rather than a specific quote style, so a
+        # regression written with double quotes is caught too. Comment lines are
+        # excluded so the documentation of the trap does not trip its own
+        # tripwire; test/binding.lua is the real check.
+        run: |
+          hits=$(grep -rnE 'exports\[[^]]+\]\[[^]]*\]\(' --include=*.lua . \
+                 | grep -vE ':[[:space:]]*--' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Unbound exports call found. Pass the exports table as the first argument (see MEMORY.md section 1)."
+            echo "$hits"
+            exit 1
+          fi
+          echo "No unbound exports calls found."
+
+      - name: Lua syntax check
+        # FiveM backtick hashes (`` `WEAPON_UNARMED` ``) are not valid standard
+        # Lua, so those two files are checked for a parse error only, ignoring
+        # the hash-literal syntax error.
+        run: |
+          status=0
+          while IFS= read -r f; do
+            if luac5.4 -p "$f" 2>/dev/null; then
+              :
+            else
+              err=$(luac5.4 -p "$f" 2>&1 || true)
+              case "$err" in
+                *"unexpected symbol near `'"*) echo "skip (FiveM hash literal): $f" ;;
+                *) echo "SYNTAX ERROR: $f"; echo "$err"; status=1 ;;
+              esac
+            fi
+          done < <(find . -name '*.lua' -not -path './node_modules/*')
+          exit $status

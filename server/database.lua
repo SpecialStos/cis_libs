@@ -1,167 +1,302 @@
--- cis_libs/server/database.lua
+local Database = {
+    driver = nil,
+    ready = false,
+    warned = false,
+}
 
-local Database = {}
+local function driverName()
+    return Config and Config.Framework and Config.Framework.Database and Config.Framework.Database.Type or 'oxmysql'
+end
 
--- Initialize the database connection based on the config
+local function mongoCollection(override)
+    return override or (Config and Config.Framework and Config.Framework.Database and Config.Framework.Database.Collection)
+end
+
+local function started(name)
+    return GetResourceState(name) == 'started'
+end
+
 function Database.Init()
-    if Config.Framework.Database.Type == "oxmysql" or
-       Config.Framework.Database.Type == "mysql-async" or
-       Config.Framework.Database.Type == "ghmattimysql" then
-    elseif Config.Framework.Database.Type == "mongodb" then
-        -- Check if MongoDB is connected
-        if not exports.mongodb:isConnected() then
-            print("Error: MongoDB is not connected")
+    local name = driverName()
+    if name == 'oxmysql' and started('oxmysql') then
+        Database.driver = 'oxmysql'
+    elseif name == 'mysql-async' and started('mysql-async') then
+        Database.driver = 'mysql-async'
+    elseif name == 'ghmattimysql' and started('ghmattimysql') then
+        Database.driver = 'ghmattimysql'
+    elseif name == 'mongodb' and started('mongodb') then
+        Database.driver = 'mongodb'
+        if exports.mongodb.isConnected and not exports.mongodb:isConnected() then
+            print('cis_libs: MongoDB is not connected')
         end
     else
-        print("Unsupported database type: " .. Config.Framework.Database.Type)
+        Database.driver = nil
+        print('cis_libs: Database driver unavailable: ' .. tostring(name))
+    end
+    Database.ready = Database.driver ~= nil
+end
+
+local function missing(cb)
+    if not Database.warned then
+        Database.warned = true
+        print('cis_libs: database call ignored; driver was not ready at start')
+    end
+    if cb then
+        cb(nil)
     end
 end
 
--- Execute a database query
-function Database.Execute(query, params, callback)
-    if Config.Framework.Database.Type == "oxmysql" then
-        exports.oxmysql:execute(query, params, callback)
-    elseif Config.Framework.Database.Type == "mysql-async" then
-        exports['mysql-async']:mysql_execute(query, params, callback)
-    elseif Config.Framework.Database.Type == "ghmattimysql" then
-        exports.ghmattimysql:execute(query, params, callback)
-    elseif Config.Framework.Database.Type == "mongodb" then
-        -- For MongoDB, we're using the update function as it's closest to 'execute'
-        --https://github.com/nbredikhin/fivem-mongodb
-        exports.mongodb:update({
-            collection = Config.Framework.Database.Collection,
-            query = params.query or {},
-            update = params.update or {},
-        }, function(success, updatedCount)
-            if callback then
-                callback(success, {affectedRows = updatedCount})
+local DEFAULT_TIMEOUT = 15000
+
+local function queryTimeout()
+    local db = Config and Config.Framework and Config.Framework.Database
+    return (db and db.Timeout) or DEFAULT_TIMEOUT
+end
+
+-- Drivers do not always invoke their callback (a dropped connection, a query
+-- the backend never answers). Without a deadline the awaiting coroutine would
+-- be parked forever, so resolve nil on timeout instead.
+local function await(fn)
+    local p = promise.new()
+    local settled = false
+
+    CreateThread(function()
+        fn(function(...)
+            if settled then
+                return
             end
+            settled = true
+            p:resolve({ ... })
         end)
-    else
-        print("Unsupported database type: " .. Config.Framework.Database.Type)
+    end)
+
+    local deadline = GetGameTimer() + queryTimeout()
+    while not settled and GetGameTimer() < deadline do
+        Wait(10)
     end
+
+    if not settled then
+        Database.warned = true
+        return nil
+    end
+    return table.unpack(Citizen.Await(p))
 end
 
--- Fetch a single row from the database
-function Database.FetchOne(query, params, callback)
-    if Config.Framework.Database.Type == "oxmysql" then
-        exports.oxmysql:scalar(query, params, callback)
-    elseif Config.Framework.Database.Type == "mysql-async" then
-        exports['mysql-async']:mysql_fetch_scalar(query, params, callback)
-    elseif Config.Framework.Database.Type == "ghmattimysql" then
-        exports.ghmattimysql:scalar(query, params, callback)
-    elseif Config.Framework.Database.Type == "mongodb" then
-        exports.mongodb:findOne({
-            collection = Config.Framework.Database.Collection,
-            query = params,
-        }, function(success, documents)
-            if callback then
-                callback(success, documents and documents[1] or nil)
-            end
-        end)
-    else
-        print("Unsupported database type: " .. Config.Framework.Database.Type)
+function Database.Query(sql, params, cb)
+    if not Database.ready then
+        return missing(cb)
     end
-end
-
--- Fetch multiple rows from the database
-function Database.FetchAll(query, params, callback)
-    if Config.Framework.Database.Type == "oxmysql" then
-        exports.oxmysql:execute(query, params, callback)
-    elseif Config.Framework.Database.Type == "mysql-async" then
-        exports['mysql-async']:mysql_fetch_all(query, params, callback)
-    elseif Config.Framework.Database.Type == "ghmattimysql" then
-        exports.ghmattimysql:execute(query, params, callback)
-    elseif Config.Framework.Database.Type == "mongodb" then
+    if Database.driver == 'oxmysql' then
+        if exports.oxmysql.query then
+            exports.oxmysql:query(sql, params or {}, cb)
+        else
+            exports.oxmysql:execute(sql, params or {}, cb)
+        end
+    elseif Database.driver == 'mysql-async' then
+        exports['mysql-async']:mysql_fetch_all(sql, params or {}, cb)
+    elseif Database.driver == 'ghmattimysql' then
+        exports.ghmattimysql:execute(sql, params or {}, cb)
+    elseif Database.driver == 'mongodb' then
         exports.mongodb:find({
-            collection = Config.Framework.Database.Collection,
-            query = params,
-        }, callback)
-    else
-        print("Unsupported database type: " .. Config.Framework.Database.Type)
+            collection = mongoCollection(params and params.collection),
+            query = params and (params.query or params) or {},
+        }, cb)
     end
 end
 
--- Insert a row and return the inserted ID
-function Database.Insert(query, params, callback)
-    if Config.Framework.Database.Type == "oxmysql" then
-        exports.oxmysql:insert(query, params, callback)
-    elseif Config.Framework.Database.Type == "mysql-async" then
-        exports['mysql-async']:mysql_insert(query, params, callback)
-    elseif Config.Framework.Database.Type == "ghmattimysql" then
-        exports.ghmattimysql:insert(query, params, callback)
-    elseif Config.Framework.Database.Type == "mongodb" then
+function Database.Single(sql, params, cb)
+    if not Database.ready then
+        return missing(cb)
+    end
+    if Database.driver == 'oxmysql' then
+        if exports.oxmysql.single then
+            exports.oxmysql:single(sql, params or {}, cb)
+        else
+            Database.Query(sql, params, function(rows)
+                if cb then
+                    cb(rows and rows[1] or nil)
+                end
+            end)
+        end
+    elseif Database.driver == 'mysql-async' then
+        exports['mysql-async']:mysql_fetch_all(sql, params or {}, function(rows)
+            if cb then
+                cb(rows and rows[1] or nil)
+            end
+        end)
+    elseif Database.driver == 'ghmattimysql' then
+        exports.ghmattimysql:execute(sql, params or {}, function(rows)
+            if cb then
+                cb(rows and rows[1] or nil)
+            end
+        end)
+    elseif Database.driver == 'mongodb' then
+        exports.mongodb:findOne({
+            collection = mongoCollection(params and params.collection),
+            query = params and (params.query or params) or {},
+        }, function(success, documents)
+            if cb then
+                cb(success and documents and documents[1] or nil)
+            end
+        end)
+    end
+end
+
+function Database.Scalar(sql, params, cb)
+    if not Database.ready then
+        return missing(cb)
+    end
+    if Database.driver == 'oxmysql' then
+        exports.oxmysql:scalar(sql, params or {}, cb)
+    elseif Database.driver == 'mysql-async' then
+        exports['mysql-async']:mysql_fetch_scalar(sql, params or {}, cb)
+    elseif Database.driver == 'ghmattimysql' then
+        exports.ghmattimysql:scalar(sql, params or {}, cb)
+    elseif Database.driver == 'mongodb' then
+        -- SQL scalar returns a single cell, so unwrap the first field of the
+        -- document rather than handing back the whole record.
+        Database.Single(sql, params, function(doc)
+            local value = nil
+            if type(doc) == 'table' then
+                for key in pairs(doc) do
+                    if key ~= '_id' then
+                        value = doc[key]
+                        break
+                    end
+                end
+                if value == nil and doc._id ~= nil then
+                    value = doc._id
+                end
+            elseif doc ~= nil then
+                value = doc
+            end
+            if cb then
+                cb(value)
+            end
+        end)
+    end
+end
+
+function Database.Insert(sql, params, cb)
+    if not Database.ready then
+        return missing(cb)
+    end
+    if Database.driver == 'oxmysql' then
+        exports.oxmysql:insert(sql, params or {}, cb)
+    elseif Database.driver == 'mysql-async' then
+        exports['mysql-async']:mysql_insert(sql, params or {}, cb)
+    elseif Database.driver == 'ghmattimysql' then
+        exports.ghmattimysql:insert(sql, params or {}, cb)
+    elseif Database.driver == 'mongodb' then
         exports.mongodb:insertOne({
-            collection = Config.Framework.Database.Collection,
-            document = params,
-        }, function(success, insertedCount, insertedIds)
-            if callback then
-                callback(success, insertedIds and insertedIds[0] or nil)
+            collection = mongoCollection(params and params.collection),
+            document = params and (params.document or params) or {},
+        }, function(success, _, insertedIds)
+            if cb then
+                cb(success and insertedIds and (insertedIds[1] or insertedIds[0]) or nil)
             end
         end)
-    else
-        print("Unsupported database type: " .. Config.Framework.Database.Type)
     end
 end
 
--- Update rows in the database
-function Database.Update(query, params, callback)
-    if Config.Framework.Database.Type == "oxmysql" then
-        exports.oxmysql:execute(query, params, callback)
-    elseif Config.Framework.Database.Type == "mysql-async" then
-        exports['mysql-async']:mysql_execute(query, params, callback)
-    elseif Config.Framework.Database.Type == "ghmattimysql" then
-        exports.ghmattimysql:execute(query, params, callback)
-    elseif Config.Framework.Database.Type == "mongodb" then
+function Database.Update(sql, params, cb)
+    if not Database.ready then
+        return missing(cb)
+    end
+    if Database.driver == 'mongodb' then
         exports.mongodb:update({
-            collection = Config.Framework.Database.Collection,
-            query = params.query,
-            update = params.update,
+            collection = mongoCollection(params and params.collection),
+            query = params and params.query or {},
+            update = params and params.update or {},
         }, function(success, updatedCount)
-            if callback then
-                callback(success, {affectedRows = updatedCount})
+            if cb then
+                cb(success, { affectedRows = updatedCount })
             end
         end)
-    else
-        print("Unsupported database type: " .. Config.Framework.Database.Type)
+        return
     end
+    Database.Query(sql, params, cb)
 end
 
--- Delete rows from the database
-function Database.Delete(query, params, callback)
-    if Config.Framework.Database.Type == "oxmysql" then
-        exports.oxmysql:execute(query, params, callback)
-    elseif Config.Framework.Database.Type == "mysql-async" then
-        exports['mysql-async']:mysql_execute(query, params, callback)
-    elseif Config.Framework.Database.Type == "ghmattimysql" then
-        exports.ghmattimysql:execute(query, params, callback)
-    elseif Config.Framework.Database.Type == "mongodb" then
+function Database.Delete(sql, params, cb)
+    if not Database.ready then
+        return missing(cb)
+    end
+    if Database.driver == 'mongodb' then
         exports.mongodb:delete({
-            collection = Config.Framework.Database.Collection,
-            query = params,
+            collection = mongoCollection(params and params.collection),
+            query = params or {},
         }, function(success, deletedCount)
-            if callback then
-                callback(success, {affectedRows = deletedCount})
+            if cb then
+                cb(success, { affectedRows = deletedCount })
             end
         end)
-    else
-        print("Unsupported database type: " .. Config.Framework.Database.Type)
+        return
+    end
+    Database.Query(sql, params, cb)
+end
+
+function Database.Transaction(queries, cb)
+    if not Database.ready then
+        return missing(cb)
+    end
+    if Database.driver ~= 'oxmysql' then
+        if cb then
+            cb(false, 'transactions require oxmysql')
+        end
+        return
+    end
+    exports.oxmysql:transaction(queries, cb)
+end
+
+function Database.Execute(query, params, callback)
+    Database.Query(query, params, callback)
+end
+
+function Database.FetchOne(query, params, callback)
+    Database.Single(query, params, callback)
+end
+
+function Database.FetchAll(query, params, callback)
+    Database.Query(query, params, callback)
+end
+
+local function exportAwait(method)
+    return function(sql, params)
+        return await(function(cb)
+            method(sql, params, cb)
+        end)
     end
 end
 
--- Export functions
 exports('DatabaseExecute', Database.Execute)
 exports('DatabaseFetchOne', Database.FetchOne)
 exports('DatabaseFetchAll', Database.FetchAll)
 exports('DatabaseInsert', Database.Insert)
 exports('DatabaseUpdate', Database.Update)
 exports('DatabaseDelete', Database.Delete)
+exports('DbQuery', exportAwait(Database.Query))
+exports('DbSingle', exportAwait(Database.Single))
+exports('DbScalar', exportAwait(Database.Scalar))
+exports('DbInsert', exportAwait(Database.Insert))
+exports('DbUpdate', exportAwait(Database.Update))
+exports('DbTransaction', exportAwait(Database.Transaction))
 
--- Initialize the database when the resource starts
+Database.Init()
+if Database.driver then
+    print('cis_libs: database initialized (' .. Database.driver .. ')')
+end
+
 AddEventHandler('onResourceStart', function(resourceName)
-    if (GetCurrentResourceName() ~= resourceName) then
+    if Database.ready then
         return
     end
-    Database.Init()
-    print('Database initialized for ' .. Config.Framework.Database.Type)
+    local name = driverName()
+    if resourceName == name or (name == 'mongodb' and resourceName == 'mongodb') then
+        Database.warned = false
+        Database.Init()
+        if Database.driver then
+            print('cis_libs: database initialized (' .. Database.driver .. ')')
+        end
+    end
 end)

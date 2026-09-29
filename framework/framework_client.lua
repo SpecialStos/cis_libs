@@ -1,63 +1,98 @@
--- cis_libs/framework/framework_client.lua
-
 FrameworkLoaded = false
-local Framework = {}
+Framework = {}
 local PlayerJob = nil
+local provider = 'NONE'
+local QBCore, ESX, QBX
 
-Citizen.CreateThread(function()
-    while Config == nil do
-        Citizen.Wait(100)
+local function waitResource(name, timeout)
+    local deadline = GetGameTimer() + (timeout or 5000)
+    while GetResourceState(name) ~= 'started' and GetGameTimer() < deadline do
+        Wait(50)
     end
+    return GetResourceState(name) == 'started'
+end
 
-    if Config.Framework.Type == "QBCORE" or Config.Framework.Type == "QBOX" then
-        QBCore = exports['qb-core']:GetCoreObject()
-        FrameworkLoaded = true
-    elseif Config.Framework.Type == "ESX" or Config.Framework.Type == "ESX-LEGACY" then
-        if Config.Framework.Type == "ESX-LEGACY" then
-            ESX = exports["es_extended"]:getSharedObject()
-        else
-            while ESX == nil do
-                TriggerEvent('esx:getSharedObject', function(obj) ESX = obj end)
-                Citizen.Wait(0)
+local function detect()
+    local configured = string.upper((Config and Config.Framework and Config.Framework.Type) or 'NONE')
+    if configured == 'QBCORE' then
+        if waitResource('qb-core', 5000) then
+            local ok, core = pcall(function()
+                return exports['qb-core']:GetCoreObject()
+            end)
+            if ok and core then
+                QBCore = core
+                provider = 'QBCORE'
+                return
+            end
+            print('cis_libs: qb-core started but GetCoreObject failed')
+        end
+    elseif configured == 'QBOX' then
+        if waitResource('qbx_core', 5000) then
+            local ok, core = pcall(function()
+                return exports.qbx_core:GetCoreObject()
+            end)
+            if ok and core then
+                QBX = core
+                QBCore = core
+                provider = 'QBOX'
+                return
+            end
+            print('cis_libs: qbx_core started but GetCoreObject failed')
+        end
+        if waitResource('qb-core', 2000) then
+            local ok, core = pcall(function()
+                return exports['qb-core']:GetCoreObject()
+            end)
+            if ok then
+                QBCore = core
+                provider = 'QBCORE'
+                return
             end
         end
-        FrameworkLoaded = true
+    elseif configured == 'ESX' or configured == 'ESX-LEGACY' then
+        if waitResource('es_extended', 5000) then
+            if configured == 'ESX-LEGACY' then
+                local ok, obj = pcall(function()
+                    return exports['es_extended']:getSharedObject()
+                end)
+                if ok then
+                    ESX = obj
+                end
+            end
+            if not ESX then
+                local deadline = GetGameTimer() + 3000
+                while ESX == nil and GetGameTimer() < deadline do
+                    TriggerEvent('esx:getSharedObject', function(obj)
+                        ESX = obj
+                    end)
+                    Wait(50)
+                end
+            end
+            if ESX then
+                provider = configured
+                return
+            end
+        end
     else
-        FrameworkLoaded = true
+        provider = 'NONE'
+        return
     end
-
-    while not FrameworkLoaded do
-        Citizen.Wait(100)
+    print('cis_libs: Framework provider unavailable; using standalone mode')
+    provider = 'NONE'
+    if Config and Config.Framework then
+        Config.Framework.Type = 'NONE'
     end
-
-    -- Initialize player job
-    local playerData = Framework.GetPlayerData()
-    if playerData and playerData.job then
-        PlayerJob = playerData.job
-    end
-
-    -- Register job update events
-    if Config.Framework.Type == "QBCORE" or Config.Framework.Type == "QBOX" then
-        RegisterNetEvent('QBCore:Client:OnJobUpdate')
-        AddEventHandler('QBCore:Client:OnJobUpdate', Framework.UpdatePlayerJob)
-        
-        -- Add event for when player is loaded
-        RegisterNetEvent('QBCore:Client:OnPlayerLoaded')
-        AddEventHandler('QBCore:Client:OnPlayerLoaded', Framework.OnPlayerLoaded)
-    elseif Config.Framework.Type == "ESX" or Config.Framework.Type == "ESX-LEGACY" then
-        RegisterNetEvent('esx:setJob')
-        AddEventHandler('esx:setJob', Framework.UpdatePlayerJob)
-        
-        -- Add event for when player is loaded
-        RegisterNetEvent('esx:playerLoaded')
-        AddEventHandler('esx:playerLoaded', Framework.OnPlayerLoaded)
-    end
-end)
+end
 
 function Framework.GetPlayerData()
-    if Config.Framework.Type == "QBCORE" or Config.Framework.Type == "QBOX" then
-        return QBCore.Functions.GetPlayerData()
-    elseif Config.Framework.Type == "ESX" or Config.Framework.Type == "ESX-LEGACY" then
+    if provider == 'QBCORE' or provider == 'QBOX' then
+        if provider == 'QBOX' and QBX and QBX.GetPlayerData then
+            return QBX.GetPlayerData()
+        end
+        if QBCore and QBCore.Functions then
+            return QBCore.Functions.GetPlayerData()
+        end
+    elseif provider == 'ESX' or provider == 'ESX-LEGACY' then
         return ESX.GetPlayerData()
     end
     return nil
@@ -65,15 +100,13 @@ end
 
 function Framework.UpdatePlayerJob(job)
     PlayerJob = job
-    --print("Job updated:", json.encode(PlayerJob))
     TriggerEvent('cis_libs:jobUpdated', job)
 end
 
-function Framework.OnPlayerLoaded(xPlayer)
+function Framework.OnPlayerLoaded()
     local playerData = Framework.GetPlayerData()
     if playerData and playerData.job then
         PlayerJob = playerData.job
-        --print("Player loaded. Initial job:", json.encode(PlayerJob))
         TriggerEvent('cis_libs:playerLoaded', PlayerJob)
     end
 end
@@ -82,98 +115,106 @@ function Framework.GetPlayerJob()
     return PlayerJob
 end
 
-function Framework.ShowNotification(message)
-    if Config.Framework.Type == "QBCORE" or Config.Framework.Type == "QBOX" then
-        QBCore.Functions.Notify(message)
-    elseif Config.Framework.Type == "ESX" or Config.Framework.Type == "ESX-LEGACY" then
+function CisFrameworkNotify(message, kind)
+    if provider == 'QBCORE' or provider == 'QBOX' then
+        if QBCore and QBCore.Functions and QBCore.Functions.Notify then
+            QBCore.Functions.Notify(message, kind)
+            return
+        end
+        if GetResourceState('qbx_core') == 'started' then
+            pcall(function()
+                exports.qbx_core:Notify(message, kind or 'inform')
+            end)
+            return
+        end
+    elseif provider == 'ESX' or provider == 'ESX-LEGACY' then
         ESX.ShowNotification(message)
-    else
-        SetNotificationTextEntry("STRING")
-        AddTextComponentString(message)
-        DrawNotification(false, false)
+        return
     end
+    BeginTextCommandThefeedPost('STRING')
+    AddTextComponentSubstringPlayerName(tostring(message))
+    EndTextCommandThefeedPostTicker(false, false)
+end
+
+function Framework.ShowNotification(message, kind)
+    CisFrameworkNotify(message, kind)
 end
 
 function Framework.TriggerServerCallback(name, cb, ...)
-    if Config.Framework.Type == "QBCORE" or Config.Framework.Type == "QBOX" then
-        QBCore.Functions.TriggerCallback(name, cb, ...)
-    elseif Config.Framework.Type == "ESX" or Config.Framework.Type == "ESX-LEGACY" then
-        ESX.TriggerServerCallback(name, cb, ...)
-    end
+    exports['cis_libs']:TriggerLibCallback(name, cb, ...)
 end
 
-function Framework.HasItem(item)
-    if Config.Framework.Inventory == "ox_inventory" then
-        local count = exports.ox_inventory:Search('count', item)
-        return count > 0
-    elseif Config.Framework.Inventory == "qb-inventory" then
-        return exports['qb-inventory']:HasItem(item, 1)
-    elseif Config.Framework.Inventory == "qs-inventory" then
-        return exports['qs-inventory']:HasItem(item, 1)
-    elseif Config.Framework.Inventory == "codem-inventory" then
-        local hasItem = false
-        Framework.TriggerServerCallback(Security.EventPrefix .. ":server:codemCallback", function(result)
-            hasItem = result
-        end, item)
-        return hasItem
-    elseif Config.Framework.Inventory == "typical" then
-        local Player = Framework.GetPlayerData()
-        if Config.Framework.Type == "QBCORE" or Config.Framework.Type == "QBOX" then
-            for i = 1, #Player.items, 1 do
-                if Player.items[i] and Player.items[i].name == item then
-                    return true
-                end
-            end
-        elseif Config.Framework.Type == "ESX" or Config.Framework.Type == "ESX-LEGACY" then
-            for i = 1, #Player.inventory, 1 do
-                if Player.inventory[i].name == item and Player.inventory[i].count > 0 then
-                    return true
-                end
-            end
-        end
-    end
-    return false
+function Framework.HasItem(item, amount)
+    return InventoryHas(item, amount or 1)
 end
 
 function Framework.CreateVehicle(model, coords, heading, cb)
-    if Config.Framework.Type == "QBCORE" or Config.Framework.Type == "QBOX" then
-        QBCore.Functions.SpawnVehicle(model, function(vehicle)
-            SetEntityHeading(vehicle, heading)
+    local function finish(vehicle)
+        if vehicle and vehicle ~= 0 then
+            SetEntityHeading(vehicle, heading or 0.0)
             SetVehicleOnGroundProperly(vehicle)
-            if cb then cb(vehicle) end
-        end, coords, true)
-    elseif Config.Framework.Type == "ESX" or Config.Framework.Type == "ESX-LEGACY" then
-        ESX.Game.SpawnVehicle(model, coords, heading, function(vehicle)
-            SetVehicleOnGroundProperly(vehicle)
-            if cb then cb(vehicle) end
-        end)
-    else
-        -- Fallback to native function
-        local vehicle = CreateVehicle(GetHashKey(model), coords.x, coords.y, coords.z, heading, true, false)
-        SetVehicleOnGroundProperly(vehicle)
-        if cb then cb(vehicle) end
-    end
-end
-
--- New function to get online job count
-function Framework.GetOnlineJobCount(jobs, cb)
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Requesting online job count for: " .. json.encode(jobs))
-    end
-
-    Framework.TriggerServerCallback('cis_libs:getOnlineJobCount', function(count)
-        if Config.Printing and Config.Printing.Debug then
-            exports['cis_libs']:LogDebug("Received online job count: " .. count)
         end
-        cb(count)
-    end, jobs)
+        if cb then
+            cb(vehicle)
+        end
+    end
+    if provider == 'QBCORE' and QBCore and QBCore.Functions and QBCore.Functions.SpawnVehicle then
+        QBCore.Functions.SpawnVehicle(model, finish, coords, true)
+        return
+    end
+    if (provider == 'ESX' or provider == 'ESX-LEGACY') and ESX and ESX.Game and ESX.Game.SpawnVehicle then
+        ESX.Game.SpawnVehicle(model, coords, heading, finish)
+        return
+    end
+    CreateThread(function()
+        local loaded, hash = RequestModelTimeout(model, 5000)
+        if not loaded then
+            finish(0)
+            return
+        end
+        local vehicle = CreateVehicle(hash, coords.x, coords.y, coords.z, heading or 0.0, true, false)
+        SetModelAsNoLongerNeeded(hash)
+        finish(vehicle)
+    end)
 end
 
--- Export functions
+function Framework.GetOnlineJobCount(jobs, cb)
+    exports['cis_libs']:TriggerLibCallback('cis_libs:getOnlineJobCount', cb, jobs)
+end
+
+exports('Notify', function(message, kind)
+    CisFrameworkNotify(message, kind)
+end)
+
 exports('GetFramework', function()
-    -- Wait until FrameworkLoaded is true
-    while not FrameworkLoaded do
-        Citizen.Wait(100) -- Wait for 100 milliseconds
+    if not CisReadyState.wait(15000) then
+        return Framework
+    end
+    local deadline = GetGameTimer() + 15000
+    while not FrameworkLoaded and GetGameTimer() < deadline do
+        Wait(50)
     end
     return Framework
+end)
+
+CreateThread(function()
+    if not CisReadyState.wait(15000) then
+        FrameworkLoaded = true
+        return
+    end
+    detect()
+    FrameworkLoaded = true
+    local playerData = Framework.GetPlayerData()
+    if playerData and playerData.job then
+        PlayerJob = playerData.job
+    end
+    if provider == 'QBCORE' or provider == 'QBOX' then
+        RegisterNetEvent('QBCore:Client:OnJobUpdate', Framework.UpdatePlayerJob)
+        RegisterNetEvent('QBCore:Client:OnPlayerLoaded', Framework.OnPlayerLoaded)
+        RegisterNetEvent('qbx_core:client:playerLoaded', Framework.OnPlayerLoaded)
+        RegisterNetEvent('qbx_core:client:onJobUpdate', Framework.UpdatePlayerJob)
+    elseif provider == 'ESX' or provider == 'ESX-LEGACY' then
+        RegisterNetEvent('esx:setJob', Framework.UpdatePlayerJob)
+        RegisterNetEvent('esx:playerLoaded', Framework.OnPlayerLoaded)
+    end
 end)

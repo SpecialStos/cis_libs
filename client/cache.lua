@@ -1,0 +1,405 @@
+-- Event-driven player cache. Idle: 1s watchdog only. No Wait(0). No seat scans.
+
+CisCache = {
+    ped = 0,
+    playerId = 0,
+    serverId = 0,
+    heading = 0.0,
+    vehicle = 0,
+    seat = nil,
+    weapon = nil,
+    armed = false,
+    aiming = false,
+    shooting = false,
+}
+
+local listeners = {
+    ped = {},
+    vehicle = {},
+    weapon = {},
+    armed = {},
+    aiming = {},
+}
+
+local nearWatchers = {}
+local nearSeq = 0
+local UNARMED = `WEAPON_UNARMED`
+
+local function emit(key, current, previous)
+    local list = listeners[key]
+    if not list then
+        return
+    end
+    for i = 1, #list do
+        local ok, err = pcall(list[i], current, previous)
+        if not ok then
+            CisLog('error', 'cache listener: ' .. tostring(err))
+        end
+    end
+end
+
+local function publishGlobals()
+    Globals = Globals or {}
+    Globals.ServerInfo = Globals.ServerInfo or {
+        GameBuild = GetGameBuildNumber(),
+        Framework = Config and Config.Framework,
+        Debug = Config and Config.Printing and Config.Printing.Debug,
+    }
+    local ped = CisCache.ped ~= 0 and CisCache.ped or PlayerPedId()
+    local coords = GetEntityCoords(ped)
+    local player = Globals.Player
+    if not player then
+        player = {}
+        Globals.Player = player
+    end
+    player.Ped = ped
+    player.PedId = CisCache.playerId
+    player.ServerId = CisCache.serverId
+    player.Coords = coords
+    player.Heading = CisCache.heading
+    player.Coords4 = vec4(coords.x, coords.y, coords.z, CisCache.heading)
+    player.IsArmed = CisCache.armed
+    player.IsShooting = CisCache.shooting
+    player.IsAiming = CisCache.aiming
+    player.IsInVehicle = CisCache.vehicle ~= 0
+    player.Weapon = CisCache.weapon
+    local vehicle = Globals.Vehicle
+    if not vehicle then
+        vehicle = {
+            Properties = {},
+            LastPropertiesAt = 0,
+        }
+        Globals.Vehicle = vehicle
+    end
+    vehicle.Current = CisCache.vehicle
+    vehicle.Last = CisCache.vehicle
+    vehicle.Seat = CisCache.seat
+end
+
+local function setField(key, value)
+    local previous = CisCache[key]
+    if previous == value then
+        return false
+    end
+    CisCache[key] = value
+    emit(key, value, previous)
+    return true
+end
+
+local function weaponPayload(ped, hash)
+    if not hash or hash == 0 or hash == UNARMED then
+        return nil
+    end
+    return {
+        hash = hash,
+        ammo = GetAmmoInPedWeapon(ped, hash),
+        ammoType = GetPedAmmoTypeFromWeapon(ped, hash),
+        attachments = GetWeaponAttachments(ped, hash),
+    }
+end
+
+-- Seat index from a vehicle-entered event. The array form is
+-- { vehicle, seatIndex } in some builds and { entity, vehicle, seatIndex } in
+-- others, so the index is validated rather than trusted: a raw array read here
+-- used to hand back the vehicle handle as a seat number.
+local function readSeatFromEvent(data)
+    if type(data) ~= 'table' then
+        return nil
+    end
+    local named = data.seatIndex
+    if named == nil and type(data.named) == 'table' then
+        named = data.named.seatIndex
+    end
+    if type(named) == 'number' then
+        return named
+    end
+    local last = data[#data]
+    if type(last) == 'number' and last >= -1 and last <= 16 then
+        return last
+    end
+    return nil
+end
+
+local function refreshPed()
+    local playerId = PlayerId()
+    local ped = PlayerPedId()
+    CisCache.playerId = playerId
+    CisCache.serverId = GetPlayerServerId(playerId)
+    setField('ped', ped)
+    CisCache.heading = GetEntityHeading(ped)
+    return ped
+end
+
+local function seatIndexOf(ped, vehicle)
+    if GetPedInVehicleSeat(vehicle, -1) == ped then
+        return -1
+    end
+    local maxPassengers = GetVehicleMaxNumberOfPassengers(vehicle)
+    for i = 0, maxPassengers - 1 do
+        if GetPedInVehicleSeat(vehicle, i) == ped then
+            return i
+        end
+    end
+    return nil
+end
+
+local function refreshVehicle(ped)
+    ped = ped or CisCache.ped
+    if ped == 0 then
+        setField('vehicle', 0)
+        CisCache.seat = nil
+        return
+    end
+    local vehicle = GetVehiclePedIsIn(ped, false)
+    if vehicle == 0 then
+        setField('vehicle', 0)
+        CisCache.seat = nil
+        return
+    end
+    setField('vehicle', vehicle)
+    -- Re-derive whenever the cached seat is missing or out of the range a seat
+    -- index can actually take, so a bad value never sticks.
+    local seat = CisCache.seat
+    if type(seat) ~= 'number' or seat < -1 or seat > 16 then
+        CisCache.seat = seatIndexOf(ped, vehicle)
+    end
+end
+
+local function refreshWeapon(ped)
+    ped = ped or CisCache.ped
+    local armed = IsPedArmed(ped, 7)
+    setField('armed', armed)
+    if not armed then
+        setField('weapon', nil)
+        return
+    end
+    local hash = GetSelectedPedWeapon(ped)
+    local current = CisCache.weapon
+    if current and current.hash == hash then
+        local ammo = GetAmmoInPedWeapon(ped, hash)
+        if current.ammo ~= ammo then
+            -- Replace rather than mutate: consumers hold a reference to the
+            -- table they were handed, and the weapon did not change, so no
+            -- listener fires.
+            CisCache.weapon = {
+                hash = hash,
+                ammo = ammo,
+                ammoType = current.ammoType,
+                attachments = current.attachments,
+            }
+        end
+        return
+    end
+    setField('weapon', weaponPayload(ped, hash))
+end
+
+local function aimingNow()
+    local cfg = Config and Config.AimingCheckType or 'default'
+    if cfg == 'configFlag' then
+        return GetPedConfigFlag(CisCache.ped, 78) == 1
+    end
+    return IsPlayerFreeAiming(CisCache.playerId) == 1
+end
+
+local function onEnteredVehicle(vehicle, seat)
+    if type(vehicle) ~= 'number' or vehicle == 0 then
+        return
+    end
+    -- Settle the seat before emitting, so a 'vehicle' listener never observes
+    -- a stale seat alongside the new handle.
+    CisCache.seat = seat
+    if seat == nil then
+        refreshVehicle(CisCache.ped)
+    end
+    setField('vehicle', vehicle)
+end
+
+local function onLeftVehicle()
+    setField('vehicle', 0)
+    CisCache.seat = nil
+end
+
+AddEventHandler('gameEventTriggered', function(name, args)
+    if name == 'CEventNetworkPlayerEnteredVehicle' then
+        refreshPed()
+        onEnteredVehicle(args and args[2], type(args) == 'table' and readSeatFromEvent(args) or nil)
+    elseif name == 'CEventNetworkPlayerLeftVehicle' then
+        onLeftVehicle()
+    end
+end)
+
+AddEventHandler('CEventNetworkPlayerEnteredVehicle', function(data)
+    if type(data) ~= 'table' then
+        return
+    end
+    onEnteredVehicle(data.vehicle or data[2], readSeatFromEvent(data))
+end)
+
+AddEventHandler('CEventNetworkPlayerLeftVehicle', onLeftVehicle)
+
+CreateThread(function()
+    if not CisReadyState.wait(15000) then
+        return
+    end
+
+    local intervals = (Config and Config.UpdateInterval) or {}
+    local playerMs = math.max(100, intervals.Player or 1000)
+    local weaponMs = math.max(100, intervals.Weapon or playerMs)
+
+    refreshPed()
+    refreshVehicle(CisCache.ped)
+    refreshWeapon(CisCache.ped)
+
+    local lastWeaponAt = 0
+    while true do
+        local ped = refreshPed()
+        local inVeh = IsPedInAnyVehicle(ped, false)
+        if inVeh then
+            refreshVehicle(ped)
+        elseif CisCache.vehicle ~= 0 then
+            setField('vehicle', 0)
+            CisCache.seat = nil
+        end
+        local now = GetGameTimer()
+        if now - lastWeaponAt >= weaponMs then
+            lastWeaponAt = now
+            refreshWeapon(ped)
+        end
+        setField('aiming', aimingNow())
+        CisCache.shooting = IsPedShooting(ped)
+        publishGlobals()
+        Wait(playerMs)
+    end
+end)
+
+CreateThread(function()
+    if not CisReadyState.wait(15000) then
+        return
+    end
+    local lastCoords
+    local lastCheck = 0
+    while true do
+        if next(nearWatchers) == nil then
+            Wait(500)
+        else
+            local now = GetGameTimer()
+            local coords = Cis.player.coords()
+            local moved = not lastCoords or #(coords - lastCoords) >= 8.0
+            if moved or (now - lastCheck) >= 500 then
+                lastCoords = coords
+                lastCheck = now
+                for id, watcher in pairs(nearWatchers) do
+                    local dist = #(coords - watcher.coords)
+                    local inside = dist <= watcher.distance
+                    if inside and not watcher.inside then
+                        watcher.inside = true
+                        if watcher.onEnter then
+                            pcall(watcher.onEnter, dist)
+                        elseif watcher.onEnterEvent then
+                            pcall(TriggerServerEvent, watcher.onEnterEvent, dist)
+                        end
+                    elseif not inside and watcher.inside then
+                        watcher.inside = false
+                        if watcher.onExit then
+                            pcall(watcher.onExit, dist)
+                        elseif watcher.onExitEvent then
+                            pcall(TriggerServerEvent, watcher.onExitEvent, dist)
+                        end
+                    end
+                end
+            end
+            Wait(200)
+        end
+    end
+end)
+
+function CisCache.on(key, cb)
+    if type(cb) ~= 'function' then
+        return
+    end
+    listeners[key] = listeners[key] or {}
+    listeners[key][#listeners[key] + 1] = cb
+    return function()
+        local list = listeners[key]
+        if not list then
+            return
+        end
+        for i = #list, 1, -1 do
+            if list[i] == cb then
+                table.remove(list, i)
+            end
+        end
+    end
+end
+
+-- The enter/exit callbacks cannot be sent across the exports boundary, so a
+-- caller that is not cis_libs must use the event forms instead:
+--   onEnterEvent / onExitEvent, receiving (distance) as a server event.
+function CisCache.watchNear(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent)
+    if coords == nil then
+        -- The exports boundary can drop a value entirely; indexing nil would
+        -- throw inside the caller's export call.
+        return nil, 'coords arrived as nil (the exports boundary dropped them)'
+    end
+    nearSeq = nearSeq + 1
+    local id = nearSeq
+    nearWatchers[id] = {
+        coords = vector3(coords.x, coords.y, coords.z),
+        distance = distance or 2.0,
+        onEnter = onEnter,
+        onExit = onExit,
+        onEnterEvent = onEnterEvent,
+        onExitEvent = onExitEvent,
+        inside = false,
+    }
+    local function unsubscribe()
+        nearWatchers[id] = nil
+    end
+    return unsubscribe, id
+end
+
+exports('GetCachedPed', function()
+    return CisCache.ped ~= 0 and CisCache.ped or PlayerPedId()
+end)
+
+exports('GetCachedHeading', function()
+    return CisCache.heading
+end)
+
+exports('GetCachedVehicle', function()
+    if CisCache.vehicle == 0 then
+        return nil
+    end
+    return CisCache.vehicle, CisCache.seat
+end)
+
+exports('GetCachedWeapon', function()
+    return CisCache.weapon
+end)
+
+exports('GetCachedServerId', function()
+    return CisCache.serverId
+end)
+
+exports('OnPlayerCache', function(key, cb)
+    return CisCache.on(key, cb)
+end)
+
+exports('WatchNear', function(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent)
+    return CisCache.watchNear(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent)
+end)
+
+RegisterCommand('cis_debug', function()
+    local zone = exports['cis_libs']:GetZoneDebug()
+    print(('[cis_libs] ped=%s veh=%s armed=%s zonePassMs=%s'):format(
+        tostring(CisCache.ped),
+        tostring(CisCache.vehicle),
+        tostring(CisCache.armed),
+        tostring(zone and zone.lastPassMs)
+    ))
+end, false)
+
+exports('GetGlobals', function()
+    publishGlobals()
+    return Globals
+end)

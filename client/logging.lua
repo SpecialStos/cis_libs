@@ -1,41 +1,34 @@
--- cis_libs/client/logging.lua
-
-Logging = {}
-
--- Log levels
-Logging.Levels = {
-    DEBUG = 1,
-    INFO = 2,
-    WARN = 3,
-    ERROR = 4
+Logging = {
+    Levels = {
+        DEBUG = 1,
+        INFO = 2,
+        WARN = 3,
+        ERROR = 4,
+    },
 }
 
--- Function to log messages
-function Logging.Log(message, level)
-    -- Check if Debug Mode is enabled
-    if not Config or not Config.Printing or not Config.Printing.Debug then
-        return
-    end
-
-    level = level or Logging.Levels.INFO
-    
-    local prefix = "[cis_libs]"
-
-    if level == Logging.Levels.DEBUG then
-        prefix = prefix .. " [DEBUG]"
-    elseif level == Logging.Levels.INFO then
-        prefix = prefix .. " [INFO]"
-    elseif level == Logging.Levels.WARN then
-        prefix = prefix .. " [WARN]"
-    elseif level == Logging.Levels.ERROR then
-        prefix = prefix .. " [ERROR]"
-    end
-
-    -- Print to console
-    print(prefix .. " " .. tostring(message))
+local function debugEnabled()
+    return Config and Config.Printing and Config.Printing.Debug
 end
 
--- Convenience functions for different log levels
+function Logging.Log(message, level)
+    level = level or Logging.Levels.INFO
+    -- Only DEBUG is gated. Errors and warnings must always reach the console,
+    -- otherwise the pcall wrappers below hide real failures in production.
+    if level == Logging.Levels.DEBUG and not debugEnabled() then
+        return
+    end
+    local tag = 'INFO'
+    if level == Logging.Levels.DEBUG then
+        tag = 'DEBUG'
+    elseif level == Logging.Levels.WARN then
+        tag = 'WARN'
+    elseif level == Logging.Levels.ERROR then
+        tag = 'ERROR'
+    end
+    print(('[cis_libs] [%s] %s'):format(tag, tostring(message)))
+end
+
 function Logging.Debug(message)
     Logging.Log(message, Logging.Levels.DEBUG)
 end
@@ -52,42 +45,31 @@ function Logging.Error(message)
     Logging.Log(message, Logging.Levels.ERROR)
 end
 
--- Function to automatically log errors with stack trace
 function Logging.AutoLogError(err, context)
-    if not Config or not Config.Printing or not Config.Printing.Debug then
-        return
-    end
-
-    local stackTrace = debug.traceback(err, 2)
-    local errorInfo = {
-        context = context or "Unknown",
-        stackTrace = stackTrace
-    }
-    
-    local errorMsg = "Automatic Error Log:\nContext: " .. errorInfo.context .. "\nError: " .. tostring(err) .. "\n\nStack Trace:\n" .. errorInfo.stackTrace
-    
-    Logging.Error(errorMsg)
+    Logging.Error(('Automatic Error Log:\nContext: %s\nError: %s\n%s'):format(
+        context or 'Unknown',
+        tostring(err),
+        debug.traceback(err, 2)
+    ))
 end
 
--- Export functions
+function CisLog(level, message)
+    if level == 'error' then
+        Logging.Error(message)
+    elseif level == 'warn' then
+        Logging.Warn(message)
+    elseif level == 'debug' then
+        Logging.Debug(message)
+    else
+        Logging.Info(message)
+    end
+end
+
 exports('LogDebug', Logging.Debug)
 exports('LogInfo', Logging.Info)
 exports('LogWarn', Logging.Warn)
 exports('LogError', Logging.Error)
 exports('AutoLogError', Logging.AutoLogError)
-
--- Export the entire Logging table
 exports('GetClientLogging', function()
     return Logging
-end)
-
--- Initialize logging system
-Citizen.CreateThread(function()
-    while Config == nil do
-        Citizen.Wait(0)
-    end
-    
-    if Config.Printing and Config.Printing.Debug then
-        Logging.Info("Client-side logging system initialized in Debug Mode")
-    end
 end)

@@ -1,14 +1,35 @@
--- cis_libs/client/vehicle.lua
+local GetClosestVehicleNative = GetClosestVehicle
+local lastApplied = {}
+
+local function gameBuild()
+    if Globals and Globals.ServerInfo and Globals.ServerInfo.GameBuild then
+        return Globals.ServerInfo.GameBuild
+    end
+    return GetGameBuildNumber()
+end
+
+local function sameValue(a, b)
+    if a == b then
+        return true
+    end
+    if type(a) ~= 'table' or type(b) ~= 'table' then
+        return false
+    end
+    for k, v in pairs(a) do
+        if not sameValue(v, b[k]) then
+            return false
+        end
+    end
+    for k in pairs(b) do
+        if a[k] == nil then
+            return false
+        end
+    end
+    return true
+end
 
 function GetVehicleProperties(vehicle)
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Getting properties for vehicle: " .. tostring(vehicle))
-    end
-    
     if not DoesEntityExist(vehicle) then
-        if Config.Printing and Config.Printing.Debug then
-            exports['cis_libs']:LogError("Attempted to get properties of non-existent vehicle")
-        end
         return nil
     end
 
@@ -20,7 +41,6 @@ function GetVehicleProperties(vehicle)
     if GetIsVehiclePrimaryColourCustom(vehicle) then
         colorPrimary = { GetVehicleCustomPrimaryColour(vehicle) }
     end
-
     if GetIsVehicleSecondaryColourCustom(vehicle) then
         colorSecondary = { GetVehicleCustomSecondaryColour(vehicle) }
     end
@@ -34,26 +54,18 @@ function GetVehicleProperties(vehicle)
 
     local modLiveryCount = GetVehicleLiveryCount(vehicle)
     local modLivery = GetVehicleLivery(vehicle)
-
     if modLiveryCount == -1 or modLivery == -1 then
         modLivery = GetVehicleMod(vehicle, 48)
     end
 
-    local damage = {
-        windows = {},
-        doors = {},
-        tyres = {},
-    }
-
+    local damage = { windows = {}, doors = {}, tyres = {} }
     local windows = 0
     for i = 0, 7 do
-        RollUpWindow(vehicle, i)
         if not IsVehicleWindowIntact(vehicle, i) then
             windows = windows + 1
             damage.windows[windows] = i
         end
     end
-
     local doors = 0
     for i = 0, 5 do
         if IsVehicleDoorDamaged(vehicle, i) then
@@ -61,7 +73,6 @@ function GetVehicleProperties(vehicle)
             damage.doors[doors] = i
         end
     end
-
     for i = 0, 7 do
         if IsVehicleTyreBurst(vehicle, i, false) then
             damage.tyres[i] = IsVehicleTyreBurst(vehicle, i, true) and 2 or 1
@@ -73,7 +84,7 @@ function GetVehicleProperties(vehicle)
         neons[i + 1] = IsVehicleNeonLightEnabled(vehicle, i)
     end
 
-    local properties = {
+    return {
         model = GetEntityModel(vehicle),
         plate = GetVehicleNumberPlateText(vehicle),
         plateIndex = GetVehicleNumberPlateTextIndex(vehicle),
@@ -157,42 +168,41 @@ function GetVehicleProperties(vehicle)
         doors = damage.doors,
         tyres = damage.tyres,
         bulletProofTyres = GetVehicleTyresCanBurst(vehicle),
-        driftTyres = Globals.ServerInfo.GameBuild >= 2372 and GetDriftTyresEnabled(vehicle),
+        driftTyres = gameBuild() >= 2372 and GetDriftTyresEnabled(vehicle),
     }
-
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Vehicle properties retrieved: " .. json.encode(properties))
-    end
-    return properties
 end
 
 function SetVehicleProperties(vehicle, props, fixVehicle)
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Setting properties for vehicle: " .. tostring(vehicle))
-    end
-    
-    if not DoesEntityExist(vehicle) then
-        if Config.Printing and Config.Printing.Debug then
-            exports['cis_libs']:LogError("Unable to set vehicle properties for non-existent vehicle")
-        end
+    if not DoesEntityExist(vehicle) or type(props) ~= 'table' then
         return false
     end
+
+    local prev = lastApplied[vehicle]
+    local function changed(key)
+        if props[key] == nil then
+            return false
+        end
+        if prev and sameValue(prev[key], props[key]) then
+            return false
+        end
+        return true
+    end
+
+    SetVehicleModKit(vehicle, 0)
 
     local colorPrimary, colorSecondary = GetVehicleColours(vehicle)
     local pearlescentColor, wheelColor = GetVehicleExtraColours(vehicle)
 
-    SetVehicleModKit(vehicle, 0)
+    if changed('plate') then SetVehicleNumberPlateText(vehicle, props.plate) end
+    if changed('plateIndex') then SetVehicleNumberPlateTextIndex(vehicle, props.plateIndex) end
+    if changed('bodyHealth') then SetVehicleBodyHealth(vehicle, props.bodyHealth + 0.0) end
+    if changed('engineHealth') then SetVehicleEngineHealth(vehicle, props.engineHealth + 0.0) end
+    if changed('tankHealth') then SetVehiclePetrolTankHealth(vehicle, props.tankHealth + 0.0) end
+    if changed('fuelLevel') then SetVehicleFuelLevel(vehicle, props.fuelLevel + 0.0) end
+    if changed('oilLevel') then SetVehicleOilLevel(vehicle, props.oilLevel + 0.0) end
+    if changed('dirtLevel') then SetVehicleDirtLevel(vehicle, props.dirtLevel + 0.0) end
 
-    if props.plate then SetVehicleNumberPlateText(vehicle, props.plate) end
-    if props.plateIndex then SetVehicleNumberPlateTextIndex(vehicle, props.plateIndex) end
-    if props.bodyHealth then SetVehicleBodyHealth(vehicle, props.bodyHealth + 0.0) end
-    if props.engineHealth then SetVehicleEngineHealth(vehicle, props.engineHealth + 0.0) end
-    if props.tankHealth then SetVehiclePetrolTankHealth(vehicle, props.tankHealth + 0.0) end
-    if props.fuelLevel then SetVehicleFuelLevel(vehicle, props.fuelLevel + 0.0) end
-    if props.oilLevel then SetVehicleOilLevel(vehicle, props.oilLevel + 0.0) end
-    if props.dirtLevel then SetVehicleDirtLevel(vehicle, props.dirtLevel + 0.0) end
-
-    if props.color1 then
+    if changed('color1') then
         if type(props.color1) == 'number' then
             ClearVehicleCustomPrimaryColour(vehicle)
             SetVehicleColours(vehicle, props.color1, colorSecondary)
@@ -202,7 +212,7 @@ function SetVehicleProperties(vehicle, props, fixVehicle)
         end
     end
 
-    if props.color2 then
+    if changed('color2') then
         if type(props.color2) == 'number' then
             ClearVehicleCustomSecondaryColour(vehicle)
             SetVehicleColours(vehicle, props.color1 or colorPrimary, props.color2)
@@ -212,199 +222,162 @@ function SetVehicleProperties(vehicle, props, fixVehicle)
         end
     end
 
-    if props.pearlescentColor or props.wheelColor then
+    if changed('pearlescentColor') or changed('wheelColor') then
         SetVehicleExtraColours(vehicle, props.pearlescentColor or pearlescentColor, props.wheelColor or wheelColor)
     end
 
-    if props.wheels then SetVehicleWheelType(vehicle, props.wheels) end
-    if props.windowTint then SetVehicleWindowTint(vehicle, props.windowTint) end
+    if changed('wheels') then SetVehicleWheelType(vehicle, props.wheels) end
+    if changed('windowTint') then SetVehicleWindowTint(vehicle, props.windowTint) end
 
-    if props.neonEnabled then
+    if changed('neonEnabled') then
         for i = 1, #props.neonEnabled do
             SetVehicleNeonLightEnabled(vehicle, i - 1, props.neonEnabled[i])
         end
     end
 
-    if props.extras then
+    if changed('extras') then
         for id, disable in pairs(props.extras) do
             SetVehicleExtra(vehicle, tonumber(id), disable == 1)
         end
     end
 
-    if props.windows then
+    if changed('windows') then
         for i = 1, #props.windows do
             RemoveVehicleWindow(vehicle, props.windows[i])
         end
     end
 
-    if props.doors then
+    if changed('doors') then
         for i = 1, #props.doors do
             SetVehicleDoorBroken(vehicle, props.doors[i], true)
         end
     end
 
-    if props.tyres then
+    if changed('tyres') then
         for tyre, state in pairs(props.tyres) do
             SetVehicleTyreBurst(vehicle, tonumber(tyre), state == 2, 1000.0)
         end
     end
 
-    if props.neonColor then SetVehicleNeonLightsColour(vehicle, props.neonColor[1], props.neonColor[2], props.neonColor[3]) end
+    if changed('neonColor') then
+        SetVehicleNeonLightsColour(vehicle, props.neonColor[1], props.neonColor[2], props.neonColor[3])
+    end
 
-    if props.modSmokeEnabled ~= nil then ToggleVehicleMod(vehicle, 20, props.modSmokeEnabled) end
-    if props.tyreSmokeColor then SetVehicleTyreSmokeColor(vehicle, props.tyreSmokeColor[1], props.tyreSmokeColor[2], props.tyreSmokeColor[3]) end
+    if changed('modSmokeEnabled') then ToggleVehicleMod(vehicle, 20, props.modSmokeEnabled) end
+    if changed('tyreSmokeColor') then
+        SetVehicleTyreSmokeColor(vehicle, props.tyreSmokeColor[1], props.tyreSmokeColor[2], props.tyreSmokeColor[3])
+    end
 
-    if props.modSpoilers then SetVehicleMod(vehicle, 0, props.modSpoilers, false) end
-    if props.modFrontBumper then SetVehicleMod(vehicle, 1, props.modFrontBumper, false) end
-    if props.modRearBumper then SetVehicleMod(vehicle, 2, props.modRearBumper, false) end
-    if props.modSideSkirt then SetVehicleMod(vehicle, 3, props.modSideSkirt, false) end
-    if props.modExhaust then SetVehicleMod(vehicle, 4, props.modExhaust, false) end
-    if props.modFrame then SetVehicleMod(vehicle, 5, props.modFrame, false) end
-    if props.modGrille then SetVehicleMod(vehicle, 6, props.modGrille, false) end
-    if props.modHood then SetVehicleMod(vehicle, 7, props.modHood, false) end
-    if props.modFender then SetVehicleMod(vehicle, 8, props.modFender, false) end
-    if props.modRightFender then SetVehicleMod(vehicle, 9, props.modRightFender, false) end
-    if props.modRoof then SetVehicleMod(vehicle, 10, props.modRoof, false) end
-    if props.modEngine then SetVehicleMod(vehicle, 11, props.modEngine, false) end
-    if props.modBrakes then SetVehicleMod(vehicle, 12, props.modBrakes, false) end
-    if props.modTransmission then SetVehicleMod(vehicle, 13, props.modTransmission, false) end
-    if props.modHorns then SetVehicleMod(vehicle, 14, props.modHorns, false) end
-    if props.modSuspension then SetVehicleMod(vehicle, 15, props.modSuspension, false) end
-    if props.modArmor then SetVehicleMod(vehicle, 16, props.modArmor, false) end
-    if props.modNitrous then SetVehicleMod(vehicle, 17, props.modNitrous, false) end
-    if props.modTurbo ~= nil then ToggleVehicleMod(vehicle, 18, props.modTurbo) end
-    if props.modSubwoofer ~= nil then ToggleVehicleMod(vehicle, 19, props.modSubwoofer) end
-    if props.modHydraulics ~= nil then ToggleVehicleMod(vehicle, 21, props.modHydraulics) end
-    if props.modXenon ~= nil then ToggleVehicleMod(vehicle, 22, props.modXenon) end
+    local mods = {
+        modSpoilers = 0, modFrontBumper = 1, modRearBumper = 2, modSideSkirt = 3, modExhaust = 4,
+        modFrame = 5, modGrille = 6, modHood = 7, modFender = 8, modRightFender = 9, modRoof = 10,
+        modEngine = 11, modBrakes = 12, modTransmission = 13, modHorns = 14, modSuspension = 15,
+        modArmor = 16, modNitrous = 17, modSubwoofer = 19, modPlateHolder = 25, modVanityPlate = 26,
+        modTrimA = 27, modOrnaments = 28, modDashboard = 29, modDial = 30, modDoorSpeaker = 31,
+        modSeats = 32, modSteeringWheel = 33, modShifterLeavers = 34, modAPlate = 35, modSpeakers = 36,
+        modTrunk = 37, modHydrolic = 38, modEngineBlock = 39, modAirFilter = 40, modStruts = 41,
+        modArchCover = 42, modAerials = 43, modTrimB = 44, modTank = 45, modWindows = 46, modLightbar = 49,
+    }
+    for key, index in pairs(mods) do
+        if changed(key) then
+            SetVehicleMod(vehicle, index, props[key], false)
+        end
+    end
 
-    if props.modFrontWheels then
+    if changed('modTurbo') then ToggleVehicleMod(vehicle, 18, props.modTurbo) end
+    if changed('modHydraulics') then ToggleVehicleMod(vehicle, 21, props.modHydraulics) end
+    if changed('modXenon') then ToggleVehicleMod(vehicle, 22, props.modXenon) end
+    if changed('modFrontWheels') then
         SetVehicleMod(vehicle, 23, props.modFrontWheels, props.modCustomTiresF)
     end
-
-    if props.modBackWheels then
+    if changed('modBackWheels') then
         SetVehicleMod(vehicle, 24, props.modBackWheels, props.modCustomTiresR)
     end
-
-    if props.modPlateHolder then SetVehicleMod(vehicle, 25, props.modPlateHolder, false) end
-    if props.modVanityPlate then SetVehicleMod(vehicle, 26, props.modVanityPlate, false) end
-    if props.modTrimA then SetVehicleMod(vehicle, 27, props.modTrimA, false) end
-    if props.modOrnaments then SetVehicleMod(vehicle, 28, props.modOrnaments, false) end
-    if props.modDashboard then SetVehicleMod(vehicle, 29, props.modDashboard, false) end
-    if props.modDial then SetVehicleMod(vehicle, 30, props.modDial, false) end
-    if props.modDoorSpeaker then SetVehicleMod(vehicle, 31, props.modDoorSpeaker, false) end
-    if props.modSeats then SetVehicleMod(vehicle, 32, props.modSeats, false) end
-    if props.modSteeringWheel then SetVehicleMod(vehicle, 33, props.modSteeringWheel, false) end
-    if props.modShifterLeavers then SetVehicleMod(vehicle, 34, props.modShifterLeavers, false) end
-    if props.modAPlate then SetVehicleMod(vehicle, 35, props.modAPlate, false) end
-    if props.modSpeakers then SetVehicleMod(vehicle, 36, props.modSpeakers, false) end
-    if props.modTrunk then SetVehicleMod(vehicle, 37, props.modTrunk, false) end
-    if props.modHydrolic then SetVehicleMod(vehicle, 38, props.modHydrolic, false) end
-    if props.modEngineBlock then SetVehicleMod(vehicle, 39, props.modEngineBlock, false) end
-    if props.modAirFilter then SetVehicleMod(vehicle, 40, props.modAirFilter, false) end
-    if props.modStruts then SetVehicleMod(vehicle, 41, props.modStruts, false) end
-    if props.modArchCover then SetVehicleMod(vehicle, 42, props.modArchCover, false) end
-    if props.modAerials then SetVehicleMod(vehicle, 43, props.modAerials, false) end
-    if props.modTrimB then SetVehicleMod(vehicle, 44, props.modTrimB, false) end
-    if props.modTank then SetVehicleMod(vehicle, 45, props.modTank, false) end
-    if props.modWindows then SetVehicleMod(vehicle, 46, props.modWindows, false) end
-    if props.modLivery then
+    if changed('modLivery') then
         SetVehicleMod(vehicle, 48, props.modLivery, false)
         SetVehicleLivery(vehicle, props.modLivery)
     end
-
-    if props.modRoofLivery then SetVehicleRoofLivery(vehicle, props.modRoofLivery) end
-    if props.modLightbar then SetVehicleMod(vehicle, 49, props.modLightbar, false) end
-
-    if props.bulletProofTyres ~= nil then
-        SetVehicleTyresCanBurst(vehicle, props.bulletProofTyres)
-    end
-
-    if Globals.ServerInfo.GameBuild >= 2372 and props.driftTyres then
-        SetDriftTyresEnabled(vehicle, true)
+    if changed('modRoofLivery') then SetVehicleRoofLivery(vehicle, props.modRoofLivery) end
+    if changed('bulletProofTyres') then SetVehicleTyresCanBurst(vehicle, props.bulletProofTyres) end
+    if gameBuild() >= 2372 and changed('driftTyres') then
+        SetDriftTyresEnabled(vehicle, props.driftTyres and true or false)
     end
 
     if fixVehicle then
         SetVehicleFixed(vehicle)
-        if Config.Printing and Config.Printing.Debug then
-            exports['cis_libs']:LogDebug("Vehicle fixed after setting properties")
-        end
     end
 
-    local success = not NetworkGetEntityIsNetworked(vehicle) or NetworkGetEntityOwner(vehicle) == cache.playerId
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogInfo("Vehicle properties set. Success: " .. tostring(success))
+    local merged = {}
+    if prev then
+        for k, v in pairs(prev) do
+            merged[k] = v
+        end
     end
-    return success
+    for k, v in pairs(props) do
+        merged[k] = v
+    end
+    lastApplied[vehicle] = merged
+    local playerId = PlayerId()
+    return not NetworkGetEntityIsNetworked(vehicle) or NetworkGetEntityOwner(vehicle) == playerId
 end
 
-function GetPlayerVehicleSeat()
-    local vehicle = GetVehiclePedIsIn(Globals.Player.Ped, false)
-    if vehicle == 0 then
-        if Config.Printing and Config.Printing.Debug then
-            exports['cis_libs']:LogDebug("Player is not in a vehicle")
+-- lastApplied holds one snapshot per vehicle handle ever touched. Handles are
+-- recycled by the game, so drop entries whose entity is gone instead of
+-- letting the table grow for the lifetime of the client.
+CreateThread(function()
+    while true do
+        Wait(30000)
+        for vehicle in pairs(lastApplied) do
+            if not DoesEntityExist(vehicle) then
+                lastApplied[vehicle] = nil
+            end
         end
+    end
+end)
+
+AddEventHandler('onResourceStop', function(resource)
+    if resource == GetCurrentResourceName() then
+        lastApplied = {}
+    end
+end)
+
+function GetPlayerVehicleSeat()
+    if CisCache and CisCache.vehicle ~= 0 and CisCache.seat ~= nil then
+        return CisCache.seat
+    end
+    local ped = (CisCache and CisCache.ped ~= 0 and CisCache.ped) or PlayerPedId()
+    local vehicle = GetVehiclePedIsIn(ped, false)
+    if vehicle == 0 then
         return nil
     end
-
-    for i = -1, GetVehicleMaxNumberOfPassengers(vehicle) - 1 do
-        if GetPedInVehicleSeat(vehicle, i) == Globals.Player.Ped then
-            if Config.Printing and Config.Printing.Debug then
-                exports['cis_libs']:LogDebug("Player is in vehicle seat: " .. tostring(i))
-            end
+    if GetPedInVehicleSeat(vehicle, -1) == ped then
+        return -1
+    end
+    local maxPassengers = GetVehicleMaxNumberOfPassengers(vehicle)
+    for i = 0, maxPassengers - 1 do
+        if GetPedInVehicleSeat(vehicle, i) == ped then
             return i
         end
-    end
-
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogWarn("Player is in vehicle but seat not found")
     end
     return nil
 end
 
 function GetClosestVehicle()
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Searching for closest vehicle")
+    local ped = (CisCache and CisCache.ped ~= 0 and CisCache.ped) or PlayerPedId()
+    local playerCoords = GetEntityCoords(ped)
+    local inDirection = GetOffsetFromEntityInWorldCoords(ped, 0.0, 5.0, 0.0)
+    local rayHandle = StartExpensiveSynchronousShapeTestLosProbe(playerCoords, inDirection, 10, ped, 0)
+    local _, hit, _, _, entityHit = GetShapeTestResult(rayHandle)
+    if hit == 1 and GetEntityType(entityHit) == 2 then
+        return entityHit
     end
-    
-    local function GetClosestVehicleInDirection(coordFrom, coordTo)
-        local inDirection = GetOffsetFromEntityInWorldCoords(Globals.Player.Ped, 0.0, 5.0, 0.0)
-        local rayHandle = StartExpensiveSynchronousShapeTestLosProbe(Globals.Player.Coords, inDirection, 10, Globals.Player.Ped, 0)
-        local _, hit, endCoords, _, entityHit = GetShapeTestResult(rayHandle)
-        if hit == 1 and GetEntityType(entityHit) == 2 then
-            local entityCoords = GetEntityCoords(entityHit)
-            return entityHit, entityCoords
-        end
-        return 0
+    local vehicle = GetClosestVehicleNative(playerCoords.x, playerCoords.y, playerCoords.z, 5.0, 0, 71)
+    if vehicle ~= 0 then
+        return vehicle
     end
-
-    -- Method 1: Check vehicle in direction
-    local vehicle, _ = GetClosestVehicleInDirection(Globals.Player.Coords, GetOffsetFromEntityInWorldCoords(Globals.Player.Ped, 0.0, 255.0, 0.0))
-
-    -- Method 2: Use native GetClosestVehicle if method 1 fails
-    if vehicle == 0 then
-        vehicle = GetClosestVehicle(Globals.Player.Coords.x, Globals.Player.Coords.y, Globals.Player.Coords.z, 5.0, 0, 71)
-    end
-
-    -- Method 3: Cast a ray behind the player if methods 1 and 2 fail
-    if vehicle == 0 then
-        local coordTo = GetOffsetFromEntityInWorldCoords(Globals.Player.Ped, 0.0, -30.0, 0.0)
-        local rayHandle = CastRayPointToPoint(Globals.Player.Coords.x, Globals.Player.Coords.y, Globals.Player.Coords.z, coordTo.x, coordTo.y, coordTo.z, 10, Globals.Player.Ped, 0)
-        local _, _, _, _, tempVeh = GetRaycastResult(rayHandle)
-        vehicle = tempVeh
-    end
-
-    if Config.Printing and Config.Printing.Debug then
-        if vehicle == 0 then
-            exports['cis_libs']:LogDebug("No close vehicle found")
-        else
-            exports['cis_libs']:LogDebug("Closest vehicle found: " .. tostring(vehicle))
-        end
-    end
-
-    return vehicle
+    return 0
 end
 
--- Export functions
 exports('GetVehicleProperties', GetVehicleProperties)
 exports('SetVehicleProperties', SetVehicleProperties)
 exports('GetPlayerVehicleSeat', GetPlayerVehicleSeat)

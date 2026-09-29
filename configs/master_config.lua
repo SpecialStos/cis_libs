@@ -1,27 +1,39 @@
 Config = {}
 
-Config.CheckVersion = true --Checks if you are running the latest version of the script. Prits on console and logs it in Master Logs.
+Config.CheckVersion = true -- Prints on console and logs it in Master Logs.
 
-Config.UpdateInterval = { --in milliseconds
-    Player = 100,
-    Vehicle = 1000000, --disabled for v0.1.0, next update will have this feature for TCVS.
-    Weapon = 250,
+Config.CallbackTimeout = 10000
+
+-- Fallback poll interval in milliseconds. The cache is primarily event-driven;
+-- this loop only catches what events miss (respawn, seat change without a
+-- game event, weapon swap). Each tick costs roughly ten natives plus a vec4
+-- allocation, so lowering Player trades idle cost for fresher Globals.
+Config.UpdateInterval = {
+    Player = 1000,
+    Weapon = 1000,
+    -- Read by a consumer that syncs vehicle properties; this resource does not
+    -- poll them on its own.
+    Vehicle = 1000,
+    VehicleProperties = 5000,
 }
 
--- Framework configuration
+Config.AimingCheckType = "default" -- "default" or "configFlag"
+
 Config.Framework = {
-    Type = "QBCORE", -- Set this to your framework. "ESX", "ESX-LEGACY", "QBCORE", "QBOX", or "NONE"
-    Inventory = "ox_inventory", -- Set this to your inventory system. "ox_inventory", "qb-inventory", "qs-inventory", "codem-inventory", or "typical"
+    Type = "QBCORE", -- "ESX", "ESX-LEGACY", "QBCORE", "QBOX", or "NONE"
+    Inventory = "ox_inventory", -- "ox_inventory", "qb-inventory", "qs-inventory", "codem-inventory", or "typical"
     Zones = {
         Enabled = true,
-        Type = "ox-lib", -- "polyzones" / "ox-lib"
     },
     Target = {
         Enabled = true,
         Type = "ox_target", -- "qb-target" / "ox_target"
+        Debug = false,
     },
     Database = {
-        Type = "oxmysql", -- "mysql-async", "ghmattimysql", "mongodb".
+        Type = "oxmysql", -- "oxmysql", "mysql-async", "ghmattimysql", "mongodb"
+        Collection = nil, -- Required only for MongoDB.
+        Timeout = 15000, -- ms before an awaited query gives up and returns nil.
     }
 }
 
@@ -29,9 +41,14 @@ Config.Doorlock = {
     Enabled = true,
     Type = "target", -- DrawText3D / target
     InteractableDistance = 2.0,
+    Persist = false, -- SQL only. Creates cis_doors if the database driver is ready.
+}
+
+Config.Sync = {
+    Enabled = true,
 }
 
 Config.Printing = {
-    Debug = false, -- Enables/Disables debug mode
-    UseDiscordLogs = false -- Enables/Disables Discord logging
+    Debug = false,
+    UseDiscordLogs = false
 }

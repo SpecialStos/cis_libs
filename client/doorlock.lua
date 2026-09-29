@@ -1,550 +1,453 @@
--- cis_libs/client/doorlock.lua
-
 local DoorLock = {}
 local doors = {}
 local doorGroups = {}
 local addedTargets = {}
+local grid = CisGrid.new()
+local prefix = 'cis_libs'
+local targetMode = false
+local fallbackLogged = false
 
--- Initialize the door lock system
-function DoorLock.Init()
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Initializing door lock system")
-    end
-
-    -- Register network events
-    RegisterNetEvent(Security.EventPrefix .. ':doorlock:updateState')
-    AddEventHandler(Security.EventPrefix .. ':doorlock:updateState', DoorLock.UpdateDoorState)
-
-    RegisterNetEvent(Security.EventPrefix .. ':doorlock:addDoor')
-    AddEventHandler(Security.EventPrefix .. ':doorlock:addDoor', DoorLock.AddDoorToSystem)
-
-    RegisterNetEvent(Security.EventPrefix .. ':doorlock:addDoorGroup')
-    AddEventHandler(Security.EventPrefix .. ':doorlock:addDoorGroup', DoorLock.AddDoorGroup)
-
-    -- Register job update event
-    RegisterNetEvent('cis_libs:jobUpdated')
-    AddEventHandler('cis_libs:jobUpdated', DoorLock.OnJobUpdate)
-
-    -- Register player loaded event
-    RegisterNetEvent('cis_libs:playerLoaded')
-    AddEventHandler('cis_libs:playerLoaded', DoorLock.OnPlayerLoaded)
-
-    -- Initialize doors from the data received in initialize.lua
-    if DoorData and DoorData.doors then
-        for doorId, doorInfo in pairs(DoorData.doors) do
-            DoorLock.AddDoorToSystem(doorInfo)
-        end
-        if Config.Printing and Config.Printing.Debug then
-            exports['cis_libs']:LogDebug("Initialized " .. #DoorData.doors .. " doors from initial data")
-        end
-    end
-
-    -- Initialize door groups from the data received in initialize.lua
-    if DoorData and DoorData.groups then
-        for groupId, groupInfo in pairs(DoorData.groups) do
-            DoorLock.AddDoorGroup(groupInfo)
-        end
-        if Config.Printing and Config.Printing.Debug then
-            exports['cis_libs']:LogDebug("Initialized " .. #DoorData.groups .. " door groups from initial data")
-        end
-    end
-
-    -- Start the main loop for door interactions
-    Citizen.CreateThread(DoorLock.MainLoop)
-
-    --print("Door lock system initialized client-side")
+local function eventPrefix()
+    return (Security and Security.EventPrefix) or prefix
 end
 
--- Main loop for door interactions
-function DoorLock.MainLoop()
-    while true do
-        Citizen.Wait(0)
-        local playerPed = PlayerPedId()
-        local playerCoords = GetEntityCoords(playerPed)
-        local closestDoor = DoorLock.GetClosestDoor()
-
-        if closestDoor then
-            if Config.Doorlock.Type == "DrawText3D" then
-                DoorLock.HandleDrawText3D(closestDoor)
-            elseif Config.Doorlock.Type == "target" then
-                DoorLock.HandleTarget(closestDoor)
-            end
-        end
-
-        -- Clean up targets for doors that are no longer nearby
-        DoorLock.CleanupTargets(playerCoords)
-    end
+local function interactDistance()
+    return (Config and Config.Doorlock and Config.Doorlock.InteractableDistance) or 2.0
 end
 
--- Cleanup targets for doors that are no longer nearby
-function DoorLock.CleanupTargets(playerCoords)
-    for zoneId, targetData in pairs(addedTargets) do
-        if #(playerCoords - targetData.coords) > Config.Doorlock.InteractableDistance * 1.5 then
-            DoorLock.RemoveTarget(zoneId)
-        end
-    end
+local modeCache
+local modeCacheKey
+
+local function targetStateKey()
+    return GetResourceState('ox_target') .. '|' .. GetResourceState('qb-target')
 end
 
--- Remove a target
-function DoorLock.RemoveTarget(zoneId)
-    if addedTargets[zoneId] then
-        if Config.Framework.Target.Type == "ox_target" then
-            exports.ox_target:removeZone(zoneId)
-        elseif Config.Framework.Target.Type == "qb-target" then
-            exports['qb-target']:RemoveZone(zoneId)
-        end
-        addedTargets[zoneId] = nil
-        if Config.Printing and Config.Printing.Debug then
-            exports['cis_libs']:LogDebug("Removed target: " .. zoneId)
+local function doorMode()
+    -- Resolved once and re-resolved only when the target resource changes
+    -- state. The DrawText3D loop calls this every frame, and every miss was a
+    -- cross-resource export call.
+    local configured = Config and Config.Doorlock and Config.Doorlock.Type or 'target'
+    if modeCache then
+        if configured ~= 'target' or modeCacheKey == targetStateKey() then
+            return modeCache
         end
     end
+
+    if configured == 'target' then
+        modeCacheKey = targetStateKey()
+        if exports['cis_libs']:TargetAvailable() then
+            modeCache = 'target'
+            return modeCache
+        end
+        if not fallbackLogged then
+            fallbackLogged = true
+            CisLog('warn', 'Door target provider missing; using DrawText3D')
+        end
+        modeCache = 'DrawText3D'
+        return modeCache
+    end
+    modeCache = configured
+    return modeCache
 end
 
--- Check if any door in a group is locked
+AddEventHandler('onClientResourceStart', function(name)
+    if name == 'ox_target' or name == 'qb-target' then
+        modeCache = nil
+        fallbackLogged = false
+    end
+end)
+
+AddEventHandler('onClientResourceStop', function(name)
+    if name == 'ox_target' or name == 'qb-target' then
+        modeCache = nil
+        fallbackLogged = false
+    end
+end)
+
+local function asVec3(value)
+    if not value then
+        return nil
+    end
+    if type(value) == 'vector3' then
+        return value
+    end
+    return vector3(value.x or value[1], value.y or value[2], value.z or value[3] or 0.0)
+end
+
+local function insertDoor(door)
+    local coords = door.interactCoords
+    local radius = (door.maxDistance or interactDistance()) * 1.5
+    CisGrid.insert(grid, door.id, CisGrid.aabbFromCenter(coords.x, coords.y, coords.z, radius, radius, radius), door)
+end
+
 function DoorLock.IsDoorGroupLocked(doorIds)
-    for _, doorId in ipairs(doorIds) do
-        if doors[doorId] and doors[doorId].locked then
+    for i = 1, #doorIds do
+        local door = doors[doorIds[i]]
+        if door and door.locked then
             return true
         end
     end
     return false
 end
 
--- Handle DrawText3D interaction
-function DoorLock.HandleDrawText3D(closestDoor)
-    local text = closestDoor.door.locked and "Locked" or "Unlocked"
-    local color = closestDoor.door.locked and {255, 0, 0} or {0, 255, 0}
-    
-    DrawText3D(closestDoor.door.interactCoords.x, closestDoor.door.interactCoords.y, closestDoor.door.interactCoords.z, text, color)
-
-    if IsControlJustReleased(0, 38) then -- 'E' key
-        DoorLock.ToggleDoorState(closestDoor.id)
+local function currentJob()
+    if Framework and Framework.GetPlayerJob then
+        return Framework.GetPlayerJob()
     end
+    return nil
 end
 
--- Handle target interaction
-function DoorLock.HandleTarget(closestDoor)
-    local doorId = closestDoor.id
-    local groupId = doors[doorId] and doors[doorId].groupId
-    local targetId = groupId or doorId
-    local zoneId = "door_" .. targetId
-    local targetDoors = groupId and doorGroups[groupId] or {doorId}
-    
-    -- Add nil checks before accessing the table
-    if not doors[doorId] then
-        if Config.Printing and Config.Printing.Debug then
-            exports['cis_libs']:LogError("Door not found in doors table: " .. tostring(doorId))
-        end
-        return
-    end
-    
-    local isLocked = DoorLock.IsDoorGroupLocked(targetDoors)
-
-    if addedTargets[zoneId] then
-        if addedTargets[zoneId].locked ~= isLocked then
-            DoorLock.UpdateTarget(zoneId, isLocked)
-        end
-    else
-        DoorLock.CreateTarget(zoneId, closestDoor, targetDoors, isLocked)
-    end
-
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("HandleTarget executed for door: " .. tostring(doorId) .. ", isLocked: " .. tostring(isLocked))
-    end
-end
-
-function DoorLock.CreateTarget(zoneId, closestDoor, targetDoors, isLocked)
-    DoorLock.RemoveTarget(zoneId)
-
-    local options = {
-        {
-            name = 'toggle_door_' .. zoneId,
-            icon = 'fas fa-door-open',
-            label = isLocked and "Locked" or "Unlocked",
-            canInteract = function()
-                return DoorLock.CanInteractWithDoorGroup(targetDoors)
-            end,
-            onSelect = function()
-                DoorLock.ToggleDoorGroupState(targetDoors)
-            end
-        }
-    }
-
-    if Config.Framework.Target.Type == "ox_target" then
-        exports.ox_target:addBoxZone({
-            coords = closestDoor.door.interactCoords,
-            size = vec3(1, 1, 1),
-            rotation = 0,
-            debug = Config.Printing.Debug,
-            options = options,
-            name = zoneId
-        })
-    elseif Config.Framework.Target.Type == "qb-target" then
-        exports['qb-target']:AddBoxZone(zoneId, closestDoor.door.interactCoords, 1, 1, {
-            name = zoneId,
-            heading = 0,
-            debugPoly = Config.Printing.Debug,
-            minZ = closestDoor.door.interactCoords.z - 0.5,
-            maxZ = closestDoor.door.interactCoords.z + 0.5,
-        }, {
-            options = options,
-            distance = 1.5
-        })
-    end
-
-    addedTargets[zoneId] = {
-        id = zoneId,
-        coords = closestDoor.door.interactCoords,
-        doors = targetDoors,
-        locked = isLocked
-    }
-
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Added new target: " .. zoneId .. ", Locked: " .. tostring(isLocked))
-    end
-end
-
-function DoorLock.UpdateTarget(zoneId, isLocked)
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Updating target for zoneId: " .. tostring(zoneId) .. ", locked: " .. tostring(isLocked))
-    end
-
-    if not addedTargets[zoneId] then
-        if Config.Printing and Config.Printing.Debug then
-            exports['cis_libs']:LogWarn("Attempted to update non-existent target: " .. tostring(zoneId))
-        end
-        return
-    end
-
-    local targetData = addedTargets[zoneId]
-    if not targetData.coords then
-        if Config.Printing and Config.Printing.Debug then
-            exports['cis_libs']:LogError("Target data missing coordinates for zoneId: " .. tostring(zoneId))
-        end
-        return
-    end
-
-    DoorLock.RemoveTarget(zoneId)
-    DoorLock.CreateTarget(zoneId, {door = {interactCoords = targetData.coords}}, targetData.doors, isLocked)
-
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Updated target: " .. tostring(zoneId) .. ", Locked: " .. tostring(isLocked))
-    end
-end
-
--- Check if player can interact with any door in a group
 function DoorLock.CanInteractWithDoorGroup(doorIds)
-    local playerJob = exports['cis_libs']:GetFramework().GetPlayerJob()
+    local playerJob = currentJob()
     if not playerJob or not playerJob.name then
-        if Config.Printing and Config.Printing.Debug then
-            exports['cis_libs']:LogError("Player job not found")
-        end
         return false
     end
-
-    for _, doorId in ipairs(doorIds) do
-        if doors[doorId] and doors[doorId].groups then
-            for _, allowedJob in ipairs(doors[doorId].groups) do
-                if playerJob.name == allowedJob then
+    for i = 1, #doorIds do
+        local door = doors[doorIds[i]]
+        if door and door.groups then
+            for j = 1, #door.groups do
+                if playerJob.name == door.groups[j] then
                     return true
                 end
             end
         end
     end
-
     return false
 end
 
--- Toggle door state
-function DoorLock.ToggleDoorState(doorId)
-    if doors[doorId] then
-        local newState = not doors[doorId].locked
-        DoorLock.RequestDoorStateChange(doorId, newState)
-    end
-end
-
--- Toggle state for a group of doors
-function DoorLock.ToggleDoorGroupState(doorIds)
-    local newState = not DoorLock.IsDoorGroupLocked(doorIds)
-    for _, doorId in ipairs(doorIds) do
-        DoorLock.RequestDoorStateChange(doorId, newState)
-    end
-end
-
--- Request door state change
-function DoorLock.RequestDoorStateChange(identifier, state)
-    TriggerServerEvent(Security.EventPrefix .. ':doorlock:requestState', identifier, state)
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Door state change requested for " .. identifier .. " to " .. tostring(state))
-    end
-end
-
--- Update the state of a door or door group
-function DoorLock.UpdateDoorState(identifier, state)
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Updating door state for identifier: " .. tostring(identifier) .. ", new state: " .. tostring(state))
-    end
-
-    local doorsToUpdate = DoorLock.GetDoorsToUpdate(identifier)
-
-    if #doorsToUpdate == 0 then
-        if Config.Printing and Config.Printing.Debug then
-            exports['cis_libs']:LogWarn("No doors found to update for identifier: " .. tostring(identifier))
-        end
-        return
-    end
-
-    for _, doorId in ipairs(doorsToUpdate) do
-        if doors[doorId] then
-            doors[doorId].locked = state
-            DoorSystemSetDoorState(doorId, state and 1 or 0, false, false)
-            
-            -- Update target if it exists
-            local zoneId = "door_" .. (doors[doorId].groupId or doorId)
-            if addedTargets[zoneId] then
-                DoorLock.UpdateTarget(zoneId, state)
-            else
-                if Config.Printing and Config.Printing.Debug then
-                    exports['cis_libs']:LogDebug("No target found for zoneId: " .. zoneId)
-                end
-            end
-        else
-            if Config.Printing and Config.Printing.Debug then
-                exports['cis_libs']:LogWarn("Door not found in system: " .. tostring(doorId))
-            end
-        end
-    end
-
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Door state update completed for identifier: " .. tostring(identifier))
-    end
-end
-
--- Helper function to get doors to update
 function DoorLock.GetDoorsToUpdate(identifier)
     if doorGroups[identifier] then
         return doorGroups[identifier]
     elseif doors[identifier] then
-        return {identifier}
-    else
-        if Config.Printing and Config.Printing.Debug then
-            exports['cis_libs']:LogError("Invalid identifier: " .. tostring(identifier))
-        end
-        return {}
+        return { identifier }
+    end
+    return {}
+end
+
+function DoorLock.RequestDoorStateChange(identifier, state)
+    TriggerServerEvent(eventPrefix() .. ':doorlock:requestState', identifier, state)
+end
+
+function DoorLock.ToggleDoorState(doorId)
+    local door = doors[doorId]
+    if door then
+        DoorLock.RequestDoorStateChange(doorId, not door.locked)
     end
 end
 
--- Add a door to the system
-function DoorLock.AddDoorToSystem(doorData)
-    if doors[doorData.id] then
-        if Config.Printing and Config.Printing.Debug then
-            exports['cis_libs']:LogDebug("Door already exists: " .. doorData.id)
-        end
+function DoorLock.ToggleDoorGroupState(doorIds)
+    local newState = not DoorLock.IsDoorGroupLocked(doorIds)
+    for i = 1, #doorIds do
+        DoorLock.RequestDoorStateChange(doorIds[i], newState)
+    end
+end
+
+function DoorLock.RemoveTarget(zoneId)
+    if not addedTargets[zoneId] then
         return
     end
+    exports['cis_libs']:RemoveTarget(zoneId)
+    addedTargets[zoneId] = nil
+end
 
-    local doorHash = GetHashKey(doorData.model)
+function DoorLock.CreateTarget(zoneId, door, targetDoors, isLocked)
+    DoorLock.RemoveTarget(zoneId)
+    local options = {
+        options = {
+            {
+                name = 'toggle_door_' .. zoneId,
+                icon = 'fas fa-door-open',
+                label = isLocked and 'Locked' or 'Unlocked',
+                canInteract = function()
+                    return DoorLock.CanInteractWithDoorGroup(targetDoors)
+                end,
+                onSelect = function()
+                    DoorLock.ToggleDoorGroupState(targetDoors)
+                end,
+                action = function()
+                    DoorLock.ToggleDoorGroupState(targetDoors)
+                end,
+            },
+        },
+        distance = door.maxDistance or interactDistance(),
+    }
+    local size = vec3(1.0, 1.0, 1.0)
+    local ok = exports['cis_libs']:CreateTarget('box', zoneId, door.interactCoords, size, options)
+    if ok then
+        addedTargets[zoneId] = {
+            id = zoneId,
+            coords = door.interactCoords,
+            doors = targetDoors,
+            locked = isLocked,
+        }
+    end
+end
+
+function DoorLock.UpdateTarget(zoneId, isLocked)
+    local target = addedTargets[zoneId]
+    if not target then
+        return
+    end
+    local door = doors[target.doors[1]]
+    if not door then
+        return
+    end
+    DoorLock.CreateTarget(zoneId, door, target.doors, isLocked)
+end
+
+function DoorLock.AddDoorToSystem(doorData)
+    if not doorData or doors[doorData.id] then
+        return
+    end
+    local model = doorData.model
+    local doorHash = type(model) == 'number' and model or GetHashKey(model)
+    local coords = asVec3(doorData.coords)
+    local interact = asVec3(doorData.interactCoords) or coords
     doors[doorData.id] = {
         id = doorData.id,
-        coords = doorData.coords,
+        coords = coords,
         model = doorHash,
-        locked = doorData.locked,
-        interactCoords = doorData.interactCoords or doorData.coords,
-        maxDistance = doorData.maxDistance or Config.Doorlock.InteractableDistance,
+        locked = doorData.locked and true or false,
+        broken = doorData.broken and true or false,
+        interactCoords = interact,
+        maxDistance = doorData.maxDistance or interactDistance(),
         groups = doorData.groups or {},
-        lockpick = doorData.lockpick or false,
-        groupId = doorData.groupId
+        groupId = doorData.groupId,
+        doorRate = doorData.doorRate,
+        auto = doorData.auto,
+        state = doorData.state,
     }
-
-    AddDoorToSystem(doorData.id, doorHash, doorData.coords.x, doorData.coords.y, doorData.coords.z, false, false, false)
-    DoorSystemSetDoorState(doorData.id, doorData.locked and 1 or 0, false, false)
-
+    AddDoorToSystem(doorData.id, doorHash, coords.x, coords.y, coords.z, false, false, false)
+    DoorSystemSetDoorState(doorData.id, doors[doorData.id].locked and 1 or 0, false, false)
     if doorData.groupId then
-        if not doorGroups[doorData.groupId] then
-            doorGroups[doorData.groupId] = {}
-        end
-        table.insert(doorGroups[doorData.groupId], doorData.id)
+        doorGroups[doorData.groupId] = doorGroups[doorData.groupId] or {}
+        doorGroups[doorData.groupId][#doorGroups[doorData.groupId] + 1] = doorData.id
     end
-
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Added door to system: " .. doorData.id)
-    end
+    insertDoor(doors[doorData.id])
 end
 
--- Add a door group
 function DoorLock.AddDoorGroup(groupData)
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Attempting to add door group: " .. tostring(groupData.id))
+    if not groupData or not groupData.id or not groupData.doors then
+        return
     end
-
-    -- Initialize doorGroups if it doesn't exist
-    if not doorGroups then
-        doorGroups = {}
-        if Config.Printing and Config.Printing.Debug then
-            exports['cis_libs']:LogDebug("Initialized doorGroups table")
-        end
-    end
-
-    -- Check if the door group already exists
     if doorGroups[groupData.id] then
-        if Config.Printing and Config.Printing.Debug then
-            exports['cis_libs']:LogDebug("Door group already exists: " .. tostring(groupData.id))
-        end
         return
     end
-
-    -- Ensure groupData and groupData.doors are not nil
-    if not groupData or not groupData.doors then
-        if Config.Printing and Config.Printing.Debug then
-            exports['cis_libs']:LogError("Invalid groupData provided to AddDoorGroup")
-        end
-        return
-    end
-
-    -- Add the door group
     doorGroups[groupData.id] = groupData.doors
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Added door group: " .. tostring(groupData.id) .. " with " .. #groupData.doors .. " doors")
-    end
 end
 
--- Get the closest door to the player
 function DoorLock.GetClosestDoor()
-    local playerPed = PlayerPedId()
-    local playerCoords = GetEntityCoords(playerPed)
-    local closestDoor = nil
-    local closestDistance = math.huge
-
-    for id, door in pairs(doors) do
-        local distance = #(playerCoords - door.interactCoords)
-        if distance < closestDistance and distance <= door.maxDistance then
-            closestDistance = distance
-            closestDoor = {id = id, distance = distance, door = door}
+    local coords = Cis.player.coords()
+    local closest, closestDist
+    -- insertDoor() sizes each AABB at 1.5x the door's max distance, so any
+    -- door within maxDistance is guaranteed to cover this point.
+    CisGrid.queryPoint(grid, coords.x, coords.y, coords.z, function(id, item)
+        local door = item.data
+        local dist = #(coords - door.interactCoords)
+        if dist <= door.maxDistance and (not closestDist or dist < closestDist) then
+            closestDist = dist
+            closest = { id = id, distance = dist, door = door }
         end
-    end
-
-    if Config.Printing and Config.Printing.Debug and closestDoor then
-        exports['cis_libs']:LogDebug("Closest door found: " .. closestDoor.id .. " at distance " .. closestDoor.distance)
-    end
-
-    return closestDoor
+    end)
+    return closest
 end
 
--- Get the state of a specific door
 function DoorLock.GetDoorState(doorId)
-    if doors[doorId] then
-        if Config.Printing and Config.Printing.Debug then
-            exports['cis_libs']:LogDebug("Door state for " .. doorId .. ": " .. tostring(doors[doorId].locked))
-        end
-        return doors[doorId].locked
-    else
-        if Config.Printing and Config.Printing.Debug then
-            exports['cis_libs']:LogError("Door not found in system: " .. doorId)
-        end
+    local door = doors[doorId]
+    if not door then
         return nil
     end
+    return door.locked
 end
 
--- Handle job updates
-function DoorLock.OnJobUpdate(job)
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Job updated: " .. json.encode(job))
+function DoorLock.UpdateDoorState(identifier, state)
+    local doorsToUpdate = DoorLock.GetDoorsToUpdate(identifier)
+    for i = 1, #doorsToUpdate do
+        local doorId = doorsToUpdate[i]
+        local door = doors[doorId]
+        if door then
+            door.locked = state and true or false
+            DoorSystemSetDoorState(doorId, door.locked and 1 or 0, false, false)
+            local zoneId = 'door_' .. (door.groupId or doorId)
+            if addedTargets[zoneId] then
+                DoorLock.UpdateTarget(zoneId, door.locked)
+            end
+        end
     end
-    DoorLock.RefreshAllTargets()
 end
 
--- Handle player loaded
-function DoorLock.OnPlayerLoaded(playerData)
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Player loaded. Initializing door locks.")
+function DoorLock.SetBroken(doorId, broken)
+    local door = doors[doorId]
+    if not door then
+        return
     end
-    -- Ensure doors are properly set up for the newly loaded player
-    DoorLock.RefreshAllTargets()
+    door.broken = broken and true or false
+    if door.broken then
+        door.locked = false
+        DoorSystemSetDoorState(doorId, 0, false, false)
+    end
 end
 
--- Refresh all targets based on new job
+local function ensureTarget(doorId, door)
+    local groupId = door.groupId
+    local targetId = groupId or doorId
+    local zoneId = 'door_' .. targetId
+    if addedTargets[zoneId] then
+        return
+    end
+    local targetDoors = groupId and doorGroups[groupId] or { doorId }
+    DoorLock.CreateTarget(zoneId, door, targetDoors, DoorLock.IsDoorGroupLocked(targetDoors))
+end
+
+function DoorLock.RefreshNearbyTargets(coords)
+    if not targetMode then
+        return
+    end
+    local keep = {}
+    -- The keep radius matches the insert AABB half-extent exactly, so a point
+    -- query covers the same door set a neighbour scan would.
+    CisGrid.queryPoint(grid, coords.x, coords.y, coords.z, function(id, item)
+        local door = item.data
+        local dist = #(coords - door.interactCoords)
+        if dist <= (door.maxDistance * 1.5) then
+            local zoneId = 'door_' .. (door.groupId or id)
+            keep[zoneId] = true
+            ensureTarget(id, door)
+        end
+    end)
+    for zoneId, target in pairs(addedTargets) do
+        if not keep[zoneId] then
+            DoorLock.RemoveTarget(zoneId)
+        elseif target.doors then
+            local locked = DoorLock.IsDoorGroupLocked(target.doors)
+            if target.locked ~= locked then
+                DoorLock.UpdateTarget(zoneId, locked)
+            end
+        end
+    end
+end
+
 function DoorLock.RefreshAllTargets()
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Refreshing all door targets")
-    end
-    
-    for zoneId, _ in pairs(addedTargets) do
+    for zoneId in pairs(addedTargets) do
         DoorLock.RemoveTarget(zoneId)
     end
-    addedTargets = {}
-
-    -- Re-add targets for all doors
-    for doorId, door in pairs(doors) do
-        local groupId = door.groupId
-        local targetId = groupId or doorId
-        local zoneId = "door_" .. targetId
-        local targetDoors = groupId and doorGroups[groupId] or {doorId}
-        local isLocked = DoorLock.IsDoorGroupLocked(targetDoors)
-        
-        DoorLock.CreateTarget(zoneId, {door = door}, targetDoors, isLocked)
+    if targetMode and Cis and Cis.player then
+        DoorLock.RefreshNearbyTargets(Cis.player.coords())
     end
 end
 
--- Export functions
-exports('AddDoorToSystem', function(...)
-    while not FrameworkLoaded do
-        Citizen.Wait(100) -- Wait for 100 milliseconds
-    end
-    return DoorLock.AddDoorToSystem(...)
-end)
+local function startDrawMode()
+    CreateThread(function()
+        while doorMode() == 'DrawText3D' do
+            local closest = DoorLock.GetClosestDoor()
+            if closest then
+                local text = closest.door.locked and 'Locked' or 'Unlocked'
+                local color = closest.door.locked and { 255, 0, 0, 215 } or { 0, 255, 0, 215 }
+                DrawText3D(closest.door.interactCoords.x, closest.door.interactCoords.y, closest.door.interactCoords.z, text, color)
+                if IsControlJustReleased(0, 38) then
+                    DoorLock.ToggleDoorState(closest.id)
+                end
+                Wait(0)
+            else
+                Wait(400)
+            end
+        end
+    end)
+end
 
-exports('AddDoorGroup', function(...)
-    while not FrameworkLoaded do
-        Citizen.Wait(100) -- Wait for 100 milliseconds
+function DoorLock.Init()
+    if Config and Config.Doorlock and Config.Doorlock.Enabled == false then
+        return
     end
-    return DoorLock.AddDoorGroup(...)
-end)
+    targetMode = doorMode() == 'target'
+    RegisterNetEvent(eventPrefix() .. ':doorlock:updateState', DoorLock.UpdateDoorState)
+    RegisterNetEvent(eventPrefix() .. ':doorlock:addDoor', DoorLock.AddDoorToSystem)
+    RegisterNetEvent(eventPrefix() .. ':doorlock:addDoorGroup', DoorLock.AddDoorGroup)
+    RegisterNetEvent(eventPrefix() .. ':doorlock:doorBroken', DoorLock.SetBroken)
+    RegisterNetEvent('cis_libs:jobUpdated', DoorLock.RefreshAllTargets)
+    RegisterNetEvent('cis_libs:playerLoaded', DoorLock.RefreshAllTargets)
 
-exports('RequestLockDoors', function(...)
-    while not FrameworkLoaded do
-        Citizen.Wait(100) -- Wait for 100 milliseconds
+    if DoorData and DoorData.doors then
+        for _, doorInfo in pairs(DoorData.doors) do
+            DoorLock.AddDoorToSystem(doorInfo)
+        end
     end
-    return DoorLock.RequestDoorStateChange(...)
-end)
-
-exports('RequestUnlockDoors', function(...)
-    while not FrameworkLoaded do
-        Citizen.Wait(100) -- Wait for 100 milliseconds
-    end
-    return DoorLock.RequestDoorStateChange(...)
-end)
-
-exports('GetClosestDoor', function(...)
-    while not FrameworkLoaded do
-        Citizen.Wait(100) -- Wait for 100 milliseconds
-    end
-    return DoorLock.GetClosestDoor(...)
-end)
-
-exports('GetDoorState', function(...)
-    while not FrameworkLoaded do
-        Citizen.Wait(100) -- Wait for 100 milliseconds
-    end
-    return DoorLock.GetDoorState(...)
-end)
-
--- Initialize the system
-Citizen.CreateThread(function()
-    while Config == nil do
-        Citizen.Wait(100)
+    if DoorData and DoorData.groups then
+        for _, groupInfo in pairs(DoorData.groups) do
+            DoorLock.AddDoorGroup(groupInfo)
+        end
     end
 
+    if targetMode then
+        CreateThread(function()
+            local last
+            while targetMode do
+                local coords = Cis.player.coords()
+                if not last or #(coords - last) >= 4.0 then
+                    last = coords
+                    DoorLock.RefreshNearbyTargets(coords)
+                end
+                Wait(400)
+            end
+        end)
+    else
+        startDrawMode()
+    end
+end
+
+CreateThread(function()
+    if not CisReadyState.wait(15000) then
+        return
+    end
     DoorLock.Init()
 end)
 
--- Event handler for qb-target door toggle
-RegisterNetEvent('cis_libs:client:toggleDoor')
-AddEventHandler('cis_libs:client:toggleDoor', function(data)
-    if type(data.doorId) == "table" then
+RegisterNetEvent('cis_libs:client:toggleDoor', function(data)
+    if type(data.doorId) == 'table' then
         DoorLock.ToggleDoorGroupState(data.doorId)
     else
         DoorLock.ToggleDoorState(data.doorId)
     end
 end)
 
-return DoorLock
+exports('AddDoorToSystem', function(data)
+    if not CisReadyState.wait(15000) then
+        return
+    end
+    return DoorLock.AddDoorToSystem(data)
+end)
+
+exports('AddDoorGroup', function(data)
+    if not CisReadyState.wait(15000) then
+        return
+    end
+    return DoorLock.AddDoorGroup(data)
+end)
+
+exports('RequestLockDoors', function(identifier)
+    if not CisReadyState.wait(15000) then
+        return
+    end
+    return DoorLock.RequestDoorStateChange(identifier, true)
+end)
+
+exports('RequestUnlockDoors', function(identifier)
+    if not CisReadyState.wait(15000) then
+        return
+    end
+    return DoorLock.RequestDoorStateChange(identifier, false)
+end)
+
+exports('GetClosestDoor', function()
+    if not CisReadyState.wait(15000) then
+        return
+    end
+    return DoorLock.GetClosestDoor()
+end)
+
+exports('GetDoorState', function(doorId)
+    if not CisReadyState.wait(15000) then
+        return
+    end
+    return DoorLock.GetDoorState(doorId)
+end)

@@ -1,0 +1,7 @@
+node_modules/
+# package.json and package-lock.json are COMMITTED: CI installs from them via
+# `npm ci`, and neither is a secret.
+
+# Editor/agent working state, not part of the library.
+.zcode/
+.zcodeignore

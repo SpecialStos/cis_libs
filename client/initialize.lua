@@ -1,62 +1,73 @@
--- cis_libs/client/initialize.lua
-
 Config = nil
 Security = nil
 DoorData = nil
+CisLibReady = false
+CisLibFailed = false
 
--- Create a new thread
-Citizen.CreateThread(function()
-    -- Get the version from fxmanifest.lua
+function WaitForLibReady(timeout)
+    return CisReadyState.wait(timeout)
+end
+
+exports('WaitReady', function(timeout)
+    return CisReadyState.wait(timeout)
+end)
+
+-- The config the server sent to this client. Already a whitelist: no webhooks,
+-- no database settings, no allow-list. Lets a companion resource inspect what
+-- this client was told without duplicating the event.
+exports('GetClientConfig', function()
+    if not CisReadyState.wait(15000) then
+        return nil
+    end
+    return Config
+end)
+
+exports('IsReady', function()
+    return CisReadyState.ready == true
+end)
+
+CreateThread(function()
     local version = GetResourceMetadata(GetCurrentResourceName(), 'version', 0)
+    print('cis_libs: Loading (version ' .. tostring(version) .. ')')
+    TriggerServerEvent('cis_libs:server:getData')
 
-    -- Print a message indicating the start of loading process
-    print("cis_libs: Loading (version " .. version .. ")")
-    
-    -- Trigger a server event to get the data
-    TriggerServerEvent("cis_libs:server:getData")
-
-    -- Wait for Config and Security to be loaded
-    while Config == nil or Security == nil do
-        Citizen.Wait(100)
-    end
-    
-    -- Wait for DoorData to be received
-    while DoorData == nil do
-        Citizen.Wait(100)
+    local deadline = GetGameTimer() + 15000
+    while Config == nil and GetGameTimer() < deadline do
+        Wait(50)
     end
 
-    -- Process door data
-    if DoorData then
-        for doorId, doorInfo in pairs(DoorData.doors) do
-            TriggerEvent(Security.EventPrefix .. ':doorlock:addDoor', doorInfo)
-        end
-        for groupId, groupInfo in pairs(DoorData.groups) do
-            TriggerEvent(Security.EventPrefix .. ':doorlock:addDoorGroup', groupInfo)
-        end
-        if Config.Printing and Config.Printing.Debug then
-            exports['cis_libs']:LogDebug("Finished processing door data")
-        end
-    else
-        if Config.Printing and Config.Printing.Debug then
-            exports['cis_libs']:LogWarn("No door data received")
-        end
+    if Config == nil then
+        CisLibFailed = true
+        CisReadyState.markFailed('config timeout')
+        print('cis_libs: Timed out waiting for server configuration')
+        return
     end
 
-    -- Print a message indicating the end of loading process
-    print("cis_libs: Loaded (version " .. version .. ")")
-
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Initialization complete, including door data processing")
+    print('cis_libs: Loaded (version ' .. tostring(version) .. ')')
+    if not CisLibReady then
+        CisLibReady = true
+        CisReadyState.markReady()
     end
 end)
 
-RegisterNetEvent("cis_libs:client:getData")
-AddEventHandler("cis_libs:client:getData", function(data)
+RegisterNetEvent('cis_libs:client:getData', function(data)
     Config = data.Config
-    Security = data.Security
-    DoorData = data.DoorData
-    print(json.encode(DoorData))
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Received and stored initial data including door information")
+    Security = {
+        EventPrefix = data.EventPrefix or 'cis_libs',
+    }
+    DoorData = data.DoorData or { doors = {}, groups = {} }
+    if not CisLibReady and not CisLibFailed then
+        CisLibReady = true
+        CisReadyState.markReady()
     end
+end)
+
+RegisterNetEvent('cis_libs:client:showNotification', function(message, kind)
+    if CisFrameworkNotify then
+        CisFrameworkNotify(message, kind)
+        return
+    end
+    BeginTextCommandThefeedPost('STRING')
+    AddTextComponentSubstringPlayerName(tostring(message))
+    EndTextCommandThefeedPostTicker(false, false)
 end)

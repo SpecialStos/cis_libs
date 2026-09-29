@@ -1,34 +1,58 @@
--- cis_libs/client/weapon.lua
+-- Attachment components are listed only when the selected weapon actually has them.
 
-local function GetWeaponAttachments(weaponHash)
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Getting attachments for weapon hash: " .. tostring(weaponHash))
+local COMPONENT_SLOTS = {
+    `COMPONENT_AT_AR_FLSH`,
+    `COMPONENT_AT_PI_FLSH`,
+    `COMPONENT_AT_AR_AFGRIP`,
+    `COMPONENT_AT_AR_AFGRIP_02`,
+    `COMPONENT_AT_SCOPE_MACRO`,
+    `COMPONENT_AT_SCOPE_MACRO_02`,
+    `COMPONENT_AT_SCOPE_SMALL`,
+    `COMPONENT_AT_SCOPE_MEDIUM`,
+    `COMPONENT_AT_SCOPE_LARGE`,
+    `COMPONENT_AT_SCOPE_MAX`,
+    `COMPONENT_AT_SCOPE_NV`,
+    `COMPONENT_AT_SCOPE_THERMAL`,
+    `COMPONENT_AT_AR_SUPP`,
+    `COMPONENT_AT_AR_SUPP_02`,
+    `COMPONENT_AT_PI_SUPP`,
+    `COMPONENT_AT_PI_SUPP_02`,
+    `COMPONENT_AT_SR_SUPP`,
+    `COMPONENT_AT_MUZZLE_01`,
+    `COMPONENT_AT_MUZZLE_02`,
+    `COMPONENT_AT_MUZZLE_03`,
+    `COMPONENT_AT_MUZZLE_04`,
+    `COMPONENT_AT_MUZZLE_05`,
+    `COMPONENT_AT_MUZZLE_06`,
+    `COMPONENT_AT_MUZZLE_07`,
+}
+
+function GetWeaponAttachments(ped, weaponHash)
+    local attachments = {}
+    if not ped or ped == 0 or not weaponHash then
+        return attachments
     end
-    -- Implement logic to get weapon attachments
-    -- This is a placeholder and needs to be expanded based on game natives
-    return {}
+    for i = 1, #COMPONENT_SLOTS do
+        local component = COMPONENT_SLOTS[i]
+        if HasPedGotWeaponComponent(ped, weaponHash, component) then
+            attachments[#attachments + 1] = component
+        end
+    end
+    return attachments
 end
 
 function GetCurrentWeaponData(ped)
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Getting current weapon data for ped: " .. tostring(ped))
+    ped = ped or (CisCache and CisCache.ped) or PlayerPedId()
+    if CisCache and CisCache.weapon and ped == CisCache.ped then
+        return CisCache.weapon
     end
-
     local weaponHash = GetSelectedPedWeapon(ped)
-    local ammoType = GetPedAmmoTypeFromWeapon(ped, weaponHash)
-    
-    local weaponData = {
+    return {
         hash = weaponHash,
         ammo = GetAmmoInPedWeapon(ped, weaponHash),
-        ammoType = ammoType,
-        attachments = GetWeaponAttachments(weaponHash),
-        -- Add more weapon details as needed
+        ammoType = GetPedAmmoTypeFromWeapon(ped, weaponHash),
+        attachments = GetWeaponAttachments(ped, weaponHash),
     }
-
-    if Config.Printing and Config.Printing.Debug then
-        exports['cis_libs']:LogDebug("Weapon data retrieved: " .. json.encode(weaponData))
-    end
-    return weaponData
 end
 
 exports('GetCurrentWeaponData', GetCurrentWeaponData)
