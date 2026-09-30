@@ -201,6 +201,9 @@ expect(CisPending.take(store, k3) ~= nil, 'first take succeeds')
 expect(CisPending.take(store, k3) == nil, 'second take of same key returns nil')
 
 -- -------------------------------------------------------------- config strip
+-- The third argument is gone with the split: door data belongs to cis_keys, and
+-- a client payload carrying every door on the server was a table walking to
+-- every connected player.
 local payload = CisConfigUtil.clientPayload({
     Framework = {
         Type = 'QBCORE',
@@ -218,12 +221,13 @@ local payload = CisConfigUtil.clientPayload({
     DiscordLogsLinks = {
         MasterLogs = 'https://discord.com/api/webhooks/111/abc',
     },
-}, { doors = { door_1 = { id = 'door_1' } }, groups = {} })
+})
 
 expect(payload.Config.Framework.Type == 'QBCORE', 'framework type copied')
 expect(payload.EventPrefix == 'cis_libs', 'event prefix copied')
-expect(payload.DoorData.doors.door_1 ~= nil, 'door data copied')
+expect(payload.DoorData == nil, 'door data is no longer sent to clients')
 expect(payload.Config.Framework.Database == nil, 'database config stripped')
+expect(payload.Config.Doorlock == nil, 'doorlock config is not this library to ship')
 expect(payload.Config.Printing.UseDiscordLogs == nil, 'discord flag stripped')
 expect(payload.AuthorizedResources == nil, 'allow-list stripped')
 expect(not CisConfigUtil.containsSecret(payload), 'payload has no secrets')
@@ -271,14 +275,192 @@ expect(noIntervals.Config.UpdateInterval.Weapon == 250, 'weapon interval has a d
 expect(CisConfigUtil.clientPayload({}, {}, {}).Config.Sync.Enabled == true, 'sync enabled by default')
 expect(CisConfigUtil.clientPayload({ Sync = { Enabled = false } }, {}, {}).Config.Sync.Enabled == false,
     'sync disabled explicitly')
-expect(CisConfigUtil.clientPayload({}, {}, {}).Config.Doorlock.Enabled == true, 'doorlock enabled by default')
-expect(CisConfigUtil.clientPayload({ Doorlock = { Enabled = false } }, {}, {}).Config.Doorlock.Enabled == false,
-    'doorlock disabled explicitly')
+expect(CisConfigUtil.clientPayload({}, {}, {}).Config.Framework.Zones.Enabled == true,
+    'zones enabled by default')
+expect(CisConfigUtil.clientPayload({ Framework = { Zones = { Enabled = false } } }, {}, {})
+        .Config.Framework.Zones.Enabled == false, 'zones disabled explicitly')
+-- The payload copies the server's RESOLVED framework name verbatim. It does not
+-- translate an unresolved 'AUTO' into 'NONE', and the reason is worth stating:
+-- redaction and interpretation are different jobs, and a whitelist that
+-- second-guesses the server's own resolution is a whitelist that will be wrong
+-- the moment the server's resolution changes. cis_core rewrites AUTO to the
+-- framework it actually found before this ever runs, so by the time a payload
+-- is built the value is already a decision.
+expect(CisConfigUtil.clientPayload({ Framework = { Type = 'AUTO' } }, {}, {}).Config.Framework.Type == 'AUTO',
+    'the payload copies the server value rather than reinterpreting it')
+expect(CisConfigUtil.clientPayload({ Framework = { Type = 'QBOX' } }, {}, {}).Config.Framework.Type == 'QBOX',
+    'a resolved framework name does reach the client')
 
 -- copyPublic must never emit a function, at any depth.
 local fnDeep = { a = { b = { c = function() end } } }
 local copied = CisConfigUtil.clientPayload({ Framework = { Debug = fnDeep } }, {}, {})
 expect(leaksSecrets(copied, 'copied') == nil, 'nested functions are not copied')
+
+-- --------------------------------------------------------- capability registry
+-- The registry is what the whole split rests on, so it gets tested as behaviour
+-- rather than as plumbing. Nothing here touches a FiveM server: the registry
+-- resolves a "resource:Export" string against the `exports` global, and a test
+-- can stand a fake one up in three lines.
+local function withFakeExports(body)
+    local saved = exports
+    exports = {}
+    local ok, err = pcall(body)
+    exports = saved
+    if not ok then error(err, 0) end
+end
+
+withFakeExports(function()
+    -- Nothing is registered to begin with, and an unresolved slot is a refusal
+    -- with a reason rather than a nil. That distinction is the whole point: a
+    -- library that answers nil forever without saying why is the most expensive
+    -- thing it can do to its own support burden.
+    expect(CisRegistry.has('database') == false, 'no capability is registered to begin with')
+    local ok, reason = CisRegistry.call('database', 'query', 'SELECT 1', {})
+    expect(ok == false, 'an unresolved capability refuses')
+    expect(type(reason) == 'string' and reason:find('no provider') ~= nil,
+        'an unresolved capability says which slot is missing')
+    expect(CisRegistry.value('database', 'query', 'SELECT 1', {}) == nil,
+        'value() on an unresolved capability is nil, not false')
+
+    -- An unknown slot is refused. Without this, a typo in a slot name registers
+    -- a capability nothing will ever read, and the product believes it installed.
+    local badSlot, badWhy = CisRegistry.register('databse', 'cis_bridge:CisBridgeDatabase')
+    expect(badSlot == false, 'a typo in a slot name is refused')
+    expect(tostring(badWhy):find('unknown capability slot') ~= nil, 'the refusal names the unknown slot')
+
+    -- The registration form is a string, because a function cannot be sent over
+    -- the boundary. A malformed one is refused rather than stored and failed at
+    -- the first call, hours later.
+    local badForm, formWhy = CisRegistry.register('database', 'cis_bridge')
+    expect(badForm == false, 'a provider with no :Export is refused')
+    expect(tostring(formWhy):find('resource:Export') ~= nil, 'the refusal names the required form')
+
+    -- Register against a fake exports table and prove the call goes THROUGH the
+    -- boundary, with every argument in its slot.
+    local seen = {}
+    exports.cis_bridge = {
+        CisBridgeDatabase = function(self, op, sql, params)
+            seen.op, seen.sql, seen.params = op, sql, params
+            return { { id = 1 } }
+        end,
+    }
+    expect(CisRegistry.register('database', 'cis_bridge:CisBridgeDatabase'), 'a well-formed provider registers')
+    expect(CisRegistry.has('database'), 'the slot is now held')
+    expect(CisRegistry.owner('database') == 'cis_bridge', 'the owner is recorded')
+    local rows = CisRegistry.value('database', 'query', 'SELECT 1', { a = 2 })
+    expect(seen.op == 'query' and seen.sql == 'SELECT 1' and seen.params.a == 2,
+        'arguments survive the boundary unmoved')
+    expect(rows and rows[1] and rows[1].id == 1, 'the provider result comes back')
+
+    -- The unbound-method trap. `exports[res][name]` is an unbound method, so a
+    -- dispatcher that omits the exports table shifts every argument one slot left
+    -- and raises nothing. The fake records `self` as a parameter, so a shifted
+    -- call shows up as op == the exports table rather than op == 'query'.
+    exports.cis_bridge.CisBridgeDatabase = function(self, op, sql, params)
+        seen.self, seen.op = self, op
+        return true
+    end
+    CisRegistry.invalidate('database')
+    CisRegistry.call('database', 'query', 'SELECT 1', {})
+    expect(seen.op == 'query', 'the exports table is passed as self, not swallowed as an argument')
+    expect(seen.self == exports.cis_bridge, 'self is the exports table')
+
+    -- FIRST REGISTRATION WINS. Two products both believing they own the
+    -- database is a real failure and it is invisible until something is
+    -- mysteriously not taking effect.
+    local second, why = CisRegistry.register('database', 'cis_core:CisCoreDatabase')
+    expect(second == false, 'a second resource cannot take a held slot')
+    expect(tostring(why):find('cis_bridge') ~= nil, 'the refusal names the holder')
+    expect(CisRegistry.owner('database') == 'cis_bridge', 'the original owner is unchanged')
+
+    -- ...but the SAME resource re-registering is not a conflict. That is what a
+    -- restart handler looks like, and refusing it would leave a restarted
+    -- product permanently unable to re-announce itself.
+    expect(CisRegistry.register('database', 'cis_bridge:CisBridgeDatabase'),
+        'the same resource may re-register')
+
+    -- A provider that raises is a refusal, never an exception in the caller's
+    -- thread. A bug in a bridge adapter must not become a stack trace in
+    -- somebody else's script.
+    exports.cis_bridge.CisBridgeDatabase = function() error('adapter is on fire') end
+    CisRegistry.invalidate('database')
+    local boomOk, boomWhy = CisRegistry.call('database', 'query', 'SELECT 1', {})
+    expect(boomOk == false, 'a raising provider is a refusal')
+    expect(tostring(boomWhy):find('adapter is on fire') ~= nil, 'the refusal carries the provider error')
+
+    -- Unregister is owner-only, so one product stopping cannot blank a slot
+    -- another product is still serving.
+    expect(CisRegistry.unregister('database', 'cis_core') == false, 'a non-owner cannot unregister')
+    expect(CisRegistry.has('database') == true, 'the slot survives a non-owner release attempt')
+    expect(CisRegistry.unregister('database', 'cis_bridge') == true, 'the owner may unregister')
+    expect(CisRegistry.has('database') == false, 'the slot is empty after the owner releases it')
+end)
+
+-- The snapshot is what `cis_debug` prints and what GetConfigSummary returns, and
+-- it is the answer to "which of my four resources is actually running".
+local snap = CisRegistry.snapshot()
+expect(type(snap) == 'table', 'the registry can describe itself')
+expect(type(snap.database) == 'table', 'every declared slot appears in the snapshot')
+expect(snap.database.owner == nil, 'a slot with no provider reports no owner')
+local declared, described = 0, 0
+for _ in pairs(CisRegistry.SLOTS) do declared = declared + 1 end
+for _ in pairs(snap) do described = described + 1 end
+expect(declared == described, 'the snapshot describes every declared slot')
+
+-- ------------------------------------------------------------------ defaults
+-- A library with no config file has to have defaults, and they have to be right.
+local d = CisDefaults.config()
+expect(d.CallbackTimeout == 10000, 'callback timeout default')
+expect(d.CheckVersion == false, 'the version check is OFF by default')
+expect(d.UpdateInterval.Player == 1000, 'player interval default')
+expect(d.Framework.Type == 'AUTO', 'framework defaults to AUTO, not a guess')
+expect(d.Framework.Database.Type == 'AUTO', 'database defaults to AUTO')
+expect(d.Sync.Enabled == true, 'sync defaults on')
+expect(d.Printing.UseDiscordLogs == false, 'outbound logging defaults OFF')
+local s = CisDefaults.security()
+expect(s.EventPrefix == 'cis_libs', 'event prefix default')
+expect(type(s.AuthorizedResources) == 'table' and #s.AuthorizedResources == 0,
+    'the allow-list is empty, and empty means nobody')
+expect(s.DropPlayer == true, 'a player IS dropped by default')
+expect(type(s.DropPlayer) ~= 'function',
+    'DropPlayer is a boolean, because a function cannot cross the boundary')
+
+-- Fresh every call. A consumer that mutates the table it was handed must not be
+-- able to corrupt the defaults for whoever asks next.
+local d1 = CisDefaults.config()
+d1.CallbackTimeout = 1
+d1.Framework.Target.Debug = true
+expect(CisDefaults.config().CallbackTimeout == 10000, 'config() hands out a fresh table')
+expect(CisDefaults.config().Framework.Target.Debug == false, 'nested defaults are fresh too')
+
+-- Merge is recursive, and that is the point: an operator who sets one leaf of
+-- Framework.Target must keep the rest of that table rather than inheriting a
+-- table with a single key in it, which is what a naive `or` chain produces.
+local merged = CisDefaults.merge(CisDefaults.config(), {
+    Framework = { Target = { Debug = true } },
+    CallbackTimeout = 5000,
+})
+expect(merged.Framework.Target.Debug == true, 'the operator override lands')
+expect(merged.Framework.Target.Type == 'ox_target', 'sibling keys in the same table survive the merge')
+expect(merged.Framework.Type == 'AUTO', 'a higher branch of the same table survives the merge')
+expect(merged.CallbackTimeout == 5000, 'a top-level override lands')
+expect(merged.Sync.Enabled == true, 'an untouched branch keeps its default')
+
+-- Sanitize drops functions at any depth. A config table that arrives from
+-- another resource may legally contain one, and a callable sitting in a global is
+-- something the client can never receive and the server cannot serialise.
+local cleaned = CisDefaults.sanitize({ a = 1, b = function() end, c = { d = function() end, e = 2 } })
+expect(cleaned.a == 1, 'scalars survive sanitize')
+expect(cleaned.b == nil, 'a function is dropped')
+expect(cleaned.c.d == nil, 'a nested function is dropped')
+expect(cleaned.c.e == 2, 'a nested scalar survives')
+-- Unbounded recursion over a caller-supplied table is a denial-of-service
+-- surface, so the depth is capped and a table past it comes back nil.
+local deep = { v = 1 }
+local node = deep
+for _ = 1, 40 do node.next = { v = 1 }; node = node.next end
+expect(CisDefaults.sanitize(deep) ~= nil, 'a moderately nested config sanitizes')
+expect(select(2, CisDefaults.sanitize(deep, 12)) == nil, 'a pathological config does not recurse forever')
 
 -- ---------------------------------------------------------------- histogram
 local jobs = CisHistogram.new()

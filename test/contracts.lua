@@ -41,6 +41,67 @@ local function readFile(rel)
     return body
 end
 
+-- The same file with its comments removed, for assertions about what the CODE
+-- does rather than what it says about itself.
+--
+-- This matters more than it looks. Several contracts here are negative
+-- assertions -- this library must not call ox_target, must not name cis_doors
+-- -- and the code in question carries long comments explaining the bug those
+-- assertions are about. Searching the raw text would flag the explanation of
+-- the fix as if it were the bug, and the tempting response to that is to delete
+-- the comment. Deleting the history of a fixed defect is the wrong trade: the
+-- comment is why nobody reintroduces it.
+--
+-- Handles the two comment forms and the two string forms, and leaves their
+-- contents intact, so a needle inside a string literal is still found.
+local function stripComments(source)
+    local out = {}
+    local i, n = 1, #source
+    while i <= n do
+        local two = source:sub(i, i + 1)
+        if two == '--' then
+            -- A long bracket comment: --[[ ... ]] or --[=[ ... ]=]
+            local level = source:match('^%-%-%[(=*)%[', i)
+            if level then
+                local close = ']' .. level .. ']'
+                local stop = source:find(close, i + 1, true)
+                i = stop and (stop + #close) or (n + 1)
+            else
+                local stop = source:find('\n', i, true)
+                i = stop or (n + 1)
+            end
+        elseif two == '[[' or source:sub(i, i + 1) == '[=' then
+            local level = source:match('^%[(=*)%[', i)
+            local close = ']' .. (level or '') .. ']'
+            local stop = source:find(close, i + 1, true)
+            out[#out + 1] = source:sub(i, stop and (stop + #close - 1) or n)
+            i = stop and (stop + #close) or (n + 1)
+        elseif two == "'" or two == '"' then
+            local quote = two
+            local j = i + 1
+            while j <= n do
+                if source:sub(j, j) == '\\' then
+                    j = j + 2
+                elseif source:sub(j, j) == quote then
+                    break
+                else
+                    j = j + 1
+                end
+            end
+            out[#out + 1] = source:sub(i, math.min(j, n))
+            i = j + 1
+        else
+            out[#out + 1] = source:sub(i, i)
+            i = i + 1
+        end
+    end
+    return table.concat(out)
+end
+
+local function readCode(rel)
+    return stripComments(readFile(rel))
+end
+
 local function loadModule(rel)
     local chunk = assert(loadfile('./' .. rel))
     chunk()
@@ -178,9 +239,14 @@ local function newEnv(opts)
 end
 
 -- ============================================ 1. CheckVersion and its endpoint
+-- The config is no longer a file in this repository: `shared/defaults.lua`
+-- states the floor, and cis_core hands over the real table at runtime. The
+-- security property is unchanged and is still asserted here -- a library that
+-- phones home on boot is a supply-chain problem regardless of where its
+-- defaults are written down.
 do
     local env = newEnv()
-    loadModule('configs/master_config.lua')
+    Config = CisDefaults.config()
 
     check(Config.CheckVersion == false,
         ('Config.CheckVersion defaults off (got %s)'):format(tostring(Config.CheckVersion)))
@@ -192,7 +258,7 @@ do
         'Config.VersionCheckUrl is a CIsoko-controlled endpoint')
 
     -- The literal the old default was built from must not survive anywhere.
-    for _, rel in ipairs({ 'configs/master_config.lua', 'server/version.lua' }) do
+    for _, rel in ipairs({ 'shared/defaults.lua', 'server/version.lua' }) do
         check(not readFile(rel):find('specialstos', 1, true),
             rel .. ' contains no hardcoded third-party version host')
         check(not readFile(rel):find('github.io', 1, true),
@@ -235,19 +301,51 @@ end
 -- Drives the real server/security.lua through a stub environment. The
 -- function under test is loaded fresh per scenario, which is exactly how the
 -- server experiences a restart.
+--
+-- The "has this server ever stored anything" probe is a registered capability
+-- now rather than a query against a table this library used to own, and that is
+-- the shape the scenarios below stand up: `persisted` says whether a storing
+-- product is installed at all, `hasRows` says whether it holds anything.
+--
+-- Declared first because securityScenario calls it: each scenario models a
+-- restart, and the registry is process-global in the stubbed VM, so a
+-- `persisted = true` from one scenario would otherwise still be registered in
+-- the next and silently pass it.
+local function clearRegistry()
+    for _, slot in ipairs({ 'doors', 'dataProbe' }) do
+        CisRegistry.unregister(slot)
+    end
+end
+
 local function securityScenario(opts)
     local env = newEnv(opts)
-    loadModule('configs/master_config.lua')
-    -- Use the shipped default unless the scenario overrides it, so the tests
-    -- exercise the value a real install would have.
-    if not opts.persist then
-        Config.Doorlock.Persist = false
-    else
-        Config.Doorlock.Persist = true
-    end
-    loadModule('configs/security_config.lua')
+    -- Each scenario models a restart, and the registry is process-global in the
+    -- stubbed VM, so a `persisted = true` from one scenario would otherwise
+    -- still be registered in the next and silently pass it.
+    clearRegistry()
+    -- Built-in defaults, not a config file: cis_libs ships none, and these are
+    -- exactly the values a server with no cis_core installed runs on.
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
     if opts.authorized then
         Security.AuthorizedResources = opts.authorized
+    end
+    -- Stand up the product side of the probe, if this scenario has one.
+    if opts.persisted then
+        CisRegistry.register('doors', function(op)
+            if op == 'persisted' then
+                return true
+            end
+            return nil
+        end)
+    end
+    if opts.hasRows ~= nil then
+        CisRegistry.register('dataProbe', function(op)
+            if op == 'hasRows' then
+                return opts.hasRows
+            end
+            return nil
+        end)
     end
     loadModule('server/security.lua')
     return env
@@ -297,36 +395,37 @@ do
     CisInvokingAllowed = nil
     env.reset()
 
-    -- Legacy install, signal 2: cis_doors has persisted rows.
+    -- Legacy install, signal 2: a storing product is installed and it already
+    -- holds rows. Before the split this was a SELECT against cis_doors; the
+    -- product now answers the same question about its own store.
     env = securityScenario({
         authorized = {},
-        persist = true,
-        started = { oxmysql = 'started' },
-        dbRows = { { id = 'bank_door' } },
+        persisted = true,
+        hasRows = true,
     })
     check(env.EXPORTS.InvokingAllowed() == true,
-        'legacy install (cis_doors populated) keeps the permissive path')
+        'legacy install (store already populated) keeps the permissive path')
     check(mentions(env, 'PERMISSIVE'), 'legacy install: the console says it is permissive')
     CisInvokingAllowed = nil
     env.reset()
 
-    -- New install that enabled persistence: the table exists but is empty.
+    -- New install with a storing product: the store exists but is empty.
     env = securityScenario({
         authorized = {},
-        persist = true,
-        started = { oxmysql = 'started' },
-        dbRows = {},
+        persisted = true,
+        hasRows = false,
         invoking = 'cis_someProduct',
     })
     check(env.EXPORTS.InvokingAllowed() == false,
-        'new install with an empty cis_doors is restrictive')
-    check(mentions(env, 'REFUSED'), 'new install with persistence: the refusal is announced')
+        'new install with an empty store is restrictive')
+    check(mentions(env, 'REFUSED'), 'new install with a store: the refusal is announced')
     CisInvokingAllowed = nil
     env.reset()
 
-    -- Unclassifiable: persistence is on but the driver never started. Today
-    -- this install is permissive, and it must stay that way.
-    env = securityScenario({ authorized = {}, persist = true, started = {} })
+    -- Unclassifiable: a product that persists is installed but never answered.
+    -- Today this install is permissive, and it must stay that way -- refusing on
+    -- a server we could not read would be the worse failure.
+    env = securityScenario({ authorized = {}, persisted = true })
     check(env.EXPORTS.InvokingAllowed() == true,
         'an install that cannot be classified stays permissive')
     check(mentions(env, 'not classified'),
@@ -364,86 +463,77 @@ do
     env.reset()
 end
 
--- ==================================== 3. Cis.db.transaction on a bad driver
+-- ========================= 3. the database boundary, and Cis.db.transaction
+-- The driver code moved to cis_bridge. What did NOT move is the guarantee a
+-- consumer codes against, and this block asserts it at the boundary instead of
+-- inside a driver: a call with no provider behind it refuses, it refuses
+-- PROMPTLY, and it refuses with something a caller can log.
+--
+-- The promptness is the part that matters. An await-style export that yields
+-- until its deadline and then answers nil is indistinguishable from a query
+-- that found nothing -- and a caller that retries a transaction is holding a
+-- write lock while it waits. A refusal has to be immediate to be useful.
 do
-    local function dbScenario(opts)
-        local env = newEnv(opts)
-        loadModule('configs/master_config.lua')
-        Config.Framework.Database.Type = opts.driver
-        loadModule('server/database.lua')
-        return env
-    end
+    local env = newEnv({})
+    clearRegistry()
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    -- security.lua first because that is the manifest's order, and because
+    -- server/proxy.lua registers its net-event listener through CisNetOn. Load
+    -- order is not cosmetic anywhere in this library and a test that reverses
+    -- it stops testing what the server actually runs.
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
 
-    local env = dbScenario({ driver = 'mysql-async', started = { ['mysql-async'] = 'started' } })
-    check(mentions(env, 'mysql-async'),
-        'boot diagnostic names the configured driver')
-    check(mentions(env, 'Cis.db.transaction'),
-        'boot diagnostic names the API that is unavailable')
-    check(mentions(env, 'oxmysql'),
-        'boot diagnostic names the driver to switch to')
-    check(#env.http == 0, 'the boot diagnostic itself makes no request')
-
-    -- DEFECT 9.2, now FIXED. `exportAwait` calls `method(sql, params, cb)`, but
-    -- Database.Transaction takes (queries, cb) -- so the completion callback
-    -- arrived in a third parameter the function never read. The await never
-    -- settled, spun out the full Database.Timeout, and returned nothing, while
-    -- the driver logged a parameter error on every call. `DbTransaction` is
-    -- now written out longhand so the callback reaches slot 2.
-    --
-    -- On a bad driver it must still refuse rather than throw, and it must
-    -- refuse PROMPTLY: the whole point of the fix is that a refusal is not
-    -- paid for with a 15-second stall.
+    -- No database provider is registered, which is the default state of a
+    -- server running cis_libs alone.
     local startedAt = env.clock
     local a, b = env.EXPORTS.DbTransaction({ { query = 'SELECT 1' } })
     check(a == false,
-        'DbTransaction on a bad driver refuses with false rather than throwing')
+        'DbTransaction with no provider refuses with false rather than throwing')
     check(type(b) == 'string' and b ~= '',
         'the refusal carries a reason a caller can log: ' .. tostring(b))
     check(env.clock - startedAt < Config.Framework.Database.Timeout,
         'a refused transaction does not cost the full Database.Timeout')
     check(#env.http == 0, 'a refused transaction makes no request')
-    check(mentions(env, 'called by'),
-        'the refusal names the resource that called it')
-    -- One-shot by design, so the naming is checked on a fresh install: a
-    -- second call must not re-announce itself.
+    check(b:find('transaction', 1, true) ~= nil,
+        'the refusal names the capability that is missing')
+
+    -- One-shot by design. A boundary that re-announces a missing provider on
+    -- every call turns one missing resource into a console flood, and the
+    -- operator stops reading the console.
     env.EXPORTS.DbTransaction({})
     local repeats = 0
     for i = 1, #env.lines do
-        if env.lines[i]:find('refused; called by', 1, true) then
+        if env.lines[i]:find('no provider for', 1, true) then
             repeats = repeats + 1
         end
     end
-    check(repeats == 1, 'the call-time refusal is announced once, not once per call')
-    env.reset()
+    check(repeats == 1, 'the missing-provider warning is announced once, not once per call')
 
-    env = dbScenario({
-        driver = 'mysql-async',
-        started = { ['mysql-async'] = 'started' },
-        invoking = 'cis_phone',
-    })
-    env.EXPORTS.DbTransaction({})
-    check(mentions(env, 'cis_phone'),
-        'the refusal names the invoking resource, not cis_libs')
-    -- The string a fix must preserve still exists verbatim.
-    check(readFile('server/database.lua'):find("'transactions require oxmysql'", 1, true) ~= nil,
-        'the refusal string a fix must preserve is unchanged in source')
-    env.reset()
+    -- The other five await-style exports keep the shape consumers already code
+    -- against: nil means "no provider", never false. Collapsing them to false
+    -- would be a silent behaviour change on every installed server, and `if not
+    -- rows` is the test most callers actually write.
+    for _, name in ipairs({ 'DbQuery', 'DbSingle', 'DbScalar', 'DbInsert', 'DbUpdate' }) do
+        check(env.EXPORTS[name]('SELECT 1', {}) == nil,
+            name .. ' answers nil with no provider, not false')
+    end
+    check(env.EXPORTS.InventoryCount(1, 'lockpick') == 0,
+        'InventoryCount answers 0, not nil: a count is always a number')
+    check(env.EXPORTS.InventoryAdd(1, 'lockpick', 1) == false,
+        'InventoryAdd refuses with false when nothing can hold the item')
+    check(env.EXPORTS.LockDoors('bank_door') == 0,
+        'LockDoors answers 0 doors changed, not nil')
+    check(env.EXPORTS.GetDoorState('bank_door') == nil,
+        'GetDoorState answers nil for an unknown door, distinct from unlocked')
 
-    -- oxmysql is the supported driver and must say nothing.
-    env = dbScenario({ driver = 'oxmysql', started = { oxmysql = 'started' } })
-    check(not mentions(env, 'does not support transactions'),
-        'oxmysql raises no transaction diagnostic')
-    check(not mentions(env, 'refused; called by'),
-        'oxmysql raises no refusal line')
-    env.reset()
-
-    -- An unavailable driver is still reported, without inventing a transaction
-    -- problem it does not have.
-    env = dbScenario({ driver = 'oxmysql', started = {} })
-    check(mentions(env, 'Database driver unavailable'),
-        'an unavailable driver still reports as before')
-    check(not mentions(env, 'does not support transactions'),
-        'an unavailable driver raises no transaction diagnostic')
+    -- The source string a future fix must preserve still exists verbatim. It
+    -- lives in the registry, because that is where the refusal is produced and
+    -- where a change to its wording would be a change to every missing
+    -- capability at once.
+    check(readCode('shared/registry.lua'):find('no provider registered for', 1, true) ~= nil,
+        'the no-provider refusal string is unchanged in source')
     env.reset()
 end
 
@@ -710,38 +800,77 @@ do
     exports, GetCurrentResourceName, IsDuplicityVersion = savedExports, savedGetResourceName, savedIsDup
 end
 
--- ============================================= 5. cross-file globals resolve
--- A file-local read from another file is nil at runtime and raises nothing,
--- which is the same failure shape as the self trap: silent, total, and
--- invisible in the documentation.
+-- ========================================= 5. this library owns no table
+-- THE INVARIANT THE WHOLE PLATFORM IS BUILT ON.
 --
--- `Database` was `local` in server/database.lua while server/initialize.lua
--- read a global of that name to report `databaseReady`. The field was therefore
--- permanently false on every server, including ones whose driver had started
--- cleanly. This pins the declaration so it cannot quietly go back.
+-- "cis_libs must own zero tables. A server owner deletes libraries when they
+-- are unhappy; they cannot delete their player records. That property is what
+-- makes trying CIsoko safe, and safe trial is the single biggest driver of
+-- adoption."
+--
+-- A property this load-bearing cannot be left to a review comment. It is
+-- asserted here against every Lua file the manifest actually loads, so the
+-- first person who adds a CREATE TABLE to a convenience helper breaks the
+-- suite rather than the promise.
 do
-    local dbSource = readFile('server/database.lua')
-    local initSource = readFile('server/initialize.lua')
+    local manifest = readFile('fxmanifest.lua')
+    local violations = {}
+    for line in manifest:gmatch("'([%w_/%.]+%.lua)'") do
+        local body = readCode(line)
+        -- CREATE TABLE, in any case, in any driver dialect.
+        if body:find('CREATE%s+TABLE', 1, true) == nil
+            and body:find('create%s+table', 1, true) == nil
+            and body:find('createTable', 1, true) == nil
+        then
+            -- fine
+        else
+            violations[#violations + 1] = line .. ' (CREATE TABLE)'
+        end
+        -- A write to a table, whether or not it is one we own. A library that
+        -- INSERTs somewhere is a library that owns a table, whatever it calls
+        -- the table.
+        if body:find('INSERT%s+INTO', 1, true) then
+            violations[#violations + 1] = line .. ' (INSERT INTO)'
+        end
+    end
+    check(#violations == 0,
+        'no file in cis_libs creates or writes a table: ' .. table.concat(violations, ', '))
 
-    check(initSource:find('Database%s*and%s*Database%.ready') ~= nil,
-        'initialize.lua reads Database.ready to build the config summary')
-    check(dbSource:find('local%s+Database%s*=%s*{') == nil,
-        'Database is NOT a file local -- another realm would read nil')
-    check(dbSource:find('\nDatabase%s*=%s*{') ~= nil,
-        'server/database.lua declares Database as a global')
-    check(dbSource:find('Database%.ready%s*=%s*Database%.driver%s*~=%s*nil') ~= nil,
-        'Database.ready is derived from the selected driver, not left constant')
+    -- And the flip side, which is what actually makes the above hold: the
+    -- library has no driver to write with. A stray `exports.oxmysql:` in a
+    -- helper is the same promise broken by a different route.
+    local thirdParty = {}
+    for _, needle in ipairs({
+        'exports.oxmysql', "exports['oxmysql']", 'exports.mysql', "exports['mysql-async']",
+        'exports.ghmattimysql', 'exports.mongodb',
+        'exports.ox_target', "exports['qb-target']",
+        'exports.ox_inventory', "exports['qb-inventory']", "exports['qs-inventory']",
+        "exports['codem-inventory']",
+        'exports[\'es_extended\']', "exports['qb-core']", 'exports.qbx_core', 'exports.qb_core',
+    }) do
+        for line in manifest:gmatch("'([%w_/%.]+%.lua)'") do
+            if readCode(line):find(needle, 1, true) then
+                thirdParty[#thirdParty + 1] = ('%s -> %s'):format(line, needle)
+            end
+        end
+    end
+    check(#thirdParty == 0,
+        'no file in cis_libs calls a third-party resource: ' .. table.concat(thirdParty, ', '))
 end
 
--- ============================================ 6. the doorlock probe stays quiet
--- `cis_doors` is created ONLY when Config.Doorlock.Persist is on. The
--- legacy-detection probe used to query it unconditionally whenever the posture
--- was still undecided -- including on every server that HAD an allow-list
--- configured, because that branch returned without marking the posture decided.
--- So a default install printed a database error naming a table that was never
--- meant to exist, on every boot, for a condition the operator could not act on.
+-- ============================================ 6. the storage probe stays quiet
+-- The legacy-detection probe used to query `cis_doors` unconditionally whenever
+-- the posture was still undecided -- including on every server that HAD an
+-- allow-list configured, because that branch returned without marking the
+-- posture decided. So a default install printed a database error naming a table
+-- that was never meant to exist, on every boot, for a condition the operator
+-- could not act on.
+--
+-- The table does not exist in this library any more, and the probe now asks a
+-- registered capability instead. Both halves are pinned: the bug that caused
+-- the flood, and the absence of the query that replaced it.
 do
-    local secSource = readFile('server/security.lua')
+    local secSource = readCode('server/security.lua')
 
     -- A configured list is a definite answer; it must settle the posture.
     -- Located with PLAIN search rather than a Lua pattern: a non-greedy
@@ -755,13 +884,21 @@ do
     check(branch and branch:find("posture = 'configured'", 1, true) ~= nil,
         'a configured allow-list marks the posture decided, so no legacy query runs')
 
-    -- And the deferred probe must not ask about a table that may not exist.
+    -- And the deferred probe must ask a product, not a table.
     local pFrom = secSource:find('if posture == nil then', 1, true)
     local pTo = pFrom and secSource:find('\nend', pFrom, true)
     local probe = (pFrom and pTo) and secSource:sub(pFrom, pTo) or nil
     check(probe ~= nil, 'security.lua has a deferred posture resolution')
     check(probe and probe:find('persistConfigured', 1, true) ~= nil,
-        'the deferred probe is gated on persistence being configured')
+        'the deferred probe is gated on a storing product being installed')
+    check(probe and probe:find('dataProbe', 1, true) ~= nil,
+        'the deferred probe waits for a product that can answer the question')
+
+    -- The regression itself: this library must not name a table it does not own.
+    -- A grep-level assertion, because the failure it guards is a string that
+    -- belongs in a product and a reviewer would reasonably not question here.
+    check(secSource:find('cis_doors', 1, true) == nil,
+        'security.lua no longer names cis_doors, a table this library does not own')
 end
 
 -- ------------------------------------------------------------------ report

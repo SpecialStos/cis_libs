@@ -44,7 +44,7 @@ jobs:
         run: npm run test:api-selftest
 
       - name: Fail if the exports binding regresses
-        # Guards the `self` trap documented in MEMORY.md section 1.
+        # Guards the `self` trap documented at the top of init.lua.
         # A bracket-form export call shifts every argument one slot left and
         # silently corrupts the whole API. The pattern matches the CALL shape
         # (exports[..][..]( ) rather than a specific quote style, so a
@@ -55,7 +55,7 @@ jobs:
           hits=$(grep -rnE 'exports\[[^]]+\]\[[^]]*\]\(' --include=*.lua . \
                  | grep -vE ':[[:space:]]*--' || true)
           if [ -n "$hits" ]; then
-            echo "::error::Unbound exports call found. Pass the exports table as the first argument (see MEMORY.md section 1)."
+            echo "::error::Unbound exports call found. Pass the exports table as the first argument (see the header of the file that tripped it)."
             echo "$hits"
             exit 1
           fi

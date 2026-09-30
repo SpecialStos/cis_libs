@@ -184,19 +184,19 @@ return {
             since = '1.0.0', ['until'] = '3.0.0', stable = false, deprecated = true,
             use = 'Cis.db.query(sql, params)',
             realm = 'server',
-            signature = '(query, params, callback)',
+            signature = '(query, params, cb)',
         },
         DatabaseFetchOne = {
             since = '1.0.0', ['until'] = '3.0.0', stable = false, deprecated = true,
             use = 'Cis.db.single(sql, params)',
             realm = 'server',
-            signature = '(query, params, callback)',
+            signature = '(query, params, cb)',
         },
         DatabaseFetchAll = {
             since = '1.0.0', ['until'] = '3.0.0', stable = false, deprecated = true,
             use = 'Cis.db.query(sql, params)',
             realm = 'server',
-            signature = '(query, params, callback)',
+            signature = '(query, params, cb)',
         },
         DatabaseInsert = {
             since = '1.0.0', ['until'] = '3.0.0', stable = false, deprecated = true,
@@ -377,6 +377,91 @@ return {
             signature = '()',
         },
 
+        -- ---------------------------------------------------------- platform
+        -- The five exports below are the seam between this library and the
+        -- products that plug into it. They are not consumer API -- a consumer
+        -- calls `Cis.*` and never these -- but they are stable, they are what
+        -- cis_core and cis_bridge call, and they are the reason a consumer's
+        -- code does not change when the platform underneath it does.
+        SetConfig = {
+            since = '2.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Called by cis_core at boot with (config, security). First registration wins; a second is refused and named',
+            realm = 'server',
+            signature = '(config, security)',
+        },
+        RegisterCapability = {
+            since = '2.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Called by cis_core, cis_bridge and cis_keys with (slot, "resource:Export"). First registration wins',
+            realm = 'both',
+            signature = '(slot, provider)',
+        },
+        UnregisterCapability = {
+            since = '2.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Called by a product on shutdown or handover. Only the slot owner may release it',
+            realm = 'server',
+            signature = '(slot)',
+        },
+        GetCapabilities = {
+            since = '2.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'The one call that answers "which of my four resources is actually running". Returns { [slot] = { owner, resolved } }',
+            realm = 'both',
+            signature = '()',
+        },
+        GetKnownTargets = {
+            since = '2.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'The ordered framework and driver tables detection uses. Shared so a product cannot disagree with the debug output about what is running',
+            realm = 'both',
+            signature = '()',
+        },
+        DetectFramework = {
+            since = '2.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Asks the server what framework it is actually running. Returns { name, resource, version, how, reason }',
+            realm = 'both',
+            signature = '(configured, custom)',
+        },
+        DetectDatabase = {
+            since = '2.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Asks the server which driver is running. Returns { name, resource, version, how, reason }',
+            realm = 'both',
+            signature = '(configured)',
+        },
+        SetDropPlayerHandler = {
+            since = '2.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Called by whoever ships the config, with "resource:Export". A FUNCTION cannot be sent across the boundary, which is why this exists',
+            realm = 'server',
+            signature = '(provider)',
+        },
+        PublishJobUpdate = {
+            since = '2.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Called by cis_core when a player changes job. Fires cis_libs:jobUpdated, so the event name stays owned by this library',
+            realm = 'server',
+            signature = '(job, src)',
+        },
+        PublishPlayerLoaded = {
+            since = '2.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Called by cis_core when a player object exists. Fires cis_libs:playerLoaded',
+            realm = 'server',
+            signature = '(job, src)',
+        },
+        NotifyClient = {
+            since = '2.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Called by a product to show a notification to one client, without hardcoding the event name owned by this library',
+            realm = 'server',
+            signature = '(src, message, kind)',
+        },
+        RequestInventorySync = {
+            since = '2.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Cis.inventory.count is a hint. This asks for a fresh one. Client only',
+            realm = 'client',
+            signature = '()',
+        },
+        PublishInventory = {
+            since = '2.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Called by the inventory service. Pushes cis_libs:client:inventory to one player',
+            realm = 'server',
+            signature = '(src)',
+        },
+
         -- ---------------------------------------------------------- framework
         GetFramework = {
             since = '1.0.0', ['until'] = '3.0.0', stable = false, deprecated = true,
@@ -392,7 +477,7 @@ return {
         },
         Notify = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Cis.framework.notify(...). See COMPATIBILITY.md section 8: the two-argument client form is broken',
+            use = 'Cis.framework.notify(...). The two-argument client form sends `kind` in the message slot; this is pinned as a known defect in test/contracts.lua and is a MAJOR change to correct',
             realm = 'both',
             signature = { server = '(src, message, kind)', client = '(message, kind)' },
         },
@@ -606,9 +691,18 @@ return {
         },
     },
 
-    -- The five `:doorlock:*` names are computed from Security.EventPrefix and are
-    -- written with the ${...} placeholder. A consumer cannot hardcode them and
-    -- must read the prefix from the GetLibsPrefix export.
+    -- Every name below is fired or listened for BY THIS RESOURCE. That is the
+    -- rule, and it is why the doorlock names and the framework event names are
+    -- absent: they belong to the products that own those concerns now
+    -- (cis_keys and cis_core respectively). A net event name that moves between
+    -- resources is a name a product can rename without anyone noticing until a
+    -- consumer silently stops hearing about it.
+    --
+    -- `cis_libs:jobUpdated` and `cis_libs:playerLoaded` used to be fired by the
+    -- framework layer and are now fired HERE, by a product calling
+    -- PublishJobUpdate / PublishPlayerLoaded. The name and the payload shape are
+    -- unchanged, so a consumer listening for them keeps working across a
+    -- framework change -- which is the whole reason they stayed in this file.
     events = {
         ['cis_libs:cb'] = {
             since = '1.0.0',
@@ -624,7 +718,7 @@ return {
         },
         ['cis_libs:client:getData'] = {
             since = '1.0.0',
-            payload = 'server to client: ({ Config, EventPrefix, DoorData }) on join',
+            payload = 'server to client: ({ Config, EventPrefix }) on join. DoorData was removed in 2.0.0',
         },
         ['cis_libs:server:getData'] = {
             since = '1.0.0',
@@ -636,7 +730,7 @@ return {
         },
         ['cis_libs:client:inventory'] = {
             since = '1.0.0',
-            payload = 'server to client: ({ [itemName] = count })',
+            payload = 'server to client: ({ [itemName] = count }), pushed by PublishInventory',
         },
         ['cis_libs:server:inventorySync'] = {
             since = '1.0.0',
@@ -650,65 +744,13 @@ return {
             since = '1.0.0',
             payload = 'server to client: (id) despawn a synced entity',
         },
-        ['cis_libs:client:toggleDoor'] = {
-            since = '1.0.0',
-            payload = 'server to client: ({ doorId }) or ({ doorId = { ids } }) for a group',
-        },
         ['cis_libs:jobUpdated'] = {
             since = '1.0.0',
-            payload = 'server to client: ({ name, grade })',
+            payload = 'server to client: ({ name, grade }), fired by PublishJobUpdate',
         },
         ['cis_libs:playerLoaded'] = {
             since = '1.0.0',
-            payload = 'client local: (job) fired from the framework player load',
-        },
-        ['QBCore:Client:OnJobUpdate'] = {
-            since = '1.0.0',
-            payload = 'framework to client: (job)',
-        },
-        ['QBCore:Client:OnPlayerLoaded'] = {
-            since = '1.0.0',
-            payload = 'framework to client: (playerData)',
-        },
-        ['QBCore:Player:SetPlayerData'] = {
-            since = '1.0.0',
-            payload = 'framework to client: ({ items }) refreshing the inventory counts',
-        },
-        ['qbx_core:client:playerLoaded'] = {
-            since = '1.0.0',
-            payload = 'framework to client: (playerData)',
-        },
-        ['qbx_core:client:onJobUpdate'] = {
-            since = '1.0.0',
-            payload = 'framework to client: (job)',
-        },
-        ['esx:playerLoaded'] = {
-            since = '1.0.0',
-            payload = 'framework to client: (player)',
-        },
-        ['esx:setJob'] = {
-            since = '1.0.0',
-            payload = 'framework to client: (job)',
-        },
-        ['${Security.EventPrefix}:doorlock:requestState'] = {
-            since = '1.0.0',
-            payload = 'client to server: (identifier, state). Computed from Security.EventPrefix',
-        },
-        ['${Security.EventPrefix}:doorlock:updateState'] = {
-            since = '1.0.0',
-            payload = 'server to client: (doorId, locked). Computed from Security.EventPrefix',
-        },
-        ['${Security.EventPrefix}:doorlock:addDoor'] = {
-            since = '1.0.0',
-            payload = 'server to client: (doorData). Computed from Security.EventPrefix',
-        },
-        ['${Security.EventPrefix}:doorlock:addDoorGroup'] = {
-            since = '1.0.0',
-            payload = 'server to client: (groupData). Computed from Security.EventPrefix',
-        },
-        ['${Security.EventPrefix}:doorlock:doorBroken'] = {
-            since = '1.0.0',
-            payload = 'server to client: (doorId, broken). Computed from Security.EventPrefix',
+            payload = 'server to client: (job), fired by PublishPlayerLoaded',
         },
     },
 }

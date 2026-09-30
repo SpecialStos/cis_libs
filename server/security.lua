@@ -33,28 +33,22 @@ local function configuredList()
     return list
 end
 
+-- Whether anything on this server has ever persisted state through this
+-- library. It used to be `Config.Doorlock.Persist`, which meant this file knew
+-- the name of a config section owned by a product, and then queried a table
+-- owned by another. Both of those are gone: cis_libs owns no table, and the
+-- question now belongs to whichever product holds one.
+--
+-- A server with no doors product installed has certainly never stored a door,
+-- so the absent capability is a DEFINITE answer rather than an unknown one --
+-- which is what lets a fresh install reach a verdict immediately instead of
+-- sitting permissive for 30 seconds and then guessing.
 local function persistConfigured()
-    return not not (Config and Config.Doorlock and Config.Doorlock.Persist)
-end
-
--- The RESOURCE name of the driver that is actually running, not the
--- configured value. Under `Type = "AUTO"` the configured value is the literal
--- string "AUTO", which is not a resource -- waiting for it to start would sit
--- out the full 30s deadline and then give up, and the door table would never
--- be read. Database.Init() runs before this file's boot wait and rewrites the
--- config to the driver it found, so falling back to that keeps the two
--- readings in step.
-local function driverName()
-    local db = Config and Config.Framework and Config.Framework.Database
-    local configured = db and db.Type or 'AUTO'
-    if configured and configured ~= 'AUTO' then
-        return configured
+    if not CisRegistry.has('doors') then
+        return false
     end
-    local detected = rawget(_G, 'Database')
-    if type(detected) == 'table' and detected.detected and detected.detected.resource then
-        return detected.detected.resource
-    end
-    return 'oxmysql'
+    local ok, persisted = CisRegistry.call('doors', 'persisted')
+    return ok and persisted == true
 end
 
 -- A file left inside the resource's own configs/ directory, not in the
@@ -99,9 +93,9 @@ local function legacyByConfig()
         return true, 'a written config already exists'
     end
     if not persistConfigured() then
-        return false, 'no written config and door persistence was never enabled'
+        return false, 'no written config and no product that persists state is installed'
     end
-    return nil, 'door persistence is enabled; waiting to read cis_doors'
+    return nil, 'a persisting product is installed; waiting to ask it whether it holds any rows'
 end
 
 local function reportRestrictive(reason)
@@ -182,50 +176,53 @@ end
 
 rebuildAuthorized()
 
--- Resolve the deferred case: wait for the database driver to start, then ask
--- whether the persisted door table has any rows. A table this library created
+-- Resolve the deferred case: wait for whichever product persists state to
+-- register its probe, then ask it whether it holds any rows. A store created
 -- moments ago on a fresh install is empty, and an empty one means new.
 if posture == nil then
     CreateThread(function()
-        -- `cis_doors` is only ever created when Doorlock.Persist is on, so
-        -- this query is only meaningful when persistence is configured. Asking
-        -- anyway asks the driver about a table that does not exist, and the
-        -- driver answers with an error the operator can do nothing about.
-        -- This mirrors legacyByConfig(), which already treats "persistence was
-        -- never enabled" as a definite answer.
+        -- Only meaningful when something that persists state is installed.
+        -- Asking a store that was never configured asks the driver about a
+        -- table that does not exist, and the driver answers with an error the
+        -- operator can do nothing about. This mirrors legacyByConfig(), which
+        -- already treats an absent store as a definite answer.
         if not persistConfigured() then
-            applyPosture('restrictive', 'no written config and door persistence was never enabled')
+            applyPosture('restrictive', 'no written config and no product that persists state is installed')
             authorized = {}
             return
         end
-        local name = driverName()
-        -- 2s poll, 30s ceiling. The thing being waited on is another RESOURCE
-        -- starting, which is measured in seconds and is not under this
-        -- library's control, so a tighter poll buys nothing a maintainer can
-        -- observe and costs a scheduler wakeup for the whole window. After 30s
-        -- the give-up is silent on purpose: the posture stays permissive, which
-        -- is the pre-existing behaviour, and the operator has already been
-        -- told the install is unclassified.
+        -- 2s poll, 30s ceiling, on the REGISTRY rather than on a resource name.
+        -- This library no longer knows what the table is called or which driver
+        -- holds it, so the only honest thing to wait for is the product itself
+        -- announcing that it can answer. The interval is the same as before
+        -- because the thing being waited on is measured in seconds either way:
+        -- another resource starting, which is not under this library's control,
+        -- so a tighter poll buys nothing a maintainer can observe and costs a
+        -- scheduler wakeup for the whole window.
         local deadline = GetGameTimer() + 30000
-        while GetResourceState(name) ~= 'started' and GetGameTimer() < deadline do
+        while not CisRegistry.has('dataProbe') and GetGameTimer() < deadline do
             Wait(2000)
         end
-        if GetResourceState(name) ~= 'started' then
+        if not CisRegistry.has('dataProbe') then
             return
         end
-        pcall(function()
-            exports['cis_libs']:DatabaseFetchAll('SELECT id FROM cis_doors', {}, function(rows)
-                if type(rows) == 'table' and #rows > 0 then
-                    applyPosture('permissive', 'the cis_doors table already has persisted rows')
-                else
-                    applyPosture('restrictive', 'no written config and cis_doors is empty')
-                    authorized = {}
-                end
-            end)
-        end)
-        -- If the driver never calls back the install stays permissive, which
-        -- is the same behaviour it has today. Refusing on a server we could
-        -- not read would be the worse failure.
+        -- Asking, not guessing. `hasRows` yields on a real driver, so the call
+        -- is wrapped: a driver that never answers would otherwise park this
+        -- thread for the length of its timeout with the posture still
+        -- undecided, which is the permissive reading and the pre-existing one.
+        local ok, hasRows = CisRegistry.call('dataProbe', 'hasRows')
+        if not ok then
+            return
+        end
+        if hasRows then
+            applyPosture('permissive', 'the installed store already holds persisted rows')
+        else
+            applyPosture('restrictive', 'no written config and the installed store is empty')
+            authorized = {}
+        end
+        -- If the store never answers the install stays permissive, which is the
+        -- same behaviour it has today. Refusing on a server we could not read
+        -- would be the worse failure.
     end)
 end
 
@@ -390,17 +387,17 @@ function CisSecurityReport(src, reason)
     if GetPlayerName(src) == nil then
         return false
     end
-    -- Security.DropPlayer may be a boolean or a custom function(src, reason).
-    local handler = Security and Security.DropPlayer
-    if type(handler) == 'function' then
-        local ok, err = pcall(handler, src, reason)
-        if not ok then
-            Logging.AutoLogError(err, 'Security.DropPlayer')
-            return false
-        end
+    -- A custom drop handler is a FUNCTION, and a function cannot be sent
+    -- across the exports boundary -- so `Security.DropPlayer` is a boolean here
+    -- and the code arrives as a capability. The boolean is still honoured, and
+    -- the capability is consulted first: an operator who wrote a handler meant
+    -- it, and silently preferring the generic kick would make their handler
+    -- look broken rather than absent.
+    local ok, custom = CisRegistry.call('security', 'drop', src, reason)
+    if ok then
         return true
     end
-    if handler then
+    if Security and Security.DropPlayer then
         DropPlayer(src, DEFAULT_DROP_MESSAGE)
         return true
     end

@@ -17,21 +17,35 @@ lua.lua_setglobal(L, toLua('arg'))
 
 // Files the contract tests need to read as text. fengari's io library in the
 // node build has no `open`, so the contents are injected from here.
-const INJECTED_FILES = [
-  'init.lua',
-  'configs/master_config.lua',
-  'configs/security_config.lua',
-  'server/version.lua',
-  'server/security.lua',
-  'server/database.lua',
-  'server/initialize.lua',
-  'server/security.lua',
-  'fxmanifest.lua',
-]
+//
+// This list is DERIVED FROM THE MANIFEST rather than written out by hand, and
+// that is the whole point. The contract suite asserts properties over "every
+// file this resource loads" -- most importantly that none of them creates a
+// table or calls a third-party resource -- and a hand-maintained list would
+// quietly fall behind the next file somebody added, at which point the
+// strongest promise in the repository would be checked against a subset of the
+// code and still pass.
+//
+// `init.lua` is added explicitly because consumers `shared_script` it, so it is
+// not in any of the manifest's three script blocks. `fxmanifest.lua` is added
+// because several contracts read the manifest itself rather than a script.
+const EXTRA_INJECTED = ['init.lua', 'fxmanifest.lua']
+
+function manifestScripts() {
+  const manifest = fs.readFileSync(path.join(root, 'fxmanifest.lua'), 'utf8')
+  const found = new Set(EXTRA_INJECTED)
+  // Every quoted string ending in .lua inside the three script blocks. A quoted
+  // path is the only form the manifest uses for them, so this is exact rather
+  // than approximate.
+  for (const m of manifest.matchAll(/'([^']+\.lua)'/g)) {
+    found.add(m[1])
+  }
+  return [...found]
+}
 
 function injectFiles(L) {
   lua.lua_createtable(L)
-  for (const rel of INJECTED_FILES) {
+  for (const rel of manifestScripts()) {
     const body = fs.readFileSync(path.join(root, rel), 'utf8')
     lua.lua_pushstring(L, toLua(body))
     lua.lua_setfield(L, -2, toLua(rel))
@@ -48,6 +62,8 @@ function runFile(rel) {
   }
 }
 
+runFile('shared/defaults.lua')
+runFile('shared/registry.lua')
 runFile('shared/grid.lua')
 runFile('shared/pending.lua')
 runFile('shared/config.lua')

@@ -1,42 +1,41 @@
--- Client config whitelist. Webhooks, drop-player hooks, and allow-lists stay server-side.
+-- Configuration intake and the client redaction whitelist.
 --
--- PURE, and safe for a consumer to `shared_script` (COMPATIBILITY.md §10.2) --
--- but the reason to want it is usually to READ the payload shape, not to
--- generate it. Everything the client is told is written out by hand below, so a
--- key added to the server config does not reach a client until someone adds it
--- to this table. That is the point: a client has no business holding a webhook
--- URL or an allow-list.
+-- cis_libs owns no config file any more. `CisDefaults` states the floor and
+-- whichever product is installed hands over the real table through
+-- `exports['cis_libs']:SetConfig`. This file installs the floor at load, in
+-- both realms, so nothing downstream ever has to nil-check `Config`.
+--
+-- The second half is the client whitelist, and it is the only place a server
+-- decides what a connected player is told. Everything the client receives is
+-- written out by hand below rather than copied, which is the point: a key added
+-- to the server config does not reach a player until someone adds it here, and
+-- a client has no business holding a webhook URL, a connection string or an
+-- allow-list.
 
 CisConfigUtil = {}
 
--- Drops functions, recursively. A function cannot cross the exports/net-event
--- boundary, so one left in here would arrive as nil and would have looked like
--- a config bug on the client rather than a stripping rule here.
+-- Drops functions, recursively. A function cannot cross the exports boundary,
+-- so one left in here would arrive as nil and would have looked like a config
+-- bug on the client rather than a stripping rule here.
 local function copyPublic(value)
-    local valueType = type(value)
-    if valueType == 'function' then
-        return nil
-    end
-    if valueType ~= 'table' then
+    if type(value) ~= 'table' then
         return value
     end
     local out = {}
     for k, v in pairs(value) do
-        local copied = copyPublic(v)
-        if copied ~= nil or type(v) ~= 'function' then
-            if type(v) ~= 'function' then
-                out[k] = copied
-            end
+        if type(v) ~= 'function' then
+            out[k] = copyPublic(v)
         end
     end
     return out
 end
 
--- The defaults here are a floor, not the shipped values. configs/master_config.lua
--- sets UpdateInterval explicitly, and a client reading that gets 1000ms. These
--- 250ms values only apply if a config arrives without them, so the two must not
--- be read as "the default".
-function CisConfigUtil.clientPayload(config, security, doorData)
+-- The defaults here are a FLOOR, not the shipped values. A server running
+-- cis_libs alone gets exactly these; a server with cis_core installed gets
+-- whatever the operator wrote, and these values are what any key they left out
+-- falls back to. Read the two as different things -- the first is a default,
+-- the second is a guarantee about what a partial config does not blank out.
+function CisConfigUtil.clientPayload(config, security)
     config = config or {}
     security = security or {}
     local framework = config.Framework or {}
@@ -44,15 +43,19 @@ function CisConfigUtil.clientPayload(config, security, doorData)
         Config = {
             UpdateInterval = copyPublic(config.UpdateInterval) or {
                 Player = 250,
+                Weapon = 250,
                 Vehicle = 1000,
                 VehicleProperties = 5000,
-                Weapon = 250,
             },
             AimingCheckType = config.AimingCheckType or 'default',
             CallbackTimeout = config.CallbackTimeout or 10000,
             Framework = {
+                -- 'NONE' rather than 'AUTO' on the client, deliberately. The
+                -- client has no framework of its own to detect, and sending AUTO
+                -- would invite a consumer to branch on a value that was never
+                -- resolved on this side of the wire.
                 Type = framework.Type or 'NONE',
-                Inventory = framework.Inventory or 'typical',
+                Inventory = framework.Inventory or 'ox_inventory',
                 Zones = {
                     Enabled = not (framework.Zones and framework.Zones.Enabled == false),
                 },
@@ -62,20 +65,17 @@ function CisConfigUtil.clientPayload(config, security, doorData)
                     Debug = (framework.Target and framework.Target.Debug) and true or false,
                 },
             },
-            Doorlock = {
-                Enabled = not (config.Doorlock and config.Doorlock.Enabled == false),
-                Type = (config.Doorlock and config.Doorlock.Type) or 'target',
-                InteractableDistance = (config.Doorlock and config.Doorlock.InteractableDistance) or 2.0,
+            Sync = {
+                Enabled = not (config.Sync and config.Sync.Enabled == false),
             },
             Printing = {
                 Debug = config.Printing and config.Printing.Debug and true or false,
             },
-            Sync = {
-                Enabled = not (config.Sync and config.Sync.Enabled == false),
-            },
         },
+        -- Only the prefix crosses. Not the allow-list, not the kick handler.
+        -- It is the one piece of Security a client-side module needs, for
+        -- building the event names it has to trigger.
         EventPrefix = (security.EventPrefix or 'cis_libs'),
-        DoorData = doorData or { doors = {}, groups = {} },
     }
 end
 
@@ -114,3 +114,20 @@ function CisConfigUtil.containsSecret(payload)
     end
     return false
 end
+
+-- Installs the built-in defaults into the two globals every module in this
+-- library reads. Runs in both realms from shared_scripts, so the client has a
+-- Config to read before the server's payload arrives -- which means a client
+-- module that starts early reads a real table rather than nil and caches that
+-- nil forever. The server's payload overwrites both when it lands.
+Config = CisDefaults.config()
+Security = CisDefaults.security()
+
+-- The configuration is ESTABLISHED, and stamped as belonging to cis_libs. That
+-- stamp is what lets a product replace these defaults: SetConfig refuses a
+-- second supplier, and "cis_libs" is not a supplier, it is the floor. A server
+-- with no cis_core installed still has a real, complete, working Config, and
+-- a client waiting on the handshake is released rather than timing out against
+-- a library that has nothing left to wait for.
+Config.__owned = true
+Config.__owner = 'cis_libs'
