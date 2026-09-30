@@ -67,27 +67,15 @@ exports['cis_libs']:SomeExport(a, b)    -- CORRECT
 exports['cis_libs']['SomeExport'](a, b) -- WRONG
 ```
 
-The bracket form yields an **unbound method**: the exports table is expected as
-the first argument, so calling it without `self` shifts every argument one
-place left. `Cis.zones.box('shop', centre, size, {})` arrives as
-`Cis.zones.box(centre, size, {})` — the zone's **name becomes its own
-coordinates**, and creation returns `false` with nothing logged.
+The bracket form is an unbound method: the exports table is expected as the
+first argument, so every argument shifts one place left and nothing raises.
+The **lookup** is unbound the same way, so a dynamically resolved handler loses
+its first argument too. Measured, not assumed: see [§3.1](#the-self-trap).
 
-**The lookup is equally unbound.** This is the less obvious half:
-
-```lua
-local target = exports[ref.resource]
-local fn = target[ref.export]        -- unbound
-fn(src, ...)                         -- src is consumed as self  ✗
-fn(target, src, ...)                 -- correct                  ✓
+```bash
+# in your own resource, this must return nothing
+grep -rnE "exports['cis_libs'][" --include=*.lua . | grep -v ':[[:space:]]*--'
 ```
-
-Measured in-VM, not inferred: calling `fn('A','B','C')` delivers `('B','C')`;
-calling `fn(target,'A','B','C')` delivers all three. The only safe dynamic
-equivalent is to pass the table explicitly.
-
-**Grep your codebase for `exports['cis_libs'][`. There must be zero.**
-
 ### 0.2 A function can be handed *back*, never sent *over*
 
 | Direction | Works? | Notes |
@@ -1771,7 +1759,9 @@ Cis.callback.callClient(5, 'my:cb', function(ok, ...) end)
 
 ## 18. Testing
 
-**Pure tests**, no FiveM required — 62 assertions over the `shared/` modules
+**Pure tests**, no FiveM required — 397 assertions, no FiveM server. 62 over the
+`shared/` modules, 27 on the exports boundary, 163 on the declared surface, and
+118 on the utility and algorithm layer.
 and the test harness's own JSON encoder:
 
 ```
@@ -1970,6 +1960,53 @@ diff for the two files is the mechanical part and is a one-line command.
 
 ---
 
+## 21. Changelog policy
+
+**One page per version**, at `CHANGELOG/<version>.md`, committed with the
+release. Not one running file: a running file is edited by six people and
+diffed by nobody, and the question "what changed in 1.2.0" stops being answerable
+once there are twenty entries.
+
+```markdown
+# 1.2.0 -- 2026-09-29
+
+**Contract major:** 1 (unchanged)
+**Schema:** 0 (unchanged)
+
+### Added
+### Changed
+### Fixed
+### Deprecated
+### Removed
+### Security
+```
+
+Rules:
+
+- The header repeats all four numbers (§4). If any of them moved, the entry says
+  which and why.
+- Every entry names a consumer impact: who is affected and what they must do.
+  "Fixed a typo" is not an entry; "database calls now time out at
+  `Database.Timeout` instead of hanging forever" is.
+- **Deprecated** entries name the shim, its `use`, and the `['until']` major.
+  They must match `api.lua`; the validator is the tie-breaker.
+- **Removed** entries name the major they became possible in and the shims
+  removed with them.
+- **Security** entries state the exposure, not just the change.
+
+**Generation.** Where a page can be produced from what CI already knows, it is:
+`api.lua` already carries `since` and `['until']` for every export and event, and
+`tools/validate-api.js` can emit the Added and Removed sections directly. The
+human-written parts are Changed, Fixed and Security, which are judgements about
+behaviour and are the reason the page exists. The generator is
+`tools/validate-api.js --changelog <version>`; until it lands, the `api.lua`
+diff for the two files is the mechanical part and is a one-line command.
+
+---
+
+
+---
+
 ## 22. What this repository verifies
 
 Everything in this document is checkable from a clean checkout:
@@ -1983,7 +2020,7 @@ Which is:
 
 | Command | What it proves |
 |---|---|
-| `npm test` | 62 pure-module assertions, 27 binding assertions, 163 contract assertions — 252 in total |
+| `npm test` | 62 pure-module, 27 binding, 163 contract, 118 module — 397 in total |
 | `npm run test:api-selftest` | The `api.lua` validator passes the real manifest and rejects all five broken fixtures |
 | `npm run test:api` | `api.lua` matches the registered surface: 52 server, 55 client, 25 events |
 
@@ -2055,97 +2092,22 @@ You will also want `cis_libs/README.md` for the short version.
 
 ### The non-negotiable facts
 
-These were each learned the expensive way. Violating any of them breaks code
-without raising an error.
+They are stated once, in [§0](#0-rules-that-break-code-silently), and they are
+not repeated here:
 
-### 1. The `self` trap — read this twice
-
-```lua
-exports['cis_libs']:SomeExport(a, b)    -- CORRECT
-exports['cis_libs']['SomeExport'](a, b) -- WRONG
-```
-
-The bracket form looks identical and is not. It yields an unbound method, so
-the exports table is expected as the first argument. Without it, **every
-argument shifts one place left**.
-
-`cis_libs` shipped this bug itself. `Cis.zones.box(name, centre, size, {})`
-reached the library as `Cis.zones.box(centre, size, {}, ???)` — the zone's
-**name became its own coordinates**, and creation silently returned false.
-
-If you must call an export dynamically, the only safe form is:
-
-```lua
-local lib = exports['cis_libs']
-lib.SomeExport(lib, a, b)
-```
-
-Grep every `exports['cis_libs'][` in the codebase. There must be zero.
-
-### 2. A function can be handed back, but not sent over
-
-| Direction | Works? | Notes |
+| # | Rule | Section |
 |---|---|---|
-| Function as an **argument** | **No** | Arrives `nil` |
-| Function as a **return value** | Yes | Arrives as a callable reference table |
+| 1 | The `self` trap — the bracket form of an export call shifts every argument one slot | [§0.1](#01-the-self-trap--the-one-that-will-cost-you-an-afternoon) |
+| 2 | A function can be handed *back* across the boundary, never sent *over* | [§0.2](#02-a-function-can-be-handed-back-never-sent-over) |
+| 3 | `shared_script` copies; it does not share | [§0.3](#03-shared_script-copies-it-does-not-share) |
+| 4 | A server-side handler in another resource works by reference | [§0.4](#04-server-to-client-handlers-work-by-name-not-by-function) |
+| 5 | Subscribe; do not poll | [§0.5](#05-subscribe-do-not-poll) |
+| 6 | A refusal explains itself — capture the second return value | [§0.6](#06-a-refusal-explains-itself) |
 
-`type()` reports `table` for a returned function, not `function`. Never test for
-`'function'` when receiving one.
-
-Consequence: **you cannot pass a callback into cis_libs.** Use the event forms
-described below.
-
-### 3. `shared_script` copies; it does not share
-
-Each resource has its own Lua VM. Loading a `shared_script` copies the file in.
-
-**Never** `shared_script '@cis_libs/client/cache.lua'` or any other stateful
-file. You would get a second player cache, a second 1-second polling thread, a
-second `Globals` table, and native calls multiplied by your resource count. This
-is the single most damaging mistake available to you.
-
-The pure `shared/` modules (`grid`, `pending`, `histogram`, `config`) contain no
-natives and are safe to copy when you genuinely want a private instance.
-
-### 4. Callbacks cross as net events, never as functions
-
-Zone and proximity callbacks have a "Event twin" for exactly this reason:
-
-```lua
-Cis.zones.box('shop', centre, size, {
-    onEnterEvent = 'myResource:shopEnter',   -- receives (zoneName, x, y, z)
-    onExitEvent  = 'myResource:shopExit',
-    insideEvent  = 'myResource:shopInside',
-})
-
-RegisterNetEvent('myResource:shopEnter', function(zoneName, x, y, z)
-    -- ...
-end)
-```
-
-Same for proximity:
-
-```lua
-Cis.player.near(coords, 10.0, nil, nil, 'myResource:nearEnter', 'myResource:nearExit')
-```
-
-### 5. Exports return data, not behaviour
-
-Server-side handlers owned by another resource work by name:
-
-```lua
--- in this resource
-exports('myResource:handlePurchase', function(src, item, amount) ... end)
-Cis.callback.register('purchase', 'myResource:handlePurchase')
-```
-
-Known caveat: a handler called this way runs and receives its arguments, but
-its **return value may come back `nil`**. Signal results by side effect or an
-event until that is resolved.
+§3 is the reasoning and the measurements behind rules 1, 2 and 3.
 
 ---
-
-### What to hunt for
+## What to hunt for
 
 Grep the codebase for each of these. They are the work.
 
@@ -2270,344 +2232,3 @@ were unsure rather than presenting it as settled.
   counter over a config array is not safe here.
 
 ---
-
-## 21. Changelog policy
-
-**One page per version**, at `CHANGELOG/<version>.md`, committed with the
-release. Not one running file: a running file is edited by six people and
-diffed by nobody, and the question "what changed in 1.2.0" stops being answerable
-once there are twenty entries.
-
-```markdown
-# 1.2.0 -- 2026-09-29
-
-**Contract major:** 1 (unchanged)
-**Schema:** 0 (unchanged)
-
-### Added
-### Changed
-### Fixed
-### Deprecated
-### Removed
-### Security
-```
-
-Rules:
-
-- The header repeats all four numbers (§4). If any of them moved, the entry says
-  which and why.
-- Every entry names a consumer impact: who is affected and what they must do.
-  "Fixed a typo" is not an entry; "database calls now time out at
-  `Database.Timeout` instead of hanging forever" is.
-- **Deprecated** entries name the shim, its `use`, and the `['until']` major.
-  They must match `api.lua`; the validator is the tie-breaker.
-- **Removed** entries name the major they became possible in and the shims
-  removed with them.
-- **Security** entries state the exposure, not just the change.
-
-**Generation.** Where a page can be produced from what CI already knows, it is:
-`api.lua` already carries `since` and `['until']` for every export and event, and
-`tools/validate-api.js` can emit the Added and Removed sections directly. The
-human-written parts are Changed, Fixed and Security, which are judgements about
-behaviour and are the reason the page exists. The generator is
-`tools/validate-api.js --changelog <version>`; until it lands, the `api.lua`
-diff for the two files is the mechanical part and is a one-line command.
-
----
-
-
----
-
-## 21. What this repository verifies
-
-Everything in this document is checkable from a clean checkout:
-
-```bash
-npm ci
-npm run test:all
-```
-
-Which is:
-
-| Command | What it proves |
-|---|---|
-| `npm test` | 62 pure-module assertions, 27 binding assertions, 163 contract assertions — 252 in total |
-| `npm run test:api-selftest` | The `api.lua` validator passes the real manifest and rejects all five broken fixtures |
-| `npm run test:api` | `api.lua` matches the registered surface: 52 server, 55 client, 25 events |
-
-The `self` trap is guarded three ways, and the third is the one that matters:
-
-- `test/binding.lua` (27 assertions) — argument slots of the original proxy set,
-  with a canary proving the stub models the shift.
-- `test/contracts.lua` (163 assertions) — argument slots of **every** proxy,
-  including the four that reorder before delegating, the export each one
-  resolves to, the discriminator arguments (`sync.ped` vs `sync.prop`,
-  `zones.box` vs `zones.sphere`), and a source-level pin on the shape of
-  `exportCall` itself.
-- CI greps for the bracket-call shape and for a hardcoded third-party host.
-
-The middle one was added in this pass because the original guard had a real
-hole, measured rather than assumed: swapping the argument order in
-`Cis.callback.callClient` from `(name, src, ...)` to `(src, name, ...)` passed
-**both** the old suite and the CI grep. Thirteen mutations were planted and
-thirteen are now caught.
-
----
-
-
----
-
-## 22. What this document does not cover
-
-Stated so nobody infers more than is here.
-
-- **It describes this source tree, not a deployed install.** Everything pinned
-  above was read out of the code in this repository and is accurate about that
-  code and about nothing outside it. A server running a different build of
-  `cis_libs` may behave differently, and the shims' behaviour in production
-  cannot be verified from here — only the live harness, on a running server,
-  verifies that.
-- **Return-value shapes.** Documented in `DOCUMENTATION.md`,
-  not machine-checked here.
-- **The integration harness.** `cis_libstest` (89 tests across both realms) needs
-  a live fxserver and is not run in CI. Everything touching a native is
-  integration-tested, not unit-tested.
-
----
-
-## Appendix A — brief for migrating a resource
-
-Hand this to whoever is rebuilding a resource onto `cis_libs`. It is
-self-contained: they need no context from this repository beyond the files it
-names.
-
----
-
-We have a FiveM library called `cis_libs` in `resources/[standalone]/cis_libs`.
-It replaces the things our resources each reimplement: player state, callbacks,
-zones, inventory access, targeting, door locks, entity sync, a database layer,
-and logging. It does not depend on ox_lib or PolyZone.
-
-Rebuild our existing resources to use it properly, then verify the result.
-
-**Read these two files before writing a single line of code.** They contain
-behaviour that was measured on a live server, not assumed, and getting any of it
-wrong produces silent corruption rather than an error:
-
-- `cis_libs/DOCUMENTATION.md` — the traps, the reasoning behind the API, and
-  the full integration guide. Everything below is drawn from it.
-
-You will also want `cis_libs/README.md` for the short version.
-
----
-
-### The non-negotiable facts
-
-These were each learned the expensive way. Violating any of them breaks code
-without raising an error.
-
-### 1. The `self` trap — read this twice
-
-```lua
-exports['cis_libs']:SomeExport(a, b)    -- CORRECT
-exports['cis_libs']['SomeExport'](a, b) -- WRONG
-```
-
-The bracket form looks identical and is not. It yields an unbound method, so
-the exports table is expected as the first argument. Without it, **every
-argument shifts one place left**.
-
-`cis_libs` shipped this bug itself. `Cis.zones.box(name, centre, size, {})`
-reached the library as `Cis.zones.box(centre, size, {}, ???)` — the zone's
-**name became its own coordinates**, and creation silently returned false.
-
-If you must call an export dynamically, the only safe form is:
-
-```lua
-local lib = exports['cis_libs']
-lib.SomeExport(lib, a, b)
-```
-
-Grep every `exports['cis_libs'][` in the codebase. There must be zero.
-
-### 2. A function can be handed back, but not sent over
-
-| Direction | Works? | Notes |
-|---|---|---|
-| Function as an **argument** | **No** | Arrives `nil` |
-| Function as a **return value** | Yes | Arrives as a callable reference table |
-
-`type()` reports `table` for a returned function, not `function`. Never test for
-`'function'` when receiving one.
-
-Consequence: **you cannot pass a callback into cis_libs.** Use the event forms
-described below.
-
-### 3. `shared_script` copies; it does not share
-
-Each resource has its own Lua VM. Loading a `shared_script` copies the file in.
-
-**Never** `shared_script '@cis_libs/client/cache.lua'` or any other stateful
-file. You would get a second player cache, a second 1-second polling thread, a
-second `Globals` table, and native calls multiplied by your resource count. This
-is the single most damaging mistake available to you.
-
-The pure `shared/` modules (`grid`, `pending`, `histogram`, `config`) contain no
-natives and are safe to copy when you genuinely want a private instance.
-
-### 4. Callbacks cross as net events, never as functions
-
-Zone and proximity callbacks have a "Event twin" for exactly this reason:
-
-```lua
-Cis.zones.box('shop', centre, size, {
-    onEnterEvent = 'myResource:shopEnter',   -- receives (zoneName, x, y, z)
-    onExitEvent  = 'myResource:shopExit',
-    insideEvent  = 'myResource:shopInside',
-})
-
-RegisterNetEvent('myResource:shopEnter', function(zoneName, x, y, z)
-    -- ...
-end)
-```
-
-Same for proximity:
-
-```lua
-Cis.player.near(coords, 10.0, nil, nil, 'myResource:nearEnter', 'myResource:nearExit')
-```
-
-### 5. Exports return data, not behaviour
-
-Server-side handlers owned by another resource work by name:
-
-```lua
--- in this resource
-exports('myResource:handlePurchase', function(src, item, amount) ... end)
-Cis.callback.register('purchase', 'myResource:handlePurchase')
-```
-
-Known caveat: a handler called this way runs and receives its arguments, but
-its **return value may come back `nil`**. Signal results by side effect or an
-event until that is resolved.
-
----
-
-### What to hunt for
-
-Grep the codebase for each of these. They are the work.
-
-| Anti-pattern | Replace with |
-|---|---|
-| `CreateThread` + `Wait(0)` + `PlayerPedId`/`GetEntityCoords` | `Cis.player.coords()`, `Cis.player.ped()` |
-| `Wait(0)` loops polling player or vehicle state | `Cis.player.on('vehicle', cb)` and friends |
-| Custom "is player near X" loops | `Cis.player.near()` or `Cis.zones.*` |
-| `ox_lib` / `PolyZone` imports and zone calls | `Cis.zones.box` / `.sphere` / `.poly` |
-| Direct `exports.ox_inventory:GetItemCount` for reads | `Cis.inventory.count(item)` |
-| `TriggerServerEvent` for request/response | `Cis.callback.*` |
-| Per-frame `exports.ox_lib:...` or `exports.qb_*:...` | `Cis.*` equivalents |
-| Custom entity-streaming threads | `Cis.sync.ped` / `.prop` / `.vehicle` |
-| Per-resource framework branching (`if esx ... else qb`) | `Cis.framework.player(src)` |
-| Custom door state tables + per-frame distance loops | `Cis.doors.add` / `.setState` |
-| Own log prefix and level scheme | `Cis.log.debug` / `.info` / `.warn` / `.error` |
-| `exports['cis_libs'][` (bracket form) | colon form — see fact 1 |
-
-Also add, to each resource's manifest:
-
-```lua
-shared_script '@cis_libs/init.lua'
-```
-
-and gate startup on readiness:
-
-```lua
-Cis.ready(function(ok)
-    if not ok then return end
-    -- safe to use the Cis API from here
-end)
-```
-
-`ensure cis_libs` must come before any resource that uses it in `server.cfg`.
-
----
-
-### How to work
-
-### Phase 1 — Audit (do this yourself, do not delegate)
-
-Read every resource's manifest and Lua files yourself. Build a list: which
-resources use cis_libs already, which use ox_lib or PolyZone, and which are
-self-contained. This map drives the work and is wrong if you delegate it
-without reading the code.
-
-Produce a short written audit before changing anything. Note anything ambiguous
-rather than guessing.
-
-### Phase 2 — Migrate (delegate this)
-
-**Split the work across sub-agents.** One agent per resource, or one agent per
-concern (zones / callbacks / doors / sync) if a single resource is large. Run
-them concurrently.
-
-Each sub-agent prompt must include, verbatim:
-
-1. The five non-negotiable facts above, in full.
-2. The path to `cis_libs/DOCUMENTATION.md`, with the
-   instruction to read them before writing code.
-3. Exactly one resource or concern to handle, named explicitly.
-4. The rule: do not edit `cis_libs` itself. If something looks missing or wrong
-   in the library, report it back rather than patching it.
-5. The rule: do not guess. If the API is ambiguous, read the docs, then say so.
-
-Give each agent a disjoint file set so they cannot collide.
-
-### Phase 3 — Verify (do this yourself)
-
-Do not trust a green report from a sub-agent. Read the diffs.
-
-Then, with a test server running:
-
-```
-ensure cis_libs
-ensure cis_libstest
-```
-
-`/cistest` in the console or as admin runs both realms, teleports the player
-around to exercise zone enter/exit, and writes a JSON report into the
-`cis_libstest` folder. `node test/run.js` runs the pure unit tests with no
-server.
-
-**The teleport tests hold the player in place for seconds and will trip
-heartbeat-based anti-cheat.** Run them on a test instance.
-
-Anything the JSON reports as `skipped` was not verified. Say so explicitly
-rather than counting it as a pass.
-
----
-
-### Definition of done
-
-- Zero occurrences of `exports['cis_libs'][` anywhere.
-- Zero self-written `Wait(0)` loops that poll player, vehicle, or weapon state.
-- Zero ox_lib or PolyZone imports left in migrated resources.
-- Every resource's manifest has `shared_script '@cis_libs/init.lua'` and its
-  startup is gated on `Cis.ready`.
-- `node test/run.js` passes.
-- `/cistest` runs with **zero failures**, and every remaining `skipped` is
-  listed with the reason it was skipped.
-- Anything deliberately left alone is stated out loud with the reason.
-
-### Reporting back
-
-Report: what changed per resource, what you deliberately did not change and
-why, anything in `cis_libs` you believe is a bug (do not fix it), and the final
-test result including every skip. If you are unsure about a decision, say you
-were unsure rather than presenting it as settled.
-
----
-
-### Support
-
-- Docs: https://docs.cisoko.net
-- Discord: https://discord.gg/cisoko
-- License: [LICENSE.md](LICENSE.md)

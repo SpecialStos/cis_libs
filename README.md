@@ -63,18 +63,22 @@ end)
 
 ## Three rules that will save you time
 
+An abridgement. Each is stated once, in full, with the measurement behind it, in
+[§0](DOCUMENTATION.md#0-rules-that-break-code-silently).
+
 1. **`exports['cis_libs']:Name(...)` — colon form only.** The bracket form
    shifts every argument one slot left and raises nothing. This bug lived in
    this library itself, in a form that silently corrupted every API call it had.
+   The *lookup* `exports['cis_libs']['Name']` is unbound the same way, so a
+   dynamically resolved handler loses its first argument too.
 2. **A function can be handed back across the boundary, but not sent over.**
    Use the `*Event` options for every zone and proximity callback.
 3. **Never `shared_script` a stateful file.** [§15](DOCUMENTATION.md#15-stateful-files--twelve)
    lists the twelve files that hold process-global state; duplicating one
    multiplies native work by your resource count.
 
-Each is explained, with the measurement behind it, in
-[§0](DOCUMENTATION.md#0-rules-that-break-code-silently) and
-[§3](DOCUMENTATION.md#3-the-boundary-model).
+The reasoning and the measurements behind all three are in
+[§3, the boundary model](DOCUMENTATION.md#3-the-boundary-model).
 
 ## Documentation
 
@@ -83,6 +87,22 @@ Each is explained, with the measurement behind it, in
 | **[DOCUMENTATION.md](DOCUMENTATION.md)** | **Everything.** Boundary model, full API reference, recipes, security, configuration, the frozen contract, the complete export surface, known defects, troubleshooting, and a brief for migrating an existing resource |
 | [LICENSE.md](LICENSE.md) | MIT, with a mandatory attribution notice |
 | [cis_libstest](https://github.com/SpecialStos/cis_libstest) | The integration harness, in its own repository. `/cistest` on a running server writes a JSON report |
+
+**Reading order, whether you are a person or an agent.** The long document is
+ordered so that each section depends only on the ones before it:
+
+| If you are… | Read |
+|---|---|
+| Integrating | [§0](DOCUMENTATION.md#0-rules-that-break-code-silently) rules → [§3](DOCUMENTATION.md#3-the-boundary-model) boundary → [§6](DOCUMENTATION.md#6-api-reference) API → [§7](DOCUMENTATION.md#7-recipes) recipes |
+| Auditing a breaking change | [§10](DOCUMENTATION.md#10-the-frozen-contract) onward is the frozen contract and the 3.0 removal schedule |
+| Reaching for a helper | [§20](DOCUMENTATION.md#20-the-utility-and-algorithm-layer) — 15 pure modules |
+| Debugging | [§19](DOCUMENTATION.md#19-troubleshooting), then [§16](DOCUMENTATION.md#16-known-defects-pinned-not-fixed) so you do not file a known bug |
+
+`api.lua` at the resource root is a machine-readable contract declaring the
+public surface. It is plain data, it is not a script, and
+`tools/validate-api.js` fails if it ever drifts from what the code actually
+registers — the drift checks catch a renamed export, a changed parameter list, an
+undeclared event, and a declared-but-missing export.
 
 `api.lua` at the resource root is a machine-readable contract declaring the
 public surface. It is plain data, it is not a script, and
@@ -94,7 +114,7 @@ undeclared event, and a declared-but-missing export.
 
 ```
 npm install
-npm test         # 252 assertions, no FiveM server required
+npm test         # 397 assertions, no FiveM server required
 npm run test:all # the above + a Lua syntax check + the api contract self-test
 ```
 
