@@ -43,18 +43,6 @@ jobs:
         # was built to trigger. Delete a fixture and this step fails.
         run: npm run test:api-selftest
 
-      - name: Build the test matrix
-        # Emits TEST_MATRIX.json covering every layer. The live integration
-        # layers are recorded as "not run" in CI -- they need a running server
-        # and a connected player -- which is the honest state, not an omission.
-        run: node tools/test-matrix.js
-
-      - name: Upload the test matrix
-        uses: actions/upload-artifact@v4
-        with:
-          name: TEST_MATRIX
-          path: TEST_MATRIX.json
-
       - name: Fail if the exports binding regresses
         # Guards the `self` trap documented in MEMORY.md section 1.
         # A bracket-form export call shifts every argument one slot left and

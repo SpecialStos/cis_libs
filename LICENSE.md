@@ -1,40 +1,57 @@
-Custom License for cis_libs
+# cis_libs
+
+A standalone FiveM library and framework bridge. It depends on no other library
+— not ox_lib, not PolyZone. It sits beside ESX / QBCore / QBOX and normalises
+the differences.
+
+## Attribution
+
+**This notice must be retained in every copy and every distribution of this
+software, in source or binary form, and in any substantial portion of it.**
+
+- **Author:** Cisoko
+- **Resource name:** `cis_libs`
+- **Project:** https://github.com/SpecialStos/cis_libs
+- **Documentation:** https://docs.cisoko.net
+
+You may not remove or alter this notice, and you may not present this software
+as your own work.
+
+---
+
+MIT License
 
 Copyright (c) 2024 Cisoko
 
-Terms and Conditions
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-1. Usage: This resource is open source and freely available for use.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-2. Attribution: Users of this resource must give appropriate credit to Cisoko as the original creator. 
-   It is strictly prohibited to claim this resource as your own work.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
-3. Distribution: 
-   - Direct downloads of this resource are only permitted from the official GitHub repository.
-   - Redistribution through any other means is not allowed without explicit written permission from Cisoko.
+---
 
-4. Modification: Users are allowed to modify the resource for personal use, but distribution of 
-   modified versions is subject to the same terms as the original resource.
+## Community
 
-5. Commercial Use: 
-   - Selling this resource, in whole or in part, is strictly prohibited.
-   - Using this resource as part of a paid service or product is allowed, provided proper attribution is given.
+- Documentation: <https://docs.cisoko.net>
+- Discord: <https://discord.gg/cisoko>
+- Issue tracker: <https://github.com/SpecialStos/cis_libs/issues>
 
-6. Liability: This resource is provided "as is", without warranty of any kind. In no event shall 
-   the authors or copyright holders be liable for any claim, damages, or other liability arising 
-   from the use of the resource.
+## Third-party dependencies
 
-7. Documentation and Support: 
-   - Official documentation can be found at https://docs.cisoko.net
-   - Our store is located at https://fivem.cisoko.net
-   - Our Discord: https://discord.gg/cisoko
-
-9. Disclaimer and Legal Notice:
-   a) Polite Notice: We kindly request that all users respect the terms of this license. Your cooperation 
-      ensures that we can continue to provide and improve this resource for the benefit of the entire community.
-      Failure to comply with any part of this license will be taken seriously and may result in 
-      legal action.
-
-By using this resource, you agree to abide by the terms and conditions of this license.
-
-For any questions regarding this license, please contact Cisoko.
+`cis_libs` has **no runtime dependencies**. It is designed to run alongside —
+not on top of — ox_lib, ox_inventory, ox_target, oxmysql, qb-core, qbx_core or
+es_extended, but it does not require, vendor or ship any of them. Those remain
+under their own licences, and this project claims no rights in them.

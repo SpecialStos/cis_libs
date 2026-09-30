@@ -1,25 +1,161 @@
-# cis_libs — implementation guide
+# cis_libs — Documentation
 
-For developers writing resources that consume `cis_libs`. Read [How the boundary
-works](#how-the-boundary-works) before you write your first line — almost every
-integration mistake comes from misunderstanding that one section.
+**A standalone FiveM library and framework bridge.** Player state, callbacks,
+spatial zones, an inventory bridge, a targeting bridge, door locks, entity sync,
+a database layer, and logging. It depends on **no other library** — not ox_lib,
+not PolyZone. It sits beside ESX / QBCore / QBOX and normalises the differences
+so your resource can be written once.
 
-- [What this is](#what-this-is)
-- [Install](#install)
-- [How the boundary works](#how-the-boundary-works)
-- [The performance model](#the-performance-model)
-- [Quick start](#quick-start)
-- [API reference](#api-reference)
-- [Recipes](#recipes)
-- [Security model](#security-model)
-- [Configuration reference](#configuration-reference)
-- [Compatibility shims](#compatibility-shims)
-- [Testing](#testing)
-- [Troubleshooting](#troubleshooting)
+Version **1.0.0**. Requires OneSync and server build 4500+.
+Licensed under [MIT](LICENSE.md); the original author's name and the resource
+name must be retained in all copies.
 
 ---
 
-## What this is
+## How to read this document
+
+**If you are an AI agent or a new contributor:** read §0 first, then §3. Almost
+every mistake in an integration is a violation of one of those, and every one of
+them fails *silently* — wrong data, no error, no log line. §0 is the short
+version; §3 is the reasoning and the measurements behind it.
+
+**If you are integrating:** §2 (install), §3 (boundary model), §6 (API
+reference), §7 (recipes).
+**If you are auditing a breaking change:** §10 onward is the frozen contract —
+what may not change, and what is scheduled for removal at 3.0.
+**If something is misbehaving:** §19 (troubleshooting), then §16 (known
+defects, so you do not file a bug that is already known).
+
+| § | Section | Read it when |
+|---|---|---|
+| **[0](#0-rules-that-break-code-silently)** | **[Rules that break code silently](#0-rules-that-break-code-silently)** | **Always, first** |
+| [1](#1-what-this-is) | [What this is](#1-what-this-is) | Onboarding |
+| [2](#2-install) | [Install](#2-install) | Setting up |
+| **[3](#3-the-boundary-model)** | **[The boundary model](#3-the-boundary-model)** | **Before your first line of code** |
+| [4](#4-performance-model) | [Performance model](#4-performance-model) | Deciding what to poll |
+| [5](#5-quick-start) | [Quick start](#5-quick-start) | The shortest working example |
+| [6](#6-api-reference) | [API reference](#6-api-reference) | Using a function |
+| [7](#7-recipes) | [Recipes](#7-recipes) | Common tasks |
+| [8](#8-security-model) | [Security model](#8-security-model) | Handling untrusted input |
+| [9](#9-configuration-reference) | [Configuration reference](#9-configuration-reference) | Server setup |
+| [10](#10-the-frozen-contract) | [The frozen contract](#10-the-frozen-contract) | Before changing anything |
+| [11](#11-the-cis-surface--50-entry-points) | The `Cis.*` surface | Finding a proxy function |
+| [12](#12-the-export-surface--52-server-55-client) | The export surface | Calling an export |
+| [13](#13-allow-list-posture) | [Allow-list posture](#13-allow-list-posture) | Mutating doors or sync |
+| [14](#14-net-events) | [Net events](#14-net-events) | Listening for events |
+| [15](#15-stateful-files--twelve) | [Stateful files](#15-stateful-files--twelve) | Deciding what to `shared_script` |
+| [16](#16-known-defects-pinned-not-fixed) | [Known defects, pinned not fixed](#16-known-defects-pinned-not-fixed) | Before filing a bug |
+| [17](#17-compatibility-shims) | [Compatibility shims](#17-compatibility-shims) | On a legacy integration |
+| [18](#18-testing) | [Testing](#18-testing) | Verifying your integration |
+| [19](#19-troubleshooting) | [Troubleshooting](#19-troubleshooting) | When something misbehaves |
+| [20](#20-changelog-policy) | [Changelog policy](#20-changelog-policy) | Releasing |
+| [A](#appendix-a--brief-for-migrating-a-resource) | [Appendix A — migrating a resource](#appendix-a--brief-for-migrating-a-resource) | Moving an existing resource |
+
+---
+
+## 0. Rules that break code silently
+
+Six rules. Every one of them fails **without raising an error** — you get wrong
+data, or no data, and nothing in the console tells you why. This library has
+shipped one of these bugs itself, in a form that silently corrupted every
+single API call it had.
+
+### 0.1 The `self` trap — the one that will cost you an afternoon
+
+```lua
+exports['cis_libs']:SomeExport(a, b)    -- CORRECT
+exports['cis_libs']['SomeExport'](a, b) -- WRONG
+```
+
+The bracket form yields an **unbound method**: the exports table is expected as
+the first argument, so calling it without `self` shifts every argument one
+place left. `Cis.zones.box('shop', centre, size, {})` arrives as
+`Cis.zones.box(centre, size, {})` — the zone's **name becomes its own
+coordinates**, and creation returns `false` with nothing logged.
+
+**The lookup is equally unbound.** This is the less obvious half:
+
+```lua
+local target = exports[ref.resource]
+local fn = target[ref.export]        -- unbound
+fn(src, ...)                         -- src is consumed as self  ✗
+fn(target, src, ...)                 -- correct                  ✓
+```
+
+Measured in-VM, not inferred: calling `fn('A','B','C')` delivers `('B','C')`;
+calling `fn(target,'A','B','C')` delivers all three. The only safe dynamic
+equivalent is to pass the table explicitly.
+
+**Grep your codebase for `exports['cis_libs'][`. There must be zero.**
+
+### 0.2 A function can be handed *back*, never sent *over*
+
+| Direction | Works? | Notes |
+|---|---|---|
+| Function as an **argument** | **No** | Arrives `nil` |
+| Function as a **return value** | Yes | Arrives as a callable reference table |
+
+This is the single most consequential asymmetry in the library. You **cannot
+pass a callback into `cis_libs`**. Every callback option has an **Event twin**
+that does work — use it.
+
+```lua
+-- WRONG from a consumer: onEnter arrives nil and silently never fires
+Cis.zones.box('shop', centre, size, { onEnter = function() end })
+
+-- RIGHT
+Cis.zones.box('shop', centre, size, {
+    onEnterEvent = 'myResource:shopEnter',   -- receives (zoneName, x, y, z)
+    onExitEvent  = 'myResource:shopExit',
+})
+RegisterNetEvent('myResource:shopEnter', function(zoneName, x, y, z) end)
+```
+
+A returned function arrives as `{ __cfx_functionReference = 'res:line:col' }`
+and **is callable** — but `type()` reports `table`, so a
+`type(x) == 'function'` check rejects a handler that works fine.
+
+### 0.3 `shared_script` copies; it does not share
+
+Each resource runs in its own Lua VM. `shared_script '@cis_libs/init.lua'` gives
+you a **proxy table**, not access to the library's internals. A consumer does
+**not** see `Config`, `Security`, `Globals`, `CisReadyState` or `CisCache`;
+reading them from another resource yields `nil`.
+
+**Never `shared_script` a stateful file.** You would get a second player cache,
+a second polling thread, and native calls multiplied by your resource count.
+The twelve files that hold process-global state are listed in
+[§15](#15-stateful-files--twelve). The pure `shared/` modules are safe to copy.
+
+### 0.4 Server-to-client handlers work by name, not by function
+
+A function cannot be sent across, but one *returned* from an export comes back
+callable. Export your handler on your own resource and register it by
+reference:
+
+```lua
+exports('myResource:handlePurchase', function(src, item, amount) ... end)
+Cis.callback.register('purchase', 'myResource:handlePurchase')
+```
+
+### 0.5 Subscribe; do not poll
+
+`ped()`, `coords()` and `heading()` are free. Everything else crosses a
+boundary. An export call at 60 Hz means you are polling something you should be
+subscribing to — **fixing the loop beats optimising the call.**
+
+### 0.6 A refusal explains itself
+
+Anything that can decline returns a reason as a second value, because a caller
+on the other side cannot read `cis_libs`'s console. Always capture it:
+
+```lua
+local ok, why = Cis.zones.box('shop', centre, size, {})
+if not ok then print(why) end   -- e.g. 'coords arrived as nil'
+```
+
+---
+## 1. What this is
 
 `cis_libs` is a standalone FiveM resource providing the pieces almost every
 server rewrites: player state, a callback system, spatial zones, an inventory
@@ -34,7 +170,7 @@ Version 1.0.0. Requires OneSync and server build 4500+.
 
 ---
 
-## Install
+## 2. Install
 
 1. Place the folder in your server's `resources/` directory.
 2. Add `ensure cis_libs` to `server.cfg` **before** any resource that uses it.
@@ -70,7 +206,7 @@ local ok = Cis.wait(15000)
 
 ---
 
-## How the boundary works
+## 3. The boundary model
 
 This is the section that matters. Everything else follows from it.
 
@@ -220,7 +356,7 @@ the boundary.**
 
 ---
 
-## The performance model
+## 4. Performance model
 
 ### Free — no boundary crossing
 
@@ -296,7 +432,7 @@ for fresher data. Do not lower it below 250ms.
 
 ---
 
-## Quick start
+## 5. Quick start
 
 ```lua
 Cis.ready(function(ok)
@@ -340,7 +476,7 @@ end)
 
 ---
 
-## API reference
+## 6. API reference
 
 Client and server namespaces are marked. Calling a server function on the
 client is a no-op returning nil, and vice versa.
@@ -599,7 +735,7 @@ Each of these yields and gives up after `Config.Framework.Database.Timeout`
 > refuses promptly with `false, 'transactions require oxmysql'`. It used to
 > burn the full timeout and return `nil` on *every* driver, because the awaited
 > wrapper called it as `(sql, params, cb)` while it takes `(queries, cb)`. That
-> is fixed and verified live; see `COMPATIBILITY.md` §13.2.
+> is fixed and verified live; see [§16](#16-known-defects-pinned-not-fixed).
 
 `Cis.db.scalar` unwraps a single cell on SQL drivers and the first non-`_id`
 field on MongoDB, so it is consistent across drivers.
@@ -693,7 +829,7 @@ Yields until the model loads or the timeout expires. Replaces the
 
 ---
 
-## Recipes
+## 7. Recipes
 
 ### Track the vehicle without polling
 
@@ -807,7 +943,7 @@ end)
 
 ---
 
-## Security model
+## 8. Security model
 
 ### Trust boundaries
 
@@ -876,7 +1012,7 @@ The function form is for use from inside `cis_libs` only.
 
 ---
 
-## Configuration reference
+## 9. Configuration reference
 
 `configs/master_config.lua`:
 
@@ -915,7 +1051,696 @@ allow-list stay server-side.
 
 ---
 
-## Compatibility shims
+__SPLIT__
+## 10. The frozen contract
+
+### 10.x What is frozen, and what is not
+
+**Frozen.** Every `Cis.*` function, every export, every net event name, and every
+config key, in the forms listed here. A change to any of them is a **MAJOR**
+change to the contract and requires the §11 removal process, or an explicit
+decision not to remove.
+
+**Not frozen, and deliberately so.**
+
+- **Console output.** `cis_libs` logs to the console freely, including security
+  warnings. Consumers do not parse it.
+- **Internal return *reasons*.** Every fallible call returns `false, '<reason>'`.
+  The reasons are documented and stable enough to log, but they are diagnostic
+  text, not a contract. Branch on the boolean.
+- **Which external resources are probed.** `GetResourceState` calls against
+  `ox_target`, `qb-core` and friends may come and go.
+- **`GetFramework`'s return value.** It returns a table of *callable reference
+  tables* and works, but by accident of implementation. It is not an API. See §11.
+
+---
+
+### 10.x Semver policy
+
+#### 10.2.1 MAJOR — a breaking change
+
+A MAJOR bump is required for any of:
+
+- removing or renaming a `Cis.*` function, an export name, or a net event;
+- adding, removing, or reordering a parameter of an existing function or export;
+- changing a return value, a return *type*, or a `false, '<reason>'` refusal into
+  a silent `nil` (or the reverse);
+- changing a default that a consumer may be relying on, **including a security
+  default** — see §7;
+- making a net event's name computed where it was literal, or the reverse.
+
+**A breaking change never produces a silently wrong answer.** This is the whole
+point of the rule and it is the reason the refusal return convention exists
+throughout the library. An older consumer pinned to a prior contract major
+receives an **explicit, typed refusal at the boundary** — a typed error carrying
+the consumer's declared `api` major, the platform's current `api` major, and the
+named incompatibility — **never** a call that appears to succeed with shifted or
+misinterpreted arguments. A silent success is the failure mode that produced the
+`self` trap; the policy exists to make it impossible to ship one.
+
+Practically, that means: before a MAJOR change lands, every affected entry gets
+an `['until']` in `api.lua`, a deprecation warning at the call site, and at least
+one full major of coexistence. Only when the removal happens does the refusal
+appear — and it appears then, loudly and with a type, not gradually.
+
+#### 10.2.2 MINOR — additive only
+
+A MINOR bump is required for, and **limited to**, additions:
+
+- a new `Cis.*` function, a new export, or a new net event;
+- a new config key with a default that preserves current behaviour;
+- a new field in a `Cis.*` return table.
+
+A MINOR **MUST NOT** change the meaning of anything that already exists. Adding
+a *positional* parameter to an existing function is MAJOR, not MINOR — the
+boundary drops `nil`, so a caller that omits the new middle argument sends a
+shifted one. This is precisely the `self` trap with a new hat on.
+
+#### 10.2.3 PATCH — bug fixes only
+
+A PATCH bump fixes behaviour that does not match what this document already
+promises. It **MUST NOT** change any documented behaviour, including turning a
+silent wrong answer into a refusal: that is a *behaviour change* and takes a
+MINOR at minimum, because a consumer that depended on the wrong answer is
+detectable only by breaking.
+
+#### 10.2.4 The freeze and the six products
+
+`cis_libs` is consumed by six escrow-protected products. A change that breaks
+any of them is a defect in the change. The freeze is on the **whole published
+surface**, not on the observed usage: the 37 proxy calls and 7 export calls the
+products actually make are a *subset* of what is protected.
+
+`cis_BetterFightEvolved` and `cis_pacificBankRobbery` make **zero** calls, and
+the deployed `[standalone]/` copies of the other four show far less usage than
+The source copies record that the deployed tree is stale
+and the **source copies in `Desktop/ZCode/` are authoritative**. The freeze
+baseline is therefore taken from the source copies, and the deployed tree must
+be re-synced from source before the next release. No commit in this repository
+records that, which is itself worth fixing.
+
+---
+
+### 10.x The four manifest numbers
+
+Every `cis_*` resource carries four numbers that move independently. Conflating
+them is the mistake this section exists to prevent.
+
+| Field | Lives in | Answers | Type | Bumped when |
+|---|---|---|---|---|
+| `version` | `fxmanifest.lua` | Which build of this product is it? | `MAJOR.MINOR.PATCH` | Every release. |
+| `api` | `api.lua` | Which contract major can it speak? | **integer** | Only on a breaking change to its public surface. |
+| `schema` | `api.lua` | Which migration set does its stored data assume? | **integer** | When the on-disk or in-database shape changes. |
+| `cis_min_libs` | `fxmanifest.lua` | What platform floor does it need? | `MAJOR.MINOR.PATCH` | When it starts using a newer `cis_libs` capability. |
+
+Rules:
+
+- `api` is an **integer contract major**, not a semver. `api = 1` is contract
+  major 1. A resource pinned to `api = 1` is refused by a platform at `api = 2`,
+  with a typed refusal naming both majors.
+- `schema` is a **set id**, not an ordering. Migration set 3 is not "more than"
+  set 2 unless the migration graph says so.
+- `cis_min_libs` is a floor on `cis_libs`' **`version`**, not on its `api`. A
+  product can need a bug fix in `cis_libs` 1.2.0 without needing anything from
+  contract major 2. Conflating these is how a platform ends up refusing a
+  consumer that would have worked.
+- Raising `api` **MUST** raise `cis_min_libs` to the `cis_libs` version that
+  first shipped the new contract; and a `cis_libs` that raises its own `api`
+  **MUST** ship a `CHANGELOG` entry naming the consumer majors it still accepts.
+
+`cis_libs` is the platform, not a consumer of itself, so it carries no
+`cis_min_libs`. It does carry `version "1.0.0"` in its manifest and `api = 1`,
+`schema = 0` in `api.lua`.
+
+The `api.lua` format is a single `return { ... }` of pure data. A consumer can read the
+platform's declared contract without starting it:
+
+```lua
+local api = assert(loadfile('resources/cis_libs/api.lua'))()
+if (api.api ~= 1) then
+    error(('cis_libs contract major %d; this consumer speaks %d'):format(api.api, 1))
+end
+```
+
+---
+
+## 11. The `Cis.*` surface — 50 entry points
+
+Loaded by a consumer with `shared_script '@cis_libs/init.lua'`. **50 distinct
+names, 52 realm-specific entries** (`Cis.inventory.count` and `Cis.inventory.has`
+exist in both realms with different signatures).
+
+Also set by `init.lua`, and part of the surface: `Cis.resource` (the string
+`'cis_libs'`), `Cis.isReady`, `Cis.isFailed`.
+
+### 10.Both realms (17)
+
+| Function | Signature | State | Called by production code |
+|---|---|---|---|
+| `Cis.ready` | `(cb, timeout)` | stable | no |
+| `Cis.wait` | `(timeout)` | stable | no |
+| `Cis.framework.notify` | `(srcOrNil, message, kind)` | stable | **yes** — tcvs, storeRobberies, HawkEye |
+| `Cis.callback.register` | `(name, handler)` | stable | **yes** — storeRobberies |
+| `Cis.callback.await` | `(name, ...)` | stable | no |
+| `Cis.callback.call` | `(name, cb, ...)` | stable | no |
+| `Cis.doors.add` | `(data)` | stable | **yes** — storeRobberies |
+| `Cis.doors.setState` | `(id, locked)` | stable | **yes** — storeRobberies |
+| `Cis.doors.get` | `(id)` | stable | no |
+| `Cis.sync.ped` | `(data)` | stable | no |
+| `Cis.sync.prop` | `(data)` | stable | **yes** — housing |
+| `Cis.sync.vehicle` | `(data)` | stable | no |
+| `Cis.sync.remove` | `(id)` | stable | **yes** — housing |
+| `Cis.log.debug` | `(message)` | stable | **yes** — tcvs, storeRobberies, HawkEye |
+| `Cis.log.info` | `(message)` | stable | **yes** — tcvs, storeRobberies, HawkEye |
+| `Cis.log.warn` | `(message)` | stable | **yes** — tcvs, storeRobberies, HawkEye |
+| `Cis.log.error` | `(message)` | stable | **yes** — tcvs, storeRobberies, HawkEye |
+
+`Cis.sync.*` resolve to **server-only** exports (`SyncCreate`, `SyncRemove` are
+registered in `server/sync.lua` only). `init.lua` defines the proxies in both
+realms for symmetry; calling them from a client is a no-op at best. The
+documented realm is **server**.
+
+`Cis.framework.notify` has three shapes and one of them is broken. See §3.1.
+
+### 10.Client only (20)
+
+| Function | Signature | State | Called by production code |
+|---|---|---|---|
+| `Cis.player.ped` | `()` | stable | **yes** — tcvs, storeRobberies, HawkEye, phone |
+| `Cis.player.coords` | `()` | stable | **yes** — tcvs, storeRobberies, HawkEye |
+| `Cis.player.heading` | `()` | stable | no |
+| `Cis.player.vehicle` | `()` | stable | **yes** — housing |
+| `Cis.player.weapon` | `()` | stable | **yes** — housing |
+| `Cis.player.serverId` | `()` | stable | **yes** — storeRobberies, HawkEye, housing |
+| `Cis.player.on` | `(key, cb)` | stable | **yes** — tcvs, storeRobberies, housing |
+| `Cis.player.near` | `(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent)` | stable | **yes** — storeRobberies |
+| `Cis.zones.poly` | `(name, points, options)` | stable | **yes** — tcvs, storeRobberies |
+| `Cis.zones.box` | `(name, center, size, options)` | stable | **yes** — tcvs |
+| `Cis.zones.sphere` | `(name, center, radius, options)` | stable | **yes** — HawkEye, housing |
+| `Cis.zones.remove` | `(name)` | stable | **yes** — tcvs, storeRobberies, HawkEye |
+| `Cis.zones.contains` | `(name, point)` | stable | no |
+| `Cis.target.add` | `(zoneType, name, coords, size, options)` | stable | **yes** — storeRobberies, HawkEye |
+| `Cis.target.remove` | `(name, isPed)` | stable | **yes** — storeRobberies, HawkEye |
+| `Cis.target.update` | `(name, options)` | stable | no |
+| `Cis.target.exists` | `(name)` | stable | no |
+| `Cis.streaming.model` | `(model, timeout)` | stable | **yes** — tcvs, storeRobberies, HawkEye, housing, phone |
+| `Cis.inventory.count` | `(item)` | stable | **yes** — housing |
+| `Cis.inventory.has` | `(item, amount)` | stable | **yes** — one caller, unidentified |
+
+`Cis.player.ped`, `Cis.player.coords` and `Cis.player.heading` are answered
+**locally** from natives, not through the exports boundary, when the proxy is
+running in a consumer's VM. They are frozen in that shape.
+
+### 10.Server only (15)
+
+| Function | Signature | State | Called by production code |
+|---|---|---|---|
+| `Cis.framework.player` | `(src)` | stable | **yes** — tcvs, storeRobberies, HawkEye, phone |
+| `Cis.inventory.add` | `(src, item, amount, metadata)` | stable | **yes** — tcvs, storeRobberies, HawkEye |
+| `Cis.inventory.remove` | `(src, item, amount)` | stable | **yes** — HawkEye |
+| `Cis.inventory.count` | `(src, item)` | stable | **yes** — housing |
+| `Cis.inventory.has` | `(src, item, amount)` | stable | **yes** — one caller, unidentified |
+| `Cis.db.query` | `(sql, params)` | stable | **yes** — tcvs, storeRobberies, HawkEye, phone |
+| `Cis.db.single` | `(sql, params)` | stable | **yes** — tcvs, storeRobberies, phone |
+| `Cis.db.scalar` | `(sql, params)` | stable | **yes** — tcvs, storeRobberies |
+| `Cis.db.insert` | `(sql, params)` | stable | **yes** — tcvs, HawkEye, phone |
+| `Cis.db.update` | `(sql, params)` | stable | **yes** — tcvs, HawkEye, phone |
+| `Cis.db.transaction` | `(queries)` | stable | **yes** — housing, phone |
+| `Cis.security.report` | `(src, reason)` | stable | **yes** — tcvs, storeRobberies, HawkEye, phone |
+| `Cis.net.on` | `(name, fn)` | stable | **yes** — tcvs, storeRobberies, HawkEye, housing, phone |
+| `Cis.callback.callClient` | `(src, name, cb, ...)` | stable | no |
+| `Cis.callback.awaitClient` | `(src, name, ...)` | stable | no |
+
+`Cis.db.*` are the **awaited** family: they block the calling coroutine and
+return the driver's results, bounded by `Config.Framework.Database.Timeout`.
+They are not usable inside a thread that must not yield.
+
+### 10.The eleven unexercised proxy functions
+
+```
+Cis.callback.call          Cis.callback.await          Cis.callback.callClient
+Cis.callback.awaitClient   Cis.doors.get               Cis.player.heading
+Cis.sync.ped               Cis.sync.vehicle            Cis.target.exists
+Cis.target.update          Cis.zones.contains
+```
+
+Plus `Cis.ready` and `Cis.wait`, which no product calls either.
+
+**These are frozen.** They are documented surface, and the freeze protects
+documented surface. They are not removal candidates in 1.x. They do tell you
+something real: the products' actual needs are thin exactly here.
+
+---
+
+## 12. The export surface — 52 server, 55 client
+
+Reached with `exports['cis_libs']:Name(...)`. **91 distinct names**; sixteen are
+registered in both realms with different signatures.
+
+"Reached by" is the `Cis.*` proxy that wraps it, if any. "Called by production
+code" is from a scan of the product source trees.
+
+### 11.Server — 52
+
+| Export | Signature | Reached by | State | Called by production code |
+|---|---|---|---|---|
+| `AddDoorGroup` | `(groupData)` | — | stable | no |
+| `AddDoorToSystem` | `(newDoorData, internal)` | — | **compat shim** | **yes** — storeRobberies |
+| `AutoLogError` | `(err, event)` | — | stable | no |
+| `AwaitCallback` | `(name, ...)` | `Cis.callback.await` | stable | no |
+| `AwaitCallbackClient` | `(name, target, ...)` | `Cis.callback.awaitClient` | stable | no |
+| `BreakDoor` | `(identifier)` | — | stable | no |
+| `CallCallback` | `(name, cb, ...)` | `Cis.callback.call` | stable | no |
+| `CallCallbackClient` | `(name, target, cb, ...)` | `Cis.callback.callClient` | stable | no |
+| `CheckResourceVersion` | `(resourceName, resourceUrl, currentVersion)` | — | **compat shim** | **yes** — storeRobberies (deployed) |
+| `CreateSafeCallback` | `(name, cb)` | — | **compat shim** | no |
+| `DatabaseDelete` | `(sql, params, cb)` | — | **compat shim** | no |
+| `DatabaseExecute` | `(query, params, callback)` | — | **compat shim** | no |
+| `DatabaseFetchAll` | `(query, params, callback)` | — | **compat shim** | no |
+| `DatabaseFetchOne` | `(query, params, callback)` | — | **compat shim** | no |
+| `DatabaseInsert` | `(sql, params, cb)` | — | **compat shim** | no |
+| `DatabaseUpdate` | `(sql, params, cb)` | — | **compat shim** | no |
+| `DbInsert` | `(sql, params)` | `Cis.db.insert` | stable | no |
+| `DbQuery` | `(sql, params)` | `Cis.db.query` | stable | no |
+| `DbScalar` | `(sql, params)` | `Cis.db.scalar` | stable | no |
+| `DbSingle` | `(sql, params)` | `Cis.db.single` | stable | no |
+| `DbTransaction` | `(sql, params)` | `Cis.db.transaction` | stable | no |
+| `DbUpdate` | `(sql, params)` | `Cis.db.update` | stable | no |
+| `FixDoor` | `(identifier)` | — | stable | no |
+| `GetAllDoorData` | `()` | — | stable | no |
+| `GetConfigSummary` | `()` | — | stable | **yes** — one caller, unidentified |
+| `GetDiscordQueueDepth` | `()` | — | stable | no |
+| `GetDoorState` | `(doorId)` | `Cis.doors.get` | stable | no |
+| `GetFramework` | `()` | — | **compat shim** | **yes** — storeRobberies |
+| `GetLibsPrefix` | `()` | — | stable | **yes** — HawkEye |
+| `GetLogging` | `()` | — | stable | **yes** — storeRobberies (deployed) |
+| `GetNormalizedPlayer` | `(src)` | `Cis.framework.player` | stable | no |
+| `GetOnlineJobCount` | `(jobs)` | — | stable | no |
+| `InventoryAdd` | `(src, item, amount, metadata)` | `Cis.inventory.add` | stable | no |
+| `InventoryCount` | `(src, item)` | `Cis.inventory.count` | stable | no |
+| `InventoryHas` | `(src, item, amount)` | `Cis.inventory.has` | stable | no |
+| `InventoryRemove` | `(src, item, amount)` | `Cis.inventory.remove` | stable | no |
+| `InvokingAllowed` | `()` | — | stable | no |
+| `LockDoors` | `(identifier)` | — | **compat shim** | **yes** — storeRobberies |
+| `LogDebug` | `(message, discordType)` | `Cis.log.debug` | stable | **yes** — storeRobberies (deployed) |
+| `LogError` | `(message, discordType, errorInfo)` | `Cis.log.error` | stable | **yes** — storeRobberies (deployed) |
+| `LogInfo` | `(message, discordType)` | `Cis.log.info` | stable | **yes** — storeRobberies (deployed) |
+| `LogWarn` | `(message, discordType)` | `Cis.log.warn` | stable | no |
+| `Notify` | `(src, message, kind)` | — | stable | no |
+| `RateOk` | `(src, name, windowMs, maxHits)` | — | stable | **yes** — one caller, unidentified |
+| `RegisterCallback` | `(name, handler)` | `Cis.callback.register` | stable | no |
+| `SecureNetOn` | `(name, fn)` | `Cis.net.on` | stable | no |
+| `SecurityReport` | `(src, reason)` | `Cis.security.report` | stable | no |
+| `SendDiscordLog` | `(webhookURL, title, message, color, ping)` | — | stable | no |
+| `SyncCreate` | `(kind, data)` | `Cis.sync.ped / prop / vehicle` | stable | no |
+| `SyncRemove` | `(id)` | `Cis.sync.remove` | stable | no |
+| `UnlockDoors` | `(identifier)` | — | **compat shim** | **yes** — storeRobberies (deployed copy) |
+| `WaitReady` | `(timeout)` | — | stable | no |
+
+### 11.Client — 55
+
+| Export | Signature | Reached by | State | Called by production code |
+|---|---|---|---|---|
+| `AddDoorGroup` | `(data)` | — | stable | no |
+| `AddDoorToSystem` | `(data)` | — | **compat shim** | **yes** — storeRobberies |
+| `AutoLogError` | `(err, context)` | — | stable | no |
+| `AwaitCallback` | `(name, ...)` | `Cis.callback.await` | stable | no |
+| `CallCallback` | `(name, cb, ...)` | `Cis.callback.call` | stable | no |
+| `CreatePed` | `(model, coords, heading, options)` | — | stable | no |
+| `CreateTarget` | `(zoneType, name, coords, size, options)` | `Cis.target.add` | stable | **yes** — storeRobberies, HawkEye |
+| `CreateZone` | `(kind, name, a, b, options)` | `Cis.zones.box / poly / sphere` | stable | no |
+| `DebugLog` | `(message)` | — | stable | no |
+| `DrawText3D` | `(x, y, z, text, settings)` | — | stable | **yes** — storeRobberies (deployed) |
+| `GetCachedHeading` | `()` | — | stable | no |
+| `GetCachedPed` | `()` | — | stable | no |
+| `GetCachedServerId` | `()` | `Cis.player.serverId` | stable | no |
+| `GetCachedVehicle` | `()` | `Cis.player.vehicle` | stable | no |
+| `GetCachedWeapon` | `()` | `Cis.player.weapon` | stable | no |
+| `GetClientConfig` | `()` | — | stable | no |
+| `GetClientLogging` | `()` | — | stable | **yes** — storeRobberies (deployed) |
+| `GetClosestDoor` | `()` | — | stable | no |
+| `GetClosestVehicle` | `()` | — | stable | no |
+| `GetCurrentWeaponData` | `(ped)` | — | stable | no |
+| `GetDistanceBetweenCoords` | `(x1, y1, z1, x2, y2, z2)` | — | stable | no |
+| `GetDoorState` | `(doorId)` | `Cis.doors.get` | stable | no |
+| `GetFramework` | `()` | — | **compat shim** | **yes** — storeRobberies |
+| `GetGlobals` | `()` | — | **compat shim** | **yes** — storeRobberies |
+| `GetPlayerVehicleSeat` | `()` | — | stable | no |
+| `GetPolyzones` | `()` | — | **compat shim** | **yes** — storeRobberies (deployed) |
+| `GetSyncedEntities` | `()` | — | stable | no |
+| `GetTableSize` | `(t)` | — | stable | no |
+| `GetVehicleProperties` | `(vehicle)` | — | stable | no |
+| `GetZoneDebug` | `()` | — | stable | no |
+| `InventoryCount` | `(item)` | `Cis.inventory.count` | stable | no |
+| `InventoryHas` | `(item, amount)` | `Cis.inventory.has` | stable | no |
+| `IsReady` | `()` | — | stable | no |
+| `LogDebug` | `(message)` | `Cis.log.debug` | stable | **yes** — storeRobberies (deployed) |
+| `LogError` | `(message)` | `Cis.log.error` | stable | **yes** — storeRobberies (deployed) |
+| `LogInfo` | `(message)` | `Cis.log.info` | stable | **yes** — storeRobberies (deployed) |
+| `LogWarn` | `(message)` | `Cis.log.warn` | stable | no |
+| `Notify` | `(message, kind)` | — | stable | no |
+| `OnPlayerCache` | `(key, cb)` | `Cis.player.on` | stable | no |
+| `RandomFloat` | `(lower, greater)` | — | stable | no |
+| `RegisterCallback` | `(name, fn)` | `Cis.callback.register` | stable | no |
+| `RemoveTarget` | `(name, isPed)` | `Cis.target.remove` | stable | **yes** — storeRobberies, HawkEye |
+| `RemoveZone` | `(name)` | `Cis.zones.remove` | stable | no |
+| `RequestLockDoors` | `(identifier)` | `Cis.doors.setState(id, true)` | stable | no |
+| `RequestModelTimeout` | `(model, timeout)` | `Cis.streaming.model` | stable | no |
+| `RequestUnlockDoors` | `(identifier)` | `Cis.doors.setState(id, false)` | stable | no |
+| `Round` | `(num, numDecimalPlaces)` | — | stable | no |
+| `SetVehicleProperties` | `(vehicle, props, fixVehicle)` | — | stable | no |
+| `TargetAvailable` | `()` | — | stable | no |
+| `TargetExists` | `(name)` | `Cis.target.exists` | stable | no |
+| `TriggerLibCallback` | `(name, cb, ...)` | — | stable | no |
+| `UpdateTarget` | `(name, newOptions)` | `Cis.target.update` | stable | no |
+| `WaitReady` | `(timeout)` | — | stable | no |
+| `WatchNear` | `(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent)` | `Cis.player.near` | stable | no |
+| `ZoneContains` | `(name, point)` | `Cis.zones.contains` | stable | no |
+
+### 11.The five `:doorlock:*` events are computed
+
+`Security.EventPrefix` is an operator setting. All five doorlock event names are
+built from it at runtime:
+
+```
+<Security.EventPrefix>:doorlock:requestState    client -> server  (identifier, state)
+<Security.EventPrefix>:doorlock:updateState     server -> client  (doorId, locked)
+<Security.EventPrefix>:doorlock:addDoor         server -> client  (doorData)
+<Security.EventPrefix>:doorlock:addDoorGroup    server -> client  (groupData)
+<Security.EventPrefix>:doorlock:doorBroken      server -> client  (doorId, broken)
+```
+
+**A consumer cannot hardcode these names.** With the shipped prefix they are
+`cis_libs:doorlock:*`, and that is a coincidence of configuration, not a
+contract. A consumer that hardcodes them works on a default install and breaks
+silently on any server that changed the prefix — no error, no log line, doors
+that simply never update.
+
+The supported way:
+
+```lua
+local prefix = exports['cis_libs']:GetLibsPrefix()   -- server side
+RegisterNetEvent(prefix .. ':doorlock:updateState', function(doorId, locked) ... end)
+```
+
+`cis_storeRobberies` calls `AddDoorToSystem` and receives these events, and it
+cannot name them. It is one of the strongest arguments in the programme for
+keeping the shims until 3.0 (§11).
+
+`api.lua` writes the five with the literal placeholder
+`${Security.EventPrefix}:doorlock:...`, because a manifest must state a name a
+consumer can compute but not one it can assume.
+
+---
+
+## 13. Allow-list posture
+
+> ### An empty `Security.AuthorizedResources` is a **setup convenience, not a production posture**.
+
+An empty list means *any server-side resource* may add doors, break them, add
+door groups, and create or rewrite sync entities for every player on the server.
+That is not a theoretical exposure: it is a resource you have not written yet
+making the decision for you.
+
+On a **new install** an empty list is now **restrictive**: only `cis_libs` itself
+may mutate, and a foreign caller is refused. The refusal is a boot-time console
+message naming the exact fix:
+
+```
+Security.AuthorizedResources = { "cis_storeRobberies", "cis_housing" }
+```
+
+On an **existing install** — one that was already running `cis_libs` before this
+default existed — the permissive behaviour is preserved. A legacy install is
+detected by either of two signals:
+
+1. a written config this library has left on disk
+   (`configs/install.json`, written the first time a restrictive posture is
+   applied); or
+2. the `cis_doors` table, which only exists if `Config.Doorlock.Persist` was on
+   and that bootstrap has already run.
+
+Signal 2 needs a database query and is only conclusive when persistence is
+configured, so the decision is made **synchronously** when `Persist` is off (the
+shipped default) and **permissive until the query answers** when it is on. An
+install that cannot be classified is never the one that gets broken.
+
+### 12.The residual risk, stated plainly
+
+The two signals cannot distinguish a legacy server that never enabled
+`Doorlock.Persist` from a genuinely new one: neither left a trace. Such a
+server's **first** boot under this change is restrictive, its doors are refused,
+and it sees a six-line console message naming the resources to add. From the
+second boot on, the written-config marker exists and it is permissive again.
+
+This is the one place in this document where a security improvement can change
+observable behaviour for an existing install. It is stated here rather than
+buried because §3.1 requires it to be visible.
+
+### 12.Refusals keep their return values
+
+The four mutation call sites (`AddDoorToSystem`, `AddDoorGroup`, `Cis.sync.*`
+create, `Cis.sync.*` remove) return exactly what they returned before — `false`
+or `nil`, no second value. No new return value was added, so no consumer can
+observe one. **Ask before you mutate**:
+
+```lua
+if not exports['cis_libs']:InvokingAllowed() then
+    return print('not on the allow-list; add this resource to Security.AuthorizedResources')
+end
+```
+
+### 12.`cis_libstest`
+
+The integration harness mutates doors and sync, so **it is not exempt**. On a
+fresh install its mutating tests will now fail — correctly, and informatively.
+Add `"cis_libstest"` to `AuthorizedResources` on a test instance. The CI unit
+suites are unaffected; they never load the doorlock or sync modules.
+
+---
+
+## 14. Net events
+
+**25** in total: 20 literal, 5 computed from `Security.EventPrefix` (§6.3). Full
+payloads are in `api.lua`; `npm run test:api` fails if this list and the manifest
+disagree.
+
+| Event | Direction | Payload |
+|---|---|---|
+| `cis_libs:cb` | **both** | `(name, key, ...)` — same name, different meaning each way |
+| `cis_libs:cb:res` | server -> client | `(key, ok, ...)` |
+| `cis_libs:cb:serverRes` | client -> server | `(key, ok, ...)` |
+| `cis_libs:client:getData` | server -> client | `({ Config, EventPrefix, DoorData })` on join |
+| `cis_libs:server:getData` | client -> server | no arguments |
+| `cis_libs:client:showNotification` | server -> client | `(message, kind)` |
+| `cis_libs:client:inventory` | server -> client | `({ [itemName] = count })` |
+| `cis_libs:server:inventorySync` | client -> server | no arguments |
+| `cis_libs:client:syncUpsert` | server -> client | `(record)` |
+| `cis_libs:client:syncRemove` | server -> client | `(id)` |
+| `cis_libs:client:toggleDoor` | server -> client | `({ doorId })` or `({ doorId = { ids } })` |
+| `cis_libs:jobUpdated` | server -> client | `({ name, grade })` |
+| `cis_libs:playerLoaded` | client local | `(job)` |
+| `QBCore:Client:OnJobUpdate` | framework -> client | `(job)` |
+| `QBCore:Client:OnPlayerLoaded` | framework -> client | `(playerData)` |
+| `QBCore:Player:SetPlayerData` | framework -> client | `({ items })` |
+| `qbx_core:client:playerLoaded` | framework -> client | `(playerData)` |
+| `qbx_core:client:onJobUpdate` | framework -> client | `(job)` |
+| `esx:playerLoaded` | framework -> client | `(player)` |
+| `esx:setJob` | framework -> client | `(job)` |
+| `<prefix>:doorlock:requestState` | client -> server | `(identifier, state)` |
+| `<prefix>:doorlock:updateState` | server -> client | `(doorId, locked)` |
+| `<prefix>:doorlock:addDoor` | server -> client | `(doorData)` |
+| `<prefix>:doorlock:addDoorGroup` | server -> client | `(groupData)` |
+| `<prefix>:doorlock:doorBroken` | server -> client | `(doorId, broken)` |
+
+`cis_libs:client:toggleDoor` was registered and documented nowhere; it is here
+now, and the validator (`E042`) will keep it from going missing again.
+
+**Event handlers registered but not net events:** `gameEventTriggered`,
+`CEventNetworkPlayerEnteredVehicle`, `CEventNetworkPlayerLeftVehicle`,
+`onResourceStart`, `onResourceStop`, `onClientResourceStart`,
+`onClientResourceStop`, `playerDropped`, `ox_inventory:updateInventory`,
+`ox_inventory:openedInventory`, `QBCore:Server:PlayerLoaded`,
+`QBCore:Server:OnJobUpdate`, `esx:playerLoaded`, `esx:setJob`. These are FiveM
+built-ins or third-party events and are not part of the contract.
+
+---
+
+## 15. Stateful files — twelve
+
+> **Never `shared_script` any file in this list.** A consumer that does gets a
+> second instance of the state below: a second door index, a second target set, a
+> second cache, a second ready gate, and native work multiplied by the number of
+> resources that copied it.
+
+| # | File | Module-level state |
+|---|---|---|
+| 1 | `client/cache.lua` | `CisCache` global, `listeners`, `nearWatchers`, and the `Globals` publisher |
+| 2 | `client/zones.lua` | `zones`, `grid`, `inside` |
+| 3 | `client/callback.lua` | `handlers`, `pending` |
+| 4 | `client/doorlock.lua` | `doors`, `doorGroups`, `addedTargets`, `grid` |
+| 5 | `client/target.lua` | `CreatedZones` |
+| 6 | `client/sync.lua` | `entities`, `records`, `spawning` |
+| 7 | `client/inventory.lua` | `counts` |
+| 8 | `client/vehicle.lua` | `lastApplied` — **found in this pass, see below** |
+| 9 | `server/callback.lua` | `handlers`, `remotes`, `pending` |
+| 10 | `server/security.lua` | `rates` |
+| 11 | `server/doorlock.lua` | `DoorLock.doorStates`, `.doorGroups`, `.doorData`, `lastChange` |
+| 12 | `server/sync.lua` | `records` |
+
+`server/player.lua` holds a `CisHistogram` store in a module local
+(`CisHistogram` itself is pure, the store is not) and is a thirteenth on the same
+rule; it is listed separately below because the original audit counted twelve.
+
+### 14.Also stateful, found in this pass
+
+The count above is the canonical twelve. These were not in that list and were
+found by reading the files rather than the report. They carry the same warning:
+
+| File | State | Consequence of duplicating |
+|---|---|---|
+| `framework/framework_client.lua` | global `Framework`, `FrameworkLoaded`, `playerId` | A second `Framework` global with `provider = 'NONE'`, silently breaking the doorlock job check |
+| `framework/framework_server.lua` | global `CisFramework`, `FrameworkLoaded` | A second framework adapter; every player lookup diverges |
+| `server/database.lua` | `Database` (driver, ready, warned) | A second driver selection and a second readiness flag |
+| `client/utils.lua` | rebinds the **global** `CreatePed` | A native wrapped twice; the second wrapper is what `CreatePed` resolves to |
+| `client/logging.lua` / `server/logging.lua` | global `Logging` | Level tables diverge between realms |
+| `server/discord.lua` | global `DiscordQueue` | A second unbounded queue and a second drain thread |
+
+### 14.Safe to duplicate
+
+Genuinely pure, no state, no natives:
+
+- `shared/grid.lua` — pure functions
+- `shared/config.lua` — pure functions
+- `shared/pending.lua` — the store is passed **in** as an argument
+- `shared/histogram.lua` — same; the store is passed in
+- `shared/ready.lua` — **has** `CisReadyState` state, but duplicating it is
+  harmless: a consumer's copy is only ever read, never marked ready
+
+---
+
+## 16. Known defects, pinned not fixed
+
+The freeze forbids a behaviour change. These are real, reproduced, and pinned by
+`test/contracts.lua` so that fixing one is a deliberate MAJOR decision rather
+than an accident.
+
+### 15.`Cis.framework.notify` sends the wrong argument on the client
+
+`init.lua` defines:
+
+```lua
+function Cis.framework.notify(srcOrNil, message, kind)
+    if IS_SERVER then
+        return exportCall('Notify', srcOrNil, message, kind)
+    end
+    if message == nil then
+        return exportCall('Notify', srcOrNil, kind)   -- one-arg form: correct
+    end
+    return exportCall('Notify', message, kind)         -- two-arg form: WRONG
+end
+```
+
+The client `Notify` export takes `(message, kind)`. A consumer calling
+`Cis.framework.notify('You won $500', 'success')` therefore sends `'success'` as
+the **message** and `nil` as the kind. The one-argument form works. The two
+branches disagree with each other, and the two-argument form is the broken one.
+
+A scan of the product sources records `Cis.framework.notify` as consumed by tcvs,
+storeRobberies and HawkEye and does not distinguish the arities, so the blast
+radius is unknown. `Pinned by`: *"client notify: DEFECT PINNED — the kind is sent
+in the message slot"*.
+
+### 15.`Cis.db.transaction` returned nothing and burned the timeout (FIXED)
+
+`exportAwait` calls `method(sql, params, cb)`, but `Database.Transaction` is
+declared `(queries, cb)`. The completion callback arrived in a **third**
+parameter the function never read, so `cb` was `nil` on entry.
+
+Consequences, on **every** driver:
+
+- on a non-`oxmysql` driver, the refusal callback was never invoked, the await
+  never settled, the coroutine spun for the full
+  `Config.Framework.Database.Timeout` (15 s by default), and the call returned
+  **nothing at all** — not `false, 'transactions require oxmysql'`;
+- on `oxmysql`, the driver was handed a nil callback and logged
+  `Transaction parameters must be array or object, received 'undefined'`.
+
+`Cis.db.transaction` is used by `cis_housing` and `cis_phone`, so both paid
+that 15-second stall on every call.
+
+**Fixed.** `DbTransaction` is now registered longhand rather than through
+`exportAwait`, so the callback reaches slot 2. Deliberately not made
+arity-aware inside `exportAwait`: exactly one method has a different shape, and
+hiding a second calling convention in a shared helper is how the mismatch
+happened in the first place.
+
+Verified live on oxmysql: a `SELECT 1` transaction now completes well inside the
+timeout, answers a value, and the driver logs nothing. On a non-oxmysql driver
+it refuses promptly with `false, 'transactions require oxmysql'` — the string
+this section previously called unreachable.
+
+*Consumers:* `cis_housing` and `cis_phone` send oxmysql's shape — an array of
+`{ query = ..., values = { ... } }` objects. An array of bare arrays is rejected
+by the driver.
+
+### 15.The remote-handler path shifted every argument (FIXED)
+
+`server/callback.lua` resolved a `'resource:export'` handler as:
+
+```lua
+local target = exports[ref.resource]
+fn = target[ref.export]        -- the bracket LOOKUP
+...
+local results = table.pack(pcall(fn, src, ...))
+```
+
+**Measured, in-VM, with no boundary in the way:** the bracket lookup *is* an
+unbound method — the same trap as the bracket call form in §1. Calling
+`fn('A','B','C')` delivered `('B','C')`; calling `fn(target,'A','B','C')`
+delivered all three.
+
+So a handler registered with `Cis.callback.register('name', 'res:export')`
+received every one of the caller's arguments **and never `src`** — one slot
+shifted, not the "zero arguments" an earlier draft of this document recorded.
+The distinction decides the fix: a shift is fixed by passing the table, a drop
+is not.
+
+**Fixed.** `invoke` now calls `pcall(fn, target, src, ...)` for remote
+handlers and is unchanged for local ones. A local handler is a plain function
+and must keep its current call shape.
+
+*An earlier revision of this section said the handler received zero arguments
+and that this was the highest-priority unmeasured item. Both claims are wrong.
+It was measured — a one-slot shift, not a drop — and the measurement is written
+into the comment on `invoke` above, with the exact call shapes that show it.*
+
+**Blast radius:** `cis_storeRobberies` calls `Cis.callback.register` but
+registers a **local** function, so no shipped product was affected. The path
+had simply never worked for anyone.
+
+### 15.`Security.AuthorizedResources` is read once
+
+An earlier draft recorded that it "was read once and never rebuilt; it is now re-read/
+on demand". In the current source `rebuildAuthorized()` is called **once**, at
+module load. Editing the list at runtime has no effect. Not changed: making it
+live is a behaviour change. The list is read fresh on every **restart**, which is
+the supported way.
+
+### 15.Coupling seams outside the abstractions
+
+`client/target.lua` calls the provider exports directly at 10 sites — 5
+`exports.ox_target:*` and 5 `exports['qb-target']:*` — and
+`client/inventory.lua` / `server/inventory.lua` call `exports.ox_inventory:*`
+directly too. These sit outside the `Cis.target` / `Cis.inventory` abstraction
+in a way no reader of the boundary model would expect. A third-party target or
+inventory provider added in future must patch these files, not implement an
+interface.
+
+---
+
+__SPLIT__
+## 17. Compatibility shims
 
 Existing `exports['cis_libs']:...` names still work.
 
@@ -944,7 +1769,7 @@ Cis.callback.callClient(5, 'my:cb', function(ok, ...) end)
 
 ---
 
-## Testing
+## 18. Testing
 
 **Pure tests**, no FiveM required — 62 assertions over the `shared/` modules
 and the test harness's own JSON encoder:
@@ -981,7 +1806,7 @@ something here disagrees with reality, believe the harness.
 
 ---
 
-## Troubleshooting
+## 19. Troubleshooting
 
 **`Cis.ready` resolves false.** `cis_libs` did not deliver configuration within
 15s. Check that `ensure cis_libs` precedes your resource in `server.cfg` and
@@ -1024,6 +1849,113 @@ value; it carries a reason. See [Refusals explain themselves](#refusals-explain-
 
 ---
 
+
+---
+
+## 20. Changelog policy
+
+**One page per version**, at `CHANGELOG/<version>.md`, committed with the
+release. Not one running file: a running file is edited by six people and
+diffed by nobody, and the question "what changed in 1.2.0" stops being answerable
+once there are twenty entries.
+
+```markdown
+# 1.2.0 -- 2026-09-29
+
+**Contract major:** 1 (unchanged)
+**Schema:** 0 (unchanged)
+
+### Added
+### Changed
+### Fixed
+### Deprecated
+### Removed
+### Security
+```
+
+Rules:
+
+- The header repeats all four numbers (§4). If any of them moved, the entry says
+  which and why.
+- Every entry names a consumer impact: who is affected and what they must do.
+  "Fixed a typo" is not an entry; "database calls now time out at
+  `Database.Timeout` instead of hanging forever" is.
+- **Deprecated** entries name the shim, its `use`, and the `['until']` major.
+  They must match `api.lua`; the validator is the tie-breaker.
+- **Removed** entries name the major they became possible in and the shims
+  removed with them.
+- **Security** entries state the exposure, not just the change.
+
+**Generation.** Where a page can be produced from what CI already knows, it is:
+`api.lua` already carries `since` and `['until']` for every export and event, and
+`tools/validate-api.js` can emit the Added and Removed sections directly. The
+human-written parts are Changed, Fixed and Security, which are judgements about
+behaviour and are the reason the page exists. The generator is
+`tools/validate-api.js --changelog <version>`; until it lands, the `api.lua`
+diff for the two files is the mechanical part and is a one-line command.
+
+---
+
+
+---
+
+## 21. What this repository verifies
+
+Everything in this document is checkable from a clean checkout:
+
+```bash
+npm ci
+npm run test:all
+```
+
+Which is:
+
+| Command | What it proves |
+|---|---|
+| `npm test` | 62 pure-module assertions, 27 binding assertions, 163 contract assertions — 252 in total |
+| `npm run test:api-selftest` | The `api.lua` validator passes the real manifest and rejects all five broken fixtures |
+| `npm run test:api` | `api.lua` matches the registered surface: 52 server, 55 client, 25 events |
+
+The `self` trap is guarded three ways, and the third is the one that matters:
+
+- `test/binding.lua` (27 assertions) — argument slots of the original proxy set,
+  with a canary proving the stub models the shift.
+- `test/contracts.lua` (163 assertions) — argument slots of **every** proxy,
+  including the four that reorder before delegating, the export each one
+  resolves to, the discriminator arguments (`sync.ped` vs `sync.prop`,
+  `zones.box` vs `zones.sphere`), and a source-level pin on the shape of
+  `exportCall` itself.
+- CI greps for the bracket-call shape and for a hardcoded third-party host.
+
+The middle one was added in this pass because the original guard had a real
+hole, measured rather than assumed: swapping the argument order in
+`Cis.callback.callClient` from `(name, src, ...)` to `(src, name, ...)` passed
+**both** the old suite and the CI grep. Thirteen mutations were planted and
+thirteen are now caught.
+
+---
+
+
+---
+
+## 22. What this document does not cover
+
+Stated so nobody infers more than is here.
+
+- **It describes this source tree, not a deployed install.** Everything pinned
+  above was read out of the code in this repository and is accurate about that
+  code and about nothing outside it. A server running a different build of
+  `cis_libs` may behave differently, and the shims' behaviour in production
+  cannot be verified from here — only the live harness, on a running server,
+  verifies that.
+- **Return-value shapes.** Documented in `DOCUMENTATION.md`,
+  not machine-checked here.
+- **The integration harness.** `cis_libstest` (89 tests across both realms) needs
+  a live fxserver and is not run in CI. Everything touching a native is
+  integration-tested, not unit-tested.
+
+---
+
 ## Appendix A — brief for migrating a resource
 
 Hand this to whoever is rebuilding a resource onto `cis_libs`. It is
@@ -1050,7 +1982,7 @@ You will also want `cis_libs/README.md` for the short version.
 
 ---
 
-## Non-negotiable facts
+### The non-negotiable facts
 
 These were each learned the expensive way. Violating any of them breaks code
 without raising an error.
@@ -1142,7 +2074,7 @@ event until that is resolved.
 
 ---
 
-## What to hunt for
+### What to hunt for
 
 Grep the codebase for each of these. They are the work.
 
@@ -1180,7 +2112,7 @@ end)
 
 ---
 
-## How to work
+### How to work
 
 ### Phase 1 — Audit (do this yourself, do not delegate)
 
@@ -1234,7 +2166,7 @@ rather than counting it as a pass.
 
 ---
 
-## Definition of done
+### Definition of done
 
 - Zero occurrences of `exports['cis_libs'][` anywhere.
 - Zero self-written `Wait(0)` loops that poll player, vehicle, or weapon state.
@@ -1246,7 +2178,7 @@ rather than counting it as a pass.
   listed with the reason it was skipped.
 - Anything deliberately left alone is stated out loud with the reason.
 
-## Reporting back
+### Reporting back
 
 Report: what changed per resource, what you deliberately did not change and
 why, anything in `cis_libs` you believe is a bug (do not fix it), and the final
@@ -1255,7 +2187,7 @@ were unsure rather than presenting it as settled.
 
 ---
 
-## Support
+### Support
 
 - Docs: https://docs.cisoko.net
 - Discord: https://discord.gg/cisoko
