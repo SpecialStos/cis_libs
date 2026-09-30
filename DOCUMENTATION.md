@@ -48,7 +48,7 @@ defects, so you do not file a bug that is already known).
 | [17](#17-compatibility-shims) | [Compatibility shims](#17-compatibility-shims) | On a legacy integration |
 | [18](#18-testing) | [Testing](#18-testing) | Verifying your integration |
 | [19](#19-troubleshooting) | [Troubleshooting](#19-troubleshooting) | When something misbehaves |
-| [20](#20-changelog-policy) | [Changelog policy](#20-changelog-policy) | Releasing |
+| [20](#21-changelog-policy) | [Changelog policy](#21-changelog-policy) | Releasing |
 | [A](#appendix-a--brief-for-migrating-a-resource) | [Appendix A — migrating a resource](#appendix-a--brief-for-migrating-a-resource) | Moving an existing resource |
 
 ---
@@ -1852,7 +1852,426 @@ value; it carries a reason. See [Refusals explain themselves](#refusals-explain-
 
 ---
 
-## 20. Changelog policy
+---
+
+## 20. The utility and algorithm layer
+
+Fifteen pure modules under `shared/`. No natives, no exports, no globals beyond
+one table each, and **no state held inside a module** — state is passed in and
+returned out, so all of it runs and is tested under fengari with no FiveM
+server. That is deliberate: a utility you cannot test is a utility you do not
+trust.
+
+### Algorithms — `shared/algo/`
+
+| Module | For | The one thing to know |
+|---|---|---|
+| `CisInterp` | clamp, lerp, remap, wrap, 31 easing curves, vector and angle maths | `damp()` is **frame-rate independent**: the same elapsed time reaches the same value at 15, 60 or 240 fps. That is the whole reason to prefer it to a per-frame constant |
+| `CisCurve` | Catmull-Rom and cubic Hermite splines with arc-length lookup | Ask for "30 metres along the path", not `t = 0.3` — `t` is not proportional to distance, so driving by `t` accelerates through short chords and crawls through long ones |
+| `CisRate` | fixed window, sliding counter, token bucket | All three differ **only** in boundary behaviour. Windows are in **seconds**, and keys are independent, so one player's traffic never consumes another's |
+| `CisWindow` | ring buffer, sliding dedupe, bucketed stats | The stats aggregator's memory is constant regardless of event rate |
+| `CisRandom` | Fisher–Yates, unbiased integers, weighted choice, Gaussian, seedable generator | `math.random` in LuaJIT is **not** a CSPRNG. The generator is an object so seeding is not global state |
+| `CisLRU` | O(1) least-recently-used cache | Includes a section on when a plain table is the better answer |
+| `CisHeap` | binary min-heap and a FIFO priority queue | FiveM has no heap, and a sorted table is O(n) per insert. This is where one earns its keep |
+| `CisSparse` | generation-counter sparse set | `clear()` is O(1) and iteration costs the size, not the number of slots ever written |
+
+### Utilities — `shared/util/`
+
+| Module | For |
+|---|---|
+| `CisTable` | deep copy with cycle protection, deep merge with an explicit policy, count, find/filter/map/reduce, stable sort |
+| `CisString` | case conversion, split, truncate, Levenshtein and `suggest()` for "did you mean" on a typo'd command |
+| `CisValidate` | checkers returning `true` or `false, '<reason>'` — the library's refusal convention, applied to input |
+| `CisTime` | duration constants, format/parse, relative time, with `now` injected so it is testable |
+| `CisJson` | the refusal layer over an **injected** codec. It ships no encoder: FiveM already has one, and a second would be a second thing to keep correct |
+| `CisId` | short readable ids (`door_7F2K9Q1M4XB3`) from an injectable RNG. **Not** a security token |
+| `CisSemver` | compare and `satisfies()` with ranges, wildcards, AND and OR |
+
+```lua
+-- let the path do the arithmetic instead of integrating speed yourself
+local pos = CisCurve.pointAt(route, speed * elapsed, out)
+
+-- frame-rate independent smoothing: identical at 15, 60 or 240 fps
+local smooth = CisInterp.damp(current, target, 0.35, dt)
+
+-- rate limit PER PLAYER, not globally
+if not CisRate.allow(limiter, 'purchase:' .. src, GetGameTimer() / 1000, 1) then
+    return Tell(src, 'slow down')
+end
+```
+
+**Not framework-related.** Nothing here touches a player, a door or a query —
+that is the existing surface. This is the generic layer underneath it, safe for
+a consumer to copy privately because it holds no state.
+
+### A known contract mismatch
+
+`CisId.short` takes a bare **function** returning `[0,1)`, while
+`CisRandom.newGenerator()` returns an **object** with `:float()`. Bridge them
+with a closure until one signature absorbs the other:
+
+```lua
+local gen = CisRandom.newGenerator(4242)
+local id = CisId.short('door', { rng = function() return gen:float() end, length = 12 })
+```
+
+### Measured quirks of the test VM
+
+These are properties of **fengari**, the Lua used to run the test suite, not of
+the modules — but they will bite anyone extending the suite, so they are written
+down:
+
+- `table.sort` rejects a comparator returning `-1/0/1`; it requires a boolean.
+  Real Lua accepts both.
+- Lua patterns have **no alternation**, so `match('^(a|b)
+
+**One page per version**, at `CHANGELOG/<version>.md`, committed with the
+release. Not one running file: a running file is edited by six people and
+diffed by nobody, and the question "what changed in 1.2.0" stops being answerable
+once there are twenty entries.
+
+```markdown
+# 1.2.0 -- 2026-09-29
+
+**Contract major:** 1 (unchanged)
+**Schema:** 0 (unchanged)
+
+### Added
+### Changed
+### Fixed
+### Deprecated
+### Removed
+### Security
+```
+
+Rules:
+
+- The header repeats all four numbers (§4). If any of them moved, the entry says
+  which and why.
+- Every entry names a consumer impact: who is affected and what they must do.
+  "Fixed a typo" is not an entry; "database calls now time out at
+  `Database.Timeout` instead of hanging forever" is.
+- **Deprecated** entries name the shim, its `use`, and the `['until']` major.
+  They must match `api.lua`; the validator is the tie-breaker.
+- **Removed** entries name the major they became possible in and the shims
+  removed with them.
+- **Security** entries state the exposure, not just the change.
+
+**Generation.** Where a page can be produced from what CI already knows, it is:
+`api.lua` already carries `since` and `['until']` for every export and event, and
+`tools/validate-api.js` can emit the Added and Removed sections directly. The
+human-written parts are Changed, Fixed and Security, which are judgements about
+behaviour and are the reason the page exists. The generator is
+`tools/validate-api.js --changelog <version>`; until it lands, the `api.lua`
+diff for the two files is the mechanical part and is a one-line command.
+
+---
+
+
+---
+
+## 22. What this repository verifies
+
+Everything in this document is checkable from a clean checkout:
+
+```bash
+npm ci
+npm run test:all
+```
+
+Which is:
+
+| Command | What it proves |
+|---|---|
+| `npm test` | 62 pure-module assertions, 27 binding assertions, 163 contract assertions — 252 in total |
+| `npm run test:api-selftest` | The `api.lua` validator passes the real manifest and rejects all five broken fixtures |
+| `npm run test:api` | `api.lua` matches the registered surface: 52 server, 55 client, 25 events |
+
+The `self` trap is guarded three ways, and the third is the one that matters:
+
+- `test/binding.lua` (27 assertions) — argument slots of the original proxy set,
+  with a canary proving the stub models the shift.
+- `test/contracts.lua` (163 assertions) — argument slots of **every** proxy,
+  including the four that reorder before delegating, the export each one
+  resolves to, the discriminator arguments (`sync.ped` vs `sync.prop`,
+  `zones.box` vs `zones.sphere`), and a source-level pin on the shape of
+  `exportCall` itself.
+- CI greps for the bracket-call shape and for a hardcoded third-party host.
+
+The middle one was added in this pass because the original guard had a real
+hole, measured rather than assumed: swapping the argument order in
+`Cis.callback.callClient` from `(name, src, ...)` to `(src, name, ...)` passed
+**both** the old suite and the CI grep. Thirteen mutations were planted and
+thirteen are now caught.
+
+---
+
+
+---
+
+## 23. What this document does not cover
+
+Stated so nobody infers more than is here.
+
+- **It describes this source tree, not a deployed install.** Everything pinned
+  above was read out of the code in this repository and is accurate about that
+  code and about nothing outside it. A server running a different build of
+  `cis_libs` may behave differently, and the shims' behaviour in production
+  cannot be verified from here — only the live harness, on a running server,
+  verifies that.
+- **Return-value shapes.** Documented in `DOCUMENTATION.md`,
+  not machine-checked here.
+- **The integration harness.** `cis_libstest` (89 tests across both realms) needs
+  a live fxserver and is not run in CI. Everything touching a native is
+  integration-tested, not unit-tested.
+
+---
+
+## Appendix A — brief for migrating a resource
+
+Hand this to whoever is rebuilding a resource onto `cis_libs`. It is
+self-contained: they need no context from this repository beyond the files it
+names.
+
+---
+
+We have a FiveM library called `cis_libs` in `resources/[standalone]/cis_libs`.
+It replaces the things our resources each reimplement: player state, callbacks,
+zones, inventory access, targeting, door locks, entity sync, a database layer,
+and logging. It does not depend on ox_lib or PolyZone.
+
+Rebuild our existing resources to use it properly, then verify the result.
+
+**Read these two files before writing a single line of code.** They contain
+behaviour that was measured on a live server, not assumed, and getting any of it
+wrong produces silent corruption rather than an error:
+
+- `cis_libs/DOCUMENTATION.md` — the traps, the reasoning behind the API, and
+  the full integration guide. Everything below is drawn from it.
+
+You will also want `cis_libs/README.md` for the short version.
+
+---
+
+### The non-negotiable facts
+
+These were each learned the expensive way. Violating any of them breaks code
+without raising an error.
+
+### 1. The `self` trap — read this twice
+
+```lua
+exports['cis_libs']:SomeExport(a, b)    -- CORRECT
+exports['cis_libs']['SomeExport'](a, b) -- WRONG
+```
+
+The bracket form looks identical and is not. It yields an unbound method, so
+the exports table is expected as the first argument. Without it, **every
+argument shifts one place left**.
+
+`cis_libs` shipped this bug itself. `Cis.zones.box(name, centre, size, {})`
+reached the library as `Cis.zones.box(centre, size, {}, ???)` — the zone's
+**name became its own coordinates**, and creation silently returned false.
+
+If you must call an export dynamically, the only safe form is:
+
+```lua
+local lib = exports['cis_libs']
+lib.SomeExport(lib, a, b)
+```
+
+Grep every `exports['cis_libs'][` in the codebase. There must be zero.
+
+### 2. A function can be handed back, but not sent over
+
+| Direction | Works? | Notes |
+|---|---|---|
+| Function as an **argument** | **No** | Arrives `nil` |
+| Function as a **return value** | Yes | Arrives as a callable reference table |
+
+`type()` reports `table` for a returned function, not `function`. Never test for
+`'function'` when receiving one.
+
+Consequence: **you cannot pass a callback into cis_libs.** Use the event forms
+described below.
+
+### 3. `shared_script` copies; it does not share
+
+Each resource has its own Lua VM. Loading a `shared_script` copies the file in.
+
+**Never** `shared_script '@cis_libs/client/cache.lua'` or any other stateful
+file. You would get a second player cache, a second 1-second polling thread, a
+second `Globals` table, and native calls multiplied by your resource count. This
+is the single most damaging mistake available to you.
+
+The pure `shared/` modules (`grid`, `pending`, `histogram`, `config`) contain no
+natives and are safe to copy when you genuinely want a private instance.
+
+### 4. Callbacks cross as net events, never as functions
+
+Zone and proximity callbacks have a "Event twin" for exactly this reason:
+
+```lua
+Cis.zones.box('shop', centre, size, {
+    onEnterEvent = 'myResource:shopEnter',   -- receives (zoneName, x, y, z)
+    onExitEvent  = 'myResource:shopExit',
+    insideEvent  = 'myResource:shopInside',
+})
+
+RegisterNetEvent('myResource:shopEnter', function(zoneName, x, y, z)
+    -- ...
+end)
+```
+
+Same for proximity:
+
+```lua
+Cis.player.near(coords, 10.0, nil, nil, 'myResource:nearEnter', 'myResource:nearExit')
+```
+
+### 5. Exports return data, not behaviour
+
+Server-side handlers owned by another resource work by name:
+
+```lua
+-- in this resource
+exports('myResource:handlePurchase', function(src, item, amount) ... end)
+Cis.callback.register('purchase', 'myResource:handlePurchase')
+```
+
+Known caveat: a handler called this way runs and receives its arguments, but
+its **return value may come back `nil`**. Signal results by side effect or an
+event until that is resolved.
+
+---
+
+### What to hunt for
+
+Grep the codebase for each of these. They are the work.
+
+| Anti-pattern | Replace with |
+|---|---|
+| `CreateThread` + `Wait(0)` + `PlayerPedId`/`GetEntityCoords` | `Cis.player.coords()`, `Cis.player.ped()` |
+| `Wait(0)` loops polling player or vehicle state | `Cis.player.on('vehicle', cb)` and friends |
+| Custom "is player near X" loops | `Cis.player.near()` or `Cis.zones.*` |
+| `ox_lib` / `PolyZone` imports and zone calls | `Cis.zones.box` / `.sphere` / `.poly` |
+| Direct `exports.ox_inventory:GetItemCount` for reads | `Cis.inventory.count(item)` |
+| `TriggerServerEvent` for request/response | `Cis.callback.*` |
+| Per-frame `exports.ox_lib:...` or `exports.qb_*:...` | `Cis.*` equivalents |
+| Custom entity-streaming threads | `Cis.sync.ped` / `.prop` / `.vehicle` |
+| Per-resource framework branching (`if esx ... else qb`) | `Cis.framework.player(src)` |
+| Custom door state tables + per-frame distance loops | `Cis.doors.add` / `.setState` |
+| Own log prefix and level scheme | `Cis.log.debug` / `.info` / `.warn` / `.error` |
+| `exports['cis_libs'][` (bracket form) | colon form — see fact 1 |
+
+Also add, to each resource's manifest:
+
+```lua
+shared_script '@cis_libs/init.lua'
+```
+
+and gate startup on readiness:
+
+```lua
+Cis.ready(function(ok)
+    if not ok then return end
+    -- safe to use the Cis API from here
+end)
+```
+
+`ensure cis_libs` must come before any resource that uses it in `server.cfg`.
+
+---
+
+### How to work
+
+### Phase 1 — Audit (do this yourself, do not delegate)
+
+Read every resource's manifest and Lua files yourself. Build a list: which
+resources use cis_libs already, which use ox_lib or PolyZone, and which are
+self-contained. This map drives the work and is wrong if you delegate it
+without reading the code.
+
+Produce a short written audit before changing anything. Note anything ambiguous
+rather than guessing.
+
+### Phase 2 — Migrate (delegate this)
+
+**Split the work across sub-agents.** One agent per resource, or one agent per
+concern (zones / callbacks / doors / sync) if a single resource is large. Run
+them concurrently.
+
+Each sub-agent prompt must include, verbatim:
+
+1. The five non-negotiable facts above, in full.
+2. The path to `cis_libs/DOCUMENTATION.md`, with the
+   instruction to read them before writing code.
+3. Exactly one resource or concern to handle, named explicitly.
+4. The rule: do not edit `cis_libs` itself. If something looks missing or wrong
+   in the library, report it back rather than patching it.
+5. The rule: do not guess. If the API is ambiguous, read the docs, then say so.
+
+Give each agent a disjoint file set so they cannot collide.
+
+### Phase 3 — Verify (do this yourself)
+
+Do not trust a green report from a sub-agent. Read the diffs.
+
+Then, with a test server running:
+
+```
+ensure cis_libs
+ensure cis_libstest
+```
+
+`/cistest` in the console or as admin runs both realms, teleports the player
+around to exercise zone enter/exit, and writes a JSON report into the
+`cis_libstest` folder. `node test/run.js` runs the pure unit tests with no
+server.
+
+**The teleport tests hold the player in place for seconds and will trip
+heartbeat-based anti-cheat.** Run them on a test instance.
+
+Anything the JSON reports as `skipped` was not verified. Say so explicitly
+rather than counting it as a pass.
+
+---
+
+### Definition of done
+
+- Zero occurrences of `exports['cis_libs'][` anywhere.
+- Zero self-written `Wait(0)` loops that poll player, vehicle, or weapon state.
+- Zero ox_lib or PolyZone imports left in migrated resources.
+- Every resource's manifest has `shared_script '@cis_libs/init.lua'` and its
+  startup is gated on `Cis.ready`.
+- `node test/run.js` passes.
+- `/cistest` runs with **zero failures**, and every remaining `skipped` is
+  listed with the reason it was skipped.
+- Anything deliberately left alone is stated out loud with the reason.
+
+### Reporting back
+
+Report: what changed per resource, what you deliberately did not change and
+why, anything in `cis_libs` you believe is a bug (do not fix it), and the final
+test result including every skip. If you are unsure about a decision, say you
+were unsure rather than presenting it as settled.
+
+---
+
+### Support
+
+- Docs: https://docs.cisoko.net
+- Discord: https://discord.gg/cisoko
+- License: [LICENSE.md](LICENSE.md)
+, x)` matches the
+  literal string `a|b` and passes silently. Any range or choice validation built
+  on a pattern containing `|` is wrong.
+- `pairs` does not walk the array part in ascending order, so a positional
+  counter over a config array is not safe here.
+
+---
+
+## 21. Changelog policy
 
 **One page per version**, at `CHANGELOG/<version>.md`, committed with the
 release. Not one running file: a running file is edited by six people and
