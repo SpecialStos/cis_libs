@@ -229,7 +229,7 @@ These are direct native calls for a consumer. Call them freely.
 | Call | Cost |
 |---|---|
 | `Cis.player.ped()` | `PlayerPedId()` |
-| `Cis.player.coords()` | `GetFrameCoords`, memoised to once per frame |
+| `Cis.player.coords()` | `GetEntityCoords`, memoised to once per frame |
 | `Cis.player.heading()` | `GetEntityHeading` |
 
 ### Costs a boundary crossing
@@ -663,12 +663,24 @@ print.** If you are not seeing an error in a `pcall`, that is a bug — report i
 ### `Cis.net` — server
 
 ```lua
+-- from a consumer resource: a reference, because a function cannot be SENT
+-- across the exports boundary
+exports('myResource:handleThing', function(src, payload) end)
+Cis.net.on('my:resource:doThing', 'myResource:handleThing')
+
+-- inside cis_libs itself, a plain function also works
 Cis.net.on(eventName, function(src, ...) end)
 ```
 
 Registers a net event that validates `source` and rate-limits per player
 (8 per second by default) before invoking your handler. Prefer this over
 `RegisterNetEvent` for any event a client can reach.
+
+**From a consumer, the handler must be a `'resource:export'` reference.** A
+function passed *into* an export arrives `nil` — the same rule that gives zone
+callbacks their `*Event` twins — and the event would otherwise be registered
+with no handler at all. The function form works only from inside `cis_libs`. A
+refusal to register is logged rather than being silent.
 
 ### `Cis.streaming` — client
 
@@ -843,16 +855,24 @@ kick messages work out of the box.
 
 ### Your events
 
-For any event a client can reach, use `Cis.net.on`:
+For any event a client can reach, use `Cis.net.on`. Export the handler on your
+own resource and pass it by reference:
 
 ```lua
-Cis.net.on('my:resource:doThing', function(src, payload)
+-- in your resource
+exports('myResource:handleThing', function(src, payload)
     if not validate(src, payload) then return end
 end)
+
+Cis.net.on('my:resource:doThing', 'myResource:handleThing')
 ```
 
 This validates `source` is a real player and rate-limits per player. Using
 `RegisterNetEvent` directly gets you neither.
+
+Passing the function itself does not work from a consumer: a function sent
+into an export arrives `nil`, so the event would be registered with no handler.
+The function form is for use from inside `cis_libs` only.
 
 ---
 
@@ -926,7 +946,7 @@ Cis.callback.callClient(5, 'my:cb', function(ok, ...) end)
 
 ## Testing
 
-**Pure tests**, no FiveM required — 105 assertions over the `shared/` modules
+**Pure tests**, no FiveM required — 62 assertions over the `shared/` modules
 and the test harness's own JSON encoder:
 
 ```

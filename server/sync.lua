@@ -1,10 +1,19 @@
 -- Server-authoritative entity sync. Records are versioned so a dynamic record
 -- only rebroadcasts when its data actually changed, instead of every tick.
+--
+-- Two identities are in play and they are not the same thing. `id` is the
+-- handle the client uses to move or despawn an entity; the content fingerprint
+-- is how the server decides a second call is describing the thing it already
+-- has. The fingerprint deliberately ignores `id` (see canonical below) so a
+-- caller who does not manage ids gets idempotence too.
 
 local records = {}
 local seq = 0
 local revisions = 0
 
+-- Server-issued, and never taken from the caller unless the caller supplied
+-- one. A client-visible id that a caller could choose would collide across
+-- resources sharing this table.
 local function nextId(kind)
     seq = seq + 1
     return ('%s_%s'):format(kind, seq)
@@ -52,6 +61,18 @@ end
 -- CONTENT identity is what decides whether two calls describe the same entity,
 -- and folding the id in makes every idless call unique by construction, which
 -- defeats the no-op upsert for every caller that does not manage ids itself.
+--
+-- Concretely: with `id` included, the first `SyncCreate('door', {...})` and a
+-- second identical one would produce two different fingerprints, the second
+-- would find no `byContent` match, and every repeat call would spawn a
+-- duplicate entity. The idless caller has no other way to say "same entity",
+-- so the id has to be the one field the fingerprint cannot see.
+--
+-- `rev` and `print` are excluded because they are written BY this function
+-- from the fingerprint's own inputs; including them would make the fingerprint
+-- depend on its own previous value. Keys are sorted because pairs() order is
+-- undefined, and an unsorted walk would fingerprint identical tables
+-- differently and break the no-op.
 local function canonical(value, out)
     out = out or {}
     local t = type(value)
@@ -78,7 +99,17 @@ local function fingerprint(data)
 end
 
 -- id <-> content index, so the implicit lookup below is O(1) rather than a
--- scan of every synced entity on the server. `records` alone cannot answer it.
+-- scan of every synced entity on the server. `records` alone cannot answer it:
+-- `records` is keyed by id, and the question being asked is "which record has
+-- THIS content", which is the reverse direction. Without the index that
+-- question costs a full walk of the table plus a fingerprint recomputation per
+-- entry on EVERY idless upsert -- and an idless upsert is the common case, so
+-- the cost lands on the path a caller hits most.
+--
+-- The kind is part of the key, not just the content: two entities of
+-- different kinds can legitimately have identical fields, and they must not
+-- collapse into one record. \29 is ASCII SUB, which cannot occur in a model
+-- name or a coordinate.
 local byContent = {}
 
 local function contentKey(kind, print_)
@@ -100,6 +131,10 @@ local function unindexRecord(stored)
 end
 
 local function upsert(kind, data)
+    -- Two refusals before any work, both returning nil rather than raising: a
+    -- caller whose resource is not on the allow-list gets no entity and no
+    -- error, so it cannot tell the difference between "refused" and "sync is
+    -- switched off" and does not have to try.
     if not CisInvokingAllowed() then
         return nil
     end
@@ -107,10 +142,17 @@ local function upsert(kind, data)
         return nil
     end
     data = data or {}
+    -- Refused rather than defaulted. A record with no coords is not a record
+    -- that can be range-filtered, and defaulting them to 0,0,0 would broadcast
+    -- every such entity to every player on the server.
     if type(data.coords) ~= 'table' or data.coords.x == nil or data.coords.y == nil then
         Logging.Error('Cis.sync.' .. tostring(kind) .. ' rejected: missing coords')
         return nil
     end
+    -- Normalised into a fresh three-number table, so `z` is always a number and
+    -- a vector3 from a framework is stored as the same shape as a plain table.
+    -- Anything else would make the fingerprint depend on which of the two the
+    -- caller happened to pass.
     data.coords = {
         x = data.coords.x,
         y = data.coords.y,
@@ -145,6 +187,10 @@ local function upsert(kind, data)
         data.id = nextId(kind)
     end
 
+    -- Monotonic, so a client can tell "newer" from "older" without comparing
+    -- payloads. It is a stamp, not a version to merge: nothing reconciles a
+    -- revision that arrives out of order, which cannot happen because every
+    -- broadcast for a record is sent from this one coroutine in order.
     revisions = revisions + 1
     -- Copy, do not retain the caller's table. Otherwise a later mutation by
     -- the caller would change the stored record behind a stale fingerprint
@@ -155,10 +201,16 @@ local function upsert(kind, data)
     end
     stored.rev = revisions
     stored.print = print_
+    -- Reindex in both directions: the old content no longer points at this id,
+    -- and the new content does. Doing it in this order means a lookup can never
+    -- observe an id that points at content the record no longer has.
     unindexRecord(records[data.id])
     records[data.id] = stored
     indexRecord(data.id, stored)
 
+    -- Range-filtered per record, so a player is only sent entities they could
+    -- plausibly see. The 80.0 default is a radius in game units, not a
+    -- distance, and a caller can widen it per record with `scope`.
     local audience = playersInRange(stored.coords, stored.scope or 80.0)
     for i = 1, #audience do
         TriggerClientEvent('cis_libs:client:syncUpsert', audience[i], stored)
@@ -170,11 +222,18 @@ local function remove(id)
     if not CisInvokingAllowed() then
         return false
     end
+    -- false for "no such entity", which is a different answer from true and is
+    -- what lets a caller tell a stale id from a refused call.
     if not records[id] then
         return false
     end
     unindexRecord(records[id])
     records[id] = nil
+    -- Broadcast to EVERYONE (-1), not to the range that received the upsert.
+    -- The server does not keep a per-record audience, and a player who is
+    -- currently out of range may already hold the entity -- if they stream in
+    -- later the client drops what it has not seen, but a despawn they were
+    -- never told about would leak a local entity that nothing cleans up.
     TriggerClientEvent('cis_libs:client:syncRemove', -1, id)
     return true
 end
@@ -195,6 +254,23 @@ local function broadcastDynamic()
     end
 end
 
+-- The dynamic rebroadcast loop. Two intervals, and each is a budget rather
+-- than a tuning knob:
+--
+--   2000ms -- how stale a MOVING entity may get. A prop that drifts at a walk
+--     covers a few metres between rebroadcasts, which is below what the client
+--     interpolates over. Halving it doubles the per-record, per-player event
+--     traffic for a lag nobody can see, and that traffic is the cost:
+--     broadcastDynamic fans out to every player in range of every dynamic
+--     record on the server.
+--
+--   1000ms -- how long a newly created dynamic record waits before it starts
+--     being broadcast at all. Records only appear through another resource's
+--     call, so "has one appeared yet" has to be polled; 1s bounds that lag. It
+--     is not tightened because on the overwhelmingly common server there are
+--     no dynamic records at all, and the only work this branch does is the
+--     scan below. It is not loosened either, because a one-second wait before
+--     a moving prop appears is visible.
 CreateThread(function()
     while true do
         local hasDynamic = false
@@ -217,9 +293,18 @@ AddEventHandler('onResourceStop', function(resource)
     if resource ~= GetCurrentResourceName() then
         return
     end
+    -- Tell every client to drop what it holds, unconditionally and with no
+    -- range filter, because the server no longer knows who holds what. A
+    -- client that keeps a networked entity after the server forgot it is a
+    -- permanently orphaned prop.
     for id in pairs(records) do
         TriggerClientEvent('cis_libs:client:syncRemove', -1, id)
     end
+    -- Both tables, not just records. byContent maps content to an id in
+    -- records, and leaving it populated across a stop/start would resolve
+    -- lookups to ids that no longer exist -- the guard in upsert would then
+    -- fall through and allocate a fresh id for content already present, which
+    -- is the duplicate-entity case by another route.
     records = {}
     byContent = {}
 end)

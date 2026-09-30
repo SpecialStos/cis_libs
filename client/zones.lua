@@ -1,4 +1,8 @@
 -- Grid zones. Proximity pass only after half-cell movement. Per-zone inside interval.
+--
+-- `zones`, `grid` and `inside` are the single index of every zone on the server
+-- (COMPATIBILITY.md §10). Nothing here is a cache of anything: a consumer that
+-- copies this file gets zones that only its own resource can see.
 
 local zones = {}
 local grid = CisGrid.new()

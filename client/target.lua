@@ -1,3 +1,11 @@
+-- Target provider bridge: ox_target or qb-target, chosen by config.
+--
+-- `CreatedZones` is the whole of the local state, and it is load-bearing
+-- (COMPATIBILITY.md §10). It is not a cache of the provider's zones -- it is
+-- the only record of what cis_libs believes it created, and `remove` and
+-- `update` decide their success from it because the providers' own removal calls
+-- return nothing at all.
+
 local Target = {}
 local CreatedZones = {}
 local warnedMissing = false
@@ -32,6 +40,9 @@ function Target.Available()
     return false
 end
 
+-- The one warning per session, not per call. A zone create is often on a hot
+-- path and a provider that is not started does not become started, so a
+-- per-call warning is the same line thousands of times.
 local function missingOnce()
     if warnedMissing then
         return

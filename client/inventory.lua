@@ -1,3 +1,13 @@
+-- Client inventory counts, as a cache.
+--
+-- Three sources write the same table and they disagree in shape, so this file
+-- normalises to a flat name -> amount map and nothing downstream knows or cares
+-- which provider is running. The map is a HINT: it is a snapshot, it can be
+-- stale between updates, and it is never authority for a server-side decision.
+--
+-- One `counts` table, so this file is stateful and must not be duplicated
+-- (COMPATIBILITY.md §10).
+
 local counts = {}
 
 local function setCounts(items)
@@ -25,6 +35,10 @@ local function inventoryType()
     return Config and Config.Framework and Config.Framework.Inventory or 'typical'
 end
 
+-- ox_inventory exports two different shapes depending on the build, so both are
+-- tried before giving up. Failing either one is not an error: a server that has
+-- ox_inventory running with a different permission set just leaves the pushed
+-- snapshot as the answer.
 local function snapshotOx()
     if GetResourceState('ox_inventory') ~= 'started' then
         return
@@ -74,6 +88,9 @@ RegisterNetEvent('QBCore:Player:SetPlayerData', function(data)
     setCounts(nextCounts)
 end)
 
+-- 0, never nil. A consumer comparing against nil decides a player has no
+-- items; one comparing against 0 decides the same thing, and only the second
+-- is the truth.
 function InventoryCount(item)
     return counts[item] or 0
 end

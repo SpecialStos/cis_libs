@@ -1,3 +1,10 @@
+-- Shared client helpers. Stateless, but NOT safe to duplicate: CreatePed below
+-- is a global that rebinds the game's native (COMPATIBILITY.md §10.1), so a
+-- second copy is a native wrapped twice, and the wrapper that wins is whichever
+-- loaded last.
+
+-- Captured before the wrapper is defined. CreatePed's own name now belongs to
+-- the wrapper, so calling it from inside would recurse.
 local CreatePedNative = CreatePed
 
 function DebugLog(message)
@@ -6,6 +13,9 @@ function DebugLog(message)
     end
 end
 
+-- Returns 0 rather than nil on failure, so every caller can test one shape.
+-- A ped handle is never nil; "0" is the game's own "no entity" and comparing
+-- it needs no special case at each call site.
 function CreatePed(model, coords, heading, options)
     options = options or {}
     local loaded, modelHash = RequestModelTimeout(model, options.timeout or 5000)
@@ -44,6 +54,10 @@ function GetDistanceBetweenCoords(x1, y1, z1, x2, y2, z2)
     return #(vector3(x1, y1, z1) - vector3(x2, y2, z2))
 end
 
+-- Screen-projected 3D text. Returns without drawing when the point is behind
+-- the camera or clipped to it: the projection would otherwise produce a
+-- degenerate scale and a rectangle in the wrong place, which reads as a broken
+-- UI rather than as a missed frame.
 function DrawText3D(x, y, z, text, settings)
     if type(settings) == 'table' and settings[1] then
         settings = { color = settings }

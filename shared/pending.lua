@@ -1,4 +1,14 @@
 -- Incrementing pending-key map with timeout sweep. No natives.
+--
+-- PURE, and safe for a consumer to `shared_script` for a private copy
+-- (COMPATIBILITY.md §10.2). The store is passed IN rather than held as a module
+-- local, which is what makes that safe: this file owns no state at all, so two
+-- copies cannot disagree about anything.
+--
+-- That is the difference from the stateful files. A key allocated here has to be
+-- resolved by the SAME store on the other end of the wire, so a copy is only
+-- useful when both ends of the exchange are the copy -- never as a way to reach
+-- a store inside cis_libs.
 
 CisPending = {}
 
@@ -19,6 +29,10 @@ function CisPending.alloc(store, payload, expireAt)
     return key
 end
 
+-- Take, not peek, and it reports a miss by returning nil. A response that
+-- arrives twice, or after the sweep already expired the key, is dropped rather
+-- than delivered -- the alternative is resolving a promise the caller has
+-- already rejected.
 function CisPending.take(store, key)
     local item = store.items[key]
     if not item then

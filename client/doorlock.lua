@@ -1,3 +1,10 @@
+-- Client half of the door system: the door index, the per-door targets, and the
+-- fallback DrawText3D prompt when no target provider is running.
+--
+-- Stateful and single-instance (COMPATIBILITY.md §10): `doors`, `doorGroups`,
+-- `addedTargets` and the grid below are the only copy of the door index. A
+-- `shared_script` of this file is a second index, not a second view of this one.
+
 local DoorLock = {}
 local doors = {}
 local doorGroups = {}
@@ -7,6 +14,13 @@ local prefix = 'cis_libs'
 local targetMode = false
 local fallbackLogged = false
 
+-- Every doorlock net event below is `EventPrefix .. ':doorlock:...'`, and the
+-- prefix comes from the server, not from here. A server that sets
+-- Security.EventPrefix to something other than 'cis_libs' moves all five, so a
+-- consumer CANNOT hardcode a name like 'cis_libs:doorlock:requestState' -- it
+-- would simply never fire. Read the prefix with
+-- exports['cis_libs']:GetLibsPrefix() when you need one, and treat the five
+-- names as private to this file.
 local function eventPrefix()
     return (Security and Security.EventPrefix) or prefix
 end
@@ -203,6 +217,11 @@ end
 -- server-side equivalent already answered; this makes the two realms agree.
 -- Additive: a caller that ignored the old nil is unaffected, and a caller that
 -- tested truthiness was previously always told "failed".
+--
+-- The unqualified AddDoorToSystem below is the NATIVE, not this function --
+-- cis_libs shadows the game's door registration while adding its own index
+-- alongside it. Renaming either side of that pair would silently stop
+-- registering doors with the game.
 function DoorLock.AddDoorToSystem(doorData)
     if not doorData or not doorData.id then
         return false
@@ -372,10 +391,14 @@ function DoorLock.Init()
         return
     end
     targetMode = doorMode() == 'target'
+    -- Five net events, all prefixed. Registering them is the only place the
+    -- prefix is applied, so the names and the handlers cannot drift apart.
     RegisterNetEvent(eventPrefix() .. ':doorlock:updateState', DoorLock.UpdateDoorState)
     RegisterNetEvent(eventPrefix() .. ':doorlock:addDoor', DoorLock.AddDoorToSystem)
     RegisterNetEvent(eventPrefix() .. ':doorlock:addDoorGroup', DoorLock.AddDoorGroup)
     RegisterNetEvent(eventPrefix() .. ':doorlock:doorBroken', DoorLock.SetBroken)
+    -- Not prefixed: cis_libs's own lifecycle notifications, which only
+    -- cis_libs emits, so they need no namespacing against a foreign server.
     RegisterNetEvent('cis_libs:jobUpdated', DoorLock.RefreshAllTargets)
     RegisterNetEvent('cis_libs:playerLoaded', DoorLock.RefreshAllTargets)
 
@@ -422,6 +445,8 @@ RegisterNetEvent('cis_libs:client:toggleDoor', function(data)
     end
 end)
 
+-- Exports. Each one gates on the ready state first and returns nil if cis_libs
+-- never came up, rather than answering from a half-built door index.
 exports('AddDoorToSystem', function(data)
     if not CisReadyState.wait(15000) then
         return

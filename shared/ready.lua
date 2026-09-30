@@ -1,4 +1,12 @@
 -- One-shot ready gate. Shared so client and server both expose Cis.ready.
+--
+-- This one DOES hold module-level state (`CisReadyState.ready`, `.failed`,
+-- `.waiters`) and is still safe to duplicate (COMPATIBILITY.md §10.2), which is
+-- the exception that needs stating: a consumer's copy is only ever READ. It
+-- waits, and the only thing that marks it ready is cis_libs marking the original
+-- ready. A copy can never resolve early, so the failure mode of duplicating it
+-- is a gate that never opens -- visible, not silent. Every other stateful file
+-- in this library fails the other way, by answering with values nobody else sees.
 
 CisReadyState = {
     ready = false,
@@ -6,6 +14,9 @@ CisReadyState = {
     waiters = {},
 }
 
+-- os.clock is the fallback so the module loads and is testable outside a
+-- FiveM runtime. Inside one, GetGameTimer is monotonic; os.clock is wall time
+-- and a clock adjustment would cut a wait short.
 local function nowMs()
     if GetGameTimer then
         return GetGameTimer()
@@ -27,6 +38,10 @@ function CisReadyState.reset()
     CisReadyState.waiters = {}
 end
 
+-- Waiters are released exactly once: the list is swapped out before they run,
+-- so a waiter that itself calls wait() or onReady() cannot be re-entered and
+-- cannot see a half-drained list. pcall around each one because a consumer's
+-- callback throwing must not strand the waiters behind it.
 function CisReadyState.markReady()
     if CisReadyState.ready then
         return
@@ -47,6 +62,10 @@ function CisReadyState.markReady()
     end
 end
 
+-- Failure is terminal and distinct from "not yet". wait() returns false for
+-- both, but only `failed` is permanent: it means the library gave up waiting
+-- for its configuration and the API is unavailable for the rest of the session.
+-- Nothing retries.
 function CisReadyState.markFailed(reason)
     CisReadyState.failed = true
     local waiters = CisReadyState.waiters

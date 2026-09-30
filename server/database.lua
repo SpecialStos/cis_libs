@@ -5,6 +5,8 @@
 -- global that never existed, so `databaseReady` was permanently false on every
 -- server -- including ones where the driver had initialised perfectly. A
 -- consumer gating work on that field was told the database was never ready.
+-- A file local is nil across the resource boundary, not an error, so nothing
+-- pointed at the mistake.
 --
 -- It is global for the same reason `Config`, `Security` and `Logging` are: each
 -- is process-global state, and a second copy would mean a second driver
@@ -28,6 +30,10 @@ local function started(name)
     return GetResourceState(name) == 'started'
 end
 
+-- Runs at load, and only once. A driver resource that has not started yet is
+-- reported as unavailable here and picked up by the onResourceStart handler at
+-- the bottom of the file; nothing retries on a timer, because a driver that is
+-- not configured should not be paid for on every tick of the server's life.
 function Database.Init()
     local name = driverName()
     if name == 'oxmysql' and started('oxmysql') then
@@ -48,6 +54,10 @@ function Database.Init()
     Database.ready = Database.driver ~= nil
 end
 
+-- Every call made while the driver is unavailable funnels through here, and
+-- the complaint is printed once. The callback still runs with nil so a caller
+-- that forgot to check `Database.ready` gets a value it can test instead of a
+-- parked coroutine.
 local function missing(cb)
     if not Database.warned then
         Database.warned = true
@@ -60,6 +70,9 @@ end
 
 local DEFAULT_TIMEOUT = 15000
 
+-- 15s. Long enough to cover a cold connection and a locked table on a loaded
+-- box, short enough that a consumer's own retry budget is not spent waiting on
+-- a query that will never come back.
 local function queryTimeout()
     local db = Config and Config.Framework and Config.Framework.Database
     return (db and db.Timeout) or DEFAULT_TIMEOUT
@@ -68,6 +81,18 @@ end
 -- Drivers do not always invoke their callback (a dropped connection, a query
 -- the backend never answers). Without a deadline the awaiting coroutine would
 -- be parked forever, so resolve nil on timeout instead.
+--
+-- The 10ms poll is the whole point of this function rather than a plain
+-- Citizen.Await: a promise has no deadline, so the loop below is what enforces
+-- one. 10ms bounds the overshoot past the deadline to 10ms while adding a
+-- hundred scheduler wakeups only to calls that are genuinely slow -- a query
+-- that answers immediately never reaches the loop body twice. Polling at 0
+-- would busy-spin a core for the full 15s on every hung query.
+--
+-- The whole call is wrapped in a thread because the driver callbacks are
+-- invoked on the scheduler from outside this coroutine; `settled` is the
+-- handoff between them, and the flag is what stops a late callback from
+-- resolving an already-timed-out promise.
 local function await(fn)
     local p = promise.new()
     local settled = false
@@ -98,6 +123,10 @@ function Database.Query(sql, params, cb)
     if not Database.ready then
         return missing(cb)
     end
+    -- `exports.oxmysql.query` and `exports.oxmysql:execute` are the same call
+    -- under two names. `execute` is the older export; `query` is what current
+    -- oxmysql publishes. Reading the name off the exports table and falling
+    -- back is the only probe that works on both, and it costs one field read.
     if Database.driver == 'oxmysql' then
         if exports.oxmysql.query then
             exports.oxmysql:query(sql, params or {}, cb)
@@ -109,6 +138,11 @@ function Database.Query(sql, params, cb)
     elseif Database.driver == 'ghmattimysql' then
         exports.ghmattimysql:execute(sql, params or {}, cb)
     elseif Database.driver == 'mongodb' then
+        -- The mongodb branches take a document table in place of (sql, params):
+        -- `collection` names the collection, and `query` (or `params` itself) is
+        -- the filter. Every SQL branch takes SQL. A caller that has to work on
+        -- both drivers builds the table; this adapter is the only place that
+        -- knows the two shapes.
         exports.mongodb:find({
             collection = mongoCollection(params and params.collection),
             query = params and (params.query or params) or {},
@@ -120,6 +154,10 @@ function Database.Single(sql, params, cb)
     if not Database.ready then
         return missing(cb)
     end
+    -- Older oxmysql has no `single` export at all, so the fallback re-queries
+    -- and takes the first row. The `rows and rows[1] or nil` in each branch is
+    -- deliberate: an empty result and a nil result must be the same value to
+    -- the caller, or every consumer grows a "was it a miss or a failure" branch.
     if Database.driver == 'oxmysql' then
         if exports.oxmysql.single then
             exports.oxmysql:single(sql, params or {}, cb)
@@ -215,6 +253,9 @@ function Database.Update(sql, params, cb)
     if not Database.ready then
         return missing(cb)
     end
+    -- `affectedRows` is synthesised on the mongodb side so a consumer written
+    -- against the SQL shape does not need a second code path per driver. It
+    -- returns rather than falling through, because the tail below issues SQL.
     if Database.driver == 'mongodb' then
         exports.mongodb:update({
             collection = mongoCollection(params and params.collection),
@@ -234,6 +275,8 @@ function Database.Delete(sql, params, cb)
     if not Database.ready then
         return missing(cb)
     end
+    -- Same shape as Update above: the mongodb branch returns the affected count
+    -- and never reaches the SQL statement in the tail.
     if Database.driver == 'mongodb' then
         exports.mongodb:delete({
             collection = mongoCollection(params and params.collection),
@@ -287,6 +330,9 @@ function Database.Transaction(queries, cb)
     exports.oxmysql:transaction(queries, cb)
 end
 
+-- The three names this library used before Query/Single were the spelling.
+-- Kept as thin forwards so an existing consumer's export call keeps working;
+-- they add no behaviour and there is no reason to add any.
 function Database.Execute(query, params, callback)
     Database.Query(query, params, callback)
 end
@@ -299,6 +345,9 @@ function Database.FetchAll(query, params, callback)
     Database.Query(query, params, callback)
 end
 
+-- Callback-style method -> await-style export, in one shape ONLY:
+-- `method(sql, params, cb)`. A method with any other parameter list does not
+-- belong through this helper. See DbTransaction below for what that costs.
 local function exportAwait(method)
     return function(sql, params)
         return await(function(cb)
@@ -321,11 +370,17 @@ exports('DbUpdate', exportAwait(Database.Update))
 
 -- NOT exportAwait(Database.Transaction). `exportAwait` is hard-coded to
 -- `method(sql, params, cb)`, and `Database.Transaction` is `(queries, cb)` --
--- so the completion callback landed in a third parameter the function never
--- reads. `cb` was nil on entry, the transaction was never invoked, the await
--- spun for the full 15s timeout and returned nil, and oxmysql logged
--- "Transaction parameters must be array or object, received 'undefined'" on
--- every call. `cis_housing` and `cis_phone` hit that on every transaction.
+-- so `queries` landed in the `sql` slot and the completion callback landed in a
+-- third parameter the function never reads. `cb` was nil on entry, the
+-- transaction was never invoked, the await spun for the full 15s timeout and
+-- returned nil, and oxmysql logged "Transaction parameters must be array or
+-- object, received 'undefined'" on every call. `cis_housing` and `cis_phone`
+-- hit that on every transaction.
+--
+-- Two things were true at once and neither alone explained the symptom: the
+-- call took 15 seconds (the await's deadline, not the driver's) and returned
+-- nil (the timeout, not a refusal), while the driver logged an error about
+-- parameters that a correct call would never have produced.
 --
 -- Written out longhand rather than teaching exportAwait to be arity-aware:
 -- exactly one method has a different shape, and a second calling convention
@@ -342,12 +397,20 @@ if Database.driver then
 end
 transactionSupportDiagnostic()
 
+-- The late-start path. fxmanifest does not declare the driver as a
+-- dependency, because which driver a server runs is the server's choice and a
+-- hard dependency on a resource that may not be installed stops the whole
+-- resource from starting. So a driver started after cis_libs is caught here
+-- instead, and only then -- `Database.ready` short-circuits every later event,
+-- so this handler costs one field read on unrelated resource starts.
 AddEventHandler('onResourceStart', function(resourceName)
     if Database.ready then
         return
     end
     local name = driverName()
     if resourceName == name or (name == 'mongodb' and resourceName == 'mongodb') then
+        -- Clear the "driver was not ready at start" latch, or the first
+        -- complaint would be swallowed and the real state never reported.
         Database.warned = false
         Database.Init()
         if Database.driver then

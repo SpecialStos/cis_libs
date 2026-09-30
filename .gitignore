@@ -1,6 +1,23 @@
+# Test and tooling dependencies, reinstalled by `npm ci` in CI.
+# Never commit it: it is thousands of files of someone else's code, and it makes
+# a one-line change in the diff impossible to review.
 node_modules/
 # package.json and package-lock.json are COMMITTED: CI installs from them via
 # `npm ci`, and neither is a secret.
+
+# Generated coverage summary. `npm run test:matrix` rewrites it on every test
+# run, so committing it guarantees a diff on a machine nobody else can reproduce.
+# It is an artefact, not an input: `npm run test:all` rebuilds it from the suites
+# and the latest live report, in one command, in seconds.
+TEST_MATRIX.json
+
+# Live server test reports, copied in from a run of the integration harness on a
+# real machine. These are the most sensitive thing this repository can hold: a
+# report records the framework and inventory stack of a live server and the
+# in-game NAME of the player who ran the harness. Nothing in the test suite
+# needs one committed -- `npm run test:matrix` reports the server and client
+# layers as "not run" when no report is present, which is the honest answer.
+reports/
 
 # Editor/agent working state, not part of the library.
 .zcode/

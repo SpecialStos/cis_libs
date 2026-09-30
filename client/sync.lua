@@ -1,5 +1,10 @@
 -- Client half of entity sync. A record whose model is unchanged is moved in
 -- place; only a model or kind change forces a despawn/respawn.
+--
+-- `entities`, `records` and `spawning` are process state (COMPATIBILITY.md
+-- §10). `records` in particular is what makes the move-instead-of-respawn
+-- decision possible, so a copy of this file would respawn on every upsert of
+-- entities it did not itself create.
 
 local entities = {}
 local records = {}

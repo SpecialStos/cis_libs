@@ -1,3 +1,12 @@
+-- Model streaming. The one place a `Wait` loop is correct, because there is no
+-- event for a model finishing loading -- only the poll can find out.
+--
+-- The IsModelInCdimage/IsModelValid pair runs BEFORE the wait so a bad hash
+-- returns immediately instead of sitting out the whole timeout. Both the
+-- loaded flag and the hash are returned, because the caller usually needs the
+-- hash for the CreatePed/CreateObject call and re-hashing it is a chance to
+-- disagree with the value that was validated here.
+
 local function hashOf(model)
     if type(model) == 'number' then
         return model

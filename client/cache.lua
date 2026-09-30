@@ -1,4 +1,10 @@
 -- Event-driven player cache. Idle: 1s watchdog only. No Wait(0). No seat scans.
+--
+-- This is the singleton every other client module reads instead of calling
+-- natives, and the reason `Cis.player.vehicle()` and friends are a boundary
+-- crossing for a consumer (COMPATIBILITY.md §10): this table exists in exactly
+-- one VM. A `shared_script` of this file is not a second view of these values,
+-- it is a second cache with a second watchdog thread polling the same ped.
 
 CisCache = {
     ped = 0,
@@ -38,6 +44,10 @@ local function emit(key, current, previous)
     end
 end
 
+-- publishGlobals exists for the compatibility shims (GetGlobals) and for
+-- consumers that were written against the old global shape. It is the only
+-- per-tick allocation in the module -- one vec4 -- and it is why the tick is
+-- not tightened below 250ms without cost.
 local function publishGlobals()
     Globals = Globals or {}
     Globals.ServerInfo = Globals.ServerInfo or {
@@ -76,6 +86,10 @@ local function publishGlobals()
     vehicle.Seat = CisCache.seat
 end
 
+-- setField returns whether anything changed, and a listener only fires on a
+-- change. That is the entire reason the watchdog can run at 1Hz and consumers
+-- can still trust an event-driven subscription: an unchanged value produces no
+-- work at all.
 local function setField(key, value)
     local previous = CisCache[key]
     if previous == value then
@@ -237,6 +251,10 @@ end)
 
 AddEventHandler('CEventNetworkPlayerLeftVehicle', onLeftVehicle)
 
+-- The fallback poll. It exists because the game events are not sufficient on
+-- their own: a respawn, a seat change with no matching event, or a weapon swap
+-- can all leave the cache stale, and a stale cache is a desync the server has
+-- to guess about. Events do the work between ticks; this is the floor.
 CreateThread(function()
     if not CisReadyState.wait(15000) then
         return
@@ -272,6 +290,9 @@ CreateThread(function()
     end
 end)
 
+-- Proximity watchers. Idle at 500ms with no watchers at all -- `next()` on an
+-- empty table is the cheapest possible test, and a server with nothing near it
+-- pays nothing for the feature existing.
 CreateThread(function()
     if not CisReadyState.wait(15000) then
         return

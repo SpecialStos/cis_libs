@@ -1,3 +1,15 @@
+-- Vehicle property capture and apply.
+--
+-- `lastApplied` is the reason this file is stateful: SetVehicleProperties
+-- diffs every field against its own last-applied snapshot so that calling it
+-- on a moving synced vehicle is cheap and skips unchanged fields. Drop the
+-- table and every apply becomes a full rewrite of every mod. It is keyed by
+-- handle, and handles are recycled, so it is swept (see the thread below).
+--
+-- Get returns EVERYTHING; Set applies only what changed and only what is
+-- present. A partial props table is therefore safe to pass in -- missing keys
+-- are left alone rather than zeroed.
+
 local GetClosestVehicleNative = GetClosestVehicle
 local lastApplied = {}
 
@@ -33,6 +45,8 @@ function GetVehicleProperties(vehicle)
         return nil
     end
 
+    -- Custom colours overwrite the standard palette, so they are read last:
+    -- whichever pair is current is the pair that has to travel.
     local colorPrimary, colorSecondary = GetVehicleColours(vehicle)
     local pearlescentColor, wheelColor = GetVehicleExtraColours(vehicle)
     local paintType1 = GetVehicleModColor_1(vehicle)
@@ -172,6 +186,10 @@ function GetVehicleProperties(vehicle)
     }
 end
 
+-- Returns whether this client is allowed to modify the vehicle at all --
+-- networked and not owned by anyone else. A consumer that ignores the return
+-- writes to vehicles it has no authority over, which the server sees as a
+-- desync it cannot explain.
 function SetVehicleProperties(vehicle, props, fixVehicle)
     if not DoesEntityExist(vehicle) or type(props) ~= 'table' then
         return false
@@ -341,6 +359,10 @@ AddEventHandler('onResourceStop', function(resource)
     end
 end)
 
+-- The cache first, and only the cache when it holds an answer. This is on the
+-- door interaction path, which runs every frame while a door is in range, so
+-- the fallback seat scan -- up to a dozen native calls -- must not be the
+-- normal case.
 function GetPlayerVehicleSeat()
     if CisCache and CisCache.vehicle ~= 0 and CisCache.seat ~= nil then
         return CisCache.seat
@@ -362,6 +384,11 @@ function GetPlayerVehicleSeat()
     return nil
 end
 
+-- A 5m aim probe first: a raycast returns the vehicle actually being looked at,
+-- which is what a door/vehicle interaction means, and GetClosestVehicle cannot
+-- distinguish "under the crosshair" from "nearest to the player". The native is
+-- the fallback, and 0 is returned rather than nil to match the game's own
+-- convention.
 function GetClosestVehicle()
     local ped = (CisCache and CisCache.ped ~= 0 and CisCache.ped) or PlayerPedId()
     local playerCoords = GetEntityCoords(ped)

@@ -1,3 +1,15 @@
+-- Boot sequence and config intake.
+--
+-- The server pushes a whitelisted Config; nothing is read from disk on the
+-- client. That handshake is what everything else waits on, which is why the
+-- whole file is one thread: until `Config` lands there is no framework type, no
+-- door distance, no target kind, and no interval, and a module that started
+-- earlier would be reading them as nil forever.
+--
+-- The 15s deadline here is the same number Cis.wait() publishes to consumers,
+-- so a consumer waiting on Cis.ready and this thread waiting on the server give
+-- up together instead of one outliving the other.
+
 Config = nil
 Security = nil
 DoorData = nil
@@ -53,9 +65,15 @@ end)
 RegisterNetEvent('cis_libs:client:getData', function(data)
     Config = data.Config
     Security = {
+        -- Only the prefix crosses to the client, not the allow-list or the kick
+        -- handler. It is the one piece of Security a client-side module needs,
+        -- for building doorlock event names.
         EventPrefix = data.EventPrefix or 'cis_libs',
     }
     DoorData = data.DoorData or { doors = {}, groups = {} }
+    -- Either the thread above or this event marks readiness, whichever gets here
+    -- first, and only once: a late duplicate of the config must not re-open a
+    -- gate that has already released its waiters.
     if not CisLibReady and not CisLibFailed then
         CisLibReady = true
         CisReadyState.markReady()

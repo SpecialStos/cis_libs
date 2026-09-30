@@ -1,4 +1,9 @@
 -- Spatial hash used by zones and doors. No natives; safe to unit-test.
+--
+-- PURE. A consumer may `shared_script` this file for a private grid -- it is
+-- the cheapest way to get spatial logic with zero boundary crossings, and
+-- COMPATIBILITY.md §10.2 lists it as safe to duplicate. The cost is the
+-- memory and the fact that the copy indexes nothing the library knows about.
 
 CisGrid = {
     CELL = 64,
@@ -12,6 +17,10 @@ function CisGrid.cell(x, y)
     return math.floor(x / CELL), math.floor(y / CELL)
 end
 
+-- A negative cell coordinate is a normal case, not a boundary: a player in the
+-- bottom-left of the map is at a negative x, and the STRIDE offset is what keeps
+-- a negative cx from colliding with the same cy at a positive cx. STRIDE has to
+-- exceed the usable cell range, not the map size.
 function CisGrid.key(cx, cy)
     return cx + cy * STRIDE
 end
@@ -40,6 +49,9 @@ local function eachOverlappingCells(aabb, fn)
     end
 end
 
+-- insert() re-inserts rather than updating, so a caller that grows an AABB
+-- does not have to remove first. The `keys` list is what makes remove() exact:
+-- without it, removal would have to rescan every cell in the grid.
 function CisGrid.insert(grid, id, aabb, data)
     CisGrid.remove(grid, id)
     local keys = {}
@@ -86,11 +98,22 @@ end
 -- its AABB overlaps, an AABB that contains (x,y) must cover the cell containing
 -- (x,y), so the single-cell bucket is provably sufficient.
 --
--- queryPoint is the cheap path and is what the zones and doors use.
--- queryNeighbors is kept for callers that want a neighbourhood superset (for
--- example to pre-warm something outside the exact AABB test); it costs nine
--- bucket lookups and a per-call `seen` table for a set that is identical to
--- queryPoint's once the AABB test is applied.
+-- That proof is why the zones and the doors call queryPoint and not
+-- queryNeighbors: a 3x3 neighbour scan returns the identical set for nine
+-- bucket lookups instead of one, plus a fresh `seen` table per call to
+-- de-duplicate ids that the AABB test would have rejected anyway. On a frame
+-- where the player is inside several zones that is nine times the work for the
+-- same answer.
+--
+-- It is not inferred. test/run.lua seeds 250 fuzzed AABBs and 3000 random query
+-- points and asserts all three of: queryPoint == brute force, queryNeighbors ==
+-- brute force, and queryPoint == queryNeighbors. Change insert() and those
+-- three are the assertions that tell you.
+--
+-- queryNeighbors is kept for callers that want a neighbourhood SUPERSET -- for
+-- example to pre-warm something outside the exact AABB test. It stays correct
+-- because the AABB test is applied per item, not because the extra eight cells
+-- are needed.
 function CisGrid.queryPoint(grid, x, y, z, fn)
     local key = CisGrid.keyFromWorld(x, y)
     local bucket = grid.cells[key]
@@ -174,6 +197,10 @@ function CisGrid.aabbFromCenter(x, y, z, hx, hy, hz)
     }
 end
 
+-- Crossing number. Points on an edge and points on a vertex are not guaranteed
+-- inside; the fuzz reference uses the same AABB semantics, so a disagreement at
+-- the boundary would show up as a test failure rather than as a zone that
+-- flickers.
 function CisGrid.pointInPolygon(x, y, points)
     local inside = false
     local j = #points

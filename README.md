@@ -62,8 +62,8 @@ end)
 | [**cis_libstest**](https://github.com/SpecialStos/cis_libstest) | The integration harness, in its own repository. `/cistest` on a server, JSON report |
 
 The `api.lua` manifest and the `tools/validate-api.js` checker that keeps it
-honest are documented in `API_SPEC.md`, which moved to the project history
-along with the rest of the internal notes.
+honest are covered in [COMPATIBILITY.md §4](COMPATIBILITY.md#4-the-four-manifest-numbers).
+`npm run test:api` fails if the declared surface and the code ever disagree.
 
 ## Tests
 

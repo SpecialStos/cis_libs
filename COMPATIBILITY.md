@@ -823,7 +823,7 @@ Which is:
 
 | Command | What it proves |
 |---|---|
-| `npm test` | 105 pure-module assertions, 27 binding assertions, 154 contract assertions |
+| `npm test` | 62 pure-module assertions, 27 binding assertions, 163 contract assertions — 252 in total |
 | `npm run test:api-selftest` | The `api.lua` validator passes the real manifest and rejects all five broken fixtures |
 | `npm run test:api` | `api.lua` matches the registered surface: 52 server, 55 client, 25 events |
 
@@ -831,7 +831,7 @@ The `self` trap is guarded three ways, and the third is the one that matters:
 
 - `test/binding.lua` (27 assertions) — argument slots of the original proxy set,
   with a canary proving the stub models the shift.
-- `test/contracts.lua` (154 assertions) — argument slots of **every** proxy,
+- `test/contracts.lua` (163 assertions) — argument slots of **every** proxy,
   including the four that reorder before delegating, the export each one
   resolves to, the discriminator arguments (`sync.ped` vs `sync.prop`,
   `zones.box` vs `zones.sphere`), and a source-level pin on the shape of
@@ -938,9 +938,9 @@ handlers and is unchanged for local ones. A local handler is a plain function
 and must keep its current call shape.
 
 *An earlier revision of this section said the handler received zero arguments
-and that this was the highest-priority unmeasured item. It was measured, and
-that description was wrong; the probe and its numbers are in `BUILD_LOG.md` of
-the project history.*
+and that this was the highest-priority unmeasured item. Both claims are wrong.
+It was measured — a one-slot shift, not a drop — and the measurement is written
+into the comment on `invoke` above, with the exact call shapes that show it.*
 
 **Blast radius:** `cis_storeRobberies` calls `Cis.callback.register` but
 registers a **local** function, so no shipped product was affected. The path
@@ -956,10 +956,11 @@ the supported way.
 
 ### 13.5 Coupling seams outside the abstractions
 
-`client/target.lua` calls `exports.ox_target:*` directly at 8 sites and
-`client/inventory.lua` / `server/inventory.lua` call `exports.ox_inventory:*` at
-10 sites. These sit outside the `Cis.target` / `Cis.inventory` abstraction in a
-way no reader of the boundary model would expect. A third-party target or
+`client/target.lua` calls the provider exports directly at 10 sites — 5
+`exports.ox_target:*` and 5 `exports['qb-target']:*` — and
+`client/inventory.lua` / `server/inventory.lua` call `exports.ox_inventory:*`
+directly too. These sit outside the `Cis.target` / `Cis.inventory` abstraction
+in a way no reader of the boundary model would expect. A third-party target or
 inventory provider added in future must patch these files, not implement an
 interface.
 
@@ -1013,13 +1014,12 @@ diff for the two files is the mechanical part and is a one-line command.
 
 Stated so nobody infers more than is here.
 
-- **It freezes a working tree, not a release.** `git log` in this repository is
-  four commits, all `v0.0.1` / `v0.1.0`; `fxmanifest.lua` declares `1.0.0` and 27
-  of 52 Lua files have never been committed. The commit record shows that/
-  the artifact the six products actually consume is **not in this tree**, so the
-  real-world trustworthiness of the existing shims cannot be verified from here.
-  This document is accurate about the code in this repository and about nothing
-  outside it.
+- **It describes this source tree, not a deployed install.** Everything pinned
+  above was read out of the code in this repository and is accurate about that
+  code and about nothing outside it. A server running a different build of
+  `cis_libs` may behave differently, and the shims' behaviour in production
+  cannot be verified from here — only the live harness, on a running server,
+  verifies that.
 - **Return-value shapes.** Documented in `DOCUMENTATION.md`,
   not machine-checked here.
 - **The integration harness.** `cis_libstest` (89 tests across both realms) needs

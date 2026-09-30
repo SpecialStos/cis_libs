@@ -1,3 +1,7 @@
+-- Client logging. The `Logging` global is shared state and must exist once
+-- (COMPATIBILITY.md §10.1) -- a second copy means the level tables can disagree
+-- between modules in the same resource.
+
 Logging = {
     Levels = {
         DEBUG = 1,
@@ -45,6 +49,9 @@ function Logging.Error(message)
     Logging.Log(message, Logging.Levels.ERROR)
 end
 
+-- A traceback is attached to every auto-logged error, because the only other
+-- place it exists is a console nobody will be reading when a pcall catches
+-- something at 3am.
 function Logging.AutoLogError(err, context)
     Logging.Error(('Automatic Error Log:\nContext: %s\nError: %s\n%s'):format(
         context or 'Unknown',
