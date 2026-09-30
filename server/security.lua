@@ -351,7 +351,7 @@ function CisNetOn(name, fn, opts)
         Logging.Error(('Cis.net.on("%s") registered nothing: the handler must be a function '
             .. '(cis_libs only) or a "resource:export" reference, not %s')
             :format(tostring(name), type(fn)))
-        return
+        return false
     end
 
     RegisterNetEvent(name, function(...)
@@ -373,6 +373,11 @@ function CisNetOn(name, fn, opts)
             Logging.AutoLogError(err, name)
         end
     end)
+    -- true once the event is actually bound. Without it a caller had no way
+    -- to tell a successful registration from a REFUSAL, because the refusal
+    -- also returned nothing -- which is how a test asserting only "did not
+    -- throw" came to pass against a registration that had not happened.
+    return true
 end
 
 local DEFAULT_DROP_MESSAGE = 'cis_libs: Kicked. If you believe this is a mistake, contact the server owner.'
