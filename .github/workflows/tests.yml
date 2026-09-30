@@ -76,7 +76,28 @@ jobs:
           fi
           echo "No hardcoded third-party version hosts found."
 
+      - name: Install Lua 5.4
+        # ubuntu-latest does not ship luac5.4 on PATH. This workflow assumed it
+        # did for its entire history, so the syntax check "ran" against a
+        # command that did not exist and reported EVERY FILE as a syntax error.
+        # The tests passed and the syntax check failed on the whole tree at
+        # once, which is the worst possible failure shape: it looks exactly
+        # like the code being broken rather than the tool being absent.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.4
+          luac5.4 -v
+
       - name: Lua syntax check
+        # A MISSING TOOL MUST NOT LOOK LIKE BROKEN CODE. This guard exists so
+        # that if the install above ever fails, the step says "the check did
+        # not run" rather than reporting every file as unparseable.
+        #
+        # fengari (npm test) is a Lua 5.3 VM, so it cannot catch a 5.4-only
+        # construct. That gap is the reason this step exists at all, and it is
+        # worth keeping even though the codebase uses nothing 5.4-specific --
+        # `lua54 'yes'` in fxmanifest.lua is an opt-in, and the check is what
+        # keeps that opt-in honest.
         # WHY THIS STEP IS NOT A ONE-LINER
         #
         # FiveM's backtick hash literals (`` `WEAPON_UNARMED` ``) are valid in
@@ -102,6 +123,11 @@ jobs:
         # literal. A file with a genuine syntax error does not have one, so it
         # is still reported -- the skip is narrow on purpose.
         run: |
+          if ! command -v luac5.4 >/dev/null 2>&1; then
+            echo "::error::luac5.4 is not on PATH -- the syntax check did not run"
+            echo "Do not read the absence of errors below as a pass."
+            exit 1
+          fi
           status=0
           while IFS= read -r f; do
             if err=$(luac5.4 -p "$f" 2>&1); then
