@@ -53,6 +53,14 @@ exports('GetConfigSummary', function()
         -- server/database.lua this silently reads a global that does not exist
         -- and reports false on every server, including working ones.
         databaseReady = Database and Database.ready == true,
+        -- What detection actually concluded, and why. 'framework' and 'database'
+        -- above are the CONFIGURED names, which under AUTO have been rewritten
+        -- to match reality by the time anything reads them -- so these carry
+        -- the provenance instead: which resource, which version, and whether it
+        -- was detected or configured. Without them a working server and a
+        -- silently-standalone one report the same thing to a consumer.
+        frameworkDetail = CisFramework and CisFramework.detected or nil,
+        databaseDetail = Database and Database.detected or nil,
         doorlock = Config and Config.Doorlock and Config.Doorlock.Type or 'NONE',
         syncEnabled = not (Config and Config.Sync and Config.Sync.Enabled == false),
         eventPrefix = (Security and Security.EventPrefix) or 'cis_libs',
@@ -91,4 +99,44 @@ RegisterCommand('cis_debug', function(src)
     -- shared/config.lua has drifted and something that should stay server-side
     -- is now being sent to every client.
     print('[cis_libs] client payload has secrets: ' .. tostring(CisConfigUtil.containsSecret(payload)))
+
+    -- DETECTION REPORT. This is the command a server owner runs when they
+    -- want to know what cis_libs decided is running, and the answer has to be
+    -- unambiguous: which framework, which version, whether that was DETECTED or
+    -- merely CONFIGURED, and -- when something is wrong -- the reason in words.
+    -- 'framework=QBOX' alone does not distinguish a working bridge from one
+    -- that fell through to standalone and reports the configured name back.
+    local function report(label, d)
+        if type(d) ~= 'table' then
+            print(('[cis_libs] %s: not detected'):format(label))
+            return
+        end
+        local name = tostring(d.name or 'NONE')
+        if d.version then
+            name = name .. ' ' .. tostring(d.version)
+        end
+        if d.resource then
+            name = name .. '  (' .. tostring(d.resource) .. ')'
+        end
+        print(('[cis_libs] %s: %s  [%s] -- %s'):format(label, name,
+            tostring(d.how or 'unknown'), tostring(d.reason or '')))
+    end
+    -- RAW STATE of every framework and driver this library knows about. When
+    -- detection says NONE, the operator's next question is always 'is my
+    -- framework even started?' -- and answering it here beats sending them
+    -- to the txAdmin resources page to work it out.
+    local known = {}
+    if CisDetect then
+        for _, k in ipairs(CisDetect.FRAMEWORKS) do known[#known + 1] = k.resource end
+        for _, k in ipairs(CisDetect.DATABASES) do known[#known + 1] = k.resource end
+    end
+    for _, res in ipairs(known) do
+        print(('[cis_libs]   %s: %s'):format(res, tostring(GetResourceState(res))))
+    end
+
+    report('framework', CisFramework and CisFramework.detected)
+    report('database ', Database and Database.detected)
+    print(('[cis_libs] framework bridge loaded: %s   database ready: %s'):format(
+        tostring(CisFramework and CisFramework.IsLoaded and CisFramework.IsLoaded()),
+        tostring(Database and Database.ready == true)))
 end, true)

@@ -19,7 +19,50 @@ Database = {
 }
 
 local function driverName()
-    return Config and Config.Framework and Config.Framework.Database and Config.Framework.Database.Type or 'oxmysql'
+    return Config and Config.Framework and Config.Framework.Database and Config.Framework.Database.Type or 'AUTO'
+end
+
+-- What the last Init() concluded, for cis_debug and the boot report.
+Database.detected = nil
+
+-- A custom driver adapter: a resource exposing a query export, or a function
+-- on a global `CisCustomDatabase`. The same escape hatch as
+-- CisCustomFramework -- for a driver this library has never heard of, nobody
+-- should have to edit its source.
+local function customDriver()
+    local global = rawget(_G, 'CisCustomDatabase')
+    if type(global) == 'table' and type(global.resource) == 'string' and global.resource ~= '' then
+        return global
+    end
+    local custom = Config and Config.Framework and Config.Framework.Database
+        and Config.Framework.Database.Custom
+    if type(custom) == 'table' and type(custom.resource) == 'string' and custom.resource ~= '' then
+        return custom
+    end
+    return nil
+end
+
+-- Existence probe for an export: does the resource publish this name?
+--
+-- RESOLVES rather than calls. Calling a query export with dummy arguments is
+-- how a probe turns into a real query, and a raise inside the pcall is
+-- indistinguishable from "no such export" -- so a working driver was reported
+-- as absent. Both a function and a callable reference table count as present;
+-- nil means the name is not published.
+local function probeExport(resource, exportName)
+    if type(exportName) ~= 'string' or exportName == '' then
+        return true
+    end
+    local ok, fn = pcall(function()
+        return exports[resource][exportName]
+    end)
+    if not ok or fn == nil then
+        return false
+    end
+    if type(fn) == 'function' then
+        return true
+    end
+    return type(fn) == 'table' and rawget(fn, '__cfx_functionReference') ~= nil
 end
 
 local function mongoCollection(override)
@@ -36,7 +79,54 @@ end
 -- not configured should not be paid for on every tick of the server's life.
 function Database.Init()
     local name = driverName()
-    if name == 'oxmysql' and started('oxmysql') then
+    local custom = customDriver()
+
+    if custom then
+        -- A custom driver is used if it is started and answers to the export
+        -- it advertises. Refusing loudly beats falling back to a stock driver
+        -- the operator did not ask for.
+        local exportName = type(custom.query) == 'string' and custom.query or 'query'
+        if not started(custom.resource) then
+            Database.driver = nil
+            Database.detected = {
+                name = 'NONE', resource = custom.resource, version = nil, how = 'custom',
+                reason = ('custom driver %q is not started'):format(custom.resource),
+            }
+            print('cis_libs: Database driver unavailable: ' .. Database.detected.reason)
+        elseif not probeExport(custom.resource, exportName) then
+            Database.driver = nil
+            Database.detected = {
+                name = 'NONE', resource = custom.resource, version = nil, how = 'custom',
+                reason = ('custom driver %q exposes no %q export'):format(custom.resource, exportName),
+            }
+            print('cis_libs: Database driver unavailable: ' .. Database.detected.reason)
+        else
+            Database.driver = 'CUSTOM'
+            Database.custom = custom
+            Database.detected = {
+                name = (custom.name or 'CUSTOM'):upper(), resource = custom.resource,
+                version = GetResourceMetadata(custom.resource, 'version'), how = 'custom',
+                reason = ('custom driver %q'):format(custom.resource),
+            }
+        end
+    elseif name == 'AUTO' then
+        local choice = CisDetect.database(name, started, function(r)
+            return GetResourceMetadata(r, 'version')
+        end)
+        Database.detected = choice
+        if choice.name == 'NONE' then
+            Database.driver = nil
+            print('cis_libs: no database driver detected (' .. choice.reason .. ')')
+        else
+            Database.driver = choice.name
+            -- Config is REWRITTEN to what was actually found, so a consumer
+            -- reading Config.Framework.Database.Type -- including the client,
+            -- which receives it in the config payload -- sees the truth.
+            if Config and Config.Framework and Config.Framework.Database then
+                Config.Framework.Database.Type = choice.name
+            end
+        end
+    elseif name == 'oxmysql' and started('oxmysql') then
         Database.driver = 'oxmysql'
     elseif name == 'mysql-async' and started('mysql-async') then
         Database.driver = 'mysql-async'
@@ -122,6 +212,27 @@ end
 function Database.Query(sql, params, cb)
     if not Database.ready then
         return missing(cb)
+    end
+    -- A custom driver is dispatched first: the operator configured it because
+    -- the stock branches below would not serve their database.
+    --
+    -- The exports table is passed EXPLICITLY. `exports[res][name]` is an
+    -- unbound method, and calling it without the table consumes `sql` as
+    -- `self` -- so the adapter would receive the query where it expected the
+    -- exports table and fail in a way that looks like a SQL error.
+    if Database.driver == 'CUSTOM' and Database.custom then
+        local c = Database.custom
+        if type(c.run) == 'function' then
+            c.run(sql, params or {}, cb)
+            return
+        end
+        local res, fn = c.resource, type(c.query) == 'string' and c.query or 'query'
+        if fn and fn ~= '' then
+            exports[res][fn](exports[res], sql, params or {}, cb)
+        else
+            missing(cb)
+        end
+        return
     end
     -- `exports.oxmysql.query` and `exports.oxmysql:execute` are the same call
     -- under two names. `execute` is the older export; `query` is what current

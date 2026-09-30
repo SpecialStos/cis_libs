@@ -132,7 +132,7 @@ Config.Framework = {
     -- SAFE DEFAULT: "QBCORE". Wrong pick? No harm done, but the log line
     -- "Framework provider unavailable; using standalone mode" means every
     -- job, permission and money helper below returns its no-framework answer.
-    Type = "QBCORE",
+    Type = "AUTO",
 
     -- "ox_inventory", "qb-inventory", "qs-inventory", "codem-inventory", or
     -- "typical".
@@ -171,7 +171,7 @@ Config.Framework = {
         -- database call returns nil. Only oxmysql supports transactions;
         -- picking another driver makes Cis.db.transaction refuse by design and
         -- say so at boot.
-        Type = "oxmysql",
+        Type = "AUTO",
 
         -- MongoDB only. Collection name for the cis_doors table. Leave nil for
         -- every other driver; it is ignored when they are selected.

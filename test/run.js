@@ -52,6 +52,7 @@ runFile('shared/grid.lua')
 runFile('shared/pending.lua')
 runFile('shared/config.lua')
 runFile('shared/histogram.lua')
+runFile('shared/detect.lua')
 // The integration harness is a SEPARATE repository and a separate FiveM
 // resource (https://github.com/SpecialStos/cis_libstest). It used to be loaded
 // here so the library's suite could cover the report encoder and the probe

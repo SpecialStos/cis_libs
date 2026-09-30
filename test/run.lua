@@ -310,6 +310,120 @@ expect(CisHistogram.count(jobs, 12345) == 0, 'non-table non-string job counts ze
 -- cis_libstest, which is a separate repository and a separate FiveM resource,
 -- and a change to either should be caught by that project's own suite:
 --   https://github.com/SpecialStos/cis_libstest
+-- ------------------------------------------------- framework + db detection
+-- AUTO detection decides which bridge a server gets, and the failure mode is
+-- silent: a wrong answer means a framework that reports itself ready and then
+-- returns nil for every player. So the ordering rules are pinned here rather
+-- than trusted. Every case below is a server shape someone has actually run.
+
+-- A fake server. `started` is a set; `probed` is which exports answer.
+--
+-- The first return is a BOOLEAN, because that is exactly what the production
+-- call site passes. An earlier version of this helper returned the string
+-- 'started', so the suite asserted a contract production never used -- every
+-- case passed, and AUTO detection went on to report "no supported framework"
+-- against a live qbx_core. A test helper that does not match the call site is
+-- not a test of the call site.
+local function server(started, probed, versions)
+    return function(name) return started[name] == true end,
+        function(name) return (versions or {})[name] end,
+        function(res, exportName)
+            if not probed[res] then return false end
+            local list = probed[res]
+            if list == true then return true end
+            return list[exportName] == true
+        end
+end
+
+-- AUTO on a qbx_core server. The headline case: qbx_core removed GetCoreObject
+-- in 1.9, so a probe on that export alone would report "no framework" on a
+-- perfectly good server.
+local s, v, p = server({ qbx_core = true }, { qbx_core = { GetPlayer = true } }, { qbx_core = '1.11.0' })
+local r = CisDetect.framework('AUTO', nil, s, v, p)
+expect(r.name == 'QBOX', 'AUTO detects qbx_core as QBOX')
+expect(r.resource == 'qbx_core', 'AUTO names the resource it found')
+expect(r.version == '1.11.0', 'AUTO reports the version it read')
+expect(r.how == 'detected', 'AUTO records that it detected rather than was told')
+
+-- A server with BOTH qbx_core and qb-core on disk. Order is load-bearing:
+-- qbx_core is the modern one and must win, or every money call goes to a
+-- framework the operator has already migrated away from.
+s, v, p = server({ qbx_core = true, ['qb-core'] = true },
+    { qbx_core = { GetPlayer = true }, ['qb-core'] = { GetCoreObject = true } },
+    { qbx_core = '1.11.0', ['qb-core'] = '2.17.5' })
+r = CisDetect.framework('AUTO', nil, s, v, p)
+expect(r.name == 'QBOX', 'with both present, qbx_core wins over qb-core')
+expect(r.version == '1.11.0', 'the version reported is the winning framework, not the loser')
+
+-- A qb-core-only server.
+s, v, p = server({ ['qb-core'] = true }, { ['qb-core'] = { GetCoreObject = true } }, { ['qb-core'] = '2.17.5' })
+r = CisDetect.framework('AUTO', nil, s, v, p)
+expect(r.name == 'QBCORE', 'AUTO detects a qb-core-only server as QBCORE')
+
+-- A started resource whose probe export is missing is NOT a match. A lookalike
+-- resource must not be mistaken for the real thing.
+s, v, p = server({ ["qb-core"] = true }, { ['qb-core'] = { GetCoreObject = false } }, {})
+r = CisDetect.framework('AUTO', nil, s, v, p)
+expect(r.name == 'NONE', 'a started resource without the probe export is not a match')
+
+-- An explicit, correct Type is honoured and reported as configured, not
+-- detected -- the distinction is what cis_debug prints.
+s, v, p = server({ ['qb-core'] = true }, { ['qb-core'] = { GetCoreObject = true } })
+r = CisDetect.framework('QBCORE', nil, s, v, p)
+expect(r.name == 'QBCORE' and r.how == 'configured', 'an explicit Type is honoured and marked configured')
+
+-- An explicit Type for something not started says so rather than implying a
+-- bridge that is not there.
+s, v, p = server({}, {})
+r = CisDetect.framework('QBOX', nil, s, v, p)
+expect(r.name == 'QBOX' and r.resource == nil, 'a configured framework that is not started reports no resource')
+expect(r.reason:find('not started') ~= nil, 'and the reason says so in words')
+
+-- NONE is an explicit choice, not a failure to detect.
+s, v, p = server({ qbx_core = true }, { qbx_core = { GetPlayer = true } })
+r = CisDetect.framework('NONE', nil, s, v, p)
+expect(r.name == 'NONE' and r.how == 'configured', 'NONE is honoured even on a server that has a framework')
+
+-- A custom adapter wins over both AUTO and an explicit Type: the operator
+-- wired one up precisely because the built-in branches would not serve them.
+s, v, p = server({ my_framework = true }, { my_framework = { GetPlayer = true } }, { my_framework = '2.0' })
+r = CisDetect.framework('AUTO', { resource = 'my_framework', name = 'myframework' }, s, v, p)
+expect(r.name == 'MYFRAMEWORK', 'a custom adapter is used and takes its configured name')
+expect(r.how == 'custom' and r.resource == 'my_framework', 'a custom adapter is reported as custom')
+r = CisDetect.framework('QBCORE', { resource = 'my_framework', name = 'myframework' }, s, v, p)
+expect(r.name == 'MYFRAMEWORK' and r.how == 'custom',
+    'a custom adapter wins over an explicit Type too')
+
+-- A custom adapter that is not started must say so rather than silently
+-- falling back to a stock framework.
+s, v, p = server({ qbx_core = true }, { qbx_core = { GetPlayer = true } })
+r = CisDetect.framework('AUTO', { resource = 'not_running' }, s, v, p)
+expect(r.name == 'NONE', 'a custom adapter that is not started does not fall back to a stock framework')
+expect(r.reason:find('not started') ~= nil, 'and the reason names the adapter that is missing')
+
+-- versionAtLeast, the ESX-legacy split.
+expect(CisDetect.versionAtLeast('5.0.0', '5.0.0'), 'equal versions satisfy the bound')
+expect(CisDetect.versionAtLeast('5.1.0', '5.0.0'), 'a greater version satisfies the bound')
+expect(not CisDetect.versionAtLeast('1.9.0', '5.0.0'), 'a lower version does not')
+expect(CisDetect.versionAtLeast('1.9', '1.9.0'), 'a missing component counts as zero')
+expect(CisDetect.versionAtLeast('1.9.0-beta3', '1.9.0'), 'a non-numeric tail does not break the comparison')
+expect(not CisDetect.versionAtLeast(nil, '1.0.0'), 'a missing version never satisfies a bound')
+
+-- Database detection, same contract.
+s, v, p = server({ oxmysql = true }, true, { oxmysql = '2.6.0' })
+local d = CisDetect.database('AUTO', s, v)
+expect(d.name == 'oxmysql' and d.version == '2.6.0', 'AUTO detects oxmysql and its version')
+s, v = server({ ['mysql-async'] = true }), function(name) return name == 'mysql-async' and '0.6.2' or nil end
+d = CisDetect.database('AUTO', s, v)
+expect(d.name == 'mysql-async', 'AUTO detects mysql-async when it is the only one running')
+s, v = server({}), function() return nil end
+d = CisDetect.database('AUTO', s, v)
+expect(d.name == 'NONE' and d.how == 'detected', 'no driver started is reported as detected NONE, not a crash')
+s, v = server({ oxmysql = true }), function() return '2.6.0' end
+d = CisDetect.database('NONE', s, v)
+expect(d.name == 'NONE' and d.how == 'configured', 'database NONE is honoured')
+
+
 io.write(('passed=%d failed=%d\n'):format(passed, failed))
 if failed > 0 then
     os.exit(1)

@@ -31,8 +31,154 @@ local function waitResource(name, timeout)
     return GetResourceState(name) == 'started'
 end
 
+-- What the last detect() concluded, for cis_debug and the boot report.
+-- Recorded rather than recomputed: a diagnosis that runs different code from
+-- the thing it diagnoses is not a diagnosis.
+Framework.detected = nil
+
+-- A resolved custom adapter, when one is configured. Comes from
+-- Config.Framework.Custom, or from a global `CisCustomFramework` a consumer can
+-- define before cis_libs starts -- the escape hatch for a framework this
+-- library has never heard of.
+local customAdapter = nil
+
+local function loadCustomAdapter()
+    local global = rawget(_G, 'CisCustomFramework')
+    if type(global) == 'table' then
+        return {
+            resource = global.resource or 'CisCustomFramework',
+            name = global.name or 'CUSTOM',
+            getPlayer = type(global.getPlayer) == 'string' and global.getPlayer or 'GetPlayer',
+            getPlayerFn = type(global.getPlayer) == 'function' and global.getPlayer or nil,
+        }
+    end
+    local custom = Config and Config.Framework and Config.Framework.Custom
+    if type(custom) == 'table' and type(custom.resource) == 'string' and custom.resource ~= '' then
+        return {
+            resource = custom.resource,
+            name = custom.name or 'CUSTOM',
+            getPlayer = custom.getPlayer or custom.probe,
+        }
+    end
+    return nil
+end
+
+-- Existence probe for an export. Calling a missing export raises; calling a
+-- present one with a deliberately bad argument does not, so the pcall result
+-- is an honest answer rather than a guess.
+-- Existence probe for an export: does the resource publish this name?
+--
+-- It RESOLVES the reference rather than calling it. Calling to test is wrong:
+-- `qbx_core:GetPlayer(0)` raises on an invalid source, and a raise inside a
+-- pcall is indistinguishable from "the export does not exist" -- so a perfectly
+-- good server was reported as having no framework at all. Measured, not
+-- assumed: that is exactly what the first AUTO run on a live qbx_core did.
+--
+-- A returned function arrives as a callable reference table, so `type() ==
+-- 'function'` is the wrong test and rejects an export that IS present. Both
+-- shapes count; nil means the name is not published.
+local function probeExport(resource, exportName)
+    if type(exportName) ~= 'string' or exportName == '' then
+        return true
+    end
+    local ok, fn = pcall(function()
+        return exports[resource][exportName]
+    end)
+    if not ok or fn == nil then
+        return false
+    end
+    if type(fn) == 'function' then
+        return true
+    end
+    return type(fn) == 'table' and rawget(fn, '__cfx_functionReference') ~= nil
+end
+
 local function detect()
-    local configured = string.upper((Config and Config.Framework and Config.Framework.Type) or 'NONE')
+    local configured = string.upper((Config and Config.Framework and Config.Framework.Type) or 'AUTO')
+    customAdapter = loadCustomAdapter()
+
+    -- AUTO and CUSTOM both mean "ask the server". The pure module decides, so
+    -- the ordering that distinguishes qbx_core from qb-core is unit tested
+    -- rather than trusted.
+    if configured == 'AUTO' or customAdapter then
+        local choice = CisDetect.framework(
+            configured,
+            customAdapter and {
+                resource = customAdapter.resource,
+                name = customAdapter.name,
+                getPlayer = customAdapter.getPlayer,
+            } or nil,
+            function(name) return GetResourceState(name) == 'started' end,
+            function(name) return GetResourceMetadata(name, 'version') end,
+            probeExport
+        )
+        Framework.detected = choice
+        provider = choice.name
+
+        if choice.name == 'NONE' then
+            print(('cis_libs: no framework available (%s). Running standalone: player '
+                .. 'lookups will return a table with no name and no job.')
+                :format(choice.reason))
+            if Config and Config.Framework then
+                Config.Framework.Type = 'NONE'
+            end
+            return
+        end
+
+        -- Give the resource a moment to finish publishing its exports. A
+        -- started resource is usually ready, and "usually" is the whole
+        -- difference between working and silently degrading.
+        if not waitResource(choice.resource, 5000) then
+            print(('cis_libs: %s reported as %s but did not finish starting')
+                :format(choice.resource, choice.name))
+            provider = 'NONE'
+            if Config and Config.Framework then
+                Config.Framework.Type = 'NONE'
+            end
+            return
+        end
+
+        if choice.name == 'QBCORE' then
+            local ok, core = pcall(function() return exports['qb-core']:GetCoreObject() end)
+            if ok and core then
+                QBCore = core
+            end
+        elseif choice.name == 'QBOX' then
+            -- qbx_core removed GetCoreObject in 1.9 and exposes the lookups
+            -- directly; an older one still has it, and taking the core object
+            -- when it exists keeps the money helpers working.
+            local ok, core = pcall(function() return exports.qbx_core:GetCoreObject() end)
+            if ok and core then
+                QBX = core
+                QBCore = core
+            end
+        elseif choice.name == 'ESX' or choice.name == 'ESX-LEGACY' then
+            local ok, obj = pcall(function() return exports['es_extended']:getSharedObject() end)
+            if ok then
+                ESX = obj
+            end
+            if not ESX then
+                local deadline = GetGameTimer() + 3000
+                while ESX == nil and GetGameTimer() < deadline do
+                    TriggerEvent('esx:getSharedObject', function(shared) ESX = shared end)
+                    Wait(50)
+                end
+            end
+        end
+
+        print(('cis_libs: framework %s (%s%s) -- %s'):format(choice.name, choice.resource,
+            choice.version and (' ' .. tostring(choice.version)) or '', choice.reason))
+
+        if Config and Config.Framework and configured == 'AUTO' then
+            -- Config is REWRITTEN to what was actually detected, so every
+            -- consumer that reads Config.Framework.Type -- including the
+            -- client, which receives it in the config payload -- agrees with
+            -- reality rather than with what someone guessed.
+            Config.Framework.Type = choice.name
+        end
+        return
+    end
+
     if configured == 'QBCORE' then
         if waitResource('qb-core', 5000) then
             local ok, core = pcall(function()
@@ -173,6 +319,39 @@ end
 -- is normal traffic, not an error, and the callers below all treat it as a
 -- plain false.
 function Framework.GetPlayer(serverId)
+    -- A custom adapter is tried FIRST and unconditionally. The operator
+    -- configured it precisely because the branches below would not recognise
+    -- their framework, so trying the known ones first is the wrong order.
+    --
+    -- `getPlayer` may be a function on the adapter table, or the NAME of an
+    -- export on the adapter's resource. The table form wins when both are
+    -- given, because it is the more explicit of the two.
+    if customAdapter then
+        local got = nil
+        local fn = customAdapter.getPlayerFn
+        if type(fn) == 'function' then
+            local ok, player = pcall(fn, serverId)
+            if ok then
+                got = player
+            end
+        elseif type(customAdapter.getPlayer) == 'string' then
+            local res = customAdapter.resource
+            local ok, player = pcall(function()
+                return exports[res][customAdapter.getPlayer](exports[res], serverId)
+            end)
+            -- The exports table is passed EXPLICITLY: `exports[res][name]` is an
+            -- unbound method and would eat serverId as `self`, so the handler
+            -- would run with a number where the player should be. The same
+            -- trap the callback dispatcher documents.
+            if ok then
+                got = player
+            end
+        end
+        if got then
+            return got
+        end
+    end
+
     -- QBOX first, and unconditionally of whether detection found a core
     -- object. On a current qbx_core the export IS the interface, and the
     -- QBCore.Functions branch below has nothing to offer -- so this has to be

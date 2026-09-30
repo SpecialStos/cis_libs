@@ -37,9 +37,24 @@ local function persistConfigured()
     return not not (Config and Config.Doorlock and Config.Doorlock.Persist)
 end
 
+-- The RESOURCE name of the driver that is actually running, not the
+-- configured value. Under `Type = "AUTO"` the configured value is the literal
+-- string "AUTO", which is not a resource -- waiting for it to start would sit
+-- out the full 30s deadline and then give up, and the door table would never
+-- be read. Database.Init() runs before this file's boot wait and rewrites the
+-- config to the driver it found, so falling back to that keeps the two
+-- readings in step.
 local function driverName()
     local db = Config and Config.Framework and Config.Framework.Database
-    return db and db.Type or 'oxmysql'
+    local configured = db and db.Type or 'AUTO'
+    if configured and configured ~= 'AUTO' then
+        return configured
+    end
+    local detected = rawget(_G, 'Database')
+    if type(detected) == 'table' and detected.detected and detected.detected.resource then
+        return detected.detected.resource
+    end
+    return 'oxmysql'
 end
 
 -- A file left inside the resource's own configs/ directory, not in the

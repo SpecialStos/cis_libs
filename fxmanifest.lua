@@ -64,6 +64,7 @@ shared_scripts {
     'shared/config.lua',
     'shared/histogram.lua',
     'shared/ready.lua',
+    'shared/detect.lua',
     'init.lua',
 }
 
