@@ -24,6 +24,8 @@ const INJECTED_FILES = [
   'server/version.lua',
   'server/security.lua',
   'server/database.lua',
+  'server/initialize.lua',
+  'server/security.lua',
   'fxmanifest.lua',
 ]
 

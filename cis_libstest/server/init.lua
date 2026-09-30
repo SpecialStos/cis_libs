@@ -42,7 +42,13 @@ end
 -- `src` is the first argument cis_libs passes to any handler. Echoing it back
 -- lets a client prove the source survived a real net event, which a
 -- resource-local TriggerEvent cannot (it sets no source at all).
-exports('cis_test:getRelay', function(sinceKind)
+--
+-- It has to be a PARAMETER. An earlier version read the global `src`, which is
+-- the event source and is unset outside an event handler, so it reported a
+-- value unrelated to the argument cis_libs actually passed. That stayed hidden
+-- while defect 9.3 was shifting that argument away entirely; with 9.3 fixed the
+-- two are distinguishable and the difference is a real bug.
+exports('cis_test:getRelay', function(src, sinceKind)
     local out = {}
     for i = 1, #relay do
         if not sinceKind or relay[i].kind == sinceKind then
@@ -272,9 +278,25 @@ local function runSuite()
     print(('[cis_libstest] running %d server tests (mutating=%s teleport=%s)...')
         :format(#suite.tests, tostring(CisTestConfig.RunMutating), tostring(CisTestConfig.RunTeleport)))
 
+    -- Part of this suite deliberately exercises refusal paths: awaiting a
+    -- callback that was never registered, syncing a record with no coords,
+    -- printing the word "error" through the logger. Those are correct
+    -- behaviours, and a correct refusal still writes to the console -- which
+    -- looks identical to a defect unless you know where the suite is.
+    --
+    -- So say where it is. An operator reading the console mid-run should be
+    -- able to tell "the tests are working" from "the library is broken" without
+    -- opening the source.
+    print('[cis_libstest] ---- EXPECTED ERROR OUTPUT BEGINS ----')
+    print('[cis_libstest] SCRIPT ERROR and [ERROR]/[WARN] lines below are the suite proving')
+    print('[cis_libstest] that refusals and error logging work. A real defect looks the')
+    print('[cis_libstest] same, so read the summary line at the end, not this window.')
+
     reports.server = CisTestRunner.execute(suite, reports, CisTestConfig, function(entry)
         printEntry('server', entry)
     end)
+
+    print('[cis_libstest] ---- EXPECTED ERROR OUTPUT ENDS ----')
 
     local players = GetPlayers()
     if CisTestConfig.RunClientTests and #players > 0 then

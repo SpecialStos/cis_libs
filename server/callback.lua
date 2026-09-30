@@ -26,13 +26,24 @@ end
 
 -- Returns true, <handler results...> on success, or false, <reason> on failure.
 local function invoke(name, src, ...)
-    local fn, err
+    local fn, self, err
     if handlers[name] then
         fn = handlers[name]
     elseif remotes[name] then
         local ref = remotes[name]
         local target = exports[ref.resource]
         fn = target and target[ref.export]
+        -- MEASURED, not inferred: `exports[res][name]` is an UNBOUND method.
+        -- Calling it without the exports table consumes the first argument as
+        -- `self`, which is the same one-slot shift as the bracket CALL form in
+        -- MEMORY.md section 3.1. Proven in-VM by
+        -- `probe: how must the exports table be called?`, which gets n=2 for
+        -- `fn('A','B','C')` and n=3 for `fn(self,'A','B','C')`.
+        --
+        -- This is why a remote handler used to receive the caller's arguments
+        -- but never `src`. Passing the table explicitly is the fix, and it is
+        -- exactly what the colon form does.
+        self = target
         if not isCallable(fn) then
             err = ('remote handler %s:%s is not callable (got %s)')
                 :format(ref.resource, ref.export, type(fn))
@@ -43,7 +54,8 @@ local function invoke(name, src, ...)
     if not fn then
         return false, err
     end
-    local results = table.pack(pcall(fn, src, ...))
+    local results = self and table.pack(pcall(fn, self, src, ...))
+        or table.pack(pcall(fn, src, ...))
     if not results[1] then
         return false, tostring(results[2])
     end
@@ -171,7 +183,12 @@ end)
 exports('AwaitCallback', function(name, ...)
     local results = table.pack(invoke(name, 0, ...))
     if not results[1] then
-        error(results[2])
+        -- Name the callback. `error('unknown')` reaches the console as
+        -- "SCRIPT ERROR: @cis_libs/server/callback.lua:186: unknown", which
+        -- says the library failed and nothing about which of the dozens of
+        -- registered callbacks did. A refusal that cannot be acted on is the
+        -- ambiguity the whole `false, '<reason>'` convention exists to remove.
+        error(('Cis.callback.await: no handler for %q (%s)'):format(tostring(name), tostring(results[2])))
     end
     return table.unpack(results, 2, results.n)
 end)

@@ -625,7 +625,17 @@ function CisTestClientSuite.build(ctx, config)
         c.exists(closest, 'a closest door was found')
         if closest then
             c.set('closestId', closest.id)
-            c.equal(closest.id, id, 'the correct door was identified')
+            c.set('distance', ('%.2f'):format(closest.distance or -1))
+            -- Assert the distance, not the id. An earlier mutating test also
+            -- registers a door at the player's position, and the proxy has no
+            -- `Cis.doors.remove`, so both doors survive for the rest of the run
+            -- and which one is nearest is a tie broken by table order. The
+            -- behaviour this test actually owns is "the door reported is the
+            -- one at the player", and distance states that without depending
+            -- on the order two tests happen to run in.
+            c.truthy(closest.distance ~= nil and closest.distance < 1.0,
+                ('the closest door is the one at the player, not %s away')
+                    :format(tostring(closest.distance)))
         end
     end, { mutating = true })
 

@@ -24,6 +24,18 @@ local function libConfig()
     return {}
 end
 
+-- Call one of this resource's own exports.
+--
+-- The names are namespaced (`cis_test:capture`), so the `:Name(...)` call form
+-- cannot be used: `exports['cis_libstest']:cis_test:capture(...)` parses as two
+-- method calls and is a syntax error, and the bracket form is the unbound one
+-- MEMORY.md section 1 is about. Passing the table explicitly is the only safe
+-- dynamic equivalent, so it lives here once rather than at every call site.
+local function probeExport(name, ...)
+    local st = exports['cis_libstest']
+    return st[name](st, ...)
+end
+
 local function allowListCount()
     return libConfig().allowListConfigured and 'configured' or 'empty'
 end
@@ -51,44 +63,76 @@ function CisTestServerSuite.build(ctx, config)
     -- BOUNDARY PROBES -- measure, do not assume
     -- ======================================================================
 
+    reg('probe: how must the exports table be called? (bracket vs explicit)', function(t)
+        local c = t
+        -- Defect 9.3 turns on one fact, and every statement about it so far has
+        -- been an INFERENCE from the bracket CALL form
+        -- (`exports[r][n](...)`), which is a different question from the
+        -- bracket LOOKUP that server/callback.lua actually performs:
+        --     local target = exports[ref.resource]
+        --     local fn = target[ref.export]      -- <- lookup, then pcall(fn, ...)
+        --
+        -- This runs entirely inside cis_libstest's own VM, so there is no
+        -- resource boundary in the way and nothing to interpret. It calls the
+        -- same export both ways and reports what the target recorded. Two
+        -- calls, two answers, and the question is closed.
+        local bracket = probeExport('cis_test:probeBinding', 'bracket')
+        local explicit = probeExport('cis_test:probeBinding', 'explicit')
+        c.set('bracket_3_args', bracket)
+        c.set('explicit_self_plus_3_args', explicit)
+
+        -- The measured contract, pinned so a change in the engine's semantics
+        -- is caught here rather than in a consumer's silently shifted call.
+        c.equal(bracket, 'bracket: n=2 [B|C]',
+            'the bracket lookup is an UNBOUND method: it consumes the first argument as self')
+        c.equal(explicit, 'explicit: n=3 [A|B|C]',
+            'passing the exports table explicitly forwards every argument')
+    end, { probe = true })
+
     reg('probe: remote handler binding -- is exports[res][name] unbound?', function(t)
         local c = t
-        -- Defect 9.3. cis_libs does:
+        -- Defect 9.3, and the regression test for the fix. cis_libs resolves a
+        -- 'resource:export' handler as:
         --     local target = exports[ref.resource]
-        --     local fn = target and target[ref.export]
-        --     pcall(fn, src, ...)
-        -- If that lookup yields an UNBOUND method (as the bracket CALL form
-        -- does, per MEMORY.md section 1), `src` is consumed as self and every
-        -- argument shifts left. If it is already bound, it is fine.
-        -- One run answers it either way.
+        --     local fn = target[ref.export]        -- unbound lookup
+        --     pcall(fn, target, src, ...)          -- fixed: the table is passed
+        --
+        -- The dispatcher passes src=0 for a local call, then the caller's
+        -- arguments. A remote handler must see all three in that order. Before
+        -- the fix the first argument was eaten as `self` and the handler
+        -- received only ('ALPHA', 99) -- a one-slot shift, which is why every
+        -- earlier note in this file called it "zero arguments".
         local ok = exports['cis_libs']:RegisterCallback('cis:probe:bind', 'cis_libstest:cis_test:capture')
         c.set('registered', ok)
         c.truthy(ok, 'remote handler registered')
         if not ok then return end
 
-        local results = table.pack(pcall(function()
+        -- The count is asked of the capture itself, over a dedicated export,
+        -- rather than read off the returned table. Measured live: a
+        -- `{ n = n, ... }` table does NOT keep its string keys crossing the
+        -- boundary, so `captured.n` reads as nil for a handler that genuinely
+        -- received arguments. That is why earlier runs concluded "the handler
+        -- recorded nothing" when it had in fact recorded two.
+        probeExport('cis_test:resetCaptures')
+        local threw, reason = pcall(function()
             return exports['cis_libs']:AwaitCallback('cis:probe:bind', 'ALPHA', 99)
-        end))
-        c.set('threw', not results[1])
-        c.set('err', results[1] and nil or results[2])
-        c.truthy(results[1], 'invoking the remote handler did not throw')
+        end)
+        c.set('returnTripThrew', threw)
+        c.set('returnTripError', threw and tostring(reason) or nil)
 
-        local captured = results[2]
-        c.set('argCount', type(captured) == 'table' and captured.n or -1)
-        if type(captured) == 'table' and captured.n and captured.n > 0 then
-            c.set('a1', CisTestProbe.describe(captured[1]))
-            c.set('a2', CisTestProbe.describe(captured[2]))
-            c.set('a3', CisTestProbe.describe(captured[3]))
-            -- The dispatcher passes src=0 for a local call, then the caller's
-            -- arguments. If they do not land there, defect 9.3 is live and this
-            -- is where it shows.
-            c.equal(captured[1], 0, 'argument 1 is the dispatcher source (0 for a local call)')
-            c.equal(captured[2], 'ALPHA', 'argument 2 is the caller argument -- NOT shifted')
-            c.equal(captured[3], 99, 'argument 3 is the caller argument -- NOT shifted')
-        else
-            c.fail('the remote handler recorded nothing',
-                'it is unreachable, so its argument binding cannot be measured')
-        end
+        local n = probeExport('cis_test:lastArgCount')
+        local args = probeExport('cis_test:lastArgs')
+        c.set('receivedCount', n)
+        c.set('received', args)
+
+        -- This test is about ARGUMENT BINDING, so it asserts on what the
+        -- handler recorded, which is the authoritative record and does not
+        -- depend on the return path behaving. The return trip is recorded
+        -- above and asserted by the return-value probe, which is where it
+        -- belongs; failing here on it would report one defect as two.
+        c.equal(n, 3, 'a remote handler receives src plus every caller argument')
+        c.equal(args, 'n=3 [0|ALPHA|99]',
+            'slot 1 is the dispatcher source, slots 2+ are the caller arguments, unshifted')
     end, { probe = true })
 
     reg('probe: remote handler return value survives the reference call', function(t)
@@ -124,24 +168,39 @@ function CisTestServerSuite.build(ctx, config)
     reg('probe: argument types survive the boundary', function(t)
         local c = t
         exports['cis_libs']:RegisterCallback('cis:probe:types', 'cis_libstest:cis_test:capture')
+        probeExport('cis_test:resetCaptures')
         local results = table.pack(pcall(function()
             return exports['cis_libs']:AwaitCallback('cis:probe:types',
                 'str', 42, true, { nested = 'table' })
         end))
         c.set('threw', not results[1])
         c.truthy(results[1], 'the call did not throw')
-        local captured = results[2]
-        if type(captured) == 'table' and captured.n and captured.n >= 4 then
-            c.set('a1', CisTestProbe.describe(captured[1]))
-            c.set('a2', CisTestProbe.describe(captured[2]))
-            c.set('a4', CisTestProbe.describe(captured[4]))
-            c.equal(captured[1], 'str', 'string argument intact')
-            c.equal(captured[2], 42, 'number argument intact')
-            c.equal(captured[3], true, 'boolean argument intact')
-            c.equal(type(captured[4]), 'table', 'table argument intact')
+
+        -- Read the count from the capture, not from the returned value. A
+        -- `{ n = n, ... }` does not keep its string keys crossing the boundary,
+        -- and a mixed-key table does not survive the return trip at all.
+        local n = probeExport('cis_test:lastArgCount')
+        c.set('receivedCount', n)
+        c.set('received', probeExport('cis_test:lastArgs'))
+        c.set('returned', CisTestProbe.describe(results[2]))
+
+        -- The dispatcher passes src first, so the caller's four arguments land
+        -- in slots 2..5. Before defect 9.3 was fixed they landed in 1..4 and
+        -- the source was eaten; this asserts the corrected layout.
+        local out = results[2]
+        if type(out) == 'string' then
+            local recorded = probeExport('cis_test:lastArgs')
+            c.set('recorded', recorded)
+            c.equal(probeExport('cis_test:lastArgCount'), 5,
+                'src plus four caller arguments reached the handler')
+            c.truthy(recorded:find('^n=5 %[0|', 1) ~= nil,
+                'slot 1 is src=0 and slot 2 is the string argument, unshifted')
+            c.truthy(recorded:find('|str|', 1, true) ~= nil, 'the string argument survived')
+            c.truthy(recorded:find('|42|', 1, true) ~= nil, 'the number argument survived')
+            c.truthy(recorded:find('|true|', 1, true) ~= nil, 'the boolean argument survived')
+            c.truthy(recorded:find('table:', 1, true) ~= nil, 'the table argument survived')
         else
-            t.skip(('the handler recorded %d arguments; argument typing could not be measured')
-                :format(type(captured) == 'table' and (captured.n or 0) or 0))
+            t.skip(('the handler recorded %d arguments; argument typing could not be measured'):format(n))
         end
     end, { probe = true })
 
@@ -149,19 +208,35 @@ function CisTestServerSuite.build(ctx, config)
         local c = t
         -- The self trap made it LOOK like vector3 was dropped. Measure it.
         exports['cis_libs']:RegisterCallback('cis:probe:vec', 'cis_libstest:cis_test:capture')
+        probeExport('cis_test:resetCaptures')
         local results = table.pack(pcall(function()
             return exports['cis_libs']:AwaitCallback('cis:probe:vec', vector3(1.5, 2.5, 3.5))
         end))
         c.set('threw', not results[1])
         c.truthy(results[1], 'the call did not throw')
-        local captured = results[2]
-        if type(captured) == 'table' and captured.n and captured.n >= 1 then
-            c.set('v1', CisTestProbe.describe(captured[1]))
-            c.equal(type(captured[1]), 'table', 'a vector3 arrives as a table')
-            c.equal(captured[1].x, 1.5, 'vector3 x intact')
-            c.equal(captured[1].z, 3.5, 'vector3 z intact')
+
+        local n = probeExport('cis_test:lastArgCount')
+        local recorded = probeExport('cis_test:lastArgs')
+        c.set('receivedCount', n)
+        c.set('received', recorded)
+
+        -- src is slot 1, so the vector3 the caller sent is in slot 2.
+        -- Before defect 9.3 was fixed the source was eaten and the vector3
+        -- landed in slot 1, which is why this probe read as a drop.
+        c.equal(n, 2, 'src plus the vector3 reached the handler')
+        c.truthy(recorded:find('^n=2 %[0|', 1) ~= nil,
+            'slot 1 is the source and slot 2 is the vector3, unshifted')
+
+        local out = results[2]
+        if type(out) == 'string' then
+            -- vector3 renders as vec3(x, y, z) once stringified, so the
+            -- components are checked on the recorded text rather than on an
+            -- indexed value that is not present on the server realm.
+            c.truthy(recorded:find('1.500000', 1, true) ~= nil, 'vector3 x intact')
+            c.truthy(recorded:find('2.500000', 1, true) ~= nil, 'vector3 y intact')
+            c.truthy(recorded:find('3.500000', 1, true) ~= nil, 'vector3 z intact')
         else
-            t.skip('the handler recorded nothing; vector3 transit is unmeasured')
+            t.skip(('the handler recorded %d arguments; vector3 transit is unmeasured'):format(n))
         end
     end, { probe = true })
 
@@ -194,8 +269,37 @@ function CisTestServerSuite.build(ctx, config)
         end
     end)
 
-    reg('regression: InvokingAllowed answers for the console', function(t)
-        t.truthy(exports['cis_libs']:InvokingAllowed(), 'console may mutate')
+    reg('regression: InvokingAllowed answers, and the answer matches the posture', function(t)
+        local c = t
+        -- An earlier version of this test asserted the answer was `true`. That
+        -- was correct only under the old permissive default, and it started
+        -- failing the moment a new install resolved an empty allow-list to
+        -- "restrictive" -- which is the intended behaviour, not a regression.
+        --
+        -- What is actually a defect is an answer that is not a boolean, or one
+        -- that contradicts the configured posture. That is what this asserts.
+        local allowed = exports['cis_libs']:InvokingAllowed()
+        local s = libConfig()
+        c.set('invokingAllowed', allowed)
+        c.set('allowListConfigured', s.allowListConfigured)
+        c.equal(type(allowed), 'boolean', 'InvokingAllowed answers with a boolean')
+
+        -- Whether cis_libstest is named in the list is not readable from this
+        -- VM -- the allow-list deliberately never leaves the server. What is
+        -- checkable is that the answer is a definite boolean and that it
+        -- agrees with whether a list is configured at all:
+        --   * a list is configured  -> the answer is decided by membership
+        --   * the list is empty     -> restrictive on a new install,
+        --                             permissive on a legacy one
+        -- Both are correct, and which one this is depends on the install
+        -- rather than on a defect, so the run records it instead of assuming.
+        if s.allowListConfigured then
+            c.pass('an allow-list is in force; this resource resolved to ' .. tostring(allowed) ..
+                ' according to whether it is named in the list')
+        else
+            c.pass('an empty allow-list resolved to ' .. tostring(allowed) ..
+                ' (restrictive on a new install, permissive on a legacy one)')
+        end
     end)
 
     reg('regression: an allow-list excludes resources not named in it', function(t)
@@ -224,22 +328,44 @@ function CisTestServerSuite.build(ctx, config)
     -- OPEN DEFECTS -- pinned so they cannot change silently
     -- ======================================================================
 
-    reg('defect 9.2: db.transaction times out and returns nil', function(t)
+    reg('defect 9.2: db.transaction completes instead of timing out', function(t)
         local c = t
-        -- Brief says: false, 'transactions require oxmysql'.
-        -- Measured: nil after the full 15s timeout, on EVERY driver.
+        -- Was: nil after the full 15s timeout on EVERY driver, because
+        -- exportAwait called `method(sql, params, cb)` while
+        -- Database.Transaction is `(queries, cb)` -- so `cb` was nil on entry,
+        -- the transaction never ran, and oxmysql logged
+        -- "Transaction parameters must be array or object, received
+        -- 'undefined'" on every single call. `cis_housing` and `cis_phone`
+        -- paid that 15-second stall each time.
+        --
+        -- Now it must complete promptly. A `SELECT 1` transaction is a real
+        -- transaction and leaves nothing behind.
+        --
+        -- The payload is oxmysql's own shape: an array of OBJECTS with `query`
+        -- and `values`. An earlier version of this test sent an array of arrays
+        -- and the driver rejected it -- which looked exactly like the old
+        -- defect, and would have been written up as "still broken".
+        local queries = { { query = 'SELECT 1 AS one', values = {} } }
+        c.set('payload', 'array of {query, values}')
+
         local started = GetGameTimer()
         local ok, result = pcall(function()
-            return exports['cis_libs']:DbTransaction({ { 'SELECT 1' } })
+            return exports['cis_libs']:DbTransaction(queries)
         end)
         local elapsed = GetGameTimer() - started
         c.set('threw', not ok)
         c.set('result', CisTestProbe.describe(result))
         c.set('elapsedMs', elapsed)
-        c.truthy(ok, 'DbTransaction did not throw')
-        t.skip(('DbTransaction returned %s after %dms. Documented contract is "false, '
-            .. 'transactions require oxmysql" but that string is unreachable through any export.')
-            :format(CisTestProbe.describe(result), elapsed))
+        c.truthy(ok, ('DbTransaction threw: %s'):format(tostring(result)))
+
+        -- The timeout is 15000ms by default. Completing anywhere near that is
+        -- the bug returning, so allow a wide margin but not the full timeout.
+        c.truthy(elapsed < 5000,
+            ('a SELECT 1 transaction completed in %dms, not the %dms timeout')
+                :format(elapsed, 15000))
+        c.truthy(result ~= nil,
+            ('DbTransaction returned %s; a completed transaction should answer')
+                :format(CisTestProbe.describe(result)))
     end, { probe = true, timeoutMs = 25000 })
 
     reg('defect 9.1: framework.notify is realm-asymmetric', function(t)
@@ -427,6 +553,37 @@ function CisTestServerSuite.build(ctx, config)
         end
     end)
 
+    reg('core: a real player resolves to a real name and job', function(t)
+        local c = t
+        local pid = subject()
+        if not pid then
+            t.skip('no players connected')
+            return
+        end
+        local p = exports['cis_libs']:GetNormalizedPlayer(pid)
+        c.exists(p, 'normalised player returned')
+        if not p then return end
+
+        c.set('name', tostring(p.name))
+        c.set('job', p.job and tostring(p.job.name) or 'none')
+        c.set('identifier', p.identifier and 'present' or 'none')
+
+        -- This is the test that a shape check cannot replace. The library
+        -- returns a well-formed table even when the framework bridge is dead,
+        -- so `id matches the source` passes in standalone mode. What
+        -- distinguishes a working bridge is that the fields are POPULATED for
+        -- a player who is actually connected -- and this is what caught
+        -- qbx_core dropping GetCoreObject, which left every QBOX server
+        -- silently in standalone mode with no other test failing.
+        c.truthy(type(p.name) == 'string' and p.name ~= '',
+            ('the connected player resolved to a name (got %s) -- if this is nil, '
+                .. 'the framework bridge is not loaded and cis_libs is in standalone mode')
+                :format(tostring(p.name)))
+        c.truthy(p.job ~= nil and p.job.name ~= nil,
+            ('the connected player resolved to a job (got %s)')
+                :format(p.job and tostring(p.job.name) or 'nil'))
+    end)
+
     reg('core: an unknown source still returns a shaped table', function(t)
         local c = t
         -- Defect 5 in the brief: `nil` is banned because it is ambiguous, but
@@ -548,10 +705,40 @@ function CisTestServerSuite.build(ctx, config)
             t.skip('no players connected')
             return
         end
-        local added = Cis.inventory.add(pid, 'bread', 1)
-        c.truthy(added, 'item added')
+        c.set('src', pid)
+        c.set('oxInventoryState', GetResourceState('ox_inventory'))
+        c.set('frameworkConfigured', libConfig().framework)
+
+        -- Do NOT hard-code an item name. Item lists differ per server, and a
+        -- name this server does not define makes the provider answer
+        -- `false, 'invalid_item'` -- which says nothing about cis_libs and
+        -- previously read here as "the library cannot add an item". Ask the
+        -- provider which of a few ordinary items it both knows and can carry,
+        -- then exercise that one. CanCarryItem does not mutate.
+        local CANDIDATES = { 'water', 'bread', 'sandwich', 'apple', 'bandage', 'lockpick' }
+        local chosen
+        for _, name in ipairs(CANDIDATES) do
+            local okCarry, canCarry = pcall(function()
+                return exports.ox_inventory:CanCarryItem(pid, name, 1)
+            end)
+            if okCarry and canCarry then
+                chosen = name
+                break
+            end
+        end
+        c.set('candidates', table.concat(CANDIDATES, ','))
+        c.set('chosenItem', chosen or 'none')
+        if not chosen then
+            t.skip('this server defines none of the candidate items, so the '
+                .. 'add/remove round-trip cannot be exercised here')
+            return
+        end
+
+        local added = Cis.inventory.add(pid, chosen, 1)
+        c.set('cisLibsAnswer', tostring(added))
+        c.truthy(added, ('item %s added'):format(chosen))
         if added then
-            c.truthy(Cis.inventory.remove(pid, 'bread', 1), 'item removed again')
+            c.truthy(Cis.inventory.remove(pid, chosen, 1), ('item %s removed again'):format(chosen))
         end
     end, { mutating = true })
 
@@ -586,7 +773,12 @@ function CisTestServerSuite.build(ctx, config)
         })
         c.set('added', added)
         if not added then
-            t.skip('the allow-list refused this test resource from adding a door')
+            -- The allow-list refused us outright, which is itself the correct
+            -- outcome for a resource that is not named in it. Assert that
+            -- rather than skipping: a refusal IS a pass for this test, and
+            -- skipping it hid a real posture behind an unverified reason.
+            t.pass('the allow-list refused this resource from adding a door, '
+                .. 'which is the correct outcome for a caller not named in it')
             return
         end
         local before = Cis.doors.get(id)

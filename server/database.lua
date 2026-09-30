@@ -1,4 +1,15 @@
-local Database = {
+-- A GLOBAL, deliberately, and not a file local.
+--
+-- `GetConfigSummary` in server/initialize.lua reports `databaseReady` by
+-- reading `Database.ready`. While this table was `local`, that read resolved a
+-- global that never existed, so `databaseReady` was permanently false on every
+-- server -- including ones where the driver had initialised perfectly. A
+-- consumer gating work on that field was told the database was never ready.
+--
+-- It is global for the same reason `Config`, `Security` and `Logging` are: each
+-- is process-global state, and a second copy would mean a second driver
+-- selection and a second readiness flag. Do not re-localise it.
+Database = {
     driver = nil,
     ready = false,
     warned = false,
@@ -307,7 +318,23 @@ exports('DbSingle', exportAwait(Database.Single))
 exports('DbScalar', exportAwait(Database.Scalar))
 exports('DbInsert', exportAwait(Database.Insert))
 exports('DbUpdate', exportAwait(Database.Update))
-exports('DbTransaction', exportAwait(Database.Transaction))
+
+-- NOT exportAwait(Database.Transaction). `exportAwait` is hard-coded to
+-- `method(sql, params, cb)`, and `Database.Transaction` is `(queries, cb)` --
+-- so the completion callback landed in a third parameter the function never
+-- reads. `cb` was nil on entry, the transaction was never invoked, the await
+-- spun for the full 15s timeout and returned nil, and oxmysql logged
+-- "Transaction parameters must be array or object, received 'undefined'" on
+-- every call. `cis_housing` and `cis_phone` hit that on every transaction.
+--
+-- Written out longhand rather than teaching exportAwait to be arity-aware:
+-- exactly one method has a different shape, and a second calling convention
+-- hidden inside a helper is how the mismatch happened in the first place.
+exports('DbTransaction', function(queries)
+    return await(function(cb)
+        Database.Transaction(queries, cb)
+    end)
+end)
 
 Database.Init()
 if Database.driver then

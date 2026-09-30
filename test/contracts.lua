@@ -383,21 +383,24 @@ do
         'boot diagnostic names the driver to switch to')
     check(#env.http == 0, 'the boot diagnostic itself makes no request')
 
-    -- KNOWN DEFECT, pinned rather than fixed, and the reason the runtime
-    -- contract is asserted as it is rather than as it was believed to be.
-    -- `exportAwait` calls `method(sql, params, cb)`, but Database.Transaction
-    -- takes (queries, cb) -- so the completion callback arrives in a third
-    -- parameter the function never reads. The await therefore never settles,
-    -- spins out the full Database.Timeout, and returns nothing. The refusal
-    -- pair `false, 'transactions require oxmysql'` is unreachable through any
-    -- export, on any driver. Fixing it is a MAJOR change; see COMPATIBILITY.md
-    -- section 8.
+    -- DEFECT 9.2, now FIXED. `exportAwait` calls `method(sql, params, cb)`, but
+    -- Database.Transaction takes (queries, cb) -- so the completion callback
+    -- arrived in a third parameter the function never read. The await never
+    -- settled, spun out the full Database.Timeout, and returned nothing, while
+    -- the driver logged a parameter error on every call. `DbTransaction` is
+    -- now written out longhand so the callback reaches slot 2.
+    --
+    -- On a bad driver it must still refuse rather than throw, and it must
+    -- refuse PROMPTLY: the whole point of the fix is that a refusal is not
+    -- paid for with a 15-second stall.
     local startedAt = env.clock
     local a, b = env.EXPORTS.DbTransaction({ { query = 'SELECT 1' } })
-    check(a == nil and b == nil,
-        'DbTransaction on a bad driver returns nothing, which is what it has always done')
-    check(env.clock - startedAt >= Config.Framework.Database.Timeout,
-        'the unsettled await still costs the full Database.Timeout')
+    check(a == false,
+        'DbTransaction on a bad driver refuses with false rather than throwing')
+    check(type(b) == 'string' and b ~= '',
+        'the refusal carries a reason a caller can log: ' .. tostring(b))
+    check(env.clock - startedAt < Config.Framework.Database.Timeout,
+        'a refused transaction does not cost the full Database.Timeout')
     check(#env.http == 0, 'a refused transaction makes no request')
     check(mentions(env, 'called by'),
         'the refusal names the resource that called it')
@@ -705,6 +708,60 @@ do
     end
 
     exports, GetCurrentResourceName, IsDuplicityVersion = savedExports, savedGetResourceName, savedIsDup
+end
+
+-- ============================================= 5. cross-file globals resolve
+-- A file-local read from another file is nil at runtime and raises nothing,
+-- which is the same failure shape as the self trap: silent, total, and
+-- invisible in the documentation.
+--
+-- `Database` was `local` in server/database.lua while server/initialize.lua
+-- read a global of that name to report `databaseReady`. The field was therefore
+-- permanently false on every server, including ones whose driver had started
+-- cleanly. This pins the declaration so it cannot quietly go back.
+do
+    local dbSource = readFile('server/database.lua')
+    local initSource = readFile('server/initialize.lua')
+
+    check(initSource:find('Database%s*and%s*Database%.ready') ~= nil,
+        'initialize.lua reads Database.ready to build the config summary')
+    check(dbSource:find('local%s+Database%s*=%s*{') == nil,
+        'Database is NOT a file local -- another realm would read nil')
+    check(dbSource:find('\nDatabase%s*=%s*{') ~= nil,
+        'server/database.lua declares Database as a global')
+    check(dbSource:find('Database%.ready%s*=%s*Database%.driver%s*~=%s*nil') ~= nil,
+        'Database.ready is derived from the selected driver, not left constant')
+end
+
+-- ============================================ 6. the doorlock probe stays quiet
+-- `cis_doors` is created ONLY when Config.Doorlock.Persist is on. The
+-- legacy-detection probe used to query it unconditionally whenever the posture
+-- was still undecided -- including on every server that HAD an allow-list
+-- configured, because that branch returned without marking the posture decided.
+-- So a default install printed a database error naming a table that was never
+-- meant to exist, on every boot, for a condition the operator could not act on.
+do
+    local secSource = readFile('server/security.lua')
+
+    -- A configured list is a definite answer; it must settle the posture.
+    -- Located with PLAIN search rather than a Lua pattern: a non-greedy
+    -- pattern stops at the first `end`, which here is the `for` loop's, and
+    -- the assertion silently inspects the wrong slice. That failure mode is
+    -- the reason this test exists in the first place.
+    local from = secSource:find('local list = configuredList', 1, true)
+    local to = from and secSource:find('\n        return', from, true)
+    local branch = (from and to) and secSource:sub(from, to) or nil
+    check(branch ~= nil, 'the configured-list branch is locatable in security.lua')
+    check(branch and branch:find("posture = 'configured'", 1, true) ~= nil,
+        'a configured allow-list marks the posture decided, so no legacy query runs')
+
+    -- And the deferred probe must not ask about a table that may not exist.
+    local pFrom = secSource:find('if posture == nil then', 1, true)
+    local pTo = pFrom and secSource:find('\nend', pFrom, true)
+    local probe = (pFrom and pTo) and secSource:sub(pFrom, pTo) or nil
+    check(probe ~= nil, 'security.lua has a deferred posture resolution')
+    check(probe and probe:find('persistConfigured', 1, true) ~= nil,
+        'the deferred probe is gated on persistence being configured')
 end
 
 -- ------------------------------------------------------------------ report

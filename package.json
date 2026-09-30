@@ -6,8 +6,12 @@
   "license": "SEE LICENSE IN LICENSE.md",
   "scripts": {
     "test": "node test/run.js",
+    "test:luacheck": "node tools/luacheck.js",
+    "test:api": "node tools/validate-api.js --api api.lua --resource .",
+    "test:api-selftest": "node tools/validate-api.js --selftest",
     "test:matrix": "node tools/test-matrix.js",
-    "test:all": "npm run test && npm run test:matrix"
+    "test:report": "node tools/report.js",
+    "test:all": "npm run test:luacheck && npm run test && npm run test:api-selftest && npm run test:api && npm run test:matrix"
   },
   "devDependencies": {
     "fengari": "^0.1.5"

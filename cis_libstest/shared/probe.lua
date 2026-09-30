@@ -41,15 +41,23 @@ if type(exports) ~= 'table' then
     })
 end
 
+-- Returns a STRING summary, not the table. A table mixing numeric and string
+-- keys does not survive the return trip: measured live, returning one makes
+-- the awaiting export throw, so anything that needs to know what arrived must
+-- ask through `cis_test:lastArgs` rather than read the return value. A scalar
+-- crosses reliably, and a test should not depend on a return shape that does
+-- not.
 exports('cis_test:capture', function(...)
     local n = select('#', ...)
     local flat = { n = n }
+    local parts = {}
     for i = 1, n do
         flat[i] = select(i, ...)
+        parts[#parts + 1] = tostring(flat[i])
     end
     captures[#captures + 1] = flat
     CisTestProbe.last = flat
-    return flat
+    return ('n=%d [%s]'):format(n, table.concat(parts, '|'))
 end)
 
 exports('cis_test:capturedCount', function()
@@ -60,6 +68,70 @@ exports('cis_test:resetCaptures', function()
     captures = {}
     CisTestProbe.last = nil
     return true
+end)
+
+-- The argument count the LAST capture actually received, as a bare number.
+-- A number cannot be mangled by table encoding on the way back across the
+-- boundary, which a `{ n = n, ... }` table can be: measured live, the string
+-- key `n` does not survive, so reading `.n` off the returned table reports -1
+-- for a handler that in fact received two arguments. Anything that needs the
+-- count must ask here, not off a returned table.
+exports('cis_test:lastArgCount', function()
+    local last = CisTestProbe.last
+    return (type(last) == 'table' and last.n) or -1
+end)
+
+-- The last capture, rendered as one string: "n=2|A|B". Scalars cross the
+-- boundary intact; a table does not keep its string keys, so a table is the
+-- wrong shape to answer a question with.
+exports('cis_test:lastArgs', function()
+    local last = CisTestProbe.last
+    if type(last) ~= 'table' then
+        return 'nothing recorded'
+    end
+    local parts = {}
+    for i = 1, (last.n or 0) do
+        parts[#parts + 1] = tostring(last[i])
+    end
+    return ('n=%d [%s]'):format(last.n or 0, table.concat(parts, '|'))
+end)
+
+-- Settles, in-VM and with no boundary ambiguity, how the exports table has to
+-- be called: does the bracket form drop an argument, or is the lookup already
+-- bound? Every other statement about this in the repository is an inference
+-- from the bracket CALL form, which is a different question from the bracket
+-- LOOKUP that server/callback.lua actually performs.
+--
+-- `mode` is 'bracket' (fn(a,b,c)) or 'explicit' (fn(self,a,b,c)). Returns one
+-- string describing what the target recorded, so the answer crosses cleanly.
+exports('cis_test:probeBinding', function(mode)
+    local self = exports['cis_libstest']
+    local fn = self and self['cis_test:capture']
+    if type(fn) ~= 'function' and not (type(fn) == 'table' and rawget(fn, '__cfx_functionReference')) then
+        return ('%s: could not resolve the export (got %s)'):format(tostring(mode), type(fn))
+    end
+    captures = {}
+    CisTestProbe.last = nil
+
+    local ok, err
+    if mode == 'bracket' then
+        ok, err = pcall(fn, 'A', 'B', 'C')
+    else
+        ok, err = pcall(fn, self, 'A', 'B', 'C')
+    end
+    if not ok then
+        return ('%s: THREW %s'):format(tostring(mode), tostring(err))
+    end
+
+    local last = CisTestProbe.last
+    if type(last) ~= 'table' then
+        return ('%s: the handler recorded nothing (isCallable said yes)'):format(tostring(mode))
+    end
+    local parts = {}
+    for i = 1, (last.n or 0) do
+        parts[#parts + 1] = tostring(last[i])
+    end
+    return ('%s: n=%d [%s]'):format(tostring(mode), last.n or 0, table.concat(parts, '|'))
 end)
 
 -- Remote handlers used to prove that a handler owned by another resource is

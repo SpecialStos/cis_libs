@@ -30,16 +30,39 @@ const PURE_LAYERS = [
 ]
 
 // ---------------------------------------------------------------- live report
+// The live report is written by cis_libstest on the SERVER, not here, so any
+// report present in this repo was copied in from a run. Both the harness's own
+// folder and `reports/` are searched, and CIS_LIVE_REPORT overrides both, so
+// the matrix can reflect a real integration run instead of reporting the live
+// layers as "not run" with a real report sitting right there.
 function latestLiveReport() {
-  const dir = path.join(root, 'cis_libstest')
-  if (!fs.existsSync(dir)) return null
-  const files = fs.readdirSync(dir).filter((f) => /^cis-test-report-.*\.json$/.test(f)).sort()
-  if (!files.length) return null
-  const newest = files[files.length - 1]
+  const dirs = process.env.CIS_LIVE_REPORT
+    ? [path.dirname(path.resolve(process.env.CIS_LIVE_REPORT))]
+    : [path.join(root, 'cis_libstest'), path.join(root, 'reports')]
+
+  const found = []
+  for (const dir of dirs) {
+    if (!fs.existsSync(dir)) continue
+    for (const f of fs.readdirSync(dir)) {
+      if (!/^cis-test-report-.*\.json$/.test(f)) continue
+      const full = path.join(dir, f)
+      try {
+        found.push({ file: full, mtime: fs.statSync(full).mtimeMs })
+      } catch (e) {
+        /* unreadable stat; skip */
+      }
+    }
+  }
+  if (!found.length) return null
+
+  // Newest by mtime, not by name: the filename carries a unix timestamp, but a
+  // copied report keeps that name while only the mtime says when it landed.
+  found.sort((a, b) => a.mtime - b.mtime)
+  const newest = found[found.length - 1]
   try {
-    return { file: newest, data: JSON.parse(fs.readFileSync(path.join(dir, newest), 'utf8')) }
+    return { file: newest.file, data: JSON.parse(fs.readFileSync(newest.file, 'utf8')) }
   } catch (e) {
-    return { file: newest, error: String(e.message) }
+    return { file: newest.file, error: String(e.message) }
   }
 }
 

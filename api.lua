@@ -176,9 +176,9 @@ return {
         },
         DbTransaction = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Cis.db.transaction(queries). See COMPATIBILITY.md section 8: the awaited path is broken on every driver',
+            use = 'Cis.db.transaction(queries). oxmysql only; queries are oxmysql array-of-{query, values} entries',
             realm = 'server',
-            signature = '(sql, params)',
+            signature = '(queries)',
         },
         DatabaseExecute = {
             since = '1.0.0', ['until'] = '3.0.0', stable = false, deprecated = true,

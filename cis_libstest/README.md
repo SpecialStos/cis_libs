@@ -3,7 +3,7 @@
 Integration test harness for `cis_libs`. Exercises the real API on both realms —
 including teleport-driven zone enter/exit — and writes one JSON report.
 
-**94 tests**: 46 server, 48 client. It is a **separate FiveM resource**; it cannot
+**95 tests**: 47 server, 48 client. It is a **separate FiveM resource**; it cannot
 run inside `cis_libs`.
 
 ## Install
@@ -103,9 +103,9 @@ assertion. They now assert the argument arrived in the right slot, or fail with
 {
   "meta": { "resource": "cis_libstest", "framework": "QBOX", "mutating": false, "...": "..." },
   "summary": {
-    "total": 94, "passed": 80, "failed": 2, "skipped": 12,
-    "serverTotal": 46, "serverFailed": 0, "serverSkipped": 4,
-    "clientTotal": 48, "clientFailed": 2, "clientSkipped": 8,
+    "total": 95, "passed": 90, "failed": 0, "skipped": 5,
+    "serverTotal": 47, "serverFailed": 0, "serverSkipped": 4,
+    "clientTotal": 48, "clientFailed": 0, "clientSkipped": 1,
     "clientsReporting": 1
   },
   "server": [ { "name": "...", "status": "passed|failed|skipped", "durationMs": 1,
@@ -138,7 +138,51 @@ server:
 npm test
 ```
 
-**296 assertions** across three suites. If you change the encoder, the report
+**290 assertions** across three suites. If you change the encoder, the report
 shape, or `isCallable`, keep those passing. `isCallable` is load-bearing: a
 returned function arrives as a callable reference *table*, and a
 `type() == 'function'` check rejects handlers that work.
+
+## Automated runs
+
+Deploying to a live server and driving it from the console is repetitive enough
+to script. Three tools, all in `tools/`:
+
+| Tool | What it does |
+|---|---|
+| `tools/deploy.sh` | Mirrors this working tree into the server's `resources/[standalone]/`, then verifies the deployed copy matches. Backs up first. |
+| `tools/serverlog.sh` | Reads `fxserver.log` incrementally by byte offset. `mark`, then `since` gives you exactly what a command produced. |
+| `tools/report.js` | Turns a JSON report into every failure and **every skip with its reason**. Exits 1 if anything failed. |
+
+```bash
+tools/deploy.sh --test-instance     # deploy + apply the test-only overlays
+tools/serverlog.sh mark             # start recording
+# ... send `refresh`, `ensure cis_libs`, `ensure cis_libstest`, `cistest` ...
+tools/serverlog.sh since            # what those commands produced
+node tools/report.js                # what they mean
+```
+
+`--test-instance` applies three changes that belong to a **test server only**,
+applied after the mirror so they survive the next deploy:
+
+- adds `cis_libstest` to `Security.AuthorizedResources`, so the mutating tier
+  can run (the library's shipped default stays restrictive);
+- sets `RunMutating = true`;
+- sets `Framework.Type` to match the server actually running it. A qbx_core
+  server with the default `QBCORE` makes cis_libs fall back to standalone mode
+  and every player lookup return `nil` — which reads as a library bug and is
+  not one.
+
+Two things that will waste your time if you do not know them:
+
+- **`restart cis_libs` also stops `cis_libstest`**, because the harness depends
+  on it. Re-`ensure` it, or `cistest` answers `No such command`.
+- A **parse error** in the harness still reports `Started resource
+  cis_libstest`, and every later command fails with a message that points
+  somewhere else. `npm run test:luacheck` catches it before you deploy.
+
+The pure suite, which needs no server:
+
+```bash
+npm run test:all    # luacheck + 290 assertions + api self-test + api + matrix
+```

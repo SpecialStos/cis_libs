@@ -586,7 +586,7 @@ Cis.db.single(sql, params)       -- one row
 Cis.db.scalar(sql, params)       -- one cell
 Cis.db.insert(sql, params)       -- insert id
 Cis.db.update(sql, params)
-Cis.db.transaction(queries)      -- oxmysql only
+Cis.db.transaction(queries)      -- oxmysql only; queries are { {query=, values=}} entries
 ```
 
 Always parameterised — never interpolate user input into the SQL string.
@@ -594,7 +594,12 @@ Always parameterised — never interpolate user input into the SQL string.
 Each of these yields and gives up after `Config.Framework.Database.Timeout`
 (default 15000ms), returning `nil`. They cannot park your coroutine forever.
 
-`transaction` returns `false, 'transactions require oxmysql'` on other drivers.
+> `transaction` is **oxmysql only**. Send oxmysql's own shape — an array of
+> `{ query = ..., values = { ... } }` objects — and on any other driver it
+> refuses promptly with `false, 'transactions require oxmysql'`. It used to
+> burn the full timeout and return `nil` on *every* driver, because the awaited
+> wrapper called it as `(sql, params, cb)` while it takes `(queries, cb)`. That
+> is fixed and verified live; see `COMPATIBILITY.md` §13.2.
 
 `Cis.db.scalar` unwraps a single cell on SQL drivers and the first non-`_id`
 field on MongoDB, so it is consistent across drivers.
@@ -857,7 +862,7 @@ This validates `source` is a real player and rate-limits per player. Using
 
 | Key | Default | Notes |
 |---|---|---|
-| `CheckVersion` | `true` | Outbound HTTP to a third-party GitHub Pages URL on every start. Turn off unless you want it |
+| `CheckVersion` | `false` | Outbound HTTP on every start, to the operator-configured `VersionCheckUrl`. Off by default; the shipped value points at `api.cisoko.net` and no third-party host is hardcoded |
 | `CallbackTimeout` | `10000` | ms |
 | `UpdateInterval.Player` | `1000` | Fallback poll. Do not go below 250 |
 | `UpdateInterval.Weapon` | `1000` | |

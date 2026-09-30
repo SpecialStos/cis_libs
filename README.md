@@ -67,7 +67,7 @@ end)
 
 ```
 npm install
-npm test            # 286 assertions, no FiveM server needed
+npm test            # 290 assertions, no FiveM server needed
 npm run test:matrix # writes TEST_MATRIX.json covering every layer
 ```
 

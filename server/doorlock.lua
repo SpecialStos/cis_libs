@@ -98,7 +98,14 @@ local function persistDoor(door)
     )
 end
 
+-- Returns how many doors it actually changed. This used to return nothing, so
+-- `Cis.doors.setState` on the server could not tell "locked it" from "no such
+-- door" -- both arrived as nil, which is the exact ambiguity the library's own
+-- refusal convention exists to prevent. The return is additive: a caller that
+-- ignored the old nil is unaffected, and a caller that checks it now learns
+-- something it previously could not.
 function DoorLock.SetDoorState(identifier, state)
+    local changed = 0
     local doorsToUpdate = DoorLock.GetDoorsToUpdate(identifier)
     for i = 1, #doorsToUpdate do
         local doorId = doorsToUpdate[i]
@@ -109,8 +116,10 @@ function DoorLock.SetDoorState(identifier, state)
                 persistDoor(DoorLock.doorData[doorId])
             end
             TriggerClientEvent(eventPrefix() .. ':doorlock:updateState', -1, doorId, DoorLock.doorStates[doorId])
+            changed = changed + 1
         end
     end
+    return changed
 end
 
 function DoorLock.AddDoor(newDoorData, internal)
@@ -151,11 +160,11 @@ function DoorLock.GetDoorState(doorId)
 end
 
 function DoorLock.LockDoors(identifier)
-    DoorLock.SetDoorState(identifier, true)
+    return DoorLock.SetDoorState(identifier, true)
 end
 
 function DoorLock.UnlockDoors(identifier)
-    DoorLock.SetDoorState(identifier, false)
+    return DoorLock.SetDoorState(identifier, false)
 end
 
 function DoorLock.BreakDoor(identifier)

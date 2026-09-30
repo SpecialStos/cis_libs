@@ -195,9 +195,20 @@ function DoorLock.UpdateTarget(zoneId, isLocked)
     DoorLock.CreateTarget(zoneId, door, target.doors, isLocked)
 end
 
+-- Returns true once the door is registered, false when it is refused.
+--
+-- This used to return nothing, so `Cis.doors.add` could not tell "added" from
+-- "no such id" or "already registered" -- every outcome arrived as nil, which
+-- is the ambiguity the library's refusal convention exists to remove. The
+-- server-side equivalent already answered; this makes the two realms agree.
+-- Additive: a caller that ignored the old nil is unaffected, and a caller that
+-- tested truthiness was previously always told "failed".
 function DoorLock.AddDoorToSystem(doorData)
-    if not doorData or doors[doorData.id] then
-        return
+    if not doorData or not doorData.id then
+        return false
+    end
+    if doors[doorData.id] then
+        return false
     end
     local model = doorData.model
     local doorHash = type(model) == 'number' and model or GetHashKey(model)
@@ -224,6 +235,7 @@ function DoorLock.AddDoorToSystem(doorData)
         doorGroups[doorData.groupId][#doorGroups[doorData.groupId] + 1] = doorData.id
     end
     insertDoor(doors[doorData.id])
+    return true
 end
 
 function DoorLock.AddDoorGroup(groupData)

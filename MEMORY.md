@@ -6,11 +6,17 @@ It records what `cis_libs` is, where the work stands, and everything learned
 while building it — most of which was measured on a live server rather than
 assumed. Several of the findings here cost days to get right.
 
-**How to rotate this file.** When it grows past useful, start a new
-`MEMORY-2.md`, move this one to `archive/MEMORY-1.md`, and leave a short
-`MEMORY.md` at the root containing only §1 (navigation), §2 (what the resource
-is), and §4 (where we are). Sections 3, 5, 6 and 7 are historical weight; they
-only need to be readable, not current.
+**How to rotate this file.** It is ~35 KB and about to outgrow its welcome. When
+it does: start a new `MEMORY-2.md`, move this one to `archive/MEMORY-1.md`, and
+leave a short `MEMORY.md` at the root containing only §1 (navigation), §2 (what
+the resource is), and §4 (where we are). Sections 3, 5, 6 and 7 are historical
+weight; they only need to be readable, not current.
+
+**What is current and what is not.** §2, §3 and §4 are current. §5 and §6 record
+what was found *and when* — several entries there describe defects that are now
+fixed, and that is deliberate: a wrong finding that was believed for a unit is
+worth as much as a right one, because the next person will otherwise re-derive
+it. Read §5 for the reasoning and §6 for what is still open.
 
 ---
 
@@ -26,6 +32,10 @@ only need to be readable, not current.
 | [`BUILD_LOG.md`](BUILD_LOG.md) | Per-unit running log: what changed, gate result, what went wrong | Auditing a decision, or picking up mid-programme |
 | [`cis_libstest/README.md`](cis_libstest/README.md) | How to run the integration harness | You are about to run `/cistest` |
 | `TEST_MATRIX.json` | Machine-readable test coverage across every layer | You want to know what is and is not tested |
+| [`tools/deploy.sh`](tools/deploy.sh) | Mirror the working tree into a live server, verify parity, apply test overlays | Before any live run |
+| [`tools/serverlog.sh`](tools/serverlog.sh) | Read `fxserver.log` incrementally by byte offset | Reading what a command actually produced |
+| [`tools/report.js`](tools/report.js) | Every failure and every skip-with-reason from a report | After a run, before believing it |
+| [`tools/luacheck.js`](tools/luacheck.js) | Parse every `.lua` file; no Lua needed locally | Before deploying — a parse error still reports "Started" |
 
 **The split.** `MEMORY.md` is *knowledge* — findings and their reasoning.
 `BUILD_LOG.md` is *history* — what was done and whether it passed.
@@ -214,26 +224,84 @@ resulting events. This is load-bearing API behaviour and it is easy to miss.
 | `d3ab480` | **cis_libstest 2.0.** Harness rebuilt around measurement rather than assumption |
 | `017118b` | Three harness bugs from the first live run, plus `TEST_MATRIX.json` |
 
+**The live-server pass is not committed.** Everything in §5.4–§5.8, §6 and the
+`tools/` scripts sit in the working tree: 21 modified files plus 4 new tools,
+reviewed but uncommitted. Nothing in this section is a claim about a commit —
+`git log` stops at `017118b`.
+
 ### 4.2 Test estate
 
 | Layer | Count | Runs where |
 |---|---:|---|
 | unit | 105 | `npm test`, no server, ~2s |
 | binding | 27 | `npm test`, guards the self trap |
-| contracts | 154 | `npm test`, api.lua vs the real surface |
-| **total pure** | **286** | all green |
-| server | 38 | `/cistest`, needs a server and a player |
-| client | 44 | `/cistest`, same |
+| contracts | 158 | `npm test`, api.lua vs the real surface |
+| **total pure** | **295** | all green |
+| server | 48 | `/cistest`, needs a server and a player |
+| client | 48 | `/cistest`, same |
+| **total live** | **96** | 92 passed, 0 failed, 4 skipped |
 
 `node tools/test-matrix.js` merges all of it into `TEST_MATRIX.json`, recording
-any layer that has not run as `not run` rather than omitting it.
+any layer that has not run as `not run` rather than omitting it. It reads a live
+report from `cis_libstest/` or `reports/`, so copying a run's JSON in makes the
+matrix reflect the integration layers rather than reporting them as unrun.
 
-**286 pure assertions, and roughly 3,400 of 3,900 library lines have no unit
+**Last full run:** 391 cases · 387 passed · **0 failed** · 4 skipped.
+
+The four live skips are each deliberate, and none is a hidden pass:
+
+| Skip | Why it is a skip and not a pass |
+|---|---|
+| `defect 9.1: framework.notify is realm-asymmetric` | The asymmetry is between realms; observable only from the client suite. |
+| `defect: the allow-list is read once at load` | Pins a real defect: a runtime change is ignored. |
+| `core: a forged callback response is ignored` | Needs **two** connected players. The suite runs one. |
+| `core: vehicle properties round-trip` | Needs the player to be sitting in a vehicle. |
+
+The last two clear on the spot: connect a second client, or sit in a car, and
+re-run. They are environmental, not unresolved.
+
+**295 pure assertions, and roughly 3,400 of 3,900 library lines have no unit
 coverage.** Everything touching a native is integration-tested only, and those
 tests are manual because they need a running `fxserver`. See
 `TEST_MATRIX.json` → `coverage.gaps`.
 
-### 4.3 What the products actually use
+### 4.3 Running the live suite (this is the whole workflow)
+
+The server lives at
+`C:\Users\CB\Desktop\FiveM\txData\Qbox_A15D5A.base\resources\[standalone]\`,
+and its console is at `http://localhost:40120/server/console`. Four tools, all in
+`tools/`, make a run repeatable:
+
+| Step | Command | What it does |
+|---|---|---|
+| 1 | `tools/deploy.sh --test-instance` | Mirrors the working tree into `[standalone]/`, verifies parity, applies the test-only overlays |
+| 2 | *(console)* **Clear** | The trash icon under the terminal. Start from an empty buffer every run |
+| 3 | *(console)* `refresh`, then `ensure cis_libs`, then `ensure cis_libstest`, then `cistest` | |
+| 4 | `node tools/report.js` | Every failure and **every skip with its reason**. Exits 1 on any failure |
+
+`tools/serverlog.sh mark` / `since` reads `fxserver.log` **by byte offset** — it
+is ~70 MB and is never read whole. This is how the boot path gets checked, which
+the browser cannot do: the console terminal does not render into a screenshot,
+so the log is the only reliable way to *read* what a command produced.
+
+`--test-instance` applies three changes that belong to a **test server only**,
+after the mirror so they survive the next deploy: `cis_libstest` onto the
+allow-list, `RunMutating = true`, and `Framework.Type` matched to the framework
+actually running. A plain `tools/deploy.sh` puts the repo defaults back.
+
+**Three things that will waste an hour if you do not know them:**
+
+- `restart cis_libs` also **stops** `cis_libstest`, because the harness depends
+  on it. Re-`ensure` it, or `cistest` answers `No such command`.
+- A **parse error** in the harness still reports `Started resource
+  cis_libstest`, and every later command fails pointing somewhere else. Run
+  `npm run test:luacheck` before deploying.
+- Export names here contain a colon (`cis_test:capture`), so
+  `exports['cis_libstest']:cis_test:capture()` **does not parse** — `:cis_test`
+  is read as a method call. Use `probeExport(name, ...)` in
+  `cis_libstest/server/suite.lua`, which passes the table explicitly.
+
+### 4.4 What the products actually use
 
 Verified against every product source tree. **All 44 symbols they call exist —
 zero broken references.**
@@ -342,37 +410,166 @@ arrived, and the data was read rather than interpreted:
 Each was faster than the round of guessing it replaced, and **two of the
 theories they replaced were simply wrong.**
 
+### 5.4 The measurement that corrected defect 9.3
+
+Everything in §6 about 9.3 was an **inference from the bracket CALL form**.
+The dispatch path performs a bracket **LOOKUP** and then a `pcall`, which is a
+different question. Run 1 "measured" it and concluded the handler received
+**zero arguments** — a drop, not a shift. That was wrong, and the wrongness
+mattered: the natural fix for a shift (pass the table explicitly) is a no-op
+for a drop, so the recorded diagnosis would have produced a broken fix.
+
+The decisive probe runs **inside `cis_libstest`'s own VM**, where there is no
+resource boundary to interpret, and calls the same export both ways:
+
+```
+bracket:  n=2 [B|C]      -- exports[res][name]('A','B','C')
+explicit: n=3 [A|B|C]    -- exports[res][name](exports[res],'A','B','C')
+```
+
+**The bracket lookup is an unbound method.** It is the same trap as the call
+form, it cost the same one slot, and `src` was the argument that disappeared.
+The fix is `pcall(fn, target, src, ...)` — three characters of insight, and it
+only came from asking the engine instead of reasoning about it.
+
+The rule this earns: **"the handler received nothing" and "the handler received
+the wrong things" produce different fixes, and only one of them works.** When a
+probe reports an absence, measure the shape of what is actually there before
+concluding there is nothing.
+
+### 5.5 Two more harness bugs, found the same way
+
+1. **A table's string keys do not survive the exports boundary.** The probe
+   returned `{ n = N, [1] = a, ... }` and then read `captured.n` back. The
+   numeric entries arrived; `n` did not. The count read as `nil`, the test
+   concluded the handler "recorded nothing", and two probes were skipped for
+   several runs — all from a number that crossed as a string key rather than
+   as data. **Anything asking a question across the boundary must return a
+   scalar.** `cis_test:lastArgCount` and `cis_test:lastArgs` exist for this.
+2. **A mixed-key table does not survive the _return_ trip at all.** Returning
+   one makes the awaiting export throw. `cis_test:capture` now returns a
+   formatted string for the same reason.
+
+Both are the §5.2 pattern again: a green suite that had measured nothing, and
+a "failure" that was really the test asking the question in a shape the boundary
+cannot carry.
+
+### 5.6 A green suite says nothing about the console
+
+The single most important process failure in this programme, and the one that
+cost the most: **a passing suite was reported as "no problems" while the server
+console was visibly printing errors.** A test suite reports on the cases someone
+wrote. It says nothing about the noise a boot produces, and "0 failed" reads
+very much like "fine" to anyone who has just read `===== 0 failed =====`.
+
+Reading the console line by line found three things the suite was blind to:
+
+**A database error on every boot.** `oxmysql: Table 'cis_doors' doesn't exist`,
+each time `cis_libs` started. `cis_doors` is created only when
+`Doorlock.Persist` is on, and the shipped default is off — but when an
+allow-list **is** configured, `rebuildAuthorized()` set `authorized` and returned
+**without settling `posture`**, so the deferred legacy-detection probe ran
+anyway and queried a table that was never supposed to exist. Any server with an
+allow-list configured paid a database error on every start, naming a table the
+operator had never heard of. Fixed on both sides: a configured list now marks
+the posture decided (it is a definite answer — nobody is guessing), and the
+deferred probe is gated on `persistConfigured()`.
+
+**A shape check cannot tell "works" from "degrades cleanly".**
+`core: the normalised player has a stable shape` passed while the library sat in
+standalone mode, because the shape is *correct in standalone mode too*. That is
+the same trap as `GetNormalizedPlayer` returning a table for a source that does
+not exist. The fix is a test that asks a question with only one right answer: a
+**connected** player must resolve to a populated `name` and `job`. That test is
+what caught the QBOX detection defect in §6.
+
+**A refused call is still the library working.** Awaiting an unregistered
+callback raises, a coordless sync record is refused, and the logger is exercised
+at every level — all deliberately, all correct, all of which write to the
+console. The harness now brackets its own run with `EXPECTED ERROR OUTPUT
+BEGINS/ENDS` so an operator can tell "the tests are working" from "the library
+is broken" without opening the source. Nothing was silenced: lowering a real
+ERROR to a WARN to make a console pretty would be the wrong trade.
+
+### 5.7 When the fix "did not work", check the test before the code
+
+The 9.2 fix looked broken on the first attempt. The library was fine; **the test
+was wrong.** It sent `{{ 'SELECT 1' }}` — an array of bare arrays — where oxmysql
+wants an array of `{ query = ..., values = { ... } }` objects. The driver rejected
+it with a message indistinguishable from the old defect.
+
+Without reading the driver's own error, the next honest-looking move was to write
+"still broken" in the log and abandon a fix that worked. The rule this earns:
+**when a fix fails, the regression is evidence about the failure — read the
+downstream error before blaming the change.** §8 is the same lesson one level up.
+
+### 5.8 A non-greedy Lua pattern asserts the wrong slice
+
+The guard for the boot error was written as
+`secSource:match('local list = configuredList%(%)(.-)end\n')`. The non-greedy
+match stopped at the **first** `end` — the `for` loop's — so the assertion
+inspected a slice that did not contain the thing under test. It failed, and
+correctly, but for the wrong reason. Rewritten with plain `find`/`sub` on
+explicit offsets.
+
+A test that is wrong in a way that *fails* is lucky. This one would have been
+indistinguishable from a real regression.
+
 ---
 
-## 6. Open defects
+## 6. Defects
 
-### Confirmed by measurement
+### Still open
 
-| # | Defect | Impact | Status |
+Two real defects remain. Both are pinned by a test rather than fixed, because
+fixing either is a behaviour change to a shipped export and `COMPATIBILITY.md`
+§3.1 makes that a deliberate decision, not a cleanup.
+
+| # | Defect | Impact | Why it is still open |
 |---|---|---|---|
-| **9.3** | **Remote handler dispatch loses every argument.** `invoke` does `pcall(fn, src, ...)` on an export reference. The handler is reached and its return value crosses intact, but it receives **zero arguments** | Every `Cis.callback.register(name, 'resource:export')` handler. **No shipped product affected** — `cis_storeRobberies` registers a local function — so the path has simply never worked | Confirmed live. Fix direction: stop calling an export to obtain behaviour; pass arguments out of band, or dispatch through a net event |
-| **9.2** | **`Cis.db.transaction` always times out and returns `nil`.** `Database.Transaction(queries, cb)` has arity 2, but `exportAwait` calls `method(sql, params, cb)` — so the callback receives the query list and is never invoked | `cis_housing` and `cis_phone`. A guaranteed **15-second stall on every driver, including oxmysql**. Driver evidence: `Transaction parameters must be array or object, received 'undefined'` | Pinned as a test. The brief's stated contract (`false, 'transactions require oxmysql'`) describes a string that is unreachable through any export |
-| **9.1** | **`Cis.framework.notify` is realm-asymmetric.** The proxy takes `(srcOrNil, message, kind)`; the client export takes `(message, kind)`. A two-argument call resolves differently per realm | `cis_tcvs`, `cis_storeRobberies`, `cis_HawkEyeSurveillance` | Pinned as a test. Needs a separate entry point per realm |
-| — | **`Security.AuthorizedResources` is read once at load** by `rebuildAuthorized()` and never rebuilt, so a runtime console change is ignored | All mutation calls | Documented. *(An earlier draft of this file claimed it was fixed; it is not.)* |
+| **9.1** | **`Cis.framework.notify` is realm-asymmetric.** The proxy takes `(srcOrNil, message, kind)`; the client export takes `(message, kind)`. A two-argument call resolves differently per realm, and on the client the two-argument branch sends the *kind* in the message slot | `cis_tcvs`, `cis_storeRobberies`, `cis_HawkEyeSurveillance` | Needs a separate entry point per realm. Fixing the client branch changes what a shipped call actually delivers — a MAJOR decision |
+| — | **`Security.AuthorizedResources` is read once at load** by `rebuildAuthorized()` and never rebuilt, so a runtime console change is ignored. A restart re-reads it, which is the supported way | All mutation calls | Making it live is a behaviour change. *(An earlier draft of this file claimed it was fixed; it is not.)* |
+
+### Found and fixed in the live-server pass
+
+| # | Defect | Impact | Fix |
+|---|---|---|---|
+| **9.3** | **Remote handler dispatch shifted every argument by one slot.** `invoke` resolved `fn = target[ref.export]` and called `pcall(fn, src, ...)`. The bracket **lookup** is an unbound method, so `src` was consumed as `self` and the handler received the caller's arguments **without the source** | Every `Cis.callback.register(name, 'resource:export')` handler. **No shipped product affected** — `cis_storeRobberies` registers a local function, so the path had simply never worked | `pcall(fn, target, src, ...)`. See §5.4 — the earlier description of this defect was *wrong*, and the wrongness would have produced a broken fix |
+| **9.2** | **`Cis.db.transaction` always timed out and returned `nil`.** `exportAwait` calls `method(sql, params, cb)`, but `Database.Transaction` is `(queries, cb)` — so the callback landed in a slot it never read, the transaction never ran, and the await burned the full 15 s | `cis_housing` and `cis_phone`, on **every** call, with a driver error logged each time | `DbTransaction` registered longhand so the callback reaches slot 2. Verified live: completes in well under the timeout, oxmysql logs nothing. See §5.7 for why the first attempt appeared to fail |
+| — | **QBOX detection could never succeed on a current qbx_core.** It required `exports.qbx_core:GetCoreObject()`, which qbx_core **removed in 1.9** | Every server configured `Framework.Type = "QBOX"` silently fell back to **standalone mode** — `Cis.framework.player(src)` returned a table with no name and no job, and no consumer could tell | Probe `GetCoreObject` for an older qbx_core, otherwise probe the `GetPlayer` export the library already uses. A missing export raises; a present one with a bad id returns nil, so the `pcall` is an honest existence test |
+| — | **`GetConfigSummary().databaseReady` was permanently `false`.** `Database` was a file-local in `server/database.lua`; `server/initialize.lua` read a *global* of that name | Any consumer gating on that field was told the database was never ready, even with oxmysql initialised | `Database` is a global again, with a source-level pin in `test/contracts.lua`, **verified in both directions** |
+| — | **A database error on every boot.** The deferred legacy-detection probe queried `cis_doors` on servers that had an allow-list configured, because that branch returned without settling `posture` | Every boot of every configured server | See §5.6. Two fixes, each correct alone, both pinned in `test/contracts.lua` |
+| — | **`Cis.sync.*` without a caller-supplied id never upserted.** `data.id = data.id or nextId(kind)` minted a fresh id every call, so "re-sending identical data is a no-op" held only for callers managing their own ids | Every other caller got a duplicate entity per call | Content fingerprint excludes `id`, plus an O(1) content index |
+| — | **`Cis.doors.add` and `Cis.doors.setState` could not report success.** Both returned `nil` unconditionally, in *both* realms | "locked it" and "no such door" were indistinguishable — the exact ambiguity the library's own refusal convention exists to remove | Both answer now. Additive: a caller that ignored the old `nil` is unaffected |
 
 ### Confirmed present, not yet fixed
 
-From the original audit: `CheckVersion` phoning home (now defaults `false`, host
-removed), the empty allow-list (now restrictive for new installs, permissive for
-legacy), no capability registry, no `Result` type, the module-restart race
-unsolved, no machine-readable contract, and no migrations / state layer / NUI /
-perf harness / observability. See `COMPATIBILITY.md` and `BUILD_LOG.md`.
-
-### Found while writing tests
-
-- **A guard gap.** Reordering `Cis.callback.callClient`'s parameters from
-  `(name, src, …)` to `(src, name, …)` passed *both* `binding.lua` and the CI
-  grep. `test/contracts.lua` closes it: 11 planted mutations, 11 caught, against
-  2 of 7 before.
 - **`GetNormalizedPlayer` returns a well-formed table for a source that does not
   exist** — echoing the requested id with `name` and `job` nil. A caller cannot
-  distinguish "no such player" from "this framework cannot tell you". This is
-  the brief's defect 5 appearing in practice.
+  distinguish "no such player" from "this framework cannot tell you". This is the
+  brief's defect 5 appearing in practice, and it is the same shape as the QBOX
+  failure in §6: a correct-looking answer that carries no information. A caller
+  gating work on `player.name` gets `nil` and no indication why.
+- The module-restart race is unsolved. It is defect 6 in the brief and untested
+  by design.
+- No capability registry, no `Result` type, no migrations / state layer / NUI /
+  perf harness / observability. These are scope, not defects.
+- ~~No machine-readable contract~~ — `api.lua` and its validator now exist and
+  run in CI. This line was stale; the contract is `API_SPEC.md`.
+
+### A claim in this file that is not backed by an artifact
+
+Both `MEMORY.md` and `COMPATIBILITY.md` have stated, at various times, that a
+number of planted mutations were "11 caught" and "13 caught". **No committed
+script produces either figure.** They were measured ad hoc during a session and
+the runner was never kept.
+
+By this file's own standard — §7, "run the gate yourself" — a claim with no
+artifact behind it is not evidence, and this is precisely the class of thing §5.2
+records going wrong four times. What *is* committed and reproducible is the
+guard set in `test/contracts.lua`, plus the two source-level pins (`Database`
+global, allow-list posture) that were each verified by reintroducing the bug.
+The honest statement is the guard count, not a mutation count.
 
 ---
 
@@ -383,10 +580,18 @@ perf harness / observability. See `COMPATIBILITY.md` and `BUILD_LOG.md`.
 - Make the library **explain itself** before forming a theory. A refusal that
   returns a reason, and a probe that records what arrived, beat every round of
   guessing. The `self` trap took six rounds to find and one probe to confirm.
+- **Read the console, not just the scoreboard.** A green suite is evidence about
+  the cases someone wrote. The boot path is evidence about everything else.
+  §5.6 is the run where this mattered.
+- **Verify a fix by reading the downstream error** when it appears not to work,
+  before blaming the change. §5.7.
 - **Verify edits with `grep`**, not with the exit status of the script that made
   them. That mistake cost a cycle twice.
 - **Run the gate yourself.** A subagent reporting "done" is not evidence. One
   subagent's completion claim needed four separate checks before it held.
+- **Prove a guard fails before trusting it.** Both the `Database` global and the
+  allow-list posture guards were checked by reintroducing the bug: 2 named
+  failures and exit 1 each time.
 - Treat a **skip as not a pass**, and read the reason.
 - Copy the **whole** resource when deploying. Six files had drifted and four of
   them ran.
@@ -394,21 +599,27 @@ perf harness / observability. See `COMPATIBILITY.md` and `BUILD_LOG.md`.
 **Do not**
 
 - `shared_script` a stateful file from a consumer.
-- Use the bracket form of an export call.
+- Use the bracket form of an export call. **The lookup is as unbound as the
+  call** — §3.1 measured only the call form for years.
 - Pass a function into an export. Use the `*Event` form.
 - Read `Config`, `Security`, `Globals`, or `CisCache` from another resource.
+  And do not make a module `local` that another file reads as a global — that is
+  the same class of mistake, in the other direction.
+- Ask a question across the boundary with a **table**. Return a scalar; string
+  keys do not survive. §5.5.
 - Change an existing public signature in 1.x. Freeze the *interface*, not the
   defect — where a shipped behaviour is wrong, add a deprecation warning at the
   call site rather than staying quiet about it.
+- Quiet a correct ERROR to make a console look clean. Frame it instead. §5.6.
 
 ---
 
-## 8. The one lesson worth keeping
+## 8. The lessons worth keeping
 
-For six rounds the boundary was blamed for a bug that was in our own proxy
-layer. Every probe that measured the boundary came back clean; the evidence was
-pointing the whole time at `exportCall`, and it kept being read as a FiveM
-mystery.
+**The first.** For six rounds the boundary was blamed for a bug that was in our
+own proxy layer. Every probe that measured the boundary came back clean; the
+evidence was pointing the whole time at `exportCall`, and it kept being read as
+a FiveM mystery.
 
 What broke it open was the crudest thing available: **make the library return
 `false, '<what specifically was wrong>'` and have the caller print it.**
@@ -416,3 +627,21 @@ What broke it open was the crudest thing available: **make the library return
 arrived in a single run after several rounds of plausible theory.
 
 Every ambiguous behaviour in this codebase should be able to do that.
+
+**The second, and it is the same lesson wearing different clothes.** Defect 9.3
+was pinned as "the handler receives zero arguments" for an entire unit, and that
+was wrong — the handler received everything *except* the first argument. Nobody
+caught it because the conclusion sounded like a measurement.
+
+> **A recorded finding is not a measured one.** The difference is whether
+> something asked the engine, or whether a human read a shape and named it.
+
+This is why `MEMORY.md` §5.4 exists, why `COMPATIBILITY.md` §13.3 carries a
+correction notice rather than a quiet edit, and why the probe that answered it
+runs **inside** `cis_libstest`'s own VM where there is no boundary to
+interpret. A number is worth exactly as much as the question that produced it.
+
+**The third.** Two defects in this codebase were invisible to a green test suite
+and visible in thirty seconds of reading a console (§5.6). A test suite is
+evidence about the cases somebody thought to write. It is not evidence about the
+system. Both are needed, and only one of them was being looked at.

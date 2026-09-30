@@ -28,6 +28,18 @@ local function detect()
         end
     elseif configured == 'QBOX' then
         if waitResource('qbx_core', 5000) then
+            -- qbx_core REMOVED GetCoreObject in 1.9 and exposes player lookups
+            -- directly as exports -- which is exactly what Framework.GetPlayer
+            -- already calls. Detecting on GetCoreObject therefore fails on
+            -- every current qbx_core, and the library fell straight through to
+            -- standalone mode on precisely the server it was configured for.
+            -- Nothing errored; `Cis.framework.player(src)` just quietly began
+            -- returning a table with no name and no job.
+            --
+            -- Probe GetCoreObject for an older qbx_core, then fall back to the
+            -- export that modern qbx_core actually has. Calling a missing
+            -- export raises; calling a present one with a bad id returns nil
+            -- without raising, so the pcall is an honest existence test.
             local ok, core = pcall(function()
                 return exports.qbx_core:GetCoreObject()
             end)
@@ -37,7 +49,15 @@ local function detect()
                 provider = 'QBOX'
                 return
             end
-            print('cis_libs: qbx_core started but GetCoreObject failed')
+            local hasGetPlayer = pcall(function()
+                return exports.qbx_core:GetPlayer(0)
+            end)
+            if hasGetPlayer then
+                provider = 'QBOX'
+                return
+            end
+            print('cis_libs: qbx_core is started but exposes neither '
+                .. 'GetCoreObject nor GetPlayer; treating it as unusable')
         end
         if waitResource('qb-core', 2000) then
             local ok, core = pcall(function()

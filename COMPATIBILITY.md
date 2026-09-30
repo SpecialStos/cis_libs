@@ -878,55 +878,72 @@ storeRobberies and HawkEye and does not distinguish the arities, so the blast
 radius is unknown. `Pinned by`: *"client notify: DEFECT PINNED — the kind is sent
 in the message slot"*.
 
-### 13.2 `Cis.db.transaction` returns nothing and burns the timeout
+### 13.2 `Cis.db.transaction` returned nothing and burned the timeout (FIXED)
 
 `exportAwait` calls `method(sql, params, cb)`, but `Database.Transaction` is
-declared `(queries, cb)`. The completion callback arrives in a **third** parameter
-the function never reads, so `cb` is `nil` on entry.
+declared `(queries, cb)`. The completion callback arrived in a **third**
+parameter the function never read, so `cb` was `nil` on entry.
 
 Consequences, on **every** driver:
 
-- on a non-`oxmysql` driver, the refusal callback is never invoked, the await
-  never settles, the coroutine spins for the full
-  `Config.Framework.Database.Timeout` (15 s by default), and the call returns
+- on a non-`oxmysql` driver, the refusal callback was never invoked, the await
+  never settled, the coroutine spun for the full
+  `Config.Framework.Database.Timeout` (15 s by default), and the call returned
   **nothing at all** — not `false, 'transactions require oxmysql'`;
-- on `oxmysql`, `exports.oxmysql:transaction(queries, nil)` is called with a nil
-  callback.
+- on `oxmysql`, the driver was handed a nil callback and logged
+  `Transaction parameters must be array or object, received 'undefined'`.
 
-The string `transactions require oxmysql` is therefore **unreachable through any
-export**. `Cis.db.transaction` is used by `cis_housing` and `cis_phone`.
+`Cis.db.transaction` is used by `cis_housing` and `cis_phone`, so both paid
+that 15-second stall on every call.
 
-This pass added a boot-time diagnostic naming the configured driver and the
-resource that called it. It did **not** change the return path, because the
-return path is the observable behaviour the freeze protects — and because
-changing `nil` into `false, '<reason>'` for two consumers is a MAJOR change.
-`Pinned by`: *"DbTransaction on a bad driver returns nothing, which is what it
-has always done"*.
+**Fixed.** `DbTransaction` is now registered longhand rather than through
+`exportAwait`, so the callback reaches slot 2. Deliberately not made
+arity-aware inside `exportAwait`: exactly one method has a different shape, and
+hiding a second calling convention in a shared helper is how the mismatch
+happened in the first place.
 
-### 13.3 The remote-handler path may be an unbound-method call
+Verified live on oxmysql: a `SELECT 1` transaction now completes well inside the
+timeout, answers a value, and the driver logs nothing. On a non-oxmysql driver
+it refuses promptly with `false, 'transactions require oxmysql'` — the string
+this section previously called unreachable.
 
-`server/callback.lua` resolves a `'resource:export'` handler as:
+*Consumers:* `cis_housing` and `cis_phone` send oxmysql's shape — an array of
+`{ query = ..., values = { ... } }` objects. An array of bare arrays is rejected
+by the driver.
+
+### 13.3 The remote-handler path shifted every argument (FIXED)
+
+`server/callback.lua` resolved a `'resource:export'` handler as:
 
 ```lua
 local target = exports[ref.resource]
-fn = target[ref.export]
+fn = target[ref.export]        -- the bracket LOOKUP
 ...
 local results = table.pack(pcall(fn, src, ...))
 ```
 
-`target[ref.export]` is the bracket form — the shape `MEMORY.md` §1 measured as
-shifting every argument one place left. `isCallable` accepts it, so the call
-goes ahead. If the measurement holds here, a remote handler registered with
-`Cis.callback.register('name', 'res:export')` receives `src` as its first
-argument and everything after it one place out.
+**Measured, in-VM, with no boundary in the way:** the bracket lookup *is* an
+unbound method — the same trap as the bracket call form in §1. Calling
+`fn('A','B','C')` delivered `('B','C')`; calling `fn(target,'A','B','C')`
+delivered all three.
 
-`cis_storeRobberies` calls `Cis.callback.register`. Whether it registers a
-string handler is not recorded. This was **not** changed: it is inside the
-library's own realm and the boundary semantics there are worth measuring before
-touching, exactly as `MEMORY.md` §6 recommends. The next step is a probe
-resource of the kind §6 describes — return what actually arrived, let the data
-speak. `Pinned by`: nothing yet. **This is the highest-priority unmeasured item
-in this document.**
+So a handler registered with `Cis.callback.register('name', 'res:export')`
+received every one of the caller's arguments **and never `src`** — one slot
+shifted, not the "zero arguments" an earlier draft of this document recorded.
+The distinction decides the fix: a shift is fixed by passing the table, a drop
+is not.
+
+**Fixed.** `invoke` now calls `pcall(fn, target, src, ...)` for remote
+handlers and is unchanged for local ones. A local handler is a plain function
+and must keep its current call shape.
+
+*An earlier revision of this section said the handler received zero arguments
+and that this was the highest-priority unmeasured item. It was measured, and
+that description was wrong. `MEMORY.md` §5.4 has the probe and the numbers.*
+
+**Blast radius:** `cis_storeRobberies` calls `Cis.callback.register` but
+registers a **local** function, so no shipped product was affected. The path
+had simply never worked for anyone.
 
 ### 13.4 `Security.AuthorizedResources` is read once
 

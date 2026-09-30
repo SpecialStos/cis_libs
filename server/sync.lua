@@ -48,7 +48,10 @@ local function playersInRange(coords, radius)
 end
 
 -- Revision covers the whole record (minus our own bookkeeping fields) so a
--- caller changing any field is never silently dropped.
+-- caller changing any field is never silently dropped. The id is excluded too:
+-- CONTENT identity is what decides whether two calls describe the same entity,
+-- and folding the id in makes every idless call unique by construction, which
+-- defeats the no-op upsert for every caller that does not manage ids itself.
 local function canonical(value, out)
     out = out or {}
     local t = type(value)
@@ -58,7 +61,7 @@ local function canonical(value, out)
     end
     local keys = {}
     for k in pairs(value) do
-        if k ~= 'rev' and k ~= 'print' then
+        if k ~= 'rev' and k ~= 'print' and k ~= 'id' then
             keys[#keys + 1] = k
         end
     end
@@ -72,6 +75,28 @@ end
 
 local function fingerprint(data)
     return table.concat(canonical(data), '\30')
+end
+
+-- id <-> content index, so the implicit lookup below is O(1) rather than a
+-- scan of every synced entity on the server. `records` alone cannot answer it.
+local byContent = {}
+
+local function contentKey(kind, print_)
+    return kind .. '\29' .. print_
+end
+
+local function indexRecord(id, stored)
+    byContent[contentKey(stored.kind, stored.print)] = id
+end
+
+local function unindexRecord(stored)
+    if not stored then
+        return
+    end
+    local key = contentKey(stored.kind, stored.print)
+    if byContent[key] ~= nil then
+        byContent[key] = nil
+    end
 end
 
 local function upsert(kind, data)
@@ -92,15 +117,32 @@ local function upsert(kind, data)
         z = data.coords.z or 0.0,
     }
     data.kind = kind
-    data.id = data.id or nextId(kind)
     data.heading = data.heading or 0.0
     data.networked = data.networked ~= false
     data.dynamic = data.dynamic and true or false
 
-    local previous = records[data.id]
+    -- Fingerprint AFTER the defaults are applied and BEFORE an id is chosen,
+    -- so two calls that describe the same entity agree on their content.
     local print_ = fingerprint(data)
-    if previous and previous.print == print_ then
-        return previous.id
+
+    if data.id then
+        -- Caller-managed identity: the id is authoritative and the fingerprint
+        -- only decides whether anything actually changed.
+        local previous = records[data.id]
+        if previous and previous.print == print_ then
+            return previous.id
+        end
+    else
+        -- No id supplied. An identical payload is the SAME entity, so reuse the
+        -- record that already holds it. Without this, DOCUMENTATION.md's
+        -- "re-sending identical data is a no-op" held only for callers that
+        -- tracked ids themselves, and every other caller got a duplicate
+        -- entity per call -- which is what the integration suite caught.
+        local existing = byContent[contentKey(kind, print_)]
+        if existing and records[existing] then
+            return existing
+        end
+        data.id = nextId(kind)
     end
 
     revisions = revisions + 1
@@ -113,7 +155,9 @@ local function upsert(kind, data)
     end
     stored.rev = revisions
     stored.print = print_
+    unindexRecord(records[data.id])
     records[data.id] = stored
+    indexRecord(data.id, stored)
 
     local audience = playersInRange(stored.coords, stored.scope or 80.0)
     for i = 1, #audience do
@@ -129,6 +173,7 @@ local function remove(id)
     if not records[id] then
         return false
     end
+    unindexRecord(records[id])
     records[id] = nil
     TriggerClientEvent('cis_libs:client:syncRemove', -1, id)
     return true
@@ -176,6 +221,7 @@ AddEventHandler('onResourceStop', function(resource)
         TriggerClientEvent('cis_libs:client:syncRemove', -1, id)
     end
     records = {}
+    byContent = {}
 end)
 
 exports('SyncCreate', function(kind, data)

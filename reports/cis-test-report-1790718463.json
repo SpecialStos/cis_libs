@@ -1,0 +1,896 @@
+{
+  "client": [
+    {
+      "durationMs": 23,
+      "message": "a ped was created",
+      "name": "core: CreatePed returns a handle for a valid model",
+      "player": 3,
+      "status": "passed",
+      "values": {
+        "ped": 8544258
+      }
+    },
+    {
+      "durationMs": 23,
+      "message": "a value was returned",
+      "name": "core: GetClosestVehicle returns a value",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 23,
+      "message": "three entries",
+      "name": "core: GetTableSize counts entries",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 27,
+      "message": "value 7.375 within [5,10]",
+      "name": "core: RandomFloat stays in range",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 26,
+      "message": "two decimals",
+      "name": "core: Round formats to the requested precision",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 22,
+      "message": "zone created",
+      "name": "core: a box zone creates, contains, and removes",
+      "player": 3,
+      "status": "passed",
+      "values": {
+        "createReturned": true,
+        "removeReturned": true
+      }
+    },
+    {
+      "durationMs": 21,
+      "message": "Cis.player.on did not throw",
+      "name": "core: a cache subscription registers without throwing",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 25,
+      "message": "zone created",
+      "name": "core: a poly zone creates and contains its centre",
+      "player": 3,
+      "status": "passed",
+      "values": {
+        "createReturned": true,
+        "removeReturned": true
+      }
+    },
+    {
+      "durationMs": 21,
+      "message": "zone created",
+      "name": "core: a sphere zone creates and contains its centre",
+      "player": 3,
+      "status": "passed",
+      "values": {
+        "createReturned": true,
+        "removeReturned": true
+      }
+    },
+    {
+      "durationMs": 25,
+      "message": "target created",
+      "name": "core: a target creates and removes",
+      "player": 3,
+      "status": "passed",
+      "values": {
+        "createReturned": true,
+        "existsAfterCreate": true,
+        "existsAfterRemove": false,
+        "removeReturned": true
+      }
+    },
+    {
+      "durationMs": 24,
+      "message": "the model loaded",
+      "name": "core: a valid model streams in",
+      "player": 3,
+      "status": "passed",
+      "values": {
+        "hashType": "number",
+        "loaded": true
+      }
+    },
+    {
+      "durationMs": 24,
+      "message": "log.error executed without throwing",
+      "name": "core: an error log does not throw",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 23,
+      "message": "an invalid model reports not loaded",
+      "name": "core: an invalid model is rejected",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 25,
+      "message": "resource state",
+      "name": "core: cis_libs resource is started",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 28,
+      "message": "config delivered",
+      "name": "core: config was delivered by the server",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 26,
+      "message": "the same table within one frame",
+      "name": "core: coords are memoised within a frame",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 26,
+      "message": "coords returned",
+      "name": "core: coords return a vector3",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 28,
+      "message": "weapon data returned",
+      "name": "core: current weapon data is retrievable",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 25,
+      "message": "has matches count",
+      "name": "core: has() agrees with count()",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 26,
+      "message": "heading type",
+      "name": "core: heading is a number",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 24,
+      "message": "count type",
+      "name": "core: inventory count is a number",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 23,
+      "message": "all four log levels executed",
+      "name": "core: logging does not throw at any level",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 21,
+      "message": "unknown zone",
+      "name": "core: removing an unknown zone returns false",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 26,
+      "message": "server id",
+      "name": "core: serverId matches the player",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 24,
+      "message": "the entity map is a table",
+      "name": "core: synced entities can be listed",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 23,
+      "message": "TargetAvailable is boolean",
+      "name": "core: target availability is reported",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 23,
+      "message": "Globals returned",
+      "name": "core: the Globals table is populated",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 24,
+      "message": "config delivered",
+      "name": "core: the delivered config carries no secrets",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 27,
+      "message": "3-4-5 triangle",
+      "name": "core: the distance helper is correct",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 27,
+      "message": "IsReady is true",
+      "name": "core: the library reports ready",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 21,
+      "message": "ped handle",
+      "name": "core: the ped handle is valid",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 70,
+      "message": "a remote handler receives the caller id across a real net event",
+      "name": "core: the server sees this player as the callback source",
+      "player": 3,
+      "status": "passed",
+      "values": {
+        "myServerId": 3,
+        "payloadType": "table",
+        "serverSawSrc": 3
+      }
+    },
+    {
+      "durationMs": 26,
+      "message": "no vehicle nearby",
+      "name": "core: vehicle properties round-trip",
+      "player": 3,
+      "status": "skipped",
+      "values": {}
+    },
+    {
+      "durationMs": 26,
+      "message": "on foot, nil returned as documented",
+      "name": "core: vehicle returns a handle or nil",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 27,
+      "message": "unarmed, nil returned as documented",
+      "name": "core: weapon data is well formed when armed",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 26,
+      "message": "zone debug returned",
+      "name": "core: zone debug stats are readable",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 25,
+      "message": "the call did not throw",
+      "name": "defect 9.1: framework.notify is realm-asymmetric on the client",
+      "player": 3,
+      "status": "passed",
+      "values": {
+        "threw": false
+      }
+    },
+    {
+      "durationMs": 26,
+      "message": "door added",
+      "name": "mutating: a door registers at the player position",
+      "player": 3,
+      "status": "passed",
+      "values": {
+        "added": true
+      }
+    },
+    {
+      "durationMs": 24,
+      "message": "unknown door returns nil",
+      "name": "mutating: an unknown door has no state",
+      "player": 3,
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 23,
+      "message": "a closest door was found",
+      "name": "mutating: the closest door is found at the player position",
+      "player": 3,
+      "status": "passed",
+      "values": {
+        "added": true,
+        "closestId": "cis_test_client_door_near_10286301",
+        "distance": "0.00"
+      }
+    },
+    {
+      "durationMs": 27,
+      "message": "the reference is invokable",
+      "name": "probe: a returned function reference is callable",
+      "player": 3,
+      "status": "passed",
+      "values": {
+        "callableKind": "__cfx_functionReference",
+        "directCallWorked": true,
+        "handleType": "table"
+      }
+    },
+    {
+      "durationMs": 24,
+      "message": "the proxy returns a vector3 locally",
+      "name": "probe: a vector3 survives the exports boundary",
+      "player": 3,
+      "status": "passed",
+      "values": {
+        "localType": "vector3",
+        "threw": false
+      }
+    },
+    {
+      "durationMs": 26,
+      "message": "TargetAvailable returns a real boolean, not nil",
+      "name": "probe: exports return values, and false is not nil",
+      "player": 3,
+      "status": "passed",
+      "values": {
+        "targetAvailable": true
+      }
+    },
+    {
+      "durationMs": 2014,
+      "message": "watcher registered",
+      "name": "teleport: a proximity watcher relays enter and exit",
+      "player": 3,
+      "status": "passed",
+      "values": {
+        "handleType": "table",
+        "nearEnters": 2,
+        "nearExits": 2
+      }
+    },
+    {
+      "durationMs": 1529,
+      "message": "zone created with an insideEvent relay",
+      "name": "teleport: a zone relays inside on its interval",
+      "player": 3,
+      "status": "passed",
+      "values": {
+        "insideTicks": 9
+      }
+    },
+    {
+      "durationMs": 1157,
+      "message": "zone created with an onEnterEvent relay",
+      "name": "teleport: a zone relays onEnter when the player is teleported in",
+      "player": 3,
+      "status": "passed",
+      "values": {
+        "centre": {
+          "x": 413.692,
+          "y": -584.875,
+          "z": 44.1056
+        },
+        "landedOn": {
+          "x": 414.274,
+          "y": -584.459,
+          "z": 40.2169
+        },
+        "relayCount": 1
+      }
+    },
+    {
+      "durationMs": 1808,
+      "message": "zone created with enter and exit relays",
+      "name": "teleport: a zone relays onExit when the player is teleported out",
+      "player": 3,
+      "status": "passed",
+      "values": {
+        "enteredCount": 1,
+        "exitCount": 1
+      }
+    },
+    {
+      "durationMs": 23,
+      "message": "restored to within 0.0m of home",
+      "name": "teleport: the player is restored to its starting position",
+      "player": 3,
+      "status": "passed",
+      "values": {
+        "distanceFromHome": 0
+      }
+    }
+  ],
+  "meta": {
+    "allowListConfigured": true,
+    "database": "oxmysql",
+    "databaseReady": true,
+    "doorlock": "target",
+    "framework": "QBOX",
+    "gameBuild": 0,
+    "inventory": "ox_inventory",
+    "libraryReady": true,
+    "mutating": true,
+    "resource": "cis_libstest",
+    "startedAt": 1790718463,
+    "syncEnabled": true,
+    "target": "ox_target",
+    "teleporting": true,
+    "version": "2.0.0"
+  },
+  "server": [
+    {
+      "durationMs": 61,
+      "message": "the bracket lookup is an UNBOUND method: it consumes the first argument as self",
+      "name": "probe: how must the exports table be called? (bracket vs explicit)",
+      "status": "passed",
+      "values": {
+        "bracket_3_args": "bracket: n=2 [B|C]",
+        "explicit_self_plus_3_args": "explicit: n=3 [A|B|C]"
+      }
+    },
+    {
+      "durationMs": 124,
+      "message": "remote handler registered",
+      "name": "probe: remote handler binding -- is exports[res][name] unbound?",
+      "status": "passed",
+      "values": {
+        "received": "n=3 [0|ALPHA|99]",
+        "receivedCount": 3,
+        "registered": true,
+        "returnTripError": "n=3 [0|ALPHA|99]",
+        "returnTripThrew": true
+      }
+    },
+    {
+      "durationMs": 123,
+      "message": "the call did not throw",
+      "name": "probe: remote handler return value survives the reference call",
+      "status": "passed",
+      "values": {
+        "returned": "string(a value)",
+        "threw": false
+      }
+    },
+    {
+      "durationMs": 115,
+      "message": "only the first of several return values crosses (got string(first))",
+      "name": "probe: multiple return values collapse to the first",
+      "status": "passed",
+      "values": {
+        "first": "string(first)",
+        "second": "string(second)"
+      }
+    },
+    {
+      "durationMs": 116,
+      "message": "the call did not throw",
+      "name": "probe: argument types survive the boundary",
+      "status": "passed",
+      "values": {
+        "received": "n=5 [0|str|42|true|table: 40d78aa8b9f91e99]",
+        "receivedCount": 5,
+        "recorded": "n=5 [0|str|42|true|table: 40d78aa8b9f91e99]",
+        "returned": "string(n=5 [0|str|42|true|table: 40d78aa8b9f91e99])",
+        "threw": false
+      }
+    },
+    {
+      "durationMs": 122,
+      "message": "the call did not throw",
+      "name": "probe: vector3 arguments survive the boundary",
+      "status": "passed",
+      "values": {
+        "received": "n=2 [0|vec3(1.500000, 2.500000, 3.500000)]",
+        "receivedCount": 2,
+        "threw": false
+      }
+    },
+    {
+      "durationMs": 123,
+      "message": "the library reached ready, which happens after the config handoff",
+      "name": "regression: no version check is attempted on a default install",
+      "status": "passed",
+      "values": {
+        "libraryReady": true
+      }
+    },
+    {
+      "durationMs": 124,
+      "message": "the summary reports the allow-list state",
+      "name": "regression: the allow-list posture is reported at boot",
+      "status": "passed",
+      "values": {
+        "allowListConfigured": true
+      }
+    },
+    {
+      "durationMs": 123,
+      "message": "InvokingAllowed answers with a boolean",
+      "name": "regression: InvokingAllowed answers, and the answer matches the posture",
+      "status": "passed",
+      "values": {
+        "allowListConfigured": true,
+        "invokingAllowed": true
+      }
+    },
+    {
+      "durationMs": 123,
+      "message": "an allow-list is in force; cis_libstest is not named in it, so its own mutation calls are refused -- that is the correct outcome, not a failure",
+      "name": "regression: an allow-list excludes resources not named in it",
+      "status": "passed",
+      "values": {
+        "allowListConfigured": true
+      }
+    },
+    {
+      "durationMs": 109,
+      "message": "summary returned",
+      "name": "regression: the configured database driver is reported",
+      "status": "passed",
+      "values": {
+        "databaseReady": true,
+        "driver": "oxmysql"
+      }
+    },
+    {
+      "durationMs": 188,
+      "message": "DbTransaction threw: true",
+      "name": "defect 9.2: db.transaction completes instead of timing out",
+      "status": "passed",
+      "values": {
+        "elapsedMs": 125,
+        "payload": "array of {query, values}",
+        "result": "boolean(true)",
+        "threw": false
+      }
+    },
+    {
+      "durationMs": 108,
+      "message": "the asymmetry is between realms; observed from the client suite. See MEMORY.md section 6.",
+      "name": "defect 9.1: framework.notify is realm-asymmetric",
+      "status": "skipped",
+      "values": {}
+    },
+    {
+      "durationMs": 123,
+      "message": "rebuildAuthorized() runs once at load and is never re-run, so a runtime change to Security.AuthorizedResources is ignored. See MEMORY.md section 5.",
+      "name": "defect: the allow-list is read once at load",
+      "status": "skipped",
+      "values": {}
+    },
+    {
+      "durationMs": 124,
+      "message": "resource state",
+      "name": "core: cis_libs resource is started",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 110,
+      "message": "WaitReady returns true",
+      "name": "core: WaitReady resolves true",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 122,
+      "message": "summary returned",
+      "name": "core: config summary is readable",
+      "status": "passed",
+      "values": {
+        "database": "oxmysql",
+        "framework": "QBOX",
+        "inventory": "ox_inventory"
+      }
+    },
+    {
+      "durationMs": 122,
+      "message": "summary present",
+      "name": "core: config summary leaks no secrets",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 108,
+      "message": "prefix is a non-empty string",
+      "name": "core: event prefix is available",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 124,
+      "message": "queryPoint finds an inserted AABB",
+      "name": "core: pure shared modules behave",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 123,
+      "message": "database config stripped",
+      "name": "core: the config whitelist strips secrets",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 126,
+      "message": "encodes a string key",
+      "name": "core: the JSON encoder produces output",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 122,
+      "message": "first return value",
+      "name": "core: callback register then local await",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 125,
+      "message": "the call raised",
+      "name": "core: an unknown callback name raises rather than returning nil",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 310,
+      "message": "a sourceless trigger did not raise",
+      "name": "core: a sourceless callback event is refused",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 122,
+      "message": "needs two connected players; join a second client in-game",
+      "name": "core: a forged callback response is ignored",
+      "status": "skipped",
+      "values": {}
+    },
+    {
+      "durationMs": 122,
+      "message": "a second event has its own budget",
+      "name": "core: the rate limiter is isolated per event name",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 122,
+      "message": "only 5 of 30 allowed under a limit of 5",
+      "name": "core: the rate limiter trips past its limit",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 126,
+      "message": "GetFramework returned a table",
+      "name": "core: the framework bridge is loaded",
+      "status": "passed",
+      "values": {
+        "GetPlayerType": "table",
+        "IsLoadedType": "table"
+      }
+    },
+    {
+      "durationMs": 124,
+      "message": "normalised player returned",
+      "name": "core: the normalised player has a stable shape",
+      "status": "passed",
+      "values": {
+        "id": 3,
+        "job": "unemployed"
+      }
+    },
+    {
+      "durationMs": 124,
+      "message": "normalised player returned",
+      "name": "core: a real player resolves to a real name and job",
+      "status": "passed",
+      "values": {
+        "identifier": "present",
+        "job": "unemployed",
+        "name": "Cisoko Cisoko"
+      }
+    },
+    {
+      "durationMs": 124,
+      "message": "a table is returned for a source that does not exist",
+      "name": "core: an unknown source still returns a shaped table",
+      "status": "passed",
+      "values": {
+        "id": 999999,
+        "idEchoesTheRequest": true,
+        "job": "nil"
+      }
+    },
+    {
+      "durationMs": 122,
+      "message": "job count type",
+      "name": "core: the online job count is a number",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 125,
+      "message": "count is numeric",
+      "name": "core: inventory count of an absent item is 0",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 124,
+      "message": "has is false",
+      "name": "core: inventory has() is false for an absent item",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 125,
+      "message": "unknown door is nil",
+      "name": "core: an unknown door has no state",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 119,
+      "message": "door data returned",
+      "name": "core: all door data is retrievable",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 114,
+      "message": "missing coords rejected",
+      "name": "core: sync rejects a record with no coords",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 126,
+      "message": "removing an unknown id returns false",
+      "name": "core: sync remove reports whether the id existed",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 126,
+      "message": "SecurityReport did not throw for an invalid source",
+      "name": "core: a security report for a non-player source is refused",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 123,
+      "message": "all four log levels executed",
+      "name": "core: logging does not throw at any level",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 122,
+      "message": "queue depth is a number",
+      "name": "core: the discord queue depth is readable",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 124,
+      "message": "SecureNetOn did not throw",
+      "name": "core: net.on registers without error",
+      "status": "passed",
+      "values": {}
+    },
+    {
+      "durationMs": 107,
+      "message": "item water added",
+      "name": "mutating: inventory add and remove round-trips",
+      "status": "passed",
+      "values": {
+        "candidates": "water,bread,sandwich,apple,bandage,lockpick",
+        "chosenItem": "water",
+        "cisLibsAnswer": "true",
+        "frameworkConfigured": "QBOX",
+        "oxInventoryState": "started",
+        "src": 3
+      }
+    },
+    {
+      "durationMs": 124,
+      "message": "door registered",
+      "name": "mutating: a door registers, locks, and unlocks",
+      "status": "passed",
+      "values": {
+        "added": true
+      }
+    },
+    {
+      "durationMs": 125,
+      "message": "the allow-list refused this resource from adding a door, which is the correct outcome for a caller not named in it",
+      "name": "mutating: an unauthorised door request changes nothing",
+      "status": "passed",
+      "values": {
+        "added": false
+      }
+    },
+    {
+      "durationMs": 126,
+      "message": "a sync id was returned",
+      "name": "mutating: entity sync creates, updates, and removes",
+      "status": "passed",
+      "values": {
+        "firstId": "prop_2"
+      }
+    },
+    {
+      "durationMs": 169,
+      "message": "a parameterised query did not throw",
+      "name": "mutating: the database answers a parameterised query",
+      "status": "passed",
+      "values": {
+        "rowCount": 1,
+        "threw": false
+      }
+    }
+  ],
+  "summary": {
+    "clientFailed": 0,
+    "clientSkipped": 1,
+    "clientTotal": 48,
+    "clientsReporting": 1,
+    "durationMs": 13698,
+    "failed": 0,
+    "passed": 92,
+    "serverFailed": 0,
+    "serverSkipped": 3,
+    "serverTotal": 48,
+    "skipped": 4,
+    "total": 96
+  }
+}

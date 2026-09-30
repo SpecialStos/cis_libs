@@ -99,6 +99,16 @@ local function rebuildAuthorized()
         for i = 1, #list do
             authorized[list[i]] = true
         end
+        -- An operator-named list is a DEFINITE answer. Nobody has to guess
+        -- whether this install is legacy and nothing is waiting on a query.
+        --
+        -- Without this line `posture` stayed nil, so the deferred legacy probe
+        -- below ran anyway and issued `SELECT id FROM cis_doors` -- a table
+        -- that only exists when Doorlock.Persist is on. Every boot of every
+        -- server with an allow-list configured therefore printed a database
+        -- error naming a table that was never supposed to be there, and the
+        -- cause was nowhere near the message.
+        posture = 'configured'
         return
     end
     local legacy, reason = legacyByConfig()
@@ -127,6 +137,17 @@ rebuildAuthorized()
 -- moments ago on a fresh install is empty, and an empty one means new.
 if posture == nil then
     CreateThread(function()
+        -- `cis_doors` is only ever created when Doorlock.Persist is on, so
+        -- this query is only meaningful when persistence is configured. Asking
+        -- anyway asks the driver about a table that does not exist, and the
+        -- driver answers with an error the operator can do nothing about.
+        -- This mirrors legacyByConfig(), which already treats "persistence was
+        -- never enabled" as a definite answer.
+        if not persistConfigured() then
+            applyPosture('restrictive', 'no written config and door persistence was never enabled')
+            authorized = {}
+            return
+        end
         local name = driverName()
         local deadline = GetGameTimer() + 30000
         while GetResourceState(name) ~= 'started' and GetGameTimer() < deadline do
