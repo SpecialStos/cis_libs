@@ -52,8 +52,11 @@ runFile('shared/grid.lua')
 runFile('shared/pending.lua')
 runFile('shared/config.lua')
 runFile('shared/histogram.lua')
-runFile('cis_libstest/shared/report.lua')
-runFile('cis_libstest/shared/probe.lua')
+// The integration harness is a SEPARATE repository and a separate FiveM
+// resource (https://github.com/SpecialStos/cis_libstest). It used to be loaded
+// here so the library's suite could cover the report encoder and the probe
+// helpers -- which was the wrong home for them. The harness tests its own pure
+// modules now; this suite covers the library.
 injectFiles(L)
 runFile('test/run.lua')
 runFile('test/binding.lua')

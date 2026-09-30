@@ -5,8 +5,11 @@
 # The server keeps its resources in
 #   <FiveM>/txData/<profile>/resources/[standalone]/
 # and `server.cfg` does `ensure [standalone]`, so anything dropped in there is
-# started on the next `refresh`. This script puts cis_libs and cis_libstest
-# there from the working tree, which is the only place edits are made.
+# started on the next `refresh`. This script puts cis_libs there from this
+# working tree, which is the only place library edits are made.
+#
+# cis_libstest is a SEPARATE repository and resource. It is mirrored from a
+# checkout beside this one, not from a subfolder of it.
 #
 # What it will NOT do:
 #   * touch .git in the destination (the deployed copy is a real clone, and
@@ -104,8 +107,20 @@ mirror() {
     echo "synced $name"
 }
 
-mirror cis_libs     "$SRC_ROOT"          "$DST_ROOT/cis_libs"
-mirror cis_libstest "$SRC_ROOT/cis_libstest" "$DST_ROOT/cis_libstest"
+mirror cis_libs "$SRC_ROOT" "$DST_ROOT/cis_libs"
+
+# cis_libstest is a SEPARATE repository and a separate FiveM resource:
+#   https://github.com/SpecialStos/cis_libstest
+# It used to live in this tree. It is a checkout beside the repo now, so the
+# two release cadences are independent and the library carries no test-harness
+# code it does not use. Point CIS_LIBSTEST_SRC at that checkout.
+LIBSTEST_SRC="${CIS_LIBSTEST_SRC:-$(dirname "$SRC_ROOT")/_cis_libstest}"
+if [[ -d "$LIBSTEST_SRC" ]]; then
+    mirror cis_libstest "$LIBSTEST_SRC" "$DST_ROOT/cis_libstest"
+else
+    echo "SKIP  cis_libstest -- no checkout at $LIBSTEST_SRC" >&2
+    echo "      clone https://github.com/SpecialStos/cis_libstest, or set CIS_LIBSTEST_SRC." >&2
+fi
 
 # ---------------------------------------------------------------- overlay
 # Applied AFTER the mirror, so it survives. /MIR would otherwise undo it on the
@@ -156,10 +171,12 @@ for r in cis_libs cis_libstest; do
             OVERRIDE=(--exclude=config.lua)
         fi
     fi
+    src="$SRC_ROOT"
+    [[ "$r" == "cis_libstest" ]] && src="$LIBSTEST_SRC"
     if diff -r -q \
         --exclude=.git --exclude=node_modules --exclude=.zcode \
         --exclude=.zcodeignore --exclude=.github "${OVERRIDE[@]}" \
-        "$DST_ROOT/$r" "$([ "$r" = cis_libs ] && echo "$SRC_ROOT" || echo "$SRC_ROOT/cis_libstest")" \
+        "$DST_ROOT/$r" "$src" \
         > /tmp/cis_diff_$r.txt 2>&1
     then
         echo "  OK   $r -- identical"

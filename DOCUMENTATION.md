@@ -951,7 +951,7 @@ cistest_server   -- server suite only
 cistest_client   -- client suite only
 ```
 
-Read `cis_libstest/README.md` before running it. Mutating tests (inventory
+See https://github.com/SpecialStos/cis_libstest before running it. Mutating tests (inventory
 changes, doors, spawned entities) are **off by default** — turn them on only on
 a test instance. The suite teleports the player around, so run it somewhere
 heartbeat-based anti-cheat is not watching.
@@ -1023,8 +1023,8 @@ Rebuild our existing resources to use it properly, then verify the result.
 behaviour that was measured on a live server, not assumed, and getting any of it
 wrong produces silent corruption rather than an error:
 
-- `cis_libs/MEMORY.md` — the traps, and the reasoning behind the API
-- `cis_libs/DOCUMENTATION.md` — the full API reference and integration guide
+- `cis_libs/DOCUMENTATION.md` — the traps, the reasoning behind the API, and
+  the full integration guide. Everything below is drawn from it.
 
 You will also want `cis_libs/README.md` for the short version.
 
@@ -1181,7 +1181,7 @@ them concurrently.
 Each sub-agent prompt must include, verbatim:
 
 1. The five non-negotiable facts above, in full.
-2. The path to `cis_libs/MEMORY.md` and `cis_libs/DOCUMENTATION.md`, with the
+2. The path to `cis_libs/DOCUMENTATION.md`, with the
    instruction to read them before writing code.
 3. Exactly one resource or concern to handle, named explicitly.
 4. The rule: do not edit `cis_libs` itself. If something looks missing or wrong

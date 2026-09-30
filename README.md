@@ -7,9 +7,10 @@ beside ESX / QBCore / QBOX and normalises the differences.
 
 Version **1.0.0**. Requires OneSync and server build 4500+.
 
-> **Start with [MEMORY.md](MEMORY.md).** It is the entry point for the whole
-> repository: what the resource is, where the work stands, and the boundary
-> rules that will silently corrupt your code if you get them wrong.
+> **Read [DOCUMENTATION.md](DOCUMENTATION.md) first**, specifically *How the
+> boundary works*. Almost every integration mistake comes from misunderstanding
+> that one section, and the boundary rules there will silently corrupt your code
+> — never an error, just wrong data.
 
 ## Install
 
@@ -56,36 +57,41 @@ end)
 
 | File | For |
 |---|---|
-| [**MEMORY.md**](MEMORY.md) | **Start here.** Architecture, current state, everything learned |
-| [**DOCUMENTATION.md**](DOCUMENTATION.md) | The integration guide — boundary model, every API function, recipes, and [Appendix A](DOCUMENTATION.md#appendix-a-brief-for-migrating-a-resource), a brief for migrating a resource |
-| [**COMPATIBILITY.md**](COMPATIBILITY.md) | The frozen 1.x surface. What may not change until 3.0 |
-| [**API_SPEC.md**](API_SPEC.md) | The `api.lua` machine-readable contract |
-| [**BUILD_LOG.md**](BUILD_LOG.md) | Per-unit record: what changed, gate result, what went wrong |
-| [**cis_libstest/**](cis_libstest/README.md) | Integration harness. `/cistest` on a server, JSON report |
+| [**DOCUMENTATION.md**](DOCUMENTATION.md) | **Start here.** The integration guide — boundary model, every API function, recipes, and [Appendix A](DOCUMENTATION.md#appendix-a-brief-for-migrating-a-resource), a brief for migrating a resource |
+| [**COMPATIBILITY.md**](COMPATIBILITY.md) | The frozen 1.x surface. What may not change until 3.0, and the defects that are pinned rather than fixed |
+| [**cis_libstest**](https://github.com/SpecialStos/cis_libstest) | The integration harness, in its own repository. `/cistest` on a server, JSON report |
+
+The `api.lua` manifest and the `tools/validate-api.js` checker that keeps it
+honest are documented in `API_SPEC.md`, which moved to the project history
+along with the rest of the internal notes.
 
 ## Tests
 
 ```
 npm install
-npm test            # 290 assertions, no FiveM server needed
-npm run test:matrix # writes TEST_MATRIX.json covering every layer
+npm test            # 252 assertions, no FiveM server needed
+npm run test:all    # the above + the api contract self-test + the matrix
 ```
 
-The live integration suite needs a running server and a connected player. See
-[`cis_libstest/README.md`](cis_libstest/README.md).
+The pure suite covers `shared/` and the exports-boundary contract. Everything
+that touches a native is integration-tested by
+[cis_libstest](https://github.com/SpecialStos/cis_libstest), which needs a
+running server and a connected player.
 
 ## Three rules that will save you time
 
 1. **`exports['cis_libs']:Name(...)` — colon form only.** The bracket form
    `exports['cis_libs']['Name'](...)` shifts every argument one slot left and
-   raises nothing. This bug lived in this library itself.
+   raises nothing. This bug lived in this library itself. The *lookup*
+   `exports['cis_libs']['Name']` is unbound in exactly the same way, so passing
+   the table explicitly is the only safe dynamic equivalent.
 2. **A function can be handed back across the boundary, but not sent over.**
    Use the `*Event` options for every zone and proximity callback.
 3. **Never `shared_script` a stateful file.** `COMPATIBILITY.md` §10 lists the
    twelve files that hold process-global state.
 
 Each is explained, with the measurement behind it, in
-[MEMORY.md §3](MEMORY.md#3-the-architecture-that-must-survive).
+[DOCUMENTATION.md § How the boundary works](DOCUMENTATION.md#how-the-boundary-works).
 
 ## Support
 

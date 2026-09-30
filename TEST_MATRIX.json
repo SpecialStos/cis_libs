@@ -1,19 +1,19 @@
 {
-  "generatedAt": "2026-09-30T07:01:33.670Z",
+  "generatedAt": "2026-09-30T10:52:12.663Z",
   "generator": "tools/test-matrix.js",
   "purpose": "Every test case across every layer in one file. A \"not run\" layer is recorded explicitly so this file never implies coverage that does not exist.",
   "summary": {
-    "total": 391,
-    "passed": 387,
+    "total": 348,
+    "passed": 344,
     "failed": 0,
     "skipped": 4
   },
   "layers": {
     "unit": {
       "status": "ran",
-      "passed": 105,
+      "passed": 62,
       "failed": 0,
-      "total": 105,
+      "total": 62,
       "suite": "test/run.lua",
       "note": "shared/ modules; the grid is fuzzed against a brute-force reference"
     },
@@ -100,7 +100,7 @@
       "realm": "pure",
       "player": null,
       "durationMs": null,
-      "message": "105 passed, 0 failed",
+      "message": "62 passed, 0 failed",
       "detail": null,
       "values": {
         "suite": "test/run.lua",

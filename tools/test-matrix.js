@@ -38,7 +38,7 @@ const PURE_LAYERS = [
 function latestLiveReport() {
   const dirs = process.env.CIS_LIVE_REPORT
     ? [path.dirname(path.resolve(process.env.CIS_LIVE_REPORT))]
-    : [path.join(root, 'cis_libstest'), path.join(root, 'reports')]
+    : [path.join(root, 'reports')]
 
   const found = []
   for (const dir of dirs) {

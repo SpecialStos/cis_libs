@@ -20,9 +20,10 @@ too. A surface nobody calls is still a surface somebody may be about to call, an
 **Where the facts come from.** The export tables, the parameter lists and the
 net events below were extracted from source by `tools/lua-exports.js`, not
 transcribed from `DOCUMENTATION.md`. `npm run test:api` fails if the tables and
-the source ever disagree. Usage marks come from `MEMORY.md` §4.3. Behaviour
-comes from `MEMORY.md`. Known defects come from the contract test suite in
-`test/contracts.lua`, which pins them rather than fixing them.
+the source ever disagree. Usage marks come from a scan of the product source
+trees. Behaviour comes from measurement on a live server, not from reading the
+code. Known defects come from the contract test suite in `test/contracts.lua`,
+which pins them rather than fixing them.
 
 ---
 
@@ -175,7 +176,7 @@ products actually make are a *subset* of what is protected.
 
 `cis_BetterFightEvolved` and `cis_pacificBankRobbery` make **zero** calls, and
 the deployed `[standalone]/` copies of the other four show far less usage than
-the source copies. `MEMORY.md` §4.3 records that the deployed tree is stale
+The source copies record that the deployed tree is stale
 and the **source copies in `Desktop/ZCode/` are authoritative**. The freeze
 baseline is therefore taken from the source copies, and the deployed tree must
 be re-synced from source before the next release. No commit in this repository
@@ -214,7 +215,7 @@ Rules:
 `cis_min_libs`. It does carry `version "1.0.0"` in its manifest and `api = 1`,
 `schema = 0` in `api.lua`.
 
-The `api.lua` format is specified in `API_SPEC.md`. A consumer can read the
+The `api.lua` format is a single `return { ... }` of pure data. A consumer can read the
 platform's declared contract without starting it:
 
 ```lua
@@ -340,7 +341,7 @@ Reached with `exports['cis_libs']:Name(...)`. **91 distinct names**; sixteen are
 registered in both realms with different signatures.
 
 "Reached by" is the `Cis.*` proxy that wraps it, if any. "Called by production
-code" is from `MEMORY.md` §4.3, plus the deployed-copy calls recorded there.
+code" is from a scan of the product source trees.
 
 ### 6.1 Server — 52
 
@@ -711,8 +712,7 @@ covered.
 
 `server/player.lua` holds a `CisHistogram` store in a module local
 (`CisHistogram` itself is pure, the store is not) and is a thirteenth on the same
-rule; it is listed separately below for consistency with `MEMORY.md` §5.1,
-which counted twelve.
+rule; it is listed separately below because the original audit counted twelve.
 
 ### 10.1 Also stateful, found in this pass
 
@@ -803,7 +803,7 @@ Not shims. Listed so the 3.0 review does not have to rediscover them.
 1. Declare `deprecated = true` and an `['until']` in `api.lua`. The validator
    (`E011`, `E013`) refuses a deprecation with no destination or no end date.
 2. Ship at least one full major of coexistence with a call-site warning.
-3. Confirm no product depends on it — `MEMORY.md` §4.3 is the record, and it
+3. Confirm no product depends on it — the usage scan is the record, and it
    is only as current as the last source scan.
 4. Delete it and bump `api`. Consumers pinned to the prior major get the typed
    refusal from §3.1, not a silent wrong answer.
@@ -873,7 +873,7 @@ The client `Notify` export takes `(message, kind)`. A consumer calling
 the **message** and `nil` as the kind. The one-argument form works. The two
 branches disagree with each other, and the two-argument form is the broken one.
 
-`MEMORY.md` §4.3 records `Cis.framework.notify` as consumed by tcvs,
+A scan of the product sources records `Cis.framework.notify` as consumed by tcvs,
 storeRobberies and HawkEye and does not distinguish the arities, so the blast
 radius is unknown. `Pinned by`: *"client notify: DEFECT PINNED — the kind is sent
 in the message slot"*.
@@ -939,7 +939,8 @@ and must keep its current call shape.
 
 *An earlier revision of this section said the handler received zero arguments
 and that this was the highest-priority unmeasured item. It was measured, and
-that description was wrong. `MEMORY.md` §5.4 has the probe and the numbers.*
+that description was wrong; the probe and its numbers are in `BUILD_LOG.md` of
+the project history.*
 
 **Blast radius:** `cis_storeRobberies` calls `Cis.callback.register` but
 registers a **local** function, so no shipped product was affected. The path
@@ -947,7 +948,7 @@ had simply never worked for anyone.
 
 ### 13.4 `Security.AuthorizedResources` is read once
 
-`MEMORY.md` §5 records that "was read once and never rebuilt; it is now re-read
+An earlier draft recorded that it "was read once and never rebuilt; it is now re-read/
 on demand". In the current source `rebuildAuthorized()` is called **once**, at
 module load. Editing the list at runtime has no effect. Not changed: making it
 live is a behaviour change. The list is read fresh on every **restart**, which is
@@ -1014,12 +1015,12 @@ Stated so nobody infers more than is here.
 
 - **It freezes a working tree, not a release.** `git log` in this repository is
   four commits, all `v0.0.1` / `v0.1.0`; `fxmanifest.lua` declares `1.0.0` and 27
-  of 52 Lua files have never been committed. `MEMORY.md` §4.1 records that
+  of 52 Lua files have never been committed. The commit record shows that/
   the artifact the six products actually consume is **not in this tree**, so the
   real-world trustworthiness of the existing shims cannot be verified from here.
   This document is accurate about the code in this repository and about nothing
   outside it.
-- **Return-value shapes.** Documented in `DOCUMENTATION.md` and `MEMORY.md` §8,
+- **Return-value shapes.** Documented in `DOCUMENTATION.md`,
   not machine-checked here.
 - **The integration harness.** `cis_libstest` (89 tests across both realms) needs
   a live fxserver and is not run in CI. Everything touching a native is
