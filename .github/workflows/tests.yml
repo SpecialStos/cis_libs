@@ -77,20 +77,41 @@ jobs:
           echo "No hardcoded third-party version hosts found."
 
       - name: Lua syntax check
-        # FiveM backtick hashes (`` `WEAPON_UNARMED` ``) are not valid standard
-        # Lua, so those two files are checked for a parse error only, ignoring
-        # the hash-literal syntax error.
+        # WHY THIS STEP IS NOT A ONE-LINER
+        #
+        # FiveM's backtick hash literals (`` `WEAPON_UNARMED` ``) are valid in
+        # the Cfx Lua runtime and a syntax error to stock luac, so those files
+        # have to be recognised and skipped rather than failed.
+        #
+        # It was previously written as a `case` glob:
+        #
+        #     *"unexpected symbol near `'"*) echo "skip";;
+        #
+        # which is a BASH PARSE ERROR. The glob opens a double quote, and a
+        # backtick inside double quotes is command substitution -- so bash
+        # starts looking for a closing backtick, never finds one, and dies with
+        # "unexpected EOF" and exit code 2 BEFORE IT PARSES A SINGLE FILE.
+        #
+        # That is why every run in this repository's history was red and every
+        # run died on the same step, with no output to explain it. Nothing was
+        # ever checked.
+        #
+        # The identification below uses grep with SINGLE-quoted patterns, where
+        # a backtick is literal, and it requires BOTH that luac complained about
+        # an unexpected symbol AND that the file actually contains a backtick
+        # literal. A file with a genuine syntax error does not have one, so it
+        # is still reported -- the skip is narrow on purpose.
         run: |
           status=0
           while IFS= read -r f; do
-            if luac5.4 -p "$f" 2>/dev/null; then
+            if err=$(luac5.4 -p "$f" 2>&1); then
               :
+            elif printf '%s' "$err" | grep -qF 'unexpected symbol near'                  && grep -qE '`[^`]+`' "$f"; then
+              echo "skip (FiveM hash literal): $f"
             else
-              err=$(luac5.4 -p "$f" 2>&1 || true)
-              case "$err" in
-                *"unexpected symbol near `'"*) echo "skip (FiveM hash literal): $f" ;;
-                *) echo "SYNTAX ERROR: $f"; echo "$err"; status=1 ;;
-              esac
+              echo "SYNTAX ERROR: $f"
+              echo "$err"
+              status=1
             fi
           done < <(find . -name '*.lua' -not -path './node_modules/*')
           exit $status
