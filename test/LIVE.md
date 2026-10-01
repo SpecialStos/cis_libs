@@ -205,6 +205,74 @@ is correct for this server.
 
 ---
 
+## U1 — ANSWERED. Functions DO cross the exports boundary.
+
+The audit asked this as an open question ("unverified", § Features U1): do
+function arguments survive the exports boundary as funcrefs? If they do, the
+`type(x) == 'function'` checks reject working callables and DOCUMENTATION §3.2 is
+wrong.
+
+**Answer: they do, and they work.**
+
+Measured with a purpose-built probe resource (`cis_u1probe`, still on the server
+under `[standalone]`) that exports a receiver and calls its own export passing a
+function. Measured, not inferred:
+
+```
+function argument: type=table  tostring=table: 0b8ab04fbe3a362d
+function argument: rawget __cfx_functionReference = cis_u1probe:16687:2 (type string)
+function argument: cis_libs isCallableRef would say: true
+function argument: CALLING the value -> ok=true res=I am a function that crossed
+
+FUNCTION ARG: plain index ok=true  res=cis_u1probe:16687:2
+FUNCTION ARG: rawget      ok=true  res=cis_u1probe:16687:2
+```
+
+So a function argument arrives as:
+
+* `type(v) == 'table'`, **not** `'function'`;
+* carrying `__cfx_functionReference`, a string like `cis_u1probe:16687:2`;
+* **fully callable** — `v()` returned "I am a function that crossed".
+
+It is *not* indexable for arbitrary fields: `v.probe` raises
+`Cannot index a funcref`. That is a property of the funcref, not a broken
+callable.
+
+A table argument crosses completely intact, function fields included — the
+control `{ probe = fn, tag = 'control' }` arrived with `probe()` still callable.
+
+### What this means
+
+**DOCUMENTATION §3.2 is wrong.** It currently says "A function can be handed
+back, but not sent", and shows `Cis.zones.box('shop', centre, size,
+{ onEnter = function() ... end })` as NEVER WORKING because "onEnter arrives nil
+and silently never fires". That is not what this runtime does. A function passes
+through, in a direct argument and inside a table.
+
+**The library is right, and was already right.** `server/security.lua:471`,
+`server/callback.lua:33` and `client/callback.lua:33` each accept both a bare
+function and a callable reference table — and the probe confirms
+`isCallableRef` returns true for a real crossed function. The audit's worry is
+already mitigated, and the comments saying "Measured: a function RETURNED from an
+export arrives as a callable reference table" describe exactly what was observed.
+
+A hypothesis that this run **disproved**, worth recording so nobody re-raises it:
+`security.lua` spells the predicate `rawget(v, '__cfx_functionReference')` while
+both `callback.lua` files spell it `v.__cfx_functionReference`, and the security
+comment warns "both must agree or a handler registered one way is refused the
+other". Since a funcref raises `Cannot index a funcref` on an absent field, plain
+indexing looked like it would break. It does not: `__cfx_functionReference` is a
+field the funcref actually provides, and plain index and `rawget` return the same
+string. The two spellings agree on a real server.
+
+**Caveat, stated rather than glossed:** the probe resource called its OWN export.
+Cross-RESOURCE behaviour may differ, and the specific path §3.2 documents — an
+`onEnter` inside an options table going through `init.lua`'s proxy — is still not
+directly verified, because that needs a second resource with a real zone on it.
+What is established is the mechanism; what remains is one call site.
+
+---
+
 ## Not covered by this run
 
 The definition of done asks for more than this run achieved. Explicitly **not**
@@ -215,8 +283,8 @@ verified:
   need real entities in a real world — and it was **not** exercised. It needs two
   players connected.
 * Zones, and callbacks in both directions, as observable behaviour.
-* U1 — do function arguments survive the exports boundary as funcrefs? Not
-  answered; it needs a two-resource, in-game test.
+* U1 — ANSWERED, see above. The specific `onEnter`-in-an-options-table
+  path through init.lua is still unverified: that needs a second resource.
 * A restart of each consumer while connected (the leak check). `cis_libs` was
   restarted and the server restarted, but with 0 players, so no per-consumer
   owned-record teardown was observed.
