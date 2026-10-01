@@ -81,6 +81,8 @@ end
 --- opts.integer       require no fractional part
 --- opts.name          used in the reason; defaults to 'value'
 ---
+---@param v
+---@param opts
 --- @return `true`, or `false, reason`. nil is reported as MISSING rather than
 ---   as the wrong type -- for a config field those are different mistakes.
 function CisValidate.number(v, opts)
@@ -130,6 +132,8 @@ end
 --- opts.ignoreCase     compare oneOf case-insensitively and keep the given casing
 --- opts.name           used in the reason
 ---
+---@param v
+---@param opts
 --- @return `true`, or `false, reason`.
 function CisValidate.string(v, opts)
     opts = opts or {}
@@ -338,6 +342,9 @@ end
 ---   of         a nested spec applied to every entry of an array or map
 ---   fields     a nested spec table, for type = 'table'
 ---
+---@param value
+---@param spec
+---@param path
 --- @return `true`, or `false, reason` where reason carries the full path.
 function CisValidate.field(value, spec, path)
     path = path or nameOf(spec)
@@ -437,6 +444,9 @@ end
 --- `opts.path` prefixes every reason, so a nested schema reports
 --- 'Config.Doorlock.Enabled ...' rather than 'Enabled ...'.
 ---
+---@param value
+---@param schema
+---@param opts
 --- @return `true` when everything matches, or `false, errors` where `errors` is
 ---   a list of strings, one per problem, in no particular order (pairs order).
 ---   Use it as `if not ok then for _, e in ipairs(errors) do print(e) end end`.
@@ -547,6 +557,8 @@ end
 --- an absent key) takes the default -- a boolean config that always reverts
 --- because `x = nil` was written instead of `x = false` is a classic.
 ---
+---@param value
+---@param schema
 --- @return the filled table, or `nil, reason` for a non-table value or schema.
 function CisValidate.defaults(value, schema)
     if type(value) ~= 'table' then
@@ -576,6 +588,9 @@ end
 --- value you have to accept whatever it is -- a wheel spin, a coordinate --
 --- where refusing would drop the input entirely.
 ---
+---@param v
+---@param min
+---@param max
 --- @return the clamped number, or `nil, reason` for a non-number, a NaN, or an
 ---   inverted range. An inverted range is refused rather than silently
 ---   swapped: min=5, max=1 is a caller's bug and the swap would hide it.

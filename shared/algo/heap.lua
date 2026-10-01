@@ -87,6 +87,8 @@ local function sift(h, index)
 end
 
 --- Add a value.
+---@param h
+---@param value
 --- @return number  the new size
 function CisHeap.push(h, value)
     local n = h.size + 1
@@ -107,6 +109,7 @@ function CisHeap.push(h, value)
 end
 
 --- Remove and return the minimum.
+---@param h
 --- @return any  nil when the heap is empty. "Empty" has to be representable
 ---         because a work queue drains, and a sentinel value here would be a
 ---         value the caller has to check for anyway.
@@ -129,6 +132,7 @@ function CisHeap.pop(h)
 end
 
 --- The minimum, without removing it. O(1).
+---@param h
 --- @return any  nil when empty
 function CisHeap.peek(h)
     if h.size < 1 then
@@ -145,6 +149,8 @@ end
 --- later. That is the difference between an A* that is correct and one that is
 --- correct only if you remember to check for duplicates on pop.
 ---
+---@param h
+---@param value
 --- @return any  the new minimum; nil when the heap was empty, in which case
 ---         nothing was changed
 function CisHeap.replaceTop(h, value)
@@ -165,6 +171,8 @@ end
 --- means the value has to be a node object the heap tracks, which changes what
 --- the heap can hold. Honest cost, stated rather than hidden: this is the price
 --- of the O(log n) push.
+---@param h
+---@param value
 --- @return boolean  whether the value was found and removed
 function CisHeap.remove(h, value)
     local items = h.items
@@ -203,12 +211,14 @@ function CisHeap.remove(h, value)
 end
 
 --- How many values are queued. O(1).
+---@param h
 --- @return number
 function CisHeap.size(h)
     return h.size
 end
 
 --- Is the heap empty?
+---@param h
 --- @return boolean
 function CisHeap.isEmpty(h)
     return h.size < 1
@@ -223,6 +233,7 @@ function CisHeap.clear(h)
 end
 
 --- Pop everything into a sorted array, cheapest element first.
+---@param h
 --- @return table  a NEW array; the heap is left empty
 function CisHeap.drain(h)
     local out = {}
@@ -298,6 +309,9 @@ function CisHeap.newQueue()
 end
 
 --- Add a value at a priority. Lower sorts first.
+---@param q
+---@param value
+---@param priority
 --- @return number  the new size
 function CisHeap.enqueue(q, value, priority)
     if type(priority) ~= 'number' or priority ~= priority then
@@ -308,6 +322,7 @@ function CisHeap.enqueue(q, value, priority)
 end
 
 --- Remove and return the highest-priority (lowest number) value.
+---@param q
 --- @return any  nil when the queue is empty
 function CisHeap.dequeue(q)
     local entry = CisHeap.pop(q)
@@ -318,6 +333,7 @@ function CisHeap.dequeue(q)
 end
 
 --- The next value without removing it.
+---@param q
 --- @return any  nil when empty
 function CisHeap.peekQueue(q)
     local entry = CisHeap.peek(q)

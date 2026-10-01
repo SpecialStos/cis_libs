@@ -419,6 +419,9 @@ end
 --- 0 for a non-number bound, which is indistinguishable from a real draw at the
 --- bottom of the range.
 ---
+---@param min
+---@param max
+---@param rng
 --- @return number
 --- @return number|nil,string  `nil, reason` when a bound is NaN or infinite
 --- @raise  when a bound is not a number
@@ -460,6 +463,8 @@ function CisRandom.shuffle(list, rng)
 end
 
 --- One uniformly random element of a list.
+---@param list
+---@param rng
 --- @return any  nil for an empty or non-table list -- "no element" has to be
 ---         representable, and a caller indexing result[1] on nil is a caller
 ---         bug that should surface at the caller
@@ -627,6 +632,8 @@ end
 --- treated as "always pick this one" and the first such index is returned. See
 --- `weighted`, which says the same thing at more length.
 ---
+---@param weights
+---@param rng
 --- @return number|nil  1-based index, or nil when the total weight is 0
 function CisRandom.weightedIndex(weights, rng)
     if type(weights) ~= 'table' then

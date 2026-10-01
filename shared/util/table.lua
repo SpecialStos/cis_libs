@@ -41,6 +41,8 @@ CisTable = {
 --- a table is its address: unique within a run, NOT stable between runs. Do
 --- not depend on the position of a table key across a restart.
 ---
+---@param a
+---@param b
 --- @return -1 if a < b, 0 if they compare equal, 1 if a > b.
 function CisTable.compareKeys(a, b)
     local ta, tb = type(a), type(b)
@@ -225,6 +227,8 @@ end
 --- A cycle does not inflate this: a table already seen contributes nothing
 --- further, so `t.self = t` is depth 2, not infinity.
 ---
+---@param t
+---@param maxDepth
 --- @return a number >= 1, or 0 for a non-table.
 function CisTable.depth(t, maxDepth)
     if type(t) ~= 'table' then
@@ -266,6 +270,8 @@ end
 --- the C stack down inside the recursive copy. Without this, deepCopyStrict
 --- would catch the infinite case and let the merely-enormous one through.
 ---
+---@param value
+---@param opts
 --- @return the copy, or `nil, reason`. The cycle reason names the path that
 ---   closed it, e.g. 'cycle through a.b.c'.
 function CisTable.deepCopyStrict(value, opts)
@@ -392,6 +398,8 @@ end
 --- tables can differ, and any caller that builds a cache key or a signature
 --- out of it gets a different answer for the same value.
 ---
+---@param t
+---@param comparator
 --- @return array of keys. `{}` in, `{}` out; nil in, nil out.
 function CisTable.keys(t, comparator)
     if type(t) ~= 'table' then
@@ -471,6 +479,8 @@ end
 
 --- First value whose `predicate(value, key)` is truthy.
 ---
+---@param t
+---@param predicate
 --- @return the value, or nil. A nil table or an empty table is nil, not an
 ---   error. There is no second return value: "not found" and "found a nil" are
 ---   the same answer and there is nothing useful to say about either.
@@ -494,6 +504,8 @@ end
 --- both, and comes back as the empty table. This is the property that makes the
 --- result safe to hand straight to something that indexes it with `t[1]`.
 ---
+---@param t
+---@param predicate
 --- @return the new table, or `nil, reason` when `predicate` is not a function.
 function CisTable.filter(t, predicate)
     if type(t) ~= 'table' then
@@ -537,6 +549,9 @@ end
 --- allocation-free option here and the one to use on a per-frame path.
 --- opts.out overrides the shape: 'array' forces a list, 'map' forces a map.
 ---
+---@param t
+---@param fn
+---@param opts
 --- @return the new table, or `nil, reason` when `fn` is not a function.
 function CisTable.map(t, fn, opts)
     if type(t) ~= 'table' then
@@ -588,6 +603,9 @@ end
 --- A MAP with no `initial` REFUSES, because "the first key" of a map is not a
 --- thing, and seeding from one would make the result depend on hash order.
 ---
+---@param t
+---@param fn
+---@param initial
 --- @return the accumulator, or `nil, reason`.
 function CisTable.reduce(t, fn, initial)
     if type(t) ~= 'table' then
@@ -719,6 +737,10 @@ CisTable.POLICY = {
 --- keys inside one input that share a table do NOT stay shared in the result;
 --- the copy is structural, not a graph clone.
 ---
+---@param base
+---@param overlay
+---@param policy
+---@param opts
 --- @return the merged table, or `nil, reason` -- a bad policy, a cycle in
 ---   either input, or a conflicting key under the ERROR policy.
 function CisTable.deepMerge(base, overlay, policy, opts)

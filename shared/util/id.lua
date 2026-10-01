@@ -238,6 +238,8 @@ end
 --- is a module local on purpose and changing it is out of scope for a pure
 --- utility file.
 ---
+---@param counter
+---@param kind
 --- @return the id, or `nil, reason` when the counter is not a counter. There is
 ---   no rollback: a call that consumed a value and then refused has left a gap,
 ---   which is harmless and far better than reusing a value.

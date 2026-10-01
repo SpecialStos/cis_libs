@@ -105,6 +105,11 @@ end
 --- curve -- you cannot place a waypoint at a Bezier control point and have the
 --- route go through it, which is the one thing a waypoint list must do.
 ---
+---@param p0
+---@param p1
+---@param m0
+---@param m1
+---@param t
 --- @return number, number, number  x, y, z
 function CisCurve.hermite(p0, p1, m0, m1, t)
     local t2 = t * t
@@ -328,6 +333,7 @@ function CisCurve.newPath(points, opts)
 end
 
 --- Number of control points, or 0 for a path built from nothing.
+---@param path
 --- @return number
 function CisCurve.count(path)
     if type(path) ~= 'table' then
@@ -339,6 +345,7 @@ end
 --- Total arc length of the path in metres, measured along the CURVE and not
 --- along the straight chords between waypoints. The two differ by a few
 --- percent on a curvy route, and it is the curve that a vehicle drives.
+---@param path
 --- @return number  0 for a path with fewer than two points
 function CisCurve.length(path)
     if type(path) ~= 'table' then
@@ -467,6 +474,9 @@ end
 --- pointAt, not a separate parameterisation: it maps through arc length, so
 --- even t += speed*dt is constant speed. Use pointAt with a real distance when
 --- the caller is integrating a speed.
+---@param path
+---@param t
+---@param out
 --- @return table|nil
 function CisCurve.pointAtT(path, t, out)
     local length = CisCurve.length(path)
@@ -484,6 +494,8 @@ end
 --- and needs no extra per-segment storage. The offset is a fraction of the
 --- segment sample spacing, so the cost is the same at every path size.
 ---
+---@param path
+---@param distance
 --- @return number, number, number  x, y, z -- all zero for a degenerate path
 ---         or a point where the path doubles back on itself
 function CisCurve.tangentAtXYZ(path, distance)

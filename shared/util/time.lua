@@ -140,6 +140,8 @@ end
 --- opts.sep       the joiner (default ' ')
 --- opts.always    '0s' for zero instead of '' (the default; pass false for '')
 ---
+---@param seconds
+---@param opts
 --- @return a string. A non-numeric input is '0s', not an error: this is a
 ---   formatter, and a formatter that refuses to format is not one.
 function CisTime.formatDuration(seconds, opts)
@@ -204,6 +206,7 @@ end
 --- over, which would turn a typo into a silently wrong duration -- exactly the
 --- kind of wrong answer that ends up as a ban that expires in 5 seconds.
 ---
+---@param text
 --- @return the number of seconds, or `nil, reason` naming the offending piece.
 function CisTime.parseDuration(text)
     if type(text) == 'number' then
@@ -279,6 +282,9 @@ end
 --- opts.future   'in %s' (default), or 'in ' .. nil -- pass false for 'after %s'
 --- opts.past     '%s ago' (default)
 ---
+---@param timestamp
+---@param now
+---@param opts
 --- @return a string. nil in gives 'unknown', because "this thing has no
 ---   timestamp" and "this thing happened just now" must not look alike.
 function CisTime.relative(timestamp, now, opts)
@@ -338,6 +344,8 @@ end
 --- zero. Clamping here would make a scheduled-but-not-yet-fired task look like
 --- it just fired, which is the bug this function exists to make visible.
 ---
+---@param now
+---@param since
 --- @return a number, or 0 when either argument is not a number. Compare the
 ---   argument types yourself if a missing timestamp is worth distinguishing.
 function CisTime.elapsed(now, since)
@@ -366,6 +374,8 @@ end
 --- reading only the doc would get wrong. `roundTo(90, 60) == 120` is pinned in
 --- test/modules.lua so the doc cannot drift back.
 ---
+---@param seconds
+---@param unit
 --- @return SECONDS, rounded to a whole multiple of `unit`. Ties go UP (30s to a
 ---   60s unit is 60, not 0), which is the conservative direction for a rate
 ---   limit and the documented one rather than whatever a float landed on.

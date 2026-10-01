@@ -109,6 +109,7 @@ end
 --- shares a reset point. For a single-client limit that is a fair trade; for a
 --- "how many events per second is this SERVER sending" metric it is not, and
 --- the default is right.
+---@param opts
 --- @return table  the limiter
 function CisRate.newFixed(opts)
     opts = opts or {}
@@ -196,6 +197,7 @@ end
 --- `current` becomes `previous` and progress is 0 -- the same number. That
 --- continuity is the entire point of this structure; the fixed window's
 --- estimate is discontinuous at its boundary, which is its bug.
+---@param opts
 --- @return table  the limiter
 function CisRate.newSliding(opts)
     opts = opts or {}
@@ -350,6 +352,7 @@ end
 --- connected is not a flooder, and making them wait `capacity / refillPerSec`
 --- seconds before their first action is a bug that gets reported as "the first
 --- command after joining does nothing".
+---@param opts
 --- @return table  the limiter
 function CisRate.newTokenBucket(opts)
     opts = opts or {}
@@ -442,6 +445,9 @@ end
 --- instead of silently dropping the event. It refills the bucket as a side
 --- effect -- the same side effect `allow` has -- but spends nothing.
 ---
+---@param r
+---@param key
+---@param now
 --- @return table  { allowed, remaining, limit, retryAfter, resetAt }
 ---         `remaining` is how many more of the same cost fit right now
 ---         `retryAfter` is seconds until one more fits; 0 when it already does
@@ -572,6 +578,7 @@ end
 
 --- How many keys the limiter is tracking, including fully restored ones that
 --- have not been pruned.
+---@param r
 --- @return number
 function CisRate.count(r)
     return r.size

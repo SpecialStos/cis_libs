@@ -105,6 +105,7 @@ function CisWindow.push(w, value, time)
 end
 
 --- Remove and return the OLDEST value.
+---@param w
 --- @return any, any  value, time -- nil, nil when the ring is empty
 function CisWindow.pop(w)
     if w.size < 1 then
@@ -123,6 +124,7 @@ function CisWindow.pop(w)
 end
 
 --- The newest value without removing it.
+---@param w
 --- @return any, any  value, time; nil, nil when empty
 function CisWindow.newest(w)
     if w.size < 1 then
@@ -133,6 +135,7 @@ function CisWindow.newest(w)
 end
 
 --- The oldest value without removing it.
+---@param w
 --- @return any, any  value, time; nil, nil when empty
 function CisWindow.oldest(w)
     if w.size < 1 then
@@ -145,6 +148,8 @@ end
 ---
 --- The visitor must not push or pop: both move the write cursor and the walk
 --- is standing on it. Same rule and the same reasoning as CisLRU.each.
+---@param w
+---@param fn
 --- @return number  how many entries were visited
 function CisWindow.each(w, fn)
     if type(fn) ~= 'function' then
@@ -206,6 +211,9 @@ end
 
 --- Would this key be ACCEPTED right now? Records the hit.
 ---
+---@param d
+---@param key
+---@param now
 --- @return boolean  true the first time a key is seen and again once its
 ---         window has expired; false while it is still inside the window.
 ---
@@ -240,6 +248,9 @@ end
 --- The read that must not count as a hit, for the same reason CisLRU.peek
 --- exists: a caller polling "may I play this sound" would otherwise extend the
 --- window on every poll and the sound would never play.
+---@param d
+---@param key
+---@param now
 --- @return boolean
 function CisWindow.isSeen(d, key, now)
     local last = d.entries[key]
@@ -267,6 +278,8 @@ end
 --- are right with or without it. It has to be called periodically or a dedupe
 --- keyed by entity handle or player id grows for the lifetime of the process;
 --- a chat-message dedupe keyed by a string should never call it at all.
+---@param d
+---@param now
 --- @return number  how many keys were reclaimed
 function CisWindow.prune(d, now)
     local removed = 0
@@ -281,6 +294,7 @@ function CisWindow.prune(d, now)
 end
 
 --- How many keys are being tracked, including expired ones not yet pruned.
+---@param d
 --- @return number
 function CisWindow.dedupeCount(d)
     return d.size
@@ -468,6 +482,9 @@ end
 
 --- Read a key's window.
 ---
+---@param stats
+---@param key
+---@param now
 --- @return table|nil  { count, sum, mean, min, max, last }, or nil when the key
 ---         has no live sample. `last` is the exact time of the most recent
 ---         sample still inside the window, so "how long since this player last
@@ -522,6 +539,9 @@ end
 --- know which one they were being handed. For a rate limit this is the one that
 --- matters, so the function stays and the name moves.
 ---
+---@param stats
+---@param key
+---@param now
 --- @return number
 function CisWindow.samples(stats, key, now)
     local entry = stats.entries[key]
@@ -573,6 +593,8 @@ end
 --- Same rule as the dedupe sweep: memory hygiene, not correctness -- every
 --- answer above is right with or without it. Call it on a timer, never per
 --- event, because it is O(keys * bucketCount).
+---@param stats
+---@param now
 --- @return number  how many keys were reclaimed
 function CisWindow.pruneStats(stats, now)
     if type(now) ~= 'number' or now ~= now then

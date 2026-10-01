@@ -114,6 +114,8 @@ local function sweepSlots(set)
 end
 
 --- Add a value.
+---@param set
+---@param value
 --- @return boolean  true when the value was not already present. The return is
 ---         what lets a caller use the set as a "is this new" filter:
 ---         `if CisSparse.add(set, id) then onFirstSight(id) end`
@@ -140,6 +142,8 @@ function CisSparse.add(set, value)
 end
 
 --- Is a value present?
+---@param set
+---@param value
 --- @return boolean
 function CisSparse.has(set, value)
     local slot = set.slots[value]
@@ -150,6 +154,8 @@ function CisSparse.has(set, value)
 end
 
 --- Remove a value.
+---@param set
+---@param value
 --- @return boolean  whether it was there to remove
 function CisSparse.remove(set, value)
     local slot = set.slots[value]
@@ -186,6 +192,8 @@ end
 --- the last element into the hole. That is a feature of the structure, not a
 -- bug: a caller that needs a deterministic order across removals wants a
 --- sorted list, not a set.
+---@param set
+---@param index
 --- @return any  nil when `index` is out of range
 function CisSparse.at(set, index)
     if type(index) ~= 'number' or index < 1 or index > set.size then
@@ -198,6 +206,8 @@ end
 ---
 --- The walk touches exactly `size` entries, never more. It is not a `pairs()`
 --- over the slots, which is the entire reason the dense array exists.
+---@param set
+---@param fn
 --- @return number  how many values were visited
 function CisSparse.each(set, fn)
     if type(fn) ~= 'function' then
@@ -220,6 +230,7 @@ end
 --- the caller the live table would expose them. The copy is O(size), which is
 --- the point: after this the caller can iterate with pairs(), sort, serialise,
 --- or anything else without a snapshot being taken mid-change.
+---@param set
 --- @return table
 function CisSparse.toArray(set)
     local out = {}
@@ -266,12 +277,14 @@ function CisSparse.clear(set, hard)
 end
 
 --- How many values are in the set. O(1).
+---@param set
 --- @return number
 function CisSparse.count(set)
     return set.size
 end
 
 --- Is the set empty?
+---@param set
 --- @return boolean
 function CisSparse.isEmpty(set)
     return set.size < 1
@@ -284,6 +297,7 @@ end
 --- It is BOUNDED now. It used to grow one entry per add for the life of the
 --- process while `count()` reported 0, which is the shape of a leak the API
 --- actively hides. See SWEEP_FLOOR for why the sweep is not in clear().
+---@param set
 --- @return number
 function CisSparse.staleCount(set)
     -- Counting is O(slots) and defeats the purpose of the structure, so this

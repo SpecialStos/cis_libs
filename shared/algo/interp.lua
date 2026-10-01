@@ -218,6 +218,7 @@ end
 
 --- Does `name` exist in the easing table? Use it to validate a config value at
 --- load time rather than discovering a typo when a door does not animate.
+---@param name
 --- @return boolean
 function CisInterp.hasEase(name)
     return type(name) == 'string' and CisInterp.EASINGS[name] ~= nil
@@ -245,6 +246,9 @@ end
 --- Constrain `v` to [lo, hi]. A reversed range (lo > hi) returns hi rather than
 --- erroring, because the caller got the arguments the wrong way round and
 --- returning something usable beats a stack trace in a render loop.
+---@param v
+---@param lo
+---@param hi
 --- @return number
 --- Constrain `v` to [lo, hi].
 ---
@@ -284,6 +288,7 @@ function CisInterp.clamp(v, lo, hi)
 end
 
 --- Constrain `v` to [0, 1].
+---@param v
 --- @return number
 function CisInterp.clamp01(v)
     if v < 0 then return 0 end
@@ -292,6 +297,7 @@ function CisInterp.clamp01(v)
 end
 
 --- -1, 0 or 1 by sign. Returns 0 for 0 rather than raising.
+---@param v
 --- @return number
 function CisInterp.sign(v)
     if v > 0 then return 1 end
@@ -307,12 +313,18 @@ end
 --- first form is exact at t = 0 and t = 1 -- it returns `a` and `b` bit for bit
 --- -- and does not lose precision when a and b are large and close, which they
 --- are for world coordinates in the tens of thousands.
+---@param a
+---@param b
+---@param t
 --- @return number
 function CisInterp.lerp(a, b, t)
     return a + (b - a) * t
 end
 
 --- lerp with t clamped to [0, 1].
+---@param a
+---@param b
+---@param t
 --- @return number
 function CisInterp.lerpClamped(a, b, t)
     return a + (b - a) * CisInterp.clamp01(t)
@@ -321,6 +333,9 @@ end
 --- Where `v` sits between `a` and `b`, as a fraction. Returns 0 for a == b
 --- rather than 0/0: a zero-length range has no meaningful position and 0 is
 --- the safe answer for the callers that multiply the result by a length.
+---@param a
+---@param b
+---@param v
 --- @return number
 function CisInterp.inverseLerp(a, b, v)
     if a == b then
@@ -350,6 +365,9 @@ end
 --- so -1 %% 4 is -1, not 3. Adding min back after a double wrap fixes it, and
 --- is why this is a function and not a one-liner in every call site.
 --- A zero or negative range returns `min`.
+---@param v
+---@param min
+---@param max
 --- @return number
 function CisInterp.wrap(v, min, max)
     local range = max - min
@@ -363,6 +381,9 @@ end
 --- and eased in between (zero first AND second derivative at both ends, so a
 --- value crossing an edge does not visibly kink). Reversed edges are handled:
 --- a > b still returns 0 for v == a.
+---@param edge0
+---@param edge1
+---@param x
 --- @return number
 function CisInterp.smoothstep(edge0, edge1, x)
     if edge0 == edge1 then
@@ -377,6 +398,9 @@ end
 --- want when a value can cross an edge repeatedly (a falloff that is C1 has a
 --- visible change of acceleration at the boundary when driven by a moving
 --- entity). Use smoothstep unless you have a specific reason.
+---@param edge0
+---@param edge1
+---@param x
 --- @return number
 function CisInterp.smootherstep(edge0, edge1, x)
     if edge0 == edge1 then
@@ -396,6 +420,9 @@ end
 --- A negative maxDelta is treated as 0, i.e. "do not move". Without that, a
 --- negated cap moves the value AWAY from its target, which is never what a
 --- caller means and is a very confusing thing to debug.
+---@param current
+---@param target
+---@param maxDelta
 --- @return number
 function CisInterp.moveTowards(current, target, maxDelta)
     if maxDelta < 0 then
@@ -438,6 +465,10 @@ end
 
 --- damp() around a circle: takes the short way round. `damp` from 170 to -170
 --- would travel 340 degrees; this travels 20.
+---@param current
+---@param target
+---@param smoothTime
+---@param dt
 --- @return number radians in [-pi, pi)
 function CisInterp.dampAngle(current, target, smoothTime, dt)
     local delta = CisInterp.wrapAngle(target - current)
@@ -460,6 +491,12 @@ end
 --- unconditionally stable for any dt -- a naive spring integrator explodes when
 --- dt * omega > 2, which happens on the first frame after a hitch.
 ---
+---@param current
+---@param target
+---@param velocity
+---@param smoothTime
+---@param maxSpeed
+---@param dt
 --- @return number value    the new value
 --- @return number velocity the new velocity, in units per second -- PASS THIS
 ---         BACK IN on the next call or the spring has no memory and behaves
@@ -508,12 +545,14 @@ end
 
 --- Wrap radians into [-pi, pi). The interval is half-open on the left: -pi and
 --- pi are the same direction and this returns -pi for both.
+---@param rad
 --- @return number
 function CisInterp.wrapAngle(rad)
     return CisInterp.wrap(rad, -math.pi, math.pi)
 end
 
 --- Wrap radians into [0, 2*pi).
+---@param rad
 --- @return number
 function CisInterp.wrapAnglePositive(rad)
     return CisInterp.wrap(rad, 0, TAU)
@@ -521,6 +560,7 @@ end
 
 --- Wrap degrees into [0, 360). This is the GTA heading convention and the one
 --- SetEntityHeading and GetEntityHeading speak.
+---@param deg
 --- @return number
 function CisInterp.wrapDegrees(deg)
     return CisInterp.wrap(deg, 0, 360)
@@ -530,6 +570,8 @@ end
 --- Positive means counter-clockwise in maths terms, which is CLOCKWISE on a
 --- GTA map (y is inverted). Read it as "which way and how far", not "which
 --- compass direction".
+---@param a
+---@param b
 --- @return number
 function CisInterp.angleDelta(a, b)
     return CisInterp.wrapAngle(b - a)
@@ -537,6 +579,8 @@ end
 
 --- Signed shortest rotation from heading `a` to heading `b`, in degrees.
 --- Use this for anything that goes into or comes out of a heading native.
+---@param a
+---@param b
 --- @return number
 function CisInterp.headingDelta(a, b)
     return CisInterp.wrapDegrees(b - a)
@@ -544,6 +588,9 @@ end
 
 --- Interpolate a heading the short way round. t is not clamped, so t > 1
 --- overshoots past `b`, which is what a spin does.
+---@param a
+---@param b
+---@param t
 --- @return number degrees, in [0, 360)
 function CisInterp.lerpHeading(a, b, t)
     return CisInterp.wrapDegrees(a + CisInterp.headingDelta(a, b) * t)
@@ -556,6 +603,7 @@ end
 --- Getting this backwards produces a vehicle that turns the opposite way from
 --- the way the driver is steering, which is a genuinely hard bug to see.
 ---
+---@param headingDeg
 --- @return number, number  x, y
 function CisInterp.headingToVector(headingDeg)
     local rad = headingDeg * RAD
@@ -570,6 +618,8 @@ end
 --- in Lua 5.1 and REMOVED in 5.3, so a file that calls it parses everywhere and
 --- runs nowhere this repository actually runs; the two-argument form is the
 --- portable spelling and is present in LuaJIT, 5.3 and 5.4 alike.
+---@param x
+---@param y
 --- @return number
 function CisInterp.vectorToHeading(x, y)
     if x == 0 and y == 0 then
@@ -602,6 +652,10 @@ end
 --- Horizontal distance between two points. z is ignored on purpose: almost
 --- every "how far is that player" question in this repo is about the ground
 --- plane, and a player on a roof should still be 3m away, not 30m.
+---@param ax
+---@param ay
+---@param bx
+---@param by
 --- @return number
 function CisInterp.dist2(ax, ay, bx, by)
     local dx, dy = bx - ax, by - ay
@@ -609,6 +663,12 @@ function CisInterp.dist2(ax, ay, bx, by)
 end
 
 --- Full 3D distance between two points.
+---@param ax
+---@param ay
+---@param az
+---@param bx
+---@param by
+---@param bz
 --- @return number
 function CisInterp.dist3(ax, ay, az, bx, by, bz)
     local dx, dy, dz = bx - ax, by - ay, (bz or 0) - (az or 0)
@@ -616,6 +676,8 @@ function CisInterp.dist3(ax, ay, az, bx, by, bz)
 end
 
 --- Horizontal distance between two point tables.
+---@param a
+---@param b
 --- @return number  0 when either point is not a usable table
 function CisInterp.distance2D(a, b)
     local ax, ay = xyz(a)
@@ -626,6 +688,8 @@ function CisInterp.distance2D(a, b)
 end
 
 --- Full distance between two point tables.
+---@param a
+---@param b
 --- @return number  0 when either point is not a usable table
 function CisInterp.distance3D(a, b)
     local ax, ay, az = xyz(a)
@@ -638,6 +702,9 @@ end
 --- Move a point toward a target by at most `maxDelta` METRES. Constant speed,
 --- frame-rate independent because the cap is a distance per second, not a
 --- fraction of the gap. A negative maxDelta is treated as 0 (stay put).
+---@param current
+---@param target
+---@param maxDelta
 --- @return table  { x, y, z }
 function CisInterp.moveTowardsVec3(current, target, maxDelta)
     local cx, cy, cz = xyz(current)
@@ -716,6 +783,9 @@ end
 --- a clamped direction.
 ---
 --- A zero-length vector is returned unchanged rather than divided by zero.
+---@param v
+---@param maxLength
+---@param out
 --- @return table  { x, y, z }
 function CisInterp.clampLength(v, maxLength, out)
     local x, y, z = xyz(v)
@@ -738,6 +808,8 @@ end
 --- Unit-length copy of a direction vector. The zero vector is returned as the
 --- zero vector: there is no direction, and pretending otherwise produces NaN
 --- that then spreads through a particle system.
+---@param v
+---@param out
 --- @return table  { x, y, z }
 function CisInterp.normalize(v, out)
     local x, y, z = xyz(v)

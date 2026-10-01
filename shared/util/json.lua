@@ -46,6 +46,7 @@ CisJson = {
 
 --- Check that a value is shaped like a usable codec.
 ---
+---@param codec
 --- @return the codec, or `nil, reason` naming what is missing.
 function CisJson.check(codec)
     if type(codec) ~= 'table' and type(codec) ~= 'userdata' then
@@ -62,6 +63,7 @@ end
 
 --- Bind the functions to one codec, so a hot path does not pass it every call.
 ---
+---@param codec
 --- @return a table of the same three functions with the codec captured, or
 ---   `nil, reason` from check().
 function CisJson.bind(codec)
@@ -197,6 +199,7 @@ end
 --- It also stops at the first closing bracket that takes the depth below zero,
 --- which is what makes `]]]]]]` cheap to reject rather than O(n) with a stack.
 ---
+---@param text
 --- @return the maximum depth seen, or `nil, reason`.
 function CisJson.scanDepth(text)
     if type(text) ~= 'string' then
@@ -252,6 +255,9 @@ end
 --- column look like a corrupt row. Testing `if not value` therefore cannot
 --- distinguish the two, which is why tryDecode() exists below.
 ---
+---@param codec
+---@param text
+---@param opts
 --- @return the decoded value on success (nil, with no reason, for `null`), or
 ---   `nil, reason` on refusal.
 function CisJson.decode(codec, text, opts)
@@ -295,6 +301,9 @@ end
 
 --- Decode, returning a boolean, for callers that cannot use the three-way form.
 ---
+---@param codec
+---@param text
+---@param opts
 --- @return `true, value` on success -- value may be nil, for `null` -- or
 ---   `false, reason` on refusal.
 function CisJson.tryDecode(codec, text, opts)
@@ -313,6 +322,9 @@ end
 --- database and read back a week later is the value that went in. Deep copy
 --- semantics mean the returned value shares nothing with the input.
 ---
+---@param codec
+---@param value
+---@param opts
 --- @return the decoded value, or `nil, reason` -- from either direction.
 function CisJson.roundTrip(codec, value, opts)
     local text, why = CisJson.encode(codec, value, opts)

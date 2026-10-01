@@ -296,6 +296,9 @@ end
 --- three characters of budget. Rails' truncate behaves the same way. Ask for
 --- `max = length + 3` if you want the text plus its marker.
 ---
+---@param s
+---@param max
+---@param ellipsis
 --- @return a string. nil in gives ''.
 function CisString.truncate(s, max, ellipsis)
     if type(s) ~= 'string' then
@@ -392,6 +395,9 @@ end
 --- `ignoreCase` lowercases both sides first. That is byte-wise ASCII
 --- lowercasing, so accented text does not fold -- see the header.
 ---
+---@param s
+---@param needle
+---@param ignoreCase
 --- @return boolean. Never raises for any input, including nil.
 function CisString.contains(s, needle, ignoreCase)
     if type(s) ~= 'string' or type(needle) ~= 'string' then
@@ -473,6 +479,9 @@ end
 --- hopeless stops after a few cells, because the lowest a row can still reach
 --- is its own row index.
 ---
+---@param a
+---@param b
+---@param maxDistance
 --- @return the distance, or `nil, reason`. When maxDistance is given and the
 ---   true distance exceeds it, returns `maxDistance + 1` -- "farther than you
 ---   care about", not an error, so the caller can keep scoring candidates
@@ -547,6 +556,9 @@ end
 ---                    comparison is on DISTANCE, so a candidate list of
 ---                    numbers works too.
 ---
+---@param word
+---@param candidates
+---@param opts
 --- @return `match, distance`, or `nil` when nothing is close enough, or
 ---   `nil, reason` when the input itself is bad. Nothing-close is a nil with
 ---   NO reason: "no suggestion" is a normal answer for a typo handler, not an

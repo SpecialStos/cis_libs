@@ -110,6 +110,8 @@ local function pushFront(lru, node)
 end
 
 --- Look up a key and mark it as most recently used.
+---@param lru
+---@param key
 --- @return any  the stored value, or nil when the key is absent. A stored
 ---         value of nil is indistinguishable from an absent key, which is the
 ---         Lua convention and the reason `put(key, nil)` is a remove.
@@ -133,6 +135,8 @@ end
 --- The read that must not count as a use. A "is this player cached" check in
 --- a hot loop that silently promotes the entry would keep exactly the entries
 --- nobody is really using, and the cache would never evict them.
+---@param lru
+---@param key
 --- @return any  the value, or nil
 function CisLRU.peek(lru, key)
     local node = lru.map[key]
@@ -143,6 +147,8 @@ function CisLRU.peek(lru, key)
 end
 
 --- Is a key present, without changing its recency?
+---@param lru
+---@param key
 --- @return boolean
 function CisLRU.has(lru, key)
     return lru.map[key] ~= nil
@@ -190,6 +196,7 @@ function CisLRU.put(lru, key, value)
 end
 
 --- Remove the least recently used entry.
+---@param lru
 --- @return any, any  the evicted value and the evicted key; nil, nil when the
 ---         cache is empty
 function CisLRU.popOldest(lru)
@@ -205,6 +212,8 @@ function CisLRU.popOldest(lru)
 end
 
 --- Remove a key, whatever its position in the order.
+---@param lru
+---@param key
 --- @return any  the removed value, or nil when the key was not present
 function CisLRU.remove(lru, key)
     local node = lru.map[key]
@@ -228,6 +237,8 @@ end
 --- get the same O(n) with more code.
 ---
 --- Removing while walking is safe: the walk holds the successor before unlinking.
+---@param lru
+---@param predicate
 --- @return number  how many entries were removed
 function CisLRU.removeWhere(lru, predicate)
     if type(predicate) ~= 'function' then
@@ -249,6 +260,7 @@ function CisLRU.removeWhere(lru, predicate)
 end
 
 --- Number of live entries. O(1): a counter, not a walk.
+---@param lru
 --- @return number
 function CisLRU.count(lru)
     return lru.size
@@ -272,6 +284,7 @@ function CisLRU.clear(lru)
 end
 
 --- Keys from most recently used to least.
+---@param lru
 --- @return table  a NEW array. The live list is not walkable from outside and
 ---         should not be: a caller iterating it while the cache is being
 ---         modified would be reading a list that is being relinked underneath.

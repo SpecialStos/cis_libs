@@ -54,6 +54,7 @@ CisSemver = {}
 --- A TABLE is passed through unchanged, so an already-parsed version can be fed
 --- to compare and satisfies without being re-parsed for every candidate.
 ---
+---@param v
 --- @return { major, minor, patch, prerelease, build, raw, normalized }, or
 ---   `nil, reason` naming what was wrong. Nothing raises.
 function CisSemver.parse(v)
@@ -189,6 +190,8 @@ end
 
 --- Compare two versions.
 ---
+---@param a
+---@param b
 --- @return -1 if a < b, 0 if equal, 1 if a > b -- or `nil, reason` when either
 ---   side does not parse. A refusal rather than a default of 0, because "these
 ---   are incomparable because one is not a version" and "these are the same
@@ -219,6 +222,8 @@ function CisSemver.compare(a, b)
     return comparePrerelease(pa.prerelease, pb.prerelease)
 end
 
+---@param a
+---@param b
 --- @return boolean, or `nil, reason` (see compare).
 function CisSemver.gte(a, b)
     local c, why = CisSemver.compare(a, b)
@@ -226,6 +231,8 @@ function CisSemver.gte(a, b)
     return c >= 0
 end
 
+---@param a
+---@param b
 --- @return boolean, or `nil, reason`.
 function CisSemver.lt(a, b)
     local c, why = CisSemver.compare(a, b)
@@ -233,6 +240,8 @@ function CisSemver.lt(a, b)
     return c < 0
 end
 
+---@param a
+---@param b
 --- @return boolean, or `nil, reason`. Build metadata does not affect equality.
 function CisSemver.eq(a, b)
     local c, why = CisSemver.compare(a, b)
@@ -516,6 +525,9 @@ end
 --- opts.includePrerelease relaxes the prerelease rule above. It is the only
 --- way to, and it is off by default.
 ---
+---@param version
+---@param range
+---@param opts
 --- @return boolean, or `nil, reason` when the range or the version is
 ---   malformed. A version that simply fails the range is `false`, never nil.
 function CisSemver.satisfies(version, range, opts)
@@ -562,6 +574,9 @@ end
 -- the version that gets the comparison backwards and silently returns the
 -- OLDEST match.
 --
+---@param candidates
+---@param range
+---@param opts
 --- @return the version string as it appeared in the list, or `nil` when
 ---   nothing satisfies. A malformed range or candidate is `nil, reason`; both
 ---   are nil as the first value, so read the second when the difference
