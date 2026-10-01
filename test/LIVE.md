@@ -122,7 +122,28 @@ repo"). Here it is caught on a live server instead of in CI, and it should be
 fixed on the cis_libs side first: a missing export is a refusal with a reason,
 not an exception.
 
-**Not yet fixed.** No test accompanies this finding and no change has been made.
+**FIXED AND VERIFIED LIVE** (commit `ca74685`, "L-S26: a missing export is a
+refusal, not a raise"). The lookup is now under `pcall`, and the message names
+the resource and the export instead of reporting `not string` for a string.
+
+Measured on this server, restarting `cis_libs` plus five consumers:
+
+| | before | after |
+|---|---|---|
+| errors | 97 `No such export` in the log | 97 — **zero new** across 308 fresh lines |
+| message | `SCRIPT ERROR: @cis_libs/server/security.lua:525: No such export handleState in resource cis_medic` | `[ERROR] Cis.net.on("cis_medic:server:state") registered nothing: resource "cis_medic" does not export "handleState". Check the name, and that the resource is started.` |
+| the consumer | raise escapes into its boot | `cis_medic ready. platform: cis_libs` · `[ok] cis_libs is running` |
+
+That last row is the whole point. The consumers now reach `ready` instead of
+being interrupted, and a refusal names the reference rather than aborting.
+
+**The underlying mismatch is still there** — `cis_medic` genuinely does not
+export `handleState`, and neither do `cis_signal`, `cis_evidence`, `cis_keys` or
+`cis_electricity` for the names they register. That is a contract question for
+those resources, not for this one, and it is exactly what Phase 8.1 / X-1 is
+for. What changed is that cis_libs now *reports* it instead of crashing on it.
+
+---
 
 ## Finding 2 — one cross-repo ordering fault, pre-existing
 
