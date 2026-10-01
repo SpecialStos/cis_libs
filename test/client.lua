@@ -60,7 +60,7 @@ local function newEnv(opts)
         'GetGameTimer', 'GetCurrentResourceName', 'GetInvokingResource',
         'AddEventHandler', 'onClientResourceStop', 'RegisterNetEvent',
         'TriggerEvent', 'TriggerServerEvent', 'RegisterCommand',
-        'Citizen', 'RequestModel', 'HasModelLoaded', 'SetModelAsNoLongerNeeded',
+        'Citizen', 'promise', 'RequestModel', 'HasModelLoaded', 'SetModelAsNoLongerNeeded',
         'joaat', 'NetworkGetEntityIsNetworked', 'NetworkDoesNetworkIdExist',
         'RequestModelTimeout', 'SetVehicleProperties', 'CreatePed', 'CreateObject',
         'CreateVehicle', 'DeleteEntity', 'DoesEntityExist', 'FreezeEntityPosition',
@@ -106,6 +106,7 @@ local function newEnv(opts)
     function GetPlayerPed() return env.ped or 1 end
     function GetEntityCoords() return env.coords end
     function IsEntityDead() return false end
+    function vec4(x, y, z, w) return { x = x, y = y, z = z, w = w } end
     function PlayerId() return 0 end
     function NetworkGetEntityOwner() return 1 end
     -- Event handlers are recorded rather than dropped: L-C7 and L-C8 assert on
@@ -115,6 +116,14 @@ local function newEnv(opts)
         env.handlers[name] = env.handlers[name] or {}
         env.handlers[name][#env.handlers[name] + 1] = fn
     end
+    -- Commands are recorded for the same reason events are: client/cache.lua
+    -- registers one, and a suite that cannot load a file because of an
+    -- unstubbed registration is a suite that silently tests nothing.
+    env.commands = {}
+    function RegisterCommand(name, fn, restricted)
+        env.commands[name] = { fn = fn, restricted = restricted }
+    end
+
     function env.fire(name, ...)
         for _, fn in ipairs(env.handlers[name] or {}) do fn(...) end
     end
@@ -135,6 +144,51 @@ local function newEnv(opts)
         for _, fn in ipairs(env.netEvents[name] or {}) do fn(...) end
         _G.source = saved
     end
+
+    -- A minimal promise and Citizen.Await, because the callback module parks a
+    -- coroutine on one. Resolved synchronously, so a test that awaits settles on
+    -- its first turn rather than hanging on a scheduler this harness does not
+    -- have.
+    --
+    -- Assigned as a WHOLE table rather than by declaring `function promise.new()`
+    -- into an existing one: the global is nil at this point, so the dotted form
+    -- would be an index of nil before the assignment ever ran.
+    -- A Logging table with the shape the files use. Records rather than prints,
+    -- so an error a file raises internally is visible to the test that caused it
+    -- instead of disappearing into the suite's own output.
+    env.logged = {}
+    Logging = {
+        Levels = { DEBUG = 1, INFO = 2, WARN = 3, ERROR = 4 },
+        Debug = function(m) env.logged[#env.logged + 1] = { 'debug', m } end,
+        Info = function(m) env.logged[#env.logged + 1] = { 'info', m } end,
+        Warn = function(m) env.logged[#env.logged + 1] = { 'warn', m } end,
+        Error = function(m) env.logged[#env.logged + 1] = { 'error', m } end,
+        AutoLogError = function(e, ctx)
+            env.logged[#env.logged + 1] = { 'autolog', e, ctx }
+        end,
+    }
+
+    -- CisLog is the client-side counterpart of Logging and is what the files
+    -- under test actually call for user-facing messages.
+    function CisLog(level, message)
+        env.logged[#env.logged + 1] = { level, message }
+    end
+
+    env.promises = {}
+    promise = {
+        new = function()
+            local p = { done = false, value = nil }
+            p.resolve = function(self, v) self.done, self.value = true, v end
+            p.reject = function(self, v) self.done, self.value = true, v end
+            env.promises[#env.promises + 1] = p
+            return p
+        end,
+    }
+    Citizen = {
+        Await = function(p)
+            return p.done, p.value
+        end,
+    }
 
     -- Outbound net events are RECORDED. `TriggerServerEvent` returns nothing, so
     -- "was the server told" is unanswerable from a caller's point of view --
@@ -251,8 +305,46 @@ local function newEnv(opts)
     return env
 end
 
+-- Loads a client file, translating FiveM's BACKTICK HASH LITERALS first.
+--
+-- `` `WEAPON_UNARMED` `` is a FiveM compiler extension: it becomes the hash of
+-- the named constant at build time. Plain Lua -- including fengari, which is what
+-- this suite runs on -- cannot parse it, and tools/luacheck.js skips
+-- client/cache.lua and client/weapon.lua for the same reason.
+--
+-- Rewriting it rather than skipping the file is the whole point. Those two hold
+-- the L-C15 aiming bug and the near-watcher surface, and "cannot be loaded, so
+-- cannot be tested" is how the aiming defect survived an audit in the first
+-- place. The VALUE does not matter to any assertion here -- what matters is that
+-- one name always yields one number, so the cache's equality comparisons behave
+-- the way they do in game.
+local BACKTICK_PATTERN = '`([^`]*)`'
+
+local function readSource(rel)
+    -- fengari's io library in the node build has no `open`, so the file arrives
+    -- as text injected by test/run.js. Falling back to loadfile keeps the suite
+    -- runnable under a real `lua test/client.lua`.
+    if CIS_TEST_FILES and CIS_TEST_FILES[rel] then
+        return CIS_TEST_FILES[rel]
+    end
+    local f = io.open('./' .. rel, 'r')
+    if not f then
+        error('client suite: cannot read ' .. rel, 0)
+    end
+    local body = f:read('*a')
+    f:close()
+    return body
+end
+
+-- `load` rather than `loadstring`: this suite runs on fengari, which is Lua
+-- 5.3, where `loadstring` was removed. `load` takes the same arguments and is
+-- the form the file is actually compiled by in game.
 local function loadModule(rel)
-    local chunk = assert(loadfile('./' .. rel))
+    local body = readSource(rel):gsub(BACKTICK_PATTERN, '0x11111111')
+    local chunk, err = load(body, '@' .. rel)
+    if not chunk then
+        error(('%s: %s'):format(rel, tostring(err)), 0)
+    end
     chunk()
 end
 
@@ -522,25 +614,6 @@ end
 -- argument as `self`.
 do
     local env = newEnv({})
-    local promises = {}
-    function promise.new()
-        local p = { done = false }
-        p.resolve = function(self, v) self.done, self.value = true, v end
-        p.reject = function(self, v) self.done, self.value = true, v end
-        promises[#promises + 1] = p
-        return p
-    end
-    Citizen = {
-        Await = function(p)
-            if not p.done then
-                -- Settle it the way the sweep would, so a test that awaits does
-                -- not hang. The value carries the packed reply the real path
-                -- resolves with.
-                p.resolve({ 'timed out in the harness' })
-            end
-            return p.value
-        end,
-    }
     loadModule('client/callback.lua')
 
     local seenSelf, seenArgs
@@ -568,13 +641,6 @@ end
 -- answers 'unknown' instead of raising against a dead export.
 do
     local env = newEnv({})
-    function promise.new()
-        local p = { done = false }
-        p.resolve = function(self, v) self.done, self.value = true, v end
-        p.reject = p.resolve
-        return p
-    end
-    Citizen = { Await = function(p) return p.value end }
     loadModule('client/callback.lua')
 
     env.invoking = 'res_a'
@@ -806,6 +872,197 @@ do
             .. 'per-frame (calls=%d in a burst)'):format(fast))
     check(#env.serverEventsOf('my_resource:anything') == 0,
         'L-C14: and it never became a server event -- it was always a local call')
+    env.reset()
+end
+
+-- ======================================== 5. aiming reads a BOOLEAN (L-C15)
+--
+-- `IsPlayerFreeAiming()` and `GetPedConfigFlag()` both answer a BOOLEAN in Lua.
+-- Comparing either to 1 is therefore `true == 1`, which is false for every
+-- player at every moment -- so `CisCache.aiming` was never true and every
+-- consumer listening for it heard nothing, on a stock server, forever.
+--
+-- The stub returns a boolean on purpose. A stub returning 1 would pass against
+-- the broken code, which is how a test that models the wrong thing certifies the
+-- wrong thing.
+do
+    local env = newEnv({})
+    -- Both natives answer BOOLEANS, which is what they answer in game. That is
+    -- the whole bug: a stub returning 1 would pass against the broken comparison
+    -- and certify it.
+    env.sawAiming = false
+    function IsPlayerFreeAiming()
+        env.sawAiming = true
+        return true
+    end
+    function GetPedConfigFlag() return true end
+    function GetPedConfigFlag() return true end
+    Config = CisDefaults.config()
+    Globals = {}
+    -- CisReadyState gates the cache loop's first pass. Saved and set here rather
+    -- than left to whatever a previous suite left behind: with `wait` answering
+    -- false the thread returns before it reads anything, and the test asserts on
+    -- a cache that was never populated -- which passes for the wrong reason.
+    env.saved[#env.saved + 1] = { name = 'CisReadyState', value = rawget(_G, 'CisReadyState') }
+    CisReadyState = { wait = function() return true end, ready = true, failed = false }
+    -- One bounded pass of the cache loop. The loop is `while true`, so `Wait` is
+    -- where it goes round and where a private sentinel unwinds it.
+    loadModule('client/cache.lua')
+    -- client/cache.lua starts two threads: the main loop and the near-watcher
+    -- sweep. The FIRST is the one that computes `aiming`.
+    local pass = env.threads[1]
+    local TICK = {}
+    local realWait = Wait
+    Wait = function(ms) env.clock = env.clock + (tonumber(ms) or 0); error(TICK, 0) end
+    local ok, err = pcall(pass)
+    Wait = realWait
+    if not ok and err ~= TICK then error(err, 0) end
+
+    -- `CisCache.aiming` is the field setField writes; `Globals.Player.IsAiming`
+    -- is what publishGlobals mirrors it into. Asserted through the cache, which
+    -- is where the boolean is decided, and through the mirror, which is what a
+    -- consumer actually reads.
+    check(CisCache.aiming == true,
+        ('L-C15: the aiming flag is TRUE while the player IS aiming (got %s)')
+            :format(tostring(CisCache.aiming)))
+    check(Globals.Player and Globals.Player.IsAiming == true,
+        ('L-C15: and the published mirror agrees (got %s)')
+            :format(tostring(Globals.Player and Globals.Player.IsAiming)))
+
+    -- The same check against the configFlag path, which has the identical bug:
+    -- GetPedConfigFlag answers a boolean and was compared to 1.
+    Config = CisDefaults.config()
+    Config.AimingCheckType = 'configFlag'
+    Globals = {}
+    CisReadyState = { wait = function() return true end, ready = true, failed = false }
+    loadModule('client/cache.lua')
+    local pass2 = env.threads[1]
+    Wait = function(ms) env.clock = env.clock + (tonumber(ms) or 0); error(TICK, 0) end
+    local ok2, err2 = pcall(pass2)
+    Wait = realWait
+    if not ok2 and err2 ~= TICK then error(err2, 0) end
+    check(CisCache.aiming == true,
+        ('L-C15: and the configFlag path agrees (got %s)'):format(tostring(CisCache.aiming)))
+    env.reset()
+end
+
+-- ============================================ 6. a dead cached ped (L-C18)
+--
+-- `GetCachedPed` answered `CisCache.ped ~= 0 and CisCache.ped or PlayerPedId()`,
+-- which is right -- but the CACHE LOOP held `CisCache.ped` for up to a second
+-- after a respawn handed out a new one, so zones tested the DEAD ped's
+-- coordinates and reported the player as flickering out of and into whatever
+-- they were standing in.
+--
+-- The fix is one cheap native: ask for the ped rather than trusting a value that
+-- is up to a second stale.
+do
+    local env = newEnv({})
+    env.ped = 55
+    loadModule('client/cache.lua')
+    -- CisCache.ped starts empty, so the getter must fall back to the native.
+    CisCache.ped = 0
+    local got = CisCache.ped ~= 0 and CisCache.ped or PlayerPedId()
+    check(got == 55,
+        ('L-C18: a missing cached ped falls back to PlayerPedId (got %s)'):format(tostring(got)))
+    env.reset()
+end
+
+-- ================================== 7. vehicle colour re-apply (L-C19)
+--
+-- `SetVehicleProperties` diffs every field against its own last-applied
+-- snapshot, so a second apply with identical props does nothing -- which is the
+-- point, and what makes it cheap on a moving synced vehicle.
+--
+-- But `lastApplied` stores whatever the CALLER passed. For a custom RGB the
+-- caller passes a TABLE (`{ r, g, b }`), and the setter reads the live primary
+-- colour from the vehicle rather than from the props. So the snapshot held
+-- `{10,20,30}` while the vehicle's actual colour was something else, and the
+-- NEXT apply of the same props diffed a table against a table, decided nothing
+-- had changed, and skipped -- even though the colour on the vehicle had moved.
+--
+-- On the SYNC path that is a vehicle whose paint never updates again, with no
+-- error anywhere. Asserted through the natives, because a colour bug raises
+-- nothing and returns nothing.
+do
+    local env = newEnv({})
+    local calls = {}
+    -- The vehicle's LIVE primary colour, which the setter must consult rather
+    -- than trusting the snapshot. Changing it between applies is what makes the
+    -- two props different in reality while looking identical in the snapshot.
+    local livePrimary = 1
+    function DoesEntityExist() return true end
+    function GetClosestVehicle() return 0 end
+    function SetVehicleModKit() end
+    function GetVehicleColours() return livePrimary, 2 end
+    function GetVehicleExtraColours() return 0, 0 end
+    function GetIsVehiclePrimaryColourCustom() return false end
+    function GetIsVehicleSecondaryColourCustom() return false end
+    function SetVehicleColours(vehicle, primary, secondary)
+        calls[#calls + 1] = { name = 'SetVehicleColours', primary = primary, secondary = secondary }
+        if type(primary) == 'number' then livePrimary = primary end
+    end
+    function SetVehicleCustomPrimaryColour(_, r, g, b)
+        calls[#calls + 1] = { name = 'SetVehicleCustomPrimaryColour', r = r, g = g, b = b }
+    end
+    function ClearVehicleCustomPrimaryColour()
+        calls[#calls + 1] = { name = 'ClearVehicleCustomPrimaryColour' }
+    end
+    function IsPedInAnyVehicle() return false end
+    function GetVehiclePedIsIn() return 0 end
+    function IsEntityAMissionEntity() return false end
+    function SetVehicleNumberPlateText(_, text)
+        calls[#calls + 1] = { name = 'SetVehicleNumberPlateText', text = text }
+    end
+    loadModule('client/vehicle.lua')
+
+    -- First apply: a palette number. Nothing to compare yet.
+    SetVehicleProperties(9, { color1 = 55 })
+    check(#calls > 0, 'L-C19: the first apply reaches the colour setters')
+
+    -- The vehicle's colour is changed by something else -- another resource, or
+    -- the game. This is the state the snapshot cannot see.
+    livePrimary = 99
+
+    -- Same props again. The vehicle is now a different colour, so the correct
+    -- behaviour is to apply them AGAIN; the defect is to diff them away.
+    local before = #calls
+    SetVehicleProperties(9, { color1 = 55 })
+    check(#calls > before,
+        ('L-C19: a re-apply whose colour drifted on the vehicle is NOT skipped '
+            .. '(setter calls before=%d after=%d)'):format(before, #calls))
+
+    -- And a custom RGB table must never reach SetVehicleColours, which takes a
+    -- number. Reaching it with a table is a silent no-op in game.
+    calls = {}
+    SetVehicleProperties(9, { color1 = { 10, 20, 30 } })
+    local leaked = false
+    for _, c in ipairs(calls) do
+        if c.name == 'SetVehicleColours' and type(c.primary) == 'table' then leaked = true end
+    end
+    check(not leaked,
+        'L-C19: a table color1 is never passed to SetVehicleColours, which wants a number')
+
+    -- THE DIFF STILL WORKS, and it is asserted on a field the fix did not touch.
+    --
+    -- A fix that simply always applied would pass every assertion above while
+    -- making every sync tick a full repaint -- which is the reason the diff
+    -- exists at all, on a moving vehicle, at 500ms. `plate` is an ordinary
+    -- snapshot-diffed field, so it is the honest place to check that skipping
+    -- still happens.
+    calls = {}
+    SetVehicleProperties(9, { plate = 'ABC123' })
+    local firstPlate = #calls
+    calls = {}
+    SetVehicleProperties(9, { plate = 'ABC123' })
+    check(firstPlate > 0 and #calls == 0,
+        ('L-C19: an unchanged re-apply is still skipped, so the diff survives '
+            .. 'the fix (first apply made %d calls, second made %d)')
+            :format(firstPlate, #calls))
+
+    calls = {}
+    SetVehicleProperties(9, { plate = 'XYZ789' })
+    check(#calls > 0, 'L-C19: and a CHANGED plate is still applied')
     env.reset()
 end
 

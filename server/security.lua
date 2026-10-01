@@ -7,6 +7,13 @@
 -- to remember to rate-limit itself.
 
 local rates = {}
+-- How many buckets each src is holding, kept as a COUNTER beside the map.
+--
+-- Counting them would mean walking `rates[src]` on every new event name, and the
+-- check has to happen on the hot path -- a client firing one event in a loop
+-- would otherwise pay an O(keys) walk per invocation to learn the key count it
+-- already knows.
+local rateCounts = {}
 local authorized
 
 -- Written once a server has actually been touched by this library. Its absence
@@ -329,14 +336,37 @@ end
 -- burst -- the doorlock toggle -- carries a 250ms cooldown of its own and does
 -- not rely on this. Anything reaching 8 a second on an event that did not ask
 -- for more is a script, not a UI.
+-- The most buckets one source may hold. A limiter is keyed by EVENT NAME, and
+-- event names arrive off the wire -- so an unbounded map is a memory growth rate
+-- a client controls. 256 is far more distinct events than any resource publishes
+-- (the whole platform uses about a dozen) and is four orders of magnitude below
+-- the point where the table itself is a problem.
+local RATE_BUCKET_CAP = 256
+
 local function rateOk(src, name, windowMs, maxHits)
     windowMs = windowMs or 1000
     maxHits = maxHits or 8
     local now = GetGameTimer()
-    rates[src] = rates[src] or {}
-    local bucket = rates[src][name]
+    local perSrc = rates[src]
+    if not perSrc then
+        perSrc = {}
+        rates[src] = perSrc
+    end
+    local bucket = perSrc[name]
     if not bucket or now - bucket.started >= windowMs then
-        rates[src][name] = { started = now, hits = 1 }
+        -- The cap is checked only when a NEW name appears. An existing key must
+        -- keep working at whatever rate its caller asked for, because the cap is
+        -- there to bound the number of KEYS, not to throttle a resource using a
+        -- name it already owns.
+        if not bucket and (rateCounts[src] or 0) >= RATE_BUCKET_CAP then
+            -- Refuse rather than allocate. The window still applies to every
+            -- existing bucket, so a client at the cap is throttled exactly as it
+            -- would be by maxHits -- which is the point: it is bounded, and
+            -- loudly, rather than quietly growing a table.
+            return false
+        end
+        perSrc[name] = { started = now, hits = 1 }
+        rateCounts[src] = (rateCounts[src] or 0) + 1
         return true
     end
     bucket.hits = bucket.hits + 1
@@ -345,6 +375,17 @@ end
 
 function CisRateOk(src, name, windowMs, maxHits)
     return rateOk(src, name, windowMs, maxHits)
+end
+
+--- How many rate buckets a source is currently holding.
+---
+--- Exposed rather than kept private because it is the answer to "is this server
+--- being attacked right now?": a src sitting at RATE_BUCKET_CAP is a client
+--- naming events that do not exist, and nothing else in the library shows that.
+--- @param src number
+--- @return number
+function CisRateBucketCount(src)
+    return rateCounts[src] or 0
 end
 
 -- ONCE PER (src, event) PER WINDOW, carrying the number dropped.

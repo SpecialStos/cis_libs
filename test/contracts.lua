@@ -933,23 +933,32 @@ do
     Cis.doors.setState('bank_door', true)
     check(f(calls[1], 2) == 'bank_door', 'doors.setState (client, lock): id is slot 2')
 
-    -- KNOWN DEFECT, pinned rather than fixed. The freeze forbids a behaviour
-    -- change, and this is one: on the client, Cis.framework.notify(message,
-    -- kind) sends `kind` where the message belongs. init.lua's two client
-    -- branches disagree -- the one-argument form sends the first argument, the
-    -- two-argument form sends the second -- and the client Notify export takes
-    -- (message, kind). Correcting it is a MAJOR change, so the current
-    -- behaviour is pinned here and called out in COMPATIBILITY.md section 8.
-    -- If this assertion ever flips, that is the fix landing on purpose.
+    -- [D1] The client's notify sends the MESSAGE, not the kind.
+    --
+    -- It used to send the kind in the message slot, so `notify('hi', 'error')`
+    -- showed the player 'error'. Corrected without a contract-major bump, and the
+    -- reason it needed none: no caller can have been getting correct output from
+    -- the two-argument form, so there is no working behaviour to preserve. The
+    -- assertion below therefore flips FROM the pinned defect -- seeing it flip is
+    -- this fix landing, which is why the old pin said so in those words.
     calls = {}
     Cis.framework.notify('hi')
     check(f(calls[1], 2) == 'hi', 'client notify: a one-argument call sends the message')
+    check(f(calls[1], 3) == nil,
+        'client notify: and leaves the kind slot empty rather than passing nil on')
     calls = {}
     Cis.framework.notify('hi', 'error')
-    check(f(calls[1], 2) == 'error',
-        'client notify: DEFECT PINNED -- the kind is sent in the message slot')
-    check(f(calls[1], 3) == nil,
-        'client notify: DEFECT PINNED -- the kind slot arrives empty')
+    check(f(calls[1], 2) == 'hi',
+        'client notify: a two-argument call sends the MESSAGE, not the kind')
+    check(f(calls[1], 3) == 'error',
+        'client notify: and the kind in its own slot')
+    -- The server's shape is unchanged and still src-first.
+    loadInit('server')
+    calls = {}
+    Cis.framework.notify(3, 'hi', 'error')
+    check(f(calls[1], 2) == 3 and f(calls[1], 3) == 'hi' and f(calls[1], 4) == 'error',
+        'server notify: still src-first after the client branch was corrected')
+    loadInit('client')
 
     -- The tryExport path: a logging call that is swallowed must still reach
     -- the export with its message in the first slot -- and reach the right one.

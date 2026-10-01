@@ -366,14 +366,31 @@ else
     end
 end
 
+-- [D1] Client `notify(message, kind)`.
+--
+-- The client's export takes (message, kind) and the server's takes (src, message,
+-- kind), so the two cannot share a call shape: on the client the first argument
+-- IS the message. The old proxy branched on whether `message` was nil and, in the
+-- two-argument case, sent the SECOND argument -- so `Cis.framework.notify('hi',
+-- 'error')` on a client put 'error' where the message belonged and showed the
+-- player the KIND instead of what was said.
+--
+-- Corrected WITHOUT a contract-major bump, and the reason is worth stating: no
+-- caller can currently be getting correct output from the two-argument form, so
+-- there is no working behaviour to preserve. The one-argument form
+-- (`notify('hi')`) already behaved correctly and still does -- it is the same
+-- branch, kept explicit rather than merged so that the distinction is visible.
 function Cis.framework.notify(srcOrNil, message, kind)
     if IS_SERVER then
         return exportCall('Notify', srcOrNil, message, kind)
     end
     if message == nil then
+        -- One argument: it IS the message.
         return exportCall('Notify', srcOrNil, kind)
     end
-    return exportCall('Notify', message, kind)
+    -- Two or more: (message, kind), in that order. This is the branch that was
+    -- sending the kind in the message slot.
+    return exportCall('Notify', srcOrNil, message)
 end
 
 -- A function cannot be SENT across the exports boundary, so `handler` may be:

@@ -1096,6 +1096,54 @@ do
     env.reset()
 end
 
+-- ================= 13. random callback names cannot grow the limiter (L-C13)
+--
+-- The rate bucket was allocated BEFORE the handler lookup, and buckets are keyed
+-- on the event NAME -- which arrives off the wire. A client firing `cis_libs:cb`
+-- with ten thousand distinct made-up names therefore grew the limiter by ten
+-- thousand entries, never freed, with no error and no limit anywhere. That is a
+-- client-triggered memory leak with a denial-of-service shape.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+    loadModule('server/callback.lua')
+
+    -- Ten thousand distinct names, none of them registered.
+    for i = 1, 10000 do
+        env.emit('cis_libs:cb', 1, ('no:such:callback:%d'):format(i))
+    end
+    check(CisRateBucketCount(1) == 0,
+        ('L-C13: an UNKNOWN name allocates no rate bucket at all (buckets=%d)')
+            :format(CisRateBucketCount(1)))
+
+    -- Ten thousand distinct REAL names -- registered, so the handler check
+    -- passes. The cap in security.lua is what bounds this case, and it is a
+    -- separate defence from the ordering above: without it a client that named
+    -- real callbacks could still grow the map.
+    for i = 1, 10000 do
+        env.EXPORTS.RegisterCallback(('real:%d'):format(i), function() return 1 end)
+    end
+    for i = 1, 10000 do
+        env.emit('cis_libs:cb', 1, ('real:%d'):format(i))
+    end
+    local held = CisRateBucketCount(1)
+    check(held > 0 and held <= 256,
+        ('L-C13: 10k REAL callback names stay under the per-src cap (buckets=%d)')
+            :format(held))
+
+    -- And a name that already owns a bucket keeps working at its own rate: the
+    -- cap bounds the number of KEYS, it is not a throttle on a resource using a
+    -- name it already holds.
+    local before = CisRateBucketCount(1)
+    for _ = 1, 10 do env.emit('cis_libs:cb', 1, 'real:1') end
+    check(CisRateBucketCount(1) == before,
+        'L-C13: reusing an existing name adds no bucket')
+    env.reset()
+end
+
 -- ==================================================================== report
 for i = 1, #failures do
     io.stderr:write('FAIL(server): ' .. failures[i] .. '\n')

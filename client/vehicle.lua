@@ -211,6 +211,45 @@ function SetVehicleProperties(vehicle, props, fixVehicle)
     local colorPrimary, colorSecondary = GetVehicleColours(vehicle)
     local pearlescentColor, wheelColor = GetVehicleExtraColours(vehicle)
 
+    -- THE COLOURS DIFF AGAINST THE VEHICLE, NOT AGAINST THE SNAPSHOT (L-C19).
+    --
+    -- Every other field is a property of the vehicle that only cis_libs writes,
+    -- so the snapshot is an accurate record of it. A colour is not: another
+    -- resource can repaint a synced vehicle, the game can, and a repair shop can.
+    -- The snapshot would still say "colour 55 was applied", the props would still
+    -- say 55, and the two agree -- while the vehicle is a different colour. So
+    -- the vehicle is asked instead, and the snapshot is only a fallback for the
+    -- custom-RGB case where there is no single number to read back.
+    --
+    -- Two natives per apply, against a function that already calls a dozen. That
+    -- is what it costs to notice a colour somebody else changed.
+    local function colourChanged(which)
+        local wanted = props[which]
+        if wanted == nil then
+            return false
+        end
+        if type(wanted) == 'number' then
+            local live = which == 'color1' and colorPrimary or colorSecondary
+            return live ~= wanted
+        end
+        -- A custom RGB: compare against the snapshot, which records what was
+        -- applied last time. Nothing on the vehicle answers "is the custom
+        -- primary colour exactly this RGB" without a second native pair, and the
+        -- snapshot is right for every change cis_libs itself made.
+        if prev and sameValue(prev[which], wanted) then
+            return false
+        end
+        return true
+    end
+
+    -- What this apply actually sets, recorded below for the snapshot.
+    --
+    -- It starts EMPTY rather than at the live colours. An omitted key has to
+    -- record nil, not the vehicle's current value: recording the live value
+    -- would make the snapshot claim a colour was applied when it was not, and a
+    -- later props that DOES name it would diff against it and be skipped.
+    local appliedColor1, appliedColor2
+
     if changed('plate') then SetVehicleNumberPlateText(vehicle, props.plate) end
     if changed('plateIndex') then SetVehicleNumberPlateTextIndex(vehicle, props.plateIndex) end
     if changed('bodyHealth') then SetVehicleBodyHealth(vehicle, props.bodyHealth + 0.0) end
@@ -220,23 +259,32 @@ function SetVehicleProperties(vehicle, props, fixVehicle)
     if changed('oilLevel') then SetVehicleOilLevel(vehicle, props.oilLevel + 0.0) end
     if changed('dirtLevel') then SetVehicleDirtLevel(vehicle, props.dirtLevel + 0.0) end
 
-    if changed('color1') then
+    if colourChanged('color1') then
         if type(props.color1) == 'number' then
             ClearVehicleCustomPrimaryColour(vehicle)
+            -- THE LIVE secondary, never `props.color2`: a props table that sets
+            -- only color1 must not blank the secondary it never mentioned.
             SetVehicleColours(vehicle, props.color1, colorSecondary)
+            appliedColor1 = props.color1
         else
             if props.paintType1 then SetVehicleModColor_1(vehicle, props.paintType1, colorPrimary, pearlescentColor) end
             SetVehicleCustomPrimaryColour(vehicle, props.color1[1], props.color1[2], props.color1[3])
+            -- Recorded as a table, but a FRESH one built from the applied values
+            -- rather than the caller's, so the comparison next pass is against
+            -- what the vehicle has.
+            appliedColor1 = { props.color1[1], props.color1[2], props.color1[3] }
         end
     end
 
-    if changed('color2') then
+    if colourChanged('color2') then
         if type(props.color2) == 'number' then
             ClearVehicleCustomSecondaryColour(vehicle)
-            SetVehicleColours(vehicle, props.color1 or colorPrimary, props.color2)
+            SetVehicleColours(vehicle, appliedColor1, props.color2)
+            appliedColor2 = props.color2
         else
             if props.paintType2 then SetVehicleModColor_2(vehicle, props.paintType2, colorSecondary) end
             SetVehicleCustomSecondaryColour(vehicle, props.color2[1], props.color2[2], props.color2[3])
+            appliedColor2 = { props.color2[1], props.color2[2], props.color2[3] }
         end
     end
 
@@ -338,6 +386,21 @@ function SetVehicleProperties(vehicle, props, fixVehicle)
     for k, v in pairs(props) do
         merged[k] = v
     end
+    -- WHAT WAS APPLIED TO THE VEHICLE, NOT WHAT THE CALLER PASSED (L-C19).
+    --
+    -- The snapshot's whole job is "has this field already been applied?", so it
+    -- has to record the value the vehicle ended up with. Recording the caller's
+    -- table instead made the comparison meaningless for a custom RGB: the
+    -- snapshot held `{10,20,30}` forever, so every later apply of the same props
+    -- diffed equal to it and was skipped -- even after something else on the
+    -- server had moved the vehicle's actual colour.
+    --
+    -- A palette NUMBER is recorded as itself. A custom RGB is recorded as what
+    -- was actually set, so a re-apply with different RGB compares unequal and
+    -- runs, and a re-apply with the SAME RGB compares equal and is skipped --
+    -- which is the diff doing its job rather than being defeated by it.
+    merged.color1 = appliedColor1
+    merged.color2 = appliedColor2
     lastApplied[vehicle] = merged
     local playerId = PlayerId()
     return not NetworkGetEntityIsNetworked(vehicle) or NetworkGetEntityOwner(vehicle) == playerId

@@ -209,12 +209,23 @@ local function refreshWeapon(ped)
     setField('weapon', weaponPayload(ped, hash))
 end
 
+-- `IsPlayerFreeAiming` and `GetPedConfigFlag` both answer a BOOLEAN in Lua.
+--
+-- Both were compared to 1, which is `true == 1` and therefore false for every
+-- player at every moment. `CisCache.aiming` was never true, so every consumer
+-- subscribed to it heard nothing, on a stock server, for the life of the
+-- process -- with no error anywhere, because the code ran exactly as written.
+--
+-- `GetPedConfigFlag` is the one place a number still appears: it returns an
+-- integer bitmask, so a ped config flag is compared as a bit rather than as an
+-- equality. That is also why 'configFlag' is not the real aiming state on
+-- current builds -- see the default in shared/defaults.lua.
 local function aimingNow()
     local cfg = Config and Config.AimingCheckType or 'default'
     if cfg == 'configFlag' then
-        return GetPedConfigFlag(CisCache.ped, 78) == 1
+        return GetPedConfigFlag(CisCache.ped, 78) and true or false
     end
-    return IsPlayerFreeAiming(CisCache.playerId) == 1
+    return IsPlayerFreeAiming(CisCache.playerId) and true or false
 end
 
 local function onEnteredVehicle(vehicle, seat)

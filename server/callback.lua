@@ -165,18 +165,27 @@ RegisterNetEvent('cis_libs:cb', function(name, key, ...)
     if type(src) ~= 'number' or src <= 0 then
         return
     end
+    -- THE HANDLER IS CHECKED FIRST (L-C13).
+    --
+    -- The rate bucket is keyed on the event name, and the name arrives off the
+    -- wire, so allocating the bucket before this test meant a client could grow
+    -- `rates[src]` by one entry per DISTINCT name it invented -- ten thousand
+    -- names, ten thousand entries, never freed, no error anywhere. A
+    -- client-triggered memory leak with a denial-of-service shape.
+    --
+    -- Answered rather than dropped, either way: a client blocked in
+    -- AwaitCallbackClient would otherwise sit until its own timeout for a name
+    -- that will never resolve, and the 'unknown' reason is the actionable half
+    -- of that reply.
+    if not handlers[name] and not remotes[name] then
+        TriggerClientEvent('cis_libs:cb:res', src, key, false, 'unknown')
+        return
+    end
     -- 20 per second per callback NAME, not per event: a client that fans out
     -- across many distinct names gets 20 of each, and a client stuck on one
     -- name is the case that matters.
     if not CisRateOk(src, 'cb:' .. tostring(name), 1000, 20) then
         TriggerClientEvent('cis_libs:cb:res', src, key, false, 'rate')
-        return
-    end
-    if not handlers[name] and not remotes[name] then
-        -- Answered rather than dropped. A client blocked in AwaitCallbackClient
-        -- would otherwise sit until its own timeout for a name that will never
-        -- resolve; the 'unknown' reason is the actionable half of that reply.
-        TriggerClientEvent('cis_libs:cb:res', src, key, false, 'unknown')
         return
     end
     local args = table.pack(...)
