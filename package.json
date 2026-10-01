@@ -8,9 +8,11 @@
     "test": "node test/run.js",
     "test:api": "node tools/validate-api.js --api api.lua --resource .",
     "test:api-selftest": "node tools/validate-api.js --selftest",
-    "test:all": "npm run test:syntax && npm run test && npm run test:api-selftest && npm run test:api",
+    "test:all": "npm run test:syntax && npm run test && npm run test:api-selftest && npm run test:api && npm run gen-types:check",
     "test:syntax": "node tools/syntax-check.js",
-    "bench": "node bench/run.js"
+    "bench": "node bench/run.js",
+    "gen-types": "node tools/gen-types.js",
+    "gen-types:check": "node tools/gen-types.js --check"
   },
   "devDependencies": {
     "fengari": "^0.1.5"

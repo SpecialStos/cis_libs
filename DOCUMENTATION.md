@@ -401,16 +401,136 @@ does not take the caller's thread down over a log line.
 published is in `api.lua`, and `npm run test:api` fails if that file and the
 real registered surface ever differ.
 
-| Finding | Meaning |
-|---|---|
-| `E030` | declared for a realm that does not exist |
-| `E031` | registered but not declared |
-| `E032` | signature mismatch |
-| `E033` | signature could not be resolved from source |
-| `E041` | event declared but never referenced |
-| `E042` | event used but not declared |
+<!-- generated:begin -->
 
-`api.lua` is **data**. It defines nothing, runs nothing, and is deliberately not
+| Export | Realm | Signature | Since | Notes |
+|---|---|---|---|---|
+| `AddDoorGroup` | both | `(groupData)` | 1.0.0 | no proxy equivalent; exports["cis_libs"]:AddDoorGroup(groupData) |
+| `AddDoorToSystem` | both | `(newDoorData, internal)` | 1.0.0 | Cis.doors.add(doorData) **deprecated** unstable |
+| `AutoLogError` | both | `(err, event)` | 1.0.0 | Cis.log.error(message) from inside a pcall |
+| `AwaitCallback` | both | `(name, ...)` | 1.0.0 | Cis.callback.await(name, ...) |
+| `AwaitCallbackClient` | server | `(name, target, ...)` | 1.0.0 | Cis.callback.awaitClient(src, name, ...) |
+| `BreakDoor` | server | `(identifier)` | 1.0.0 | no proxy equivalent; exports["cis_libs"]:BreakDoor(identifier) |
+| `CallCallback` | both | `(name, cb, ...)` | 1.0.0 | Cis.callback.call(name, cb, ...) |
+| `CallCallbackClient` | server | `(name, target, cb, ...)` | 1.0.0 | Cis.callback.callClient(src, name, cb, ...) |
+| `CheckResourceVersion` | server | `(resourceName, resourceUrl, currentVersion)` | 1.0.0 | Config.CheckVersion and Config.VersionCheckUrl **deprecated** unstable |
+| `CreatePed` | client | `(model, coords, heading, options)` | 1.0.0 | no proxy equivalent; returns 0 on an invalid or unloaded model |
+| `CreateSafeCallback` | server | `(name, cb)` | 1.0.0 | Cis.callback.register(name, handler); this skips the name and handler checks **deprecated** unstable |
+| `CreateTarget` | client | `(zoneType, name, coords, size, options)` | 1.0.0 | Cis.target.add(zoneType, name, coords, size, options) |
+| `CreateZone` | client | `(kind, name, a, b, options)` | 1.0.0 | Cis.zones.box / Cis.zones.poly / Cis.zones.sphere |
+| `DatabaseDelete` | server | `(sql, params, cb)` | 1.0.0 | Cis.db.query(sql, params) **deprecated** unstable |
+| `DatabaseExecute` | server | `(query, params, cb)` | 1.0.0 | Cis.db.query(sql, params) **deprecated** unstable |
+| `DatabaseFetchAll` | server | `(query, params, cb)` | 1.0.0 | Cis.db.query(sql, params) **deprecated** unstable |
+| `DatabaseFetchOne` | server | `(query, params, cb)` | 1.0.0 | Cis.db.single(sql, params) **deprecated** unstable |
+| `DatabaseInsert` | server | `(sql, params, cb)` | 1.0.0 | Cis.db.insert(sql, params) **deprecated** unstable |
+| `DatabaseUpdate` | server | `(sql, params, cb)` | 1.0.0 | Cis.db.update(sql, params) **deprecated** unstable |
+| `DbInsert` | server | `(sql, params)` | 1.0.0 | Cis.db.insert(sql, params) |
+| `DbQuery` | server | `(sql, params)` | 1.0.0 | Cis.db.query(sql, params) |
+| `DbScalar` | server | `(sql, params)` | 1.0.0 | Cis.db.scalar(sql, params) |
+| `DbSingle` | server | `(sql, params)` | 1.0.0 | Cis.db.single(sql, params) |
+| `DbTransaction` | server | `(queries)` | 1.0.0 | Cis.db.transaction(queries). oxmysql only; queries are oxmysql array-of-{query, values} entries |
+| `DbUpdate` | server | `(sql, params)` | 1.0.0 | Cis.db.update(sql, params) |
+| `DebugLog` | client | `(message)` | 1.0.0 | Cis.log.debug(message) |
+| `DetectDatabase` | both | `(configured)` | 2.0.0 | Asks the server which driver is running. Returns { name, resource, version, how, reason } |
+| `DetectFramework` | both | `(configured, custom)` | 2.0.0 | Asks the server what framework it is actually running. Returns { name, resource, version, how, reason } |
+| `DrawText3D` | client | `(x, y, z, text, settings)` | 1.0.0 | no proxy equivalent |
+| `FixDoor` | server | `(identifier)` | 1.0.0 | no proxy equivalent; exports["cis_libs"]:FixDoor(identifier) |
+| `GetAllDoorData` | server | `()` | 1.0.0 | no proxy equivalent; the full door and group tables |
+| `GetCachedHeading` | client | `()` | 1.0.0 | Cis.player.heading(), which reads the native directly in a consumer VM |
+| `GetCachedPed` | client | `()` | 1.0.0 | Cis.player.ped(), which reads the native directly in a consumer VM |
+| `GetCachedServerId` | client | `()` | 1.0.0 | Cis.player.serverId() |
+| `GetCachedVehicle` | client | `()` | 1.0.0 | Cis.player.vehicle() |
+| `GetCachedWeapon` | client | `()` | 1.0.0 | Cis.player.weapon() |
+| `GetCapabilities` | both | `()` | 2.0.0 | The one call that answers "which of my four resources is actually running". Returns { [slot] = { owner, resolved } } |
+| `GetClientConfig` | client | `()` | 1.0.0 | no proxy equivalent; the config the server sent to this client |
+| `GetClientLogging` | client | `()` | 1.0.0 | Cis.log.debug / info / warn / error |
+| `GetClosestDoor` | client | `()` | 1.0.0 | no proxy equivalent; exports["cis_libs"]:GetClosestDoor() |
+| `GetClosestVehicle` | client | `()` | 1.0.0 | no proxy equivalent; a 5 unit forward ray, then a 5 unit radius search |
+| `GetConfigSummary` | server | `()` | 1.0.0 | no proxy equivalent; the non-secret half of the server config |
+| `GetCurrentWeaponData` | client | `(ped)` | 1.0.0 | Cis.player.weapon() |
+| `GetDiscordConfig` | server | `()` | 2.0.0 | The outbound/webhook configuration SetConfig was handed, for the capability that does the sending. Server realm only -- it holds webhook URLs and is deliberately not on the client payload whitelist |
+| `GetDiscordQueueDepth` | server | `()` | 1.0.0 | no proxy equivalent; queued message count and dropped count |
+| `GetDistanceBetweenCoords` | client | `(x1, y1, z1, x2, y2, z2)` | 1.0.0 | no proxy equivalent |
+| `GetDoorState` | both | `(doorId)` | 1.0.0 | Cis.doors.get(id) |
+| `GetFramework` | both | `()` | 1.0.0 | Cis.framework.player(src) on the server; Cis.framework.notify on the client. Not an API: it returns a table of callable references **deprecated** unstable |
+| `GetGlobals` | client | `()` | 1.0.0 | Cis.player.* and Cis.sync.*; there is no single replacement **deprecated** unstable |
+| `GetKnownTargets` | both | `()` | 2.0.0 | The ordered framework and driver tables detection uses. Shared so a product cannot disagree with the debug output about what is running |
+| `GetLibsPrefix` | server | `()` | 1.0.0 | no proxy equivalent; the configured Security.EventPrefix |
+| `GetLogging` | server | `()` | 1.0.0 | Cis.log.debug / info / warn / error |
+| `GetNormalizedPlayer` | server | `(src)` | 1.0.0 | Cis.framework.player(src) |
+| `GetOnlineJobCount` | server | `(jobs)` | 1.0.0 | no proxy equivalent; the callback cis_libs:getOnlineJobCount |
+| `GetPlayerVehicleSeat` | client | `()` | 1.0.0 | Cis.player.vehicle(), second return value |
+| `GetPolyzones` | client | `()` | 1.0.0 | Cis.zones.poly / Cis.zones.remove / Cis.zones.contains **deprecated** unstable |
+| `GetSyncedEntities` | client | `()` | 1.0.0 | no proxy equivalent; the id-to-handle table of everything this client spawned |
+| `GetTableSize` | client | `(t)` | 1.0.0 | no proxy equivalent |
+| `GetVehicleProperties` | client | `(vehicle)` | 1.0.0 | no proxy equivalent; the full property snapshot used by sync |
+| `GetZoneDebug` | client | `()` | 1.0.0 | no proxy equivalent; the last grid pass cost in milliseconds |
+| `InventoryAdd` | server | `(src, item, amount, metadata)` | 1.0.0 | Cis.inventory.add(src, item, amount, metadata) |
+| `InventoryCount` | both | `(src, item)` | 1.0.0 | Cis.inventory.count(item) on the client, Cis.inventory.count(src, item) on the server |
+| `InventoryHas` | both | `(src, item, amount)` | 1.0.0 | Cis.inventory.has(...) |
+| `InventoryRemove` | server | `(src, item, amount)` | 1.0.0 | Cis.inventory.remove(src, item, amount) |
+| `InvokingAllowed` | server | `()` | 1.0.0 | no proxy equivalent; ask before mutating. This is the supported way to avoid a refusal |
+| `IsReady` | client | `()` | 1.0.0 | Cis.isReady, or Cis.ready(cb) |
+| `LockDoors` | server | `(identifier)` | 1.0.0 | Cis.doors.setState(identifier, true) **deprecated** unstable |
+| `LogDebug` | both | `(message, discordType)` | 1.0.0 | Cis.log.debug(message) |
+| `LogError` | both | `(message, discordType, errorInfo)` | 1.0.0 | Cis.log.error(message) |
+| `LogInfo` | both | `(message, discordType)` | 1.0.0 | Cis.log.info(message) |
+| `LogWarn` | both | `(message, discordType)` | 1.0.0 | Cis.log.warn(message) |
+| `Notify` | both | `(src, message, kind)` | 1.0.0 | Cis.framework.notify(...). The two-argument client form sends `kind` in the message slot; this is pinned as a known defect in test/contracts.lua and is a MAJOR change to correct |
+| `NotifyClient` | server | `(src, message, kind)` | 2.0.0 | Called by a product to show a notification to one client, without hardcoding the event name owned by this library |
+| `OnPlayerCache` | client | `(key, cb)` | 1.0.0 | Cis.player.on(key, cb). The cb cannot cross the boundary; use a net event |
+| `PublishInventory` | server | `(src)` | 2.0.0 | Called by the inventory service. Pushes cis_libs:client:inventory to one player |
+| `PublishJobUpdate` | server | `(job, src)` | 2.0.0 | Called by cis_core when a player changes job. Fires cis_libs:jobUpdated, so the event name stays owned by this library |
+| `PublishPlayerLoaded` | server | `(job, src)` | 2.0.0 | Called by cis_core when a player object exists. Fires cis_libs:playerLoaded |
+| `RandomFloat` | client | `(lower, greater)` | 1.0.0 | no proxy equivalent |
+| `RateOk` | server | `(src, name, windowMs, maxHits)` | 1.0.0 | no proxy equivalent; a resource may share the library rate limiter |
+| `RegisterCallback` | both | `(name, handler)` | 1.0.0 | Cis.callback.register(name, handler) |
+| `RegisterCapability` | both | `(slot, provider)` | 2.0.0 | Called by cis_core, cis_bridge and cis_keys with (slot, "resource:Export"). First registration wins |
+| `RemoveTarget` | client | `(name, isPed)` | 1.0.0 | Cis.target.remove(name, isPed) |
+| `RemoveZone` | client | `(name)` | 1.0.0 | Cis.zones.remove(name) |
+| `RequestInventorySync` | client | `()` | 2.0.0 | Cis.inventory.count is a hint. This asks for a fresh one. Client only |
+| `RequestLockDoors` | client | `(identifier)` | 1.0.0 | Cis.doors.setState(id, true) on the client |
+| `RequestModelTimeout` | client | `(model, timeout)` | 1.0.0 | Cis.streaming.model(model, timeout) |
+| `RequestUnlockDoors` | client | `(identifier)` | 1.0.0 | Cis.doors.setState(id, false) on the client |
+| `Round` | client | `(num, numDecimalPlaces)` | 1.0.0 | no proxy equivalent; math round to n places |
+| `SecureNetOn` | server | `(name, fn, opts)` | 1.0.0 | Cis.net.on(name, fn, opts) -> true when the event was bound |
+| `SecurityReport` | server | `(src, reason)` | 1.0.0 | Cis.security.report(src, reason) |
+| `SendDiscordLog` | server | `(webhookURL, title, message, color, ping)` | 1.0.0 | Cis.log.info with a discordType; no proxy equivalent for a raw webhook push |
+| `SetConfig` | server | `(config, security, discord)` | 2.0.0 | Called by cis_core at boot with (config, security, discord). First registration wins; a second is refused and named |
+| `SetDropPlayerHandler` | server | `(provider)` | 2.0.0 | Called by whoever ships the config, with "resource:Export". A FUNCTION cannot be sent across the boundary, which is why this exists |
+| `SetVehicleProperties` | client | `(vehicle, props, fixVehicle)` | 1.0.0 | no proxy equivalent; diffs against the last applied snapshot |
+| `SyncCreate` | server | `(kind, data)` | 1.0.0 | Cis.sync.ped / Cis.sync.prop / Cis.sync.vehicle |
+| `SyncRemove` | server | `(id)` | 1.0.0 | Cis.sync.remove(id) |
+| `TargetAvailable` | client | `()` | 1.0.0 | no proxy equivalent; true when a configured target provider is started |
+| `TargetExists` | client | `(name)` | 1.0.0 | Cis.target.exists(name) |
+| `TriggerLibCallback` | client | `(name, cb, ...)` | 1.0.0 | the client-to-server round trip whose callback receives only the results |
+| `TryAwaitCallback` | both | `(name, ...)` | 2.1.0 | Cis.callback.tryAwait(name, ...) -> ok, ... on success; false, reason on a refusal |
+| `UnlockDoors` | server | `(identifier)` | 1.0.0 | Cis.doors.setState(identifier, false) **deprecated** unstable |
+| `UnregisterCapability` | server | `(slot)` | 2.0.0 | Called by a product on shutdown or handover. Only the slot owner may release it |
+| `UpdateTarget` | client | `(name, newOptions)` | 1.0.0 | Cis.target.update(name, options) |
+| `WaitCapability` | server | `(slot, timeoutMs)` | 2.1.0 | Waits up to timeoutMs for a capability slot to be filled. Returns true and the owner, or nil and a reason naming the slot. No proxy equivalent -- a consumer waits from its own resource. |
+| `WaitReady` | both | `(timeout)` | 1.0.0 | Cis.ready(cb, timeout) or Cis.wait(timeout) |
+| `WatchNear` | client | `(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent)` | 1.0.0 | Cis.player.near(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent) |
+| `ZoneContains` | client | `(name, point)` | 1.0.0 | Cis.zones.contains(name, point) |
+
+| Event | Since | Payload |
+|---|---|---|
+| `cis_libs:capabilityChanged` | 2.1.0 | both realms: ({ slot, action, owner, previousOwner, resolved }) |
+| `cis_libs:cb` | 1.0.0 | client to server and server to client: (name, key, ...) |
+| `cis_libs:cb:res` | 1.0.0 | client: (key, ok, ...) resolving an outstanding callback |
+| `cis_libs:cb:serverRes` | 1.0.0 | server: (key, ok, ...) resolving an outstanding client callback |
+| `cis_libs:client:getData` | 1.0.0 | server to client: ({ Config, EventPrefix }) on join. DoorData was removed in 2.0.0 |
+| `cis_libs:client:inventory` | 1.0.0 | server to client: ({ [itemName] = count }), pushed by PublishInventory |
+| `cis_libs:client:showNotification` | 1.0.0 | server to client: (message, kind) |
+| `cis_libs:client:syncRemove` | 1.0.0 | server to client: (id) despawn a synced entity |
+| `cis_libs:client:syncUpsert` | 1.0.0 | server to client: (record) for a nearby synced entity |
+| `cis_libs:jobUpdated` | 1.0.0 | server to client: ({ name, grade }), fired by PublishJobUpdate |
+| `cis_libs:playerLoaded` | 1.0.0 | server to client: (job), fired by PublishPlayerLoaded |
+| `cis_libs:server:getData` | 1.0.0 | client to server: no arguments, requests the config payload |
+| `cis_libs:server:inventorySync` | 1.0.0 | client to server: no arguments, requests an inventory snapshot |
+
+
+<!-- generated:end -->
 listed in `fxmanifest.lua` — loading it would put a table into every Lua state
 at every boot for no gain. Read it on demand.
 
@@ -427,6 +547,8 @@ here — they belong to `cis_keys` and `cis_core` respectively. A net event name
 that moves between resources is a name a product can rename without anyone
 noticing until a consumer silently stops hearing about it.
 
+<!-- generated:begin -->
+
 | Event | Direction | Payload |
 |---|---|---|
 | `cis_libs:cb` | both | `(name, key, ...)` |
@@ -441,6 +563,8 @@ noticing until a consumer silently stops hearing about it.
 | `cis_libs:client:syncRemove` | server → client | `(id)` |
 | `cis_libs:jobUpdated` | server → client | `({ name, grade })` |
 | `cis_libs:playerLoaded` | server → client | `(job)` |
+
+<!-- generated:end -->
 
 `jobUpdated` and `playerLoaded` used to be fired by the framework layer. They
 are now fired **here**, by a product calling `PublishJobUpdate` /

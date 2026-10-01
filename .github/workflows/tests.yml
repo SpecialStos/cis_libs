@@ -190,3 +190,23 @@ jobs:
 
       - name: Load every pure module and run the smoke check
         run: lua5.4 test/lua54.lua
+
+  # T6 + T7 -- the generated files must match their source.
+  #
+  # The point of committing generated output is that CI fails when it drifts.
+  # A generator whose output is refreshed on demand is documentation nobody
+  # reads, because the reader cannot tell it from the file it drifted from --
+  # and the api.lua validator already reads the SOURCE, so nothing else in this
+  # workflow would notice the published stub describing an old signature.
+  generated:
+    name: generated types and docs are current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: Fail if the committed output is stale
+        run: npm run gen-types:check
