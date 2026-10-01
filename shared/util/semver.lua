@@ -119,6 +119,17 @@ function CisSemver.parse(v)
         if #piece > 1 and piece:sub(1, 1) == '0' then
             return nil, ('%q has a leading zero'):format(piece)
         end
+        -- Fifteen digits is the last width a double holds exactly: 2^53 is
+        -- about 9.007e15, and 999999999999999 is the largest all-nines value
+        -- under it. A wider part is refused rather than accepted because it
+        -- cannot be parsed, not merely because it is unusual -- the value
+        -- silently becomes a DIFFERENT number, so 'normalized' would report a
+        -- version nobody wrote. Refusing with a reason is the only honest
+        -- answer, and this file promises never to raise.
+        if #piece > 15 then
+            return nil, ('%q has %d digits, at most 15 fit in a double exactly')
+                :format(piece, #piece)
+        end
     end
 
     local major = tonumber(core[1]) or 0
@@ -128,7 +139,13 @@ function CisSemver.parse(v)
         major = major, minor = minor, patch = patch,
         prerelease = prerelease, build = build,
         raw = v,
-        normalized = ('%d.%d.%d%s%s'):format(major, minor, patch,
+        -- %.0f rather than %d ON PURPOSE. A component wide enough to be a
+        -- float has no integer representation for %d to print -- in Lua 5.3
+        -- it raises outright, and in fengari %d rejects a float from ten
+        -- digits up -- so formatting a perfectly legal ten-digit major used
+        -- to take the parser down. Every value reaching here is under 2^53 and
+        -- integral, which is exactly the range %.0f prints without rounding.
+        normalized = ('%.0f.%.0f.%.0f%s%s'):format(major, minor, patch,
             prerelease and ('-' .. prerelease) or '',
             build and ('+' .. build) or ''),
     }
@@ -245,6 +262,33 @@ local function splitOperator(token)
     return '=', token
 end
 
+-- How many numeric components were WRITTEN in a comparator.
+--
+-- Not the same question as "how many does this version have": `parse` has
+-- already zero-filled 1.2 to 1.2.0, and the operators below need to know which
+-- end the caller actually typed.
+--
+-- Prerelease and build suffixes are excluded on purpose. Counting every run of
+-- digits in the token made '~1-rc1' look like two components, which quietly
+-- turned '~1' -- >=1.0.0 <2.0.0 -- into '>=1.0.0 <1.1.0'.
+local function writtenComponents(rest)
+    local core = rest:match('^[^%-%+]+') or rest
+    local n = 0
+    for _ in core:gmatch('%d+') do
+        n = n + 1
+    end
+    return n
+end
+
+-- The bound a PARTIAL upper comparator really means: the last component
+-- written, bumped by one, with everything after it zeroed.
+local function bumpedUpper(parsed, written)
+    if written <= 1 then
+        return { major = parsed.major + 1, minor = 0, patch = 0 }
+    end
+    return { major = parsed.major, minor = parsed.minor + 1, patch = 0 }
+end
+
 -- Expand one range token into the one or two inclusive/exclusive bounds it
 -- means. Returns a list of { op, v } pairs, or nil plus a reason.
 --
@@ -334,15 +378,26 @@ local function boundsFor(token)
         return { { op = '>=', v = low }, { op = '<', v = high } }
     end
 
-    if op == '~' then
+    -- Partial upper comparators, which npm reads as a whole component range.
+--
+-- '<=1.2' means '<1.3.0', not '<=1.2.0', and '>1.2' means '>=1.3.0', not
+-- '>1.2.0'. Read literally against the zero-filled parse, '<=1.2' refused every
+-- patch release after 1.2.0 -- a range written to allow a whole minor, in a
+-- config, rejecting a working resource at boot. '<1.2' and '>=1.2' are already
+-- what they say and are left alone.
+if op == '<=' or op == '>' then
+    local written = writtenComponents(rest)
+    if written < 3 then
+        return { { op = op == '<=' and '<' or '>=', v = bumpedUpper(parsed, written) } }
+    end
+end
+
+if op == '~' then
         -- ~1 is >=1.0.0 <2.0.0; ~1.2 is >=1.2.0 <1.3.0; ~1.2.3 is >=1.2.3 <1.3.0.
         -- The bump level is the LAST COMPONENT WRITTEN, which is why the
         -- component count comes from the text: the parsed value has already
         -- zero-filled 1.2 to 1.2.0 and the distinction is gone.
-        local written = 0
-        for _ in rest:gmatch('%d+') do
-            written = written + 1
-        end
+        local written = writtenComponents(rest)
         local low = {
             major = parsed.major, minor = parsed.minor, patch = parsed.patch,
             prerelease = parsed.prerelease,
@@ -447,6 +502,16 @@ end
 ---   * tilde        `~1.2.3` -- >=1.2.3 <1.3.0  ;  `~1.2` -- >=1.2.0 <1.3.0
 ---   * AND          spaces separate comparators: `>=1.2.0 <2.0.0`
 ---   * OR           `||` separates alternatives: `^1.0.0 || ^3.0.0`
+---
+--- PARTIAL COMPARATORS follow npm: an upper comparator written with fewer than
+--- three components names a whole component range, so `<=1.2` is `<1.3.0` and
+--- `>1.2` is `>=1.3.0`. `<1.2` is `<1.2.0` and `>=1.2` is `>=1.2.0`.
+---
+--- ONE KNOWN DIVERGENCE: `=1.2` is `=1.2.0` here, while npm expands it to
+--- `>=1.2.0 <1.3.0`. Exact equality is the stricter reading and it is left
+--- alone deliberately -- widening it changes which versions an existing
+--- manifest accepts, and that is a call for whoever owns the contract rather
+--- than for a parser. Write `1.2.x` if that is what you meant.
 ---
 --- opts.includePrerelease relaxes the prerelease rule above. It is the only
 --- way to, and it is off by default.

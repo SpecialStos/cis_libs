@@ -496,6 +496,80 @@ do
     expect(S.satisfies('1.5.0', '>=1.0.0'), 'satisfies handles a >= comparator')
     expect(not S.satisfies('0.9.0', '>=1.0.0'), 'satisfies rejects below a >= comparator')
     expect(S.satisfies('1.5.0', '1.x'), 'satisfies handles a wildcard')
+
+    -- Wrappers, because a bare `pcall(CisSemver.parse, '1.2.3')` is fragile in
+    -- fengari's parser when the first argument is a dotted global.
+    local function parseOf(str)
+        return pcall(CisSemver.parse, str)
+    end
+
+    -- L-S9. A numeric component too wide for a double used to RAISE out of
+    -- the parser rather than being refused. `parse` is documented as never
+    -- raising and returning `nil, reason`, and a version string arrives from
+    -- another resource's manifest, so raising here took down the caller.
+    do
+        local ok, res, why = parseOf('1.2.99999999999999999999')
+        expect(ok, 'parse does not raise on a numeric part too wide for a double')
+        expect(res == nil and type(why) == 'string' and why ~= '',
+            'an over-wide numeric part is refused with a reason, not silently rounded')
+
+        local ok2, res2, why2 = parseOf('99999999999999999999.2.3')
+        expect(ok2 and res2 == nil and type(why2) == 'string',
+            'the same refusal applies to an over-wide major')
+
+        -- 15 digits is the last width a double holds exactly. 16 does not
+        -- round-trip -- it becomes a different number, silently -- which is why
+        -- it is refused rather than accepted.
+        expect(S.parse('1.2.123456789012345').normalized == '1.2.123456789012345',
+            'a 15-digit component parses and normalizes exactly')
+        local ok3, res3 = parseOf('1.2.1234567890123456')
+        expect(ok3 and res3 == nil, 'a 16-digit component is refused rather than rounded')
+
+        -- The refusal has to survive the whole chain, or it just moves the
+        -- raise one function up.
+        local okS = pcall(CisSemver.satisfies, '1.2.99999999999999999999', '^1.0.0')
+        expect(okS, 'satisfies does not raise on an unparsable version')
+        expect(S.satisfies('1.2.99999999999999999999', '^1.0.0') == nil,
+            'satisfies refuses an unparsable version with nil, not a raise')
+    end
+
+    -- L-S10. npm reads '<=1.2' as '<1.3.0' and '>1.2' as '>=1.3.0'. Both were
+    -- read as a bound against 1.2.0 EXACTLY, so a range meant to allow a whole
+    -- minor silently refused every patch after it -- the kind of range that
+    -- looks right in a config and rejects a working resource at boot.
+    do
+        expect(S.satisfies('1.2.5', '<=1.2') == true, "'<=1.2' allows 1.2.5, as npm does")
+        expect(S.satisfies('1.3.0', '<=1.2') == false, "'<=1.2' still refuses 1.3.0")
+        expect(S.satisfies('1.2.5', '>1.2') == false, "'>1.2' refuses 1.2.5, as npm does")
+        expect(S.satisfies('1.3.0', '>1.2') == true, "'>1.2' allows 1.3.0")
+
+        -- The single-component form moves too.
+        expect(S.satisfies('1.9.0', '<=1') == true, "'<=1' allows 1.9.0")
+        expect(S.satisfies('2.0.0', '<=1') == false, "'<=1' refuses 2.0.0")
+        expect(S.satisfies('1.9.0', '>1') == false, "'>1' refuses 1.9.0")
+        expect(S.satisfies('2.0.0', '>1') == true, "'>1' allows 2.0.0")
+
+        -- A full three-component comparator is an exact bound and stays one.
+        expect(S.satisfies('1.2.5', '<=1.2.5') == true, "'<=1.2.5' is still an exact bound")
+        expect(S.satisfies('1.2.5', '>1.2.5') == false, "'>1.2.5' is still an exact bound")
+        expect(S.satisfies('1.2.5', '>1.2.4') == true, "'>1.2.4' is still an exact bound")
+
+        -- '<' and '>=' already meant what they say and must keep meaning it.
+        expect(S.satisfies('1.2.5', '<1.2') == false, "'<1.2' is still '<1.2.0'")
+        expect(S.satisfies('1.2.5', '>=1.2') == true, "'>=1.2' is still '>=1.2.0'")
+
+        -- The rewritten bound must not carry a prerelease, or it would let a
+        -- prerelease target past the rule that is the whole point of the file.
+        expect(S.satisfies('1.2.5-rc1', '<=1.2') == false,
+            "a prerelease of 1.2.5 is still refused by '<=1.2'")
+
+        -- The component count that drives both rewrites must ignore the digits
+        -- inside a prerelease: '~1-rc1' counted the '1' in 'rc1' as a second
+        -- component and became '>=1.0.0 <1.1.0'.
+        expect(S.satisfies('1.5.0', '~1') == true, "'~1' still means >=1.0.0 <2.0.0")
+        expect(S.satisfies('1.5.0', '~1-rc1') == true,
+            "'~1-rc1' does not count the prerelease digits as a component")
+    end
 end
 
 -- ===================================================================== CisId
