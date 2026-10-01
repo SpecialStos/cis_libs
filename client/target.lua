@@ -25,6 +25,9 @@
 local Target = {}
 local CreatedZones = {}
 local warnedMissing = false
+-- L-C7: who asked for which target, so a consumer's stop removes its own zones
+-- through the provider instead of leaving them in the world. See shared/owned.lua.
+local owned = CisOwned.new()
 
 local function targetType()
     return Config and Config.Framework and Config.Framework.Target and Config.Framework.Target.Type or 'ox_target'
@@ -112,6 +115,12 @@ Target.Create = function(zoneType, name, coords, size, options)
     end
 
     CreatedZones[name] = spec
+    -- L-C7: the owner, captured while the EXPORT is executing and so while
+    -- GetInvokingResource() still names the consumer. Read it any later and it
+    -- names whatever called last, which is how a zone ends up owned by a resource
+    -- that has never heard of it.
+    spec.owner = GetInvokingResource() or 'cis_libs'
+    CisOwned.track(owned, spec.owner, 'target', name)
     return true
 end
 
@@ -122,6 +131,7 @@ end
 Target.Remove = function(name, isPed)
     if not Target.Available() then
         CreatedZones[name] = nil
+        CisOwned.forget(owned, 'target', name)
         return false, 'no target provider started'
     end
     local entry = CreatedZones[name]
@@ -137,8 +147,45 @@ Target.Remove = function(name, isPed)
         return false, err
     end
     CreatedZones[name] = nil
+    -- Removed the ordinary way, so the ledger stops owing it.
+    CisOwned.forget(owned, 'target', name)
     return true
 end
+
+-- A CONSUMER THAT STOPS HAS ITS TARGETS REMOVED THROUGH THE PROVIDER (L-C7).
+--
+-- Not through this file's own bookkeeping: the ZONES live in ox_target, not
+-- here, so a target this library has merely stopped believing in is still a live
+-- zone that a player can still interact with. Removal has to go through the
+-- provider or it does not happen.
+--
+-- Under pcall per zone: a provider that is itself stopping throws on the first
+-- call, and without the guard that would abandon the sweep and leave every
+-- remaining target in the world.
+onClientResourceStop(function(resource)
+    if resource == GetCurrentResourceName() then
+        return
+    end
+    local freed = CisOwned.release(owned, resource)
+    local removed = 0
+    for i = 1, #freed do
+        if freed[i].kind == 'target' then
+            local entry = CreatedZones[freed[i].id]
+            local isPed = entry and entry.zoneType == 'ped'
+            pcall(function()
+                if Target.Available() and entry then
+                    CisRegistry.call('target', 'remove', freed[i].id, entry, isPed)
+                end
+                CreatedZones[freed[i].id] = nil
+                CisOwned.forget(owned, 'target', freed[i].id)
+                removed = removed + 1
+            end)
+        end
+    end
+    if removed > 0 then
+        CisLog('info', ('cis_libs: removed %d target(s) owned by %s'):format(removed, tostring(resource)))
+    end
+end)
 
 Target.Update = function(name, newOptions)
     if not CreatedZones[name] then

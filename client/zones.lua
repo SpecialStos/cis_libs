@@ -7,6 +7,10 @@
 local zones = {}
 local grid = CisGrid.new()
 local inside = {}
+-- L-C7: who asked for which zone. ox_lib does not need this because it runs in
+-- the consumer's own VM; this library does not, so a zone outlives the resource
+-- that created it until the process restarts. See shared/owned.lua.
+local owned = CisOwned.new()
 local debugStats = {
     lastPassMs = 0,
     lastPassAt = 0,
@@ -88,6 +92,10 @@ end
 local function register(zone)
     zones[zone.name] = zone
     CisGrid.insert(grid, zone.name, zone.aabb, zone)
+    -- The OWNER, captured at creation. A zone created by cis_libs's own code
+    -- (none today, but the doorlock and the sync layer both reach here) is owned
+    -- by cis_libs and is never swept on a consumer's stop.
+    CisOwned.track(owned, zone.owner, 'zone', zone.name)
 end
 
 function CisZonesCreate(kind, name, a, b, options)
@@ -117,6 +125,10 @@ function CisZonesCreate(kind, name, a, b, options)
     local zone = {
         name = name,
         kind = kind,
+        -- L-C7: recorded so a consumer's stop can take its zones with it.
+        -- Read inside the resource that called the export, which is the only
+        -- place this is true.
+        owner = GetInvokingResource() or 'cis_libs',
         onEnter = options.onEnter,
         onExit = options.onExit,
         inside = options.inside,
@@ -185,6 +197,10 @@ function CisZonesRemove(name)
     end
     CisGrid.remove(grid, name)
     zones[name] = nil
+    -- Removed the ordinary way, so the ledger stops owing it. Without this the
+    -- name stays attributed to its owner for the life of the process, and the
+    -- sweep below would try to remove a zone that is already gone.
+    CisOwned.forget(owned, 'zone', name)
     return true
 end
 
@@ -315,6 +331,36 @@ CreateThread(function()
         else
             Wait(250)
         end
+    end
+end)
+
+-- A CONSUMER THAT STOPS TAKES ITS ZONES WITH IT (L-C7).
+--
+-- The exit event fires FIRST, and that ordering is the point. A zone's
+-- `onExitEvent` is the only way a consumer learns the player left -- a function
+-- cannot cross the exports boundary -- so sweeping the zone without firing it
+-- would leave a consumer believing its player is still inside a shop. It is
+-- strictly worse than leaking the zone, and it is the order a careless
+-- implementation gets wrong.
+--
+-- Guarded against cis_libs's OWN stop: at that point every client is going
+-- away and firing server events for zones nobody will ever hear about is noise
+-- on a resource that is mid-shutdown.
+onClientResourceStop(function(resource)
+    if resource == GetCurrentResourceName() then
+        return
+    end
+    local freed = CisOwned.release(owned, resource)
+    for i = 1, #freed do
+        if freed[i].kind == 'zone' then
+            -- Under pcall: `onExitEvent` is a TriggerServerEvent into a resource
+            -- that has already stopped, and an error there must not abandon the
+            -- rest of the sweep and leak every zone after the first.
+            pcall(CisZonesRemove, freed[i].id)
+        end
+    end
+    if #freed > 0 then
+        CisLog('info', ('cis_libs: released %d zone(s) owned by %s'):format(#freed, tostring(resource)))
     end
 end)
 

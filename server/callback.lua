@@ -14,6 +14,9 @@
 local handlers = {}
 local remotes = {}
 local pending = CisPending.new()
+-- L-C7: who registered which callback, so a consumer's stop releases its own.
+-- See shared/owned.lua.
+local callbackOwned = CisOwned.new()
 
 -- 10s default, and the budget a consumer's own code is competing for: the
 -- sweep below cannot fire before this, and a client that has already given up
@@ -84,6 +87,11 @@ function CisRegisterCallback(name, handler)
             return false
         end
         remotes[name] = { resource = resource, export = export }
+        -- L-C7: the owner is read HERE, while the export is executing and
+        -- GetInvokingResource() still names the consumer. Read it any later it
+        -- names whatever called last, which is how a callback ends up owned by a
+        -- resource that has never heard of it.
+        CisOwned.track(callbackOwned, GetInvokingResource() or 'cis_libs', 'callback', name)
         return true
     end
     if not isCallable(handler) then
@@ -91,8 +99,37 @@ function CisRegisterCallback(name, handler)
         return false
     end
     handlers[name] = handler
+    CisOwned.track(callbackOwned, GetInvokingResource() or 'cis_libs', 'callback', name)
     return true
 end
+
+-- A CONSUMER THAT STOPS TAKES ITS CALLBACKS WITH IT (L-C7).
+--
+-- The alternative is a callback whose export no longer exists. `invoke` then
+-- fails to find it, `pcall` never runs, and the caller gets `false, 'error'` --
+-- which reads as "the handler has a bug in it" and sends the consumer looking at
+-- their own code instead of at the resource that just stopped. Worse, the name
+-- stays registered forever, so a restarted resource that registers the same
+-- name is refused as a conflict against a dead handler.
+--
+-- Releasing it turns the next call into an honest `false, 'unknown'`: the same
+-- answer as a name that was never registered, which tells a consumer their
+-- wiring is wrong rather than that their handler threw.
+AddEventHandler('onResourceStop', function(resource)
+    if resource == GetCurrentResourceName() then
+        return
+    end
+    local freed = CisOwned.release(callbackOwned, resource)
+    for i = 1, #freed do
+        if freed[i].kind == 'callback' then
+            handlers[freed[i].id] = nil
+            remotes[freed[i].id] = nil
+        end
+    end
+    if #freed > 0 then
+        Logging.Info(('cis_libs: released %d callback(s) owned by %s'):format(#freed, tostring(resource)))
+    end
+end)
 
 RegisterNetEvent('cis_libs:cb', function(name, key, ...)
     -- `source` is read into a local before anything else. Every path below can

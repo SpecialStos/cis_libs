@@ -29,6 +29,8 @@ local listeners = {
 
 local nearWatchers = {}
 local nearSeq = 0
+-- L-C7: who asked for which near watcher. See shared/owned.lua.
+local nearOwned = CisOwned.new()
 local UNARMED = `WEAPON_UNARMED`
 
 local function emit(key, current, previous)
@@ -390,7 +392,15 @@ function CisCache.watchNear(coords, distance, onEnter, onExit, onEnterEvent, onE
     }
     local function unsubscribe()
         nearWatchers[id] = nil
+        -- L-C7: a watcher the caller has unsubscribed is one the ledger must
+        -- stop owing, or the stop sweep will "release" it later and report a
+        -- count that never happened.
+        CisOwned.forget(nearOwned, 'nearWatcher', id)
     end
+    -- L-C7: a watcher outlives the resource that asked for it until the process
+    -- restarts, and an abandoned watcher still costs a distance check every tick
+    -- for as long as it lives.
+    CisOwned.track(nearOwned, GetInvokingResource() or 'cis_libs', 'nearWatcher', id)
     return unsubscribe, id
 end
 
@@ -423,6 +433,30 @@ end)
 
 exports('WatchNear', function(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent)
     return CisCache.watchNear(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent)
+end)
+
+-- A CONSUMER THAT STOPS TAKES ITS NEAR WATCHERS WITH IT (L-C7).
+--
+-- A watcher is a per-tick distance check on a coordinates table. A resource
+-- that restarts leaks one every time, and the cost is invisible: no error, no
+-- log line, just a server that gets marginally slower for as long as it is up.
+onClientResourceStop(function(resource)
+    if resource == GetCurrentResourceName() then
+        return
+    end
+    local freed = CisOwned.release(nearOwned, resource)
+    local dropped = 0
+    for i = 1, #freed do
+        if freed[i].kind == 'nearWatcher' then
+            nearWatchers[freed[i].id] = nil
+            CisOwned.forget(nearOwned, 'nearWatcher', freed[i].id)
+            dropped = dropped + 1
+        end
+    end
+    if dropped > 0 then
+        CisLog('info', ('cis_libs: released %d near watcher(s) owned by %s')
+            :format(dropped, tostring(resource)))
+    end
 end)
 
 RegisterCommand('cis_debug', function()

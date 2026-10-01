@@ -643,6 +643,100 @@ do
         'L-S11: a non-string method name refuses rather than raising')
 end
 
+-- ================================================================== CisOwned
+-- THE OWNERSHIP LEDGER, which is the whole of the consumer-stop fix.
+--
+-- ox_lib does not have this problem because it runs inside the consumer's own
+-- Lua VM: everything a resource creates dies with it. cis_libs runs in its OWN
+-- VM, so a zone, a target, a synced entity and a remote callback outlive the
+-- resource that asked for them -- silently, and until the process restarts.
+--
+-- The ledger has to be exactly right about the case that makes it awkward: a
+-- resource that RESTARTS. It re-runs its own registration, and a naive ledger
+-- would still attribute its names to the dead instance -- so the sweep for that
+-- dead owner would then delete a live record.
+do
+    local L = CisOwned.new()
+
+    CisOwned.track(L, 'res_a', 'zone', 'shop')
+    CisOwned.track(L, 'res_a', 'zone', 'bank')
+    CisOwned.track(L, 'res_b', 'zone', 'depot')
+
+    expect(CisOwned.count(L) == 3, 'owned: every tracked record is counted')
+    expect(CisOwned.ownerOf(L, 'zone', 'shop') == 'res_a',
+        'owned: the owner of a record is reported')
+    expect(CisOwned.ownerOf(L, 'zone', 'nope') == nil,
+        'owned: an untracked record has no owner')
+    expect(CisOwned.isHeldBy(L, 'zone', 'shop', 'res_a'), 'owned: isHeldBy agrees')
+    expect(not CisOwned.isHeldBy(L, 'zone', 'shop', 'res_b'),
+        'owned: and disagrees for the wrong owner')
+
+    -- A STOP releases exactly what that resource held. res_b's record must
+    -- survive: a sweep that took everything would be a different bug, and one
+    -- that took nothing would be this one.
+    local freed = CisOwned.release(L, 'res_a')
+    expect(#freed == 2, ('owned: release returns exactly what the owner held (%d)'):format(#freed))
+    local kinds = {}
+    for _, rec in ipairs(freed) do kinds[rec.kind .. ':' .. tostring(rec.id)] = true end
+    expect(kinds['zone:shop'] and kinds['zone:bank'],
+        'owned: and names each of them, kind and id')
+    expect(CisOwned.ownerOf(L, 'zone', 'depot') == 'res_b',
+        "owned: another resource's record SURVIVES the sweep")
+
+    -- Release is sorted. A sweep whose order changes between two identical
+    -- stops is a sweep whose bugs are unreproducible.
+    local again = {}
+    CisOwned.track(L, 'res_c', 'zone', 'zebra')
+    CisOwned.track(L, 'res_c', 'zone', 'alpha')
+    for _, rec in ipairs(CisOwned.release(L, 'res_c')) do
+        again[#again + 1] = tostring(rec.id)
+    end
+    expect(again[1] == 'alpha' and again[2] == 'zebra',
+        'owned: release is sorted, so a stop is reproducible')
+
+    -- RESTART. The same resource re-tracks its own names.
+    local R = CisOwned.new()
+    CisOwned.track(R, 'res_a', 'zone', 'shop')
+    CisOwned.track(R, 'res_a', 'zone', 'shop')
+    expect(CisOwned.count(R) == 1, 'owned: tracking the same record twice is one record')
+    expect(CisOwned.ownerOf(R, 'zone', 'shop') == 'res_a',
+        'owned: and the owner is unchanged by a re-track')
+
+    -- ...and a name HANDED OVER to another resource moves, rather than being
+    -- owned by both. Without the move, stopping the first resource would delete
+    -- a record the second one is now using.
+    CisOwned.track(R, 'res_b', 'zone', 'shop')
+    expect(CisOwned.ownerOf(R, 'zone', 'shop') == 'res_b',
+        'owned: a re-track by a DIFFERENT owner is a move, not a second claim')
+    local moved = CisOwned.release(R, 'res_a')
+    expect(#moved == 0, 'owned: and the previous owner holds nothing afterwards')
+    expect(CisOwned.ownerOf(R, 'zone', 'shop') == 'res_b',
+        'owned: so stopping the old owner does not take the live record')
+
+    -- forget() is the ordinary path: a record removed by its owner, with nobody
+    -- stopping, still stops being owed.
+    CisOwned.forget(R, 'zone', 'shop')
+    expect(CisOwned.ownerOf(R, 'zone', 'shop') == nil, 'owned: forget drops a record')
+    expect(CisOwned.count(R) == 0, 'owned: and the ledger is empty again')
+    expect(CisOwned.forget(R, 'zone', 'shop') == false,
+        'owned: forgetting a record that is not there reports false')
+
+    -- Refusals, not silent acceptance: a record with no id is not a record.
+    expect(CisOwned.track(R, 'res_a', 'zone', nil) == false,
+        'owned: tracking a nil id is refused')
+    expect(CisOwned.track(R, 'res_a', nil, 'x') == false,
+        'owned: tracking with no kind is refused')
+    expect(#CisOwned.release(R, 'nobody') == 0,
+        'owned: releasing a resource that owns nothing is an empty list')
+
+    -- clear() is what cis_libs's own stop uses.
+    CisOwned.track(R, 'res_a', 'zone', 'x')
+    CisOwned.clear(R)
+    expect(CisOwned.count(R) == 0, 'owned: clear empties the ledger')
+    expect(#CisOwned.release(R, 'res_a') == 0,
+        'owned: and nothing is owed afterwards')
+end
+
 io.write(('module tests: passed=%d failed=%d\n'):format(passed, failed))
 if failed > 0 then
     os.exit(1)

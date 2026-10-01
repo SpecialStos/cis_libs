@@ -87,6 +87,7 @@ shared_scripts {
     'shared/registry.lua',
     'shared/grid.lua',
     'shared/pending.lua',
+    'shared/owned.lua',
     'shared/config.lua',
     'shared/histogram.lua',
     'shared/ready.lua',

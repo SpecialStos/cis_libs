@@ -101,8 +101,30 @@ local function newEnv(opts)
     function GetResourceState() return 'missing' end
     function GetPlayerName() return 'TestPlayer' end
     function DropPlayer() end
-    function AddEventHandler() end
-    function RegisterNetEvent() end
+    -- Event handlers are RECORDED, not dropped: the consumer-stop fix is
+    -- entirely about what happens when `onResourceStop` fires, so the harness
+    -- has to be able to fire one and a test has to be able to see the binding.
+    env.handlers = {}
+    function AddEventHandler(name, fn)
+        env.handlers[name] = env.handlers[name] or {}
+        env.handlers[name][#env.handlers[name] + 1] = fn
+    end
+    function env.fire(name, ...)
+        for _, fn in ipairs(env.handlers[name] or {}) do fn(...) end
+    end
+    function RegisterNetEvent(name, fn)
+        env.netEvents = env.netEvents or {}
+        env.netEvents[name] = env.netEvents[name] or {}
+        env.netEvents[name][#env.netEvents[name] + 1] = fn
+    end
+    -- The `source` global is what a net-event handler reads, so the harness
+    -- sets it around a dispatch rather than passing it as an argument.
+    function env.emit(name, src, ...)
+        local saved = rawget(_G, 'source')
+        source = src
+        for _, fn in ipairs((env.netEvents or {})[name] or {}) do fn(...) end
+        _G.source = saved
+    end
     function TriggerEvent() end
     -- `env.players` is a MAP keyed by src, which is how a test writes it
     -- (`{ [1] = {...}, [2] = {...} }`), so the KEYS are the ids. `ipairs` would
@@ -672,13 +694,8 @@ do
     Config = CisDefaults.config()
     Security = CisDefaults.security()
 
-    -- RegisterNetEvent APPENDS, as FiveM does. A test that models it as
-    -- "replace" cannot see the bug at all.
-    env.netHandlers = {}
-    function RegisterNetEvent(name, fn)
-        env.netHandlers[name] = env.netHandlers[name] or {}
-        env.netHandlers[name][#env.netHandlers[name] + 1] = fn
-    end
+    -- The harness's RegisterNetEvent APPENDS, as FiveM does. A test that
+    -- models it as "replace" cannot see the bug at all.
     env.exported = {}
     exports.cis_shop = env.exported
     local calls = 0
@@ -692,14 +709,12 @@ do
         'L-C8: a resource:export handler registers')
     check(CisNetOn('cis_shop:buy', 'cis_shop:OnBuy') == true,
         'L-C8: registering the SAME name again is accepted, not refused')
-    check(#(env.netHandlers['cis_shop:buy'] or {}) == 1,
+    check(#(env.netEvents['cis_shop:buy'] or {}) == 1,
         ('L-C8: but the net event is bound ONCE, not once per registration (bound=%d)')
-            :format(#(env.netHandlers['cis_shop:buy'] or {})))
+            :format(#(env.netEvents['cis_shop:buy'] or {})))
 
     -- Firing it invokes the handler exactly once.
-    source = 5
-    for _, fn in ipairs(env.netHandlers['cis_shop:buy'] or {}) do fn(1) end
-    source = nil
+    env.emit('cis_shop:buy', 5, 1)
     check(calls == 1,
         ('L-C8: one client action runs the handler ONCE (calls=%d)'):format(calls))
     env.reset()
@@ -710,17 +725,12 @@ do
     local env = newEnv({})
     Config = CisDefaults.config()
     Security = CisDefaults.security()
-    env.netHandlers = {}
-    function RegisterNetEvent(name, fn)
-        env.netHandlers[name] = env.netHandlers[name] or {}
-        env.netHandlers[name][#env.netHandlers[name] + 1] = fn
-    end
     exports.cis_shop = { OnBuy = function() end, OnSell = function() end }
     loadModule('server/security.lua')
     CisNetOn('cis_shop:buy', 'cis_shop:OnBuy')
     CisNetOn('cis_shop:sell', 'cis_shop:OnSell')
-    check(#(env.netHandlers['cis_shop:buy'] or {}) == 1, 'the first name is bound once')
-    check(#(env.netHandlers['cis_shop:sell'] or {}) == 1, 'a DIFFERENT name is bound separately')
+    check(#(env.netEvents['cis_shop:buy'] or {}) == 1, 'the first name is bound once')
+    check(#(env.netEvents['cis_shop:sell'] or {}) == 1, 'a DIFFERENT name is bound separately')
     env.reset()
 end
 
@@ -759,11 +769,6 @@ do
     local env = newEnv({})
     Config = CisDefaults.config()
     Security = CisDefaults.security()
-    env.netHandlers = {}
-    function RegisterNetEvent(name, fn)
-        env.netHandlers[name] = env.netHandlers[name] or {}
-        env.netHandlers[name][#env.netHandlers[name] + 1] = fn
-    end
     local logged = {}
     env.saved[#env.saved + 1] = { name = 'CisLog', value = rawget(_G, 'CisLog') }
     CisLog = function(level, message, channel)
@@ -785,11 +790,7 @@ do
     check(CisNetOn('cis_shop:buy', 'cis_shop:OnBuy', { maxHits = 4, windowMs = 1000 }) == true,
         'L-C9: the handler registers with a tight limit')
 
-    source = 5
-    for _ = 1, 100 do
-        for _, fn in ipairs(env.netHandlers['cis_shop:buy'] or {}) do fn(1) end
-    end
-    source = nil
+    for _ = 1, 100 do env.emit('cis_shop:buy', 5, 1) end
 
     -- Nothing yet: the line is emitted when the window ROLLS, so the count in
     -- it is the window's real total rather than "at least N so far".
@@ -797,11 +798,7 @@ do
         ('L-C9: a flood inside one window logs nothing per event (logs=%d)'):format(#logged))
 
     -- A flood big enough to matter escalates to the drop handler.
-    source = 5
-    for _ = 1, 400 do
-        for _, fn in ipairs(env.netHandlers['cis_shop:buy'] or {}) do fn(1) end
-    end
-    source = nil
+    for _ = 1, 400 do env.emit('cis_shop:buy', 5, 1) end
     check(#reported == 1,
         ('L-C9: a sustained flood escalates to CisSecurityReport ONCE per window (reports=%d)')
             :format(#reported))
@@ -816,15 +813,11 @@ do
     -- a test that never crosses a window boundary would assert nothing about it.
     local before = #logged
     env.clock = env.clock + 1500
-    source = 5
-    for _ = 1, 40 do
-        for _, fn in ipairs(env.netHandlers['cis_shop:buy'] or {}) do fn(1) end
-    end
+    for _ = 1, 40 do env.emit('cis_shop:buy', 5, 1) end
     -- One more drop in the NEXT window: that is what emits the previous
     -- window's line, which is why the state has to survive the roll.
     env.clock = env.clock + 1500
-    for _, fn in ipairs(env.netHandlers['cis_shop:buy'] or {}) do fn(1) end
-    source = nil
+    env.emit('cis_shop:buy', 5, 1)
     local rolled = #logged - before
     check(rolled >= 1, 'L-C9: the window roll produces a warning')
     check(rolled <= 2,
@@ -840,6 +833,98 @@ do
         check(logged[before + 1].channel == 'cheating',
             'L-C9: on the cheating channel, which is where an operator looks')
     end
+    env.reset()
+end
+
+-- ============================ 9. a consumer's stop releases its own records
+--
+-- ox_lib does not have this problem because it runs inside the consumer's own
+-- Lua VM, so everything a resource creates dies with it. cis_libs runs in its
+-- OWN VM, so a callback outlives the resource that registered it -- silently,
+-- and until the process restarts.
+--
+-- The specific damage here is a name that stays registered after its export is
+-- gone: every call raises inside the pcall and the caller gets `false, 'error'`,
+-- which reads as "the handler has a bug" and sends the consumer to look at their
+-- own code. It also blocks the resource from re-registering the name on restart,
+-- because the dead one is still holding it.
+--
+-- The other half is what must NOT happen: another resource's callbacks have to
+-- survive. A sweep that took everything would be a different bug and an easier
+-- one to write.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+    -- callback.lua registers RegisterCallback/CallCallback, and it needs the
+    -- rate limiter security.lua provides, hence the order.
+    loadModule('server/callback.lua')
+
+    env.invoking = 'res_a'
+    check(env.EXPORTS.RegisterCallback('a:one', function() return 'from a' end) == true,
+        'L-C7: res_a registers a callback')
+    env.invoking = 'res_b'
+    check(env.EXPORTS.RegisterCallback('b:one', function() return 'from b' end) == true,
+        'L-C7: res_b registers a callback')
+
+    local function callLocal(name)
+        local got
+        env.EXPORTS.CallCallback(name, function(ok, value) got = { ok = ok, value = value } end)
+        return got
+    end
+
+    check(callLocal('a:one').ok == true, 'L-C7: res_a\'s callback answers before the stop')
+    check(callLocal('b:one').ok == true, 'L-C7: res_b\'s callback answers before the stop')
+
+    -- res_a stops.
+    env.fire('onResourceStop', 'res_a')
+
+    local a = callLocal('a:one')
+    check(a.ok == false, 'L-C7: after res_a stops, its callback is released')
+    check(tostring(a.value):find('unknown', 1, true) ~= nil,
+        'L-C7: and answers "unknown", not "error" -- a consumer must be told its wiring '
+            .. 'is wrong, not that its handler threw: ' .. tostring(a.value))
+    check(callLocal('b:one').ok == true,
+        "L-C7: res_b's callback SURVIVES another resource's stop")
+
+    -- And the name is bindable again, which is the half that is easy to miss: a
+    -- restarted resource registering the same name must not be refused against
+    -- its own dead handler.
+    env.invoking = 'res_a'
+    check(env.EXPORTS.RegisterCallback('a:one', function() return 'from a again' end) == true,
+        'L-C7: a restarted resource can register the same name again')
+    check(callLocal('a:one').value == 'from a again',
+        'L-C7: and the restarted handler is the one that answers')
+    env.reset()
+end
+
+-- ============================================ 10. net bindings and the stop
+-- The net-event half of the same fix. A resource that stops must not keep the
+-- name it bound: FiveM cannot unbind a net event, so the handler survives and now
+-- dispatches to nothing -- which is the right outcome (accept and ignore, never
+-- raise) -- but the NAME must become free again, or a resource that stops and
+-- restarts is told it is losing a conflict with something that no longer exists.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    exports.res_a = { OnBuy = function() end }
+    exports.res_b = { OnBuy = function() end }
+    loadModule('server/security.lua')
+
+    env.invoking = 'res_a'
+    check(CisNetOn('ev:buy', 'res_a:OnBuy') == true, 'L-C7: res_a binds the event')
+    env.invoking = 'res_b'
+    check(CisNetOn('ev:buy', 'res_b:OnBuy') == false,
+        'L-C7: a DIFFERENT resource cannot take a bound name')
+    check(CisNetOn('ev:sell', 'res_b:OnBuy') == true, 'a different NAME is unaffected')
+
+    env.fire('onResourceStop', 'res_a')
+    env.invoking = 'res_b'
+    check(CisNetOn('ev:buy', 'res_b:OnBuy') == true,
+        'L-C7: after res_a stops, res_b CAN bind the name it was refused')
     env.reset()
 end
 
