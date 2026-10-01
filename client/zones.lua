@@ -21,6 +21,20 @@ local HALF_CELL = CisGrid.CELL * 0.5
 -- until the next half-cell movement.
 local RECHECK_MS = 200
 
+-- THE FLOOR FOR AN `insideEvent`, and the reason it exists. A zone event that
+-- reaches the SERVER is a net event, so its rate is a server-side budget: 60 a
+-- second per player per zone is enough to have that player's other events
+-- rate-limited by their own handler, for a zone the caller probably meant as a
+-- client-side tick.
+--
+-- 250ms is the floor because it is the fastest a server-side zone event is
+-- useful -- anything faster and the server is being told the same thing several
+-- times before a player can act on any of it -- and it is far below the 8/s
+-- backstop CisNetOn applies, so a legitimate zone never trips the limiter.
+-- A caller that genuinely wants per-frame uses `inside` (a function, which
+-- cannot cross the boundary and therefore stays on the client) or `local = true`.
+local MIN_EVENT_INTERVAL_MS = 250
+
 local function asVec3(p, fallbackZ)
     if p == nil then
         -- The exports boundary can drop a value entirely. Indexing nil here
@@ -80,7 +94,24 @@ local function invoke(zone, name, ...)
         local coords = select(1, ...)
         if coords then
             local ok, err = pcall(function()
-                TriggerServerEvent(eventName, zone.name, coords.x, coords.y, coords.z)
+                if zone['local'] then
+                    -- `local = true` (L-C14): a CLIENT-SIDE event.
+                    --
+                    -- Every zone event reaches the server by default, because
+                    -- that is the only way a consumer on the server can be
+                    -- notified. But a consumer that only cares about its own
+                    -- client does not need a round trip, and paying one per
+                    -- inside-tick is what made `insideInterval = 0` a flood.
+                    -- `TriggerEvent` stays on this client entirely.
+                    --
+                    -- Named explicitly rather than inferred: "the server does
+                    -- not listen for this name" is not knowable here, and
+                    -- guessing would silently break a consumer whose server
+                    -- handler exists.
+                    TriggerEvent(eventName, zone.name, coords.x, coords.y, coords.z)
+                else
+                    TriggerServerEvent(eventName, zone.name, coords.x, coords.y, coords.z)
+                end
             end)
             if not ok then
                 CisLog('error', ('zone %s event %s: %s'):format(zone.name, eventName, err))
@@ -140,7 +171,34 @@ function CisZonesCreate(kind, name, a, b, options)
     zone.onEnterEvent = options.onEnterEvent
     zone.onExitEvent = options.onExitEvent
     zone.insideEvent = options.insideEvent
-    if (zone.inside or zone.insideEvent) and zone.insideInterval == nil then
+
+    -- L-C14 · THE INSIDE INTERVAL IS CLAMPED, AND A CLIENT-SIDE OPTION EXISTS.
+    --
+    -- `insideEvent` is dispatched with TriggerServerEvent, so a zone created
+    -- with `insideInterval = 0` and an `insideEvent` fired that event EVERY
+    -- FRAME -- and the second thread below runs on `Wait(0)` while any such zone
+    -- is active, so a player standing in one produced 60 net events a second,
+    -- per zone, aimed at the server's rate limiter. The author's intent with an
+    -- interval of 0 is "as often as possible", and on a client-side `inside`
+    -- callback that is a legitimate thing to ask for; aimed at the SERVER it is
+    -- only ever a client-side flood, whatever the caller meant by it.
+    --
+    -- So: 250ms is the floor whenever an `insideEvent` is set, because that is
+    -- the fastest a server-side event can be useful; a client-side `inside`
+    -- function keeps whatever interval the caller asked for, including 0.
+    if zone.insideEvent then
+        -- `local` is a Lua keyword, so this key is read with brackets. A
+        -- consumer writes `local = true` in its options table, which is
+        -- ordinary Lua on their side; only the READ of that key is bracketed
+        -- here, and only because `zone.local` would not parse.
+        zone['local'] = options['local'] and true or false
+        if zone.insideInterval == nil then
+            zone.insideInterval = 500
+        end
+        if zone.insideInterval < MIN_EVENT_INTERVAL_MS then
+            zone.insideInterval = MIN_EVENT_INTERVAL_MS
+        end
+    elseif zone.inside and zone.insideInterval == nil then
         zone.insideInterval = 500
     end
 

@@ -32,7 +32,7 @@ return {
     -- cis_bridge. The contract major below did NOT move, because no `Cis.*`
     -- name or signature changed -- that was the constraint the split was
     -- designed around, and it is the reason a 1.0 consumer needs no edit.
-    version = '2.0.0',
+    version = '2.1.0',
     -- Contract major. Bumped only by a breaking change; see COMPATIBILITY.md
     -- section 3. An older consumer pinned to a prior major gets an explicit
     -- typed refusal, never a silently wrong answer.
@@ -126,6 +126,17 @@ return {
         AwaitCallback = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.callback.await(name, ...)',
+            realm = 'both',
+            signature = { server = '(name, ...)', client = '(name, ...)' },
+        },
+        -- L-C10. The awaiting form that reports a refusal instead of raising,
+        -- for callers that cannot have an exception thrown through their thread.
+        -- Answers `ok, ...` on success and `false, reason` on a refusal; the
+        -- return shape lives in `use` because a signature is a parameter list
+        -- and the validator enforces that.
+        TryAwaitCallback = {
+            since = '2.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Cis.callback.tryAwait(name, ...) -> ok, ... on success; false, reason on a refusal',
             realm = 'both',
             signature = { server = '(name, ...)', client = '(name, ...)' },
         },

@@ -976,7 +976,17 @@ do
     routesTo(function() Cis.db.transaction({}) end, 'DbTransaction', 'db.transaction')
     routesTo(function() Cis.callback.register('x', nil) end, 'RegisterCallback', 'callback.register')
     routesTo(function() Cis.callback.await('x') end, 'AwaitCallback', 'callback.await')
-    routesTo(function() Cis.callback.call('x', nil) end, 'CallCallback', 'callback.call')
+    -- `callback.call` no longer routes to CallCallback (L-C11). `cb` IS A FUNCTION,
+    -- and a function cannot cross the exports boundary, so the old call sent nil
+    -- and the reply was delivered to nothing: the caller got no error and no
+    -- callback, and the call looked like it worked.
+    --
+    -- `call` is now built on `await` inside a CreateThread in the CONSUMER's
+    -- own VM, so no function crosses in either direction. Asserting the routing
+    -- is what pins that: a future "simplification" back to a single export call
+    -- would restore the old behaviour and pass every behavioural test.
+    routesTo(function() Cis.callback.call('x', nil) end, 'AwaitCallback', 'callback.call')
+    routesTo(function() Cis.callback.tryAwait('x') end, 'TryAwaitCallback', 'callback.tryAwait')
     routesTo(function() Cis.callback.callClient(1, 'x', nil) end, 'CallCallbackClient', 'callback.callClient')
     routesTo(function() Cis.callback.awaitClient(1, 'x') end, 'AwaitCallbackClient', 'callback.awaitClient')
     routesTo(function() Cis.doors.add({ id = 'a' }) end, 'AddDoorToSystem', 'doors.add')
@@ -1046,7 +1056,7 @@ do
     routesTo(function() Cis.doors.setState('a', false) end, 'RequestUnlockDoors', 'doors.setState (client, unlock)')
     routesTo(function() Cis.callback.register('x', nil) end, 'RegisterCallback', 'callback.register (client)')
     routesTo(function() Cis.callback.await('x') end, 'AwaitCallback', 'callback.await (client)')
-    routesTo(function() Cis.callback.call('x', nil) end, 'CallCallback', 'callback.call (client)')
+    routesTo(function() Cis.callback.call('x', nil) end, 'AwaitCallback', 'callback.call (client)')
 
     -- inventory.has is a local comparison over the count export, not a new one.
     loadInit('server')

@@ -69,7 +69,7 @@ game 'gta5'
 name "Cisoko - Library System - Shared Boundary"
 description "Zero-dependency shared library. Owns no table, no config, no framework."
 author "Cisoko"
-version "2.0.0"
+version "2.1.0"
 lua54 'yes'
 
 dependencies {

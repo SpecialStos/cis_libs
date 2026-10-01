@@ -391,12 +391,48 @@ function Cis.callback.register(name, handler)
     return exportCall('RegisterCallback', name, handler)
 end
 
-function Cis.callback.await(name, ...)
+-- The inner await, so `call` below and `await` above share ONE implementation.
+-- Using the export twice would mean two round trips through the boundary for one
+-- logical call, and the two paths would be free to drift on how a reply is
+-- unpacked.
+local function awaitInside(name, ...)
     return exportCall('AwaitCallback', name, ...)
 end
 
+function Cis.callback.await(name, ...)
+    return awaitInside(name, ...)
+end
+
+-- The non-raising await (L-C10). `ok, ...` on success, `false, reason` on a
+-- refusal, and never an exception through the caller's thread.
+function Cis.callback.tryAwait(name, ...)
+    return exportCall('TryAwaitCallback', name, ...)
+end
+
+-- `cb` IS A FUNCTION, and a function cannot cross the exports boundary, so
+-- `Cis.callback.call(name, cb, ...)` sent nil and the reply was delivered to
+-- nothing. The caller had no error and no callback: the call looked like it
+-- worked and the result went nowhere.
+--
+-- It costs a coroutine per call, which is what the caller was already paying
+-- for an `await`, and it is the only way to give a callback-style API to a
+-- consumer that cannot pass a function across.
 function Cis.callback.call(name, cb, ...)
-    return exportCall('CallCallback', name, cb, ...)
+    local args = table.pack(...)
+    CreateThread(function()
+        local ok, reason = pcall(awaitInside, name, table.unpack(args, 1, args.n))
+        if not cb then
+            return
+        end
+        if not ok then
+            -- The refusal is reported the same way the server export reports a
+            -- failed call -- `false, reason` -- so a consumer moving between
+            -- `call` and `tryAwait` does not have to relearn the convention.
+            cb(false, tostring(reason))
+            return
+        end
+        cb(true, reason)
+    end)
 end
 
 if IS_SERVER then

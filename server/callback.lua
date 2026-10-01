@@ -72,7 +72,33 @@ local function invoke(name, src, ...)
     if not results[1] then
         return false, tostring(results[2])
     end
-    return true, table.unpack(results, 2, results.n)
+    -- L-C10 · RETURN THE PACK, NOT AN UNPACK.
+    --
+    -- `return true, table.unpack(results, 2, results.n)` truncates at the first
+    -- nil. A handler answering `nil, 'not found'` -- the single most common
+    -- shape in the platform, because "no such row" is normally reported exactly
+    -- that way -- lost everything after the nil, so the caller received `true,
+    -- nil` with no reason at all and could not tell a missing row from a
+    -- missing answer.
+    --
+    -- The pack travels as ONE table across this boundary and is unpacked by each
+    -- caller with the count it needs. That is the only shape that survives a nil
+    -- in the middle, and a nil in the middle is the normal case here, not an edge
+    -- case.
+    --
+    -- The pcall's own `true` is STRIPPED before it travels. It sits at slot 1 of
+    -- `results`, and the caller's `ok` is the separate first return -- so leaving
+    -- it in would shift every handler value one slot right and deliver
+    -- `cb(true, true, value)`.
+    --
+    -- Built by ASSIGNMENT, not by a table constructor with an unpack in it: the
+    -- constructor truncates at the first nil exactly like unpack does, so the
+    -- one value this whole change exists to preserve would be the one it drops.
+    local out = { n = results.n - 1 }
+    for i = 2, results.n do
+        out[i - 1] = results[i]
+    end
+    return true, out
 end
 
 function CisRegisterCallback(name, handler)
@@ -153,18 +179,23 @@ RegisterNetEvent('cis_libs:cb', function(name, key, ...)
         TriggerClientEvent('cis_libs:cb:res', src, key, false, 'unknown')
         return
     end
-    local packed = table.pack(...)
-    local results = table.pack(invoke(name, src, table.unpack(packed, 1, packed.n)))
-    if not results[1] then
-        Logging.AutoLogError(results[2], name)
+    local args = table.pack(...)
+    local ok, results = invoke(name, src, table.unpack(args, 1, args.n))
+    if not ok then
+        Logging.AutoLogError(results, name)
         TriggerClientEvent('cis_libs:cb:res', src, key, false, 'error')
         return
     end
     -- Six results cross the wire and no more. A handler returning a seventh
-    -- value loses it silently, so a wide return has to be packed into one
-    -- table by the handler itself. Widening this is a breaking change for
-    -- every client built against the current cap.
-    local a, b, c, d, e, f = table.unpack(results, 2, results.n)
+    -- value loses it silently, so a wide return has to be packed into one table
+    -- by the handler itself. Widening this is a breaking change for every client
+    -- built against the current cap.
+    --
+    -- Unpacked FROM THE PACK WITH ITS COUNT, so a nil among the six is a real
+    -- answer in that slot rather than the end of the list. `local a,b,c,d,e,f =
+    -- unpack(...)` would have stopped early at `a == nil` and shifted
+    -- 'not found' out of the reply entirely.
+    local a, b, c, d, e, f = table.unpack(results, 1, math.min(results.n, 6))
     TriggerClientEvent('cis_libs:cb:res', src, key, true, a, b, c, d, e, f)
 end)
 
@@ -188,16 +219,22 @@ CisNetOn('cis_libs:cb:serverRes', function(src, key, ok, ...)
         return
     end
     local payload = item.payload
+    -- PACKED, with the count, on this side too. `{...}` truncates at the first
+    -- nil, so a client answering `true, nil, 'x'` used to arrive as `true` and
+    -- nothing else -- and the value after the nil was the whole answer.
+    local packed = table.pack(...)
     if payload.cb then
-        payload.cb(ok, ...)
+        payload.cb(ok, table.unpack(packed, 1, packed.n))
     elseif payload.promise then
         if ok then
-            payload.promise:resolve({ ... })
+            payload.promise:resolve({ table.unpack(packed, 1, packed.n) })
         else
-            payload.promise:reject(...)
+            -- The rejection carries the REASON, packed the same way, so a
+            -- refusal names itself even when the reason sits behind a nil.
+            payload.promise:reject(table.unpack(packed, 1, packed.n))
         end
     end
-end)
+end, { maxHits = 40 })
 
 -- Sweeps expired pending keys. 1s, not tighter: the shortest deadline a client
 -- can be holding is Config.CallbackTimeout (10s by default), so a 1s sweep can
@@ -250,21 +287,25 @@ exports('CallCallback', function(name, cb, ...)
         return
     end
     local packed = table.pack(...)
-    local results = table.pack(invoke(name, 0, table.unpack(packed, 1, packed.n)))
-    if not results[1] then
-        Logging.AutoLogError(results[2], name)
+    local ok, results = invoke(name, 0, table.unpack(packed, 1, packed.n))
+    if not ok then
+        Logging.AutoLogError(results, name)
         cb(false, 'error')
         return
     end
-    cb(true, table.unpack(results, 2, results.n))
+    -- The CALLER's own closure, handed every value the handler produced. It
+    -- stays a closure on this side of the boundary -- that is what L-C11 is
+    -- about -- so a nil in the middle of the answer is simply absent, which is
+    -- exactly what a callback form wants and why it can be this simple.
+    cb(true, table.unpack(results, 1, results.n))
 end)
 
 exports('AwaitCallback', function(name, ...)
-    local results = table.pack(invoke(name, 0, ...))
-    if not results[1] then
-        -- Name the callback. `error('unknown')` reaches the console as
+    local ok, results = invoke(name, 0, ...)
+    if not ok then
+        -- NAME THE CALLBACK. `error('unknown')` reaches the console as
         -- "SCRIPT ERROR: @cis_libs/server/callback.lua:186: unknown", which
-        -- says the library failed and nothing about which of the dozens of
+        -- says the library failed and says nothing about which of the dozens of
         -- registered callbacks did. A refusal that cannot be acted on is the
         -- ambiguity the whole `false, '<reason>'` convention exists to remove.
         --
@@ -276,10 +317,40 @@ exports('AwaitCallback', function(name, ...)
         -- is loud on purpose: only a mis-typed callback name reaches it, and
         -- every other callback failure is a runtime error in a handler rather
         -- than a "no handler" case. Callers that must not raise use
-        -- CallCallback, which reports the same refusal through the callback.
-        error(('Cis.callback.await: no handler for %q (%s)'):format(tostring(name), tostring(results[2])))
+        -- TryAwaitCallback, which reports the same refusal as a value.
+        error(('callback %q: %s'):format(tostring(name), tostring(results)), 2)
     end
-    return table.unpack(results, 2, results.n)
+    -- Unpacked FROM THE PACK, WITH ITS COUNT. `return ...` through a vararg
+    -- truncates at the first nil, so a handler answering `nil, 'not found'` --
+    -- the single most common shape in the platform, because "no such row" is
+    -- normally reported exactly that way -- reached the caller as nothing at
+    -- all. `if not rows then` could not tell a missing row from a missing
+    -- answer, which is the whole reason this was worth changing.
+    return table.unpack(results, 1, results.n)
+end)
+
+-- The same call, reported rather than raised (L-C10, minor).
+--
+-- Some callers cannot have an exception thrown through their thread: a
+-- coroutine with no error boundary, a net handler whose stack is somebody
+-- else's. Their only alternative today is CallCallback, which they cannot use
+-- because they want a RETURN value rather than a closure -- and passing a
+-- closure into a callback they also had to send across the boundary is the
+-- thing L-C11 exists to stop.
+--
+-- So this is the await form with the refusal in the result: `ok, ...` on
+-- success, `false, reason` on a refusal. `since 2.1.0` in api.lua.
+exports('TryAwaitCallback', function(name, ...)
+    -- Packed BEFORE the closure: `...` is not visible inside a nested function,
+    -- so a closure that used it directly would be a syntax error rather than a
+    -- subtle bug -- which is the better of the two, but still not something a
+    -- caller should have to hit.
+    local args = table.pack(...)
+    local called, results = invoke(name, 0, table.unpack(args, 1, args.n))
+    if not called then
+        return false, ('callback %q: %s'):format(tostring(name), tostring(results))
+    end
+    return true, table.unpack(results, 1, results.n)
 end)
 
 -- Explicit client-targeted variants. Kept separate so the local API above

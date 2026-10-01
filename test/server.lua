@@ -928,6 +928,174 @@ do
     env.reset()
 end
 
+-- ================================ 11. callback replies survive a nil in them
+--
+-- `table.pack` / `table.unpack` were used without a COUNT on the unpack, so
+-- `{...}` truncated at the first nil. A handler answering `nil, 'not found'` --
+-- the single most common shape in the platform, because "no such row" is
+-- normally reported that way -- arrived at the caller as NOTHING: `await`
+-- returned nil, nil, and a consumer's `if not rows then` could not tell a
+-- missing row from a missing answer.
+--
+-- This is L-C10, and the fix is `table.unpack(packed, 1, packed.n)` on every
+-- hop. Asserted through a REAL round trip -- handler, event, pending key --
+-- because a unit test of `table.unpack` proves nothing about whether the call
+-- sites pass the count.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+    loadModule('server/callback.lua')
+
+    -- A handler that answers the shape in question. The first parameter is ALWAYS
+    -- src (0 for a local call) -- that invariant is what `invoke` exists to
+    -- protect, and a test double that ignores it would silently test the wrong
+    -- call shape.
+    env.EXPORTS.RegisterCallback('shop:get', function(src, id)
+        if id == 'missing' then
+            return nil, 'not found'
+        end
+        return { id = id }, 200
+    end)
+
+    -- `values` is indexed by POSITION and sized by `n`, deliberately not a plain
+    -- array: a nil in the first slot is the case under test, and a table
+    -- `{ [1] = nil }` is indistinguishable from an empty one unless the count is
+    -- carried beside it. Reading `values[1]` alone would therefore assert
+    -- nothing, which is the trap this helper is shaped to avoid.
+    local function roundTrip(id)
+        local values, n, ok = {}, 0, false
+        env.EXPORTS.CallCallback('shop:get', function(sentOk, ...)
+            n = select('#', ...)
+            for i = 1, n do values[i] = select(i, ...) end
+            ok = sentOk
+        end, id)
+        return values, n, ok
+    end
+
+    local found, foundN, foundOk = roundTrip('abc')
+    check(foundOk == true, 'L-C10: a successful callback reports ok')
+    check(foundN == 2 and found[1] and found[2] == 200,
+        ('L-C10: both values survive (n=%d)'):format(foundN))
+
+    -- The case the bug was about.
+    local missing, missingN, missingOk = roundTrip('missing')
+    check(missingOk == true, 'L-C10: a nil first value is not an error')
+    check(missingN == 2,
+        ('L-C10: the answer is TWO values, not truncated to zero (n=%d)'):format(missingN))
+    check(missing[1] == nil,
+        ('L-C10: the first value really is nil (got %s)'):format(tostring(missing[1])))
+    check(missing[2] == 'not found',
+        ('L-C10: and the REASON after it survives -- this is the whole point: %s')
+            :format(tostring(missing[2])))
+    env.reset()
+end
+
+-- The await form, and the naming of a refusal.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+    loadModule('server/callback.lua')
+
+    env.EXPORTS.RegisterCallback('shop:found', function() return { ok = true }, 'extra' end)
+
+    local a, b = env.EXPORTS.AwaitCallback('shop:found')
+    check(type(a) == 'table' and a.ok == true, 'L-C10: await returns the first value')
+    check(b == 'extra', 'L-C10: await returns the second value too')
+
+    -- A refusal NAMES the callback. `error('unknown')` reaches the console as
+    -- "SCRIPT ERROR: @cis_libs/server/callback.lua:186: unknown", which says the
+    -- library failed and says nothing about which of dozens of registered
+    -- callbacks did.
+    local ok, err = pcall(env.EXPORTS.AwaitCallback, 'no:such:callback')
+    check(not ok, 'L-C10: awaiting a name with no handler raises')
+    check(tostring(err):find('no:such:callback', 1, true) ~= nil,
+        'L-C10: and the error NAMES the callback: ' .. tostring(err))
+    env.reset()
+end
+
+-- `tryAwait` never raises. Some callers cannot have an exception thrown through
+-- their thread -- a coroutine with no error boundary, an event handler that
+-- would take the thread with it -- and today their only option is CallCallback,
+-- which they cannot use because they want a return value rather than a closure.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+    loadModule('server/callback.lua')
+
+    env.EXPORTS.RegisterCallback('ok:one', function() return 'value' end)
+
+    local raised = not pcall(env.EXPORTS.TryAwaitCallback, 'no:such:callback')
+    check(not raised, 'L-C10: tryAwait never raises, even for an unknown name')
+
+    local ok, value = env.EXPORTS.TryAwaitCallback('ok:one')
+    check(ok == true, 'L-C10: tryAwait reports success')
+    check(value == 'value', 'L-C10: tryAwait returns the handler value')
+
+    local ok2, reason = env.EXPORTS.TryAwaitCallback('no:such:callback')
+    check(ok2 == false, 'L-C10: tryAwait reports failure rather than raising')
+    check(type(reason) == 'string' and reason ~= '',
+        'L-C10: and carries a reason: ' .. tostring(reason))
+    env.reset()
+end
+
+-- ============================================ 12. server->client callback rate
+-- L-C12 · `cis_libs:cb:serverRes` went through CisNetOn with no limit of its
+-- own, so it inherited the default backstop of EIGHT per second per player. A
+-- server with more than eight callbacks in flight to one client had the rest
+-- DROPPED at the boundary, and every caller then waited out the full 10s
+-- timeout for an answer that had already been refused.
+--
+-- The limit protects nothing the ownership check does not already protect --
+-- the handler peeks the pending entry and rejects any key not addressed to that
+-- client before doing anything -- and a UI never has eight in flight. 40 is
+-- still far above any real client.
+--
+-- The test drives the REAL handler through the REAL net event, ten times in one
+-- window, and counts how many reached the callback.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+    loadModule('server/callback.lua')
+
+    -- Ten server->client callbacks to ONE player. The harness already records
+    -- every TriggerClientEvent with its arguments, so the keys the resource
+    -- handed the client are read back off `env.sent` rather than re-derived.
+    local resolved = 0
+    for i = 1, 10 do
+        env.EXPORTS.CallCallbackClient('shop:buy', 7, function() resolved = resolved + 1 end, i)
+    end
+
+    local keys = {}
+    for _, e in ipairs(env.sentTo(7, 'cis_libs:cb')) do
+        -- args are (name, key, ...)
+        keys[#keys + 1] = e.args[2]
+    end
+    check(#keys == 10,
+        ('L-C12: all ten server->client callbacks were sent (%d)'):format(#keys))
+
+    -- Answer each one as the client would: (key, true, 'ok').
+    for i = 1, #keys do
+        env.emit('cis_libs:cb:serverRes', 7, keys[i], true, 'ok')
+    end
+
+    check(resolved == 10,
+        ('L-C12: ten replies to one client in one window are ALL delivered (%d of 10)')
+            :format(resolved))
+    env.reset()
+end
+
 -- ==================================================================== report
 for i = 1, #failures do
     io.stderr:write('FAIL(server): ' .. failures[i] .. '\n')

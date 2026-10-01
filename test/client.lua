@@ -118,6 +118,81 @@ local function newEnv(opts)
     function env.fire(name, ...)
         for _, fn in ipairs(env.handlers[name] or {}) do fn(...) end
     end
+    -- `cis_libs:cb` is registered through RegisterNetEvent, so it is delivered
+    -- through env.net rather than env.fire.
+    local fire = env.fire
+    -- Net events are RECORDED, so a test can deliver the same event the server
+    -- would. The server's `source` global is set around the dispatch rather than
+    -- passed as an argument, exactly as FiveM does.
+    env.netEvents = {}
+    function RegisterNetEvent(name, fn)
+        env.netEvents[name] = env.netEvents[name] or {}
+        env.netEvents[name][#env.netEvents[name] + 1] = fn
+    end
+    function env.net(name, src, ...)
+        local saved = rawget(_G, 'source')
+        source = src
+        for _, fn in ipairs(env.netEvents[name] or {}) do fn(...) end
+        _G.source = saved
+    end
+
+    -- Outbound net events are RECORDED. `TriggerServerEvent` returns nothing, so
+    -- "was the server told" is unanswerable from a caller's point of view --
+    -- which is the whole of L-C14: an event that fires 60 times a second is
+    -- invisible to every test that does not keep a count.
+    env.serverEvents = {}
+    function TriggerServerEvent(name, ...)
+        env.serverEvents[#env.serverEvents + 1] = { name = name, args = table.pack(...) }
+    end
+    function TriggerEvent(name, ...)
+        env.serverEvents[#env.serverEvents + 1] = { name = name, args = table.pack(...), clientLocal = true }
+    end
+    function env.serverEventsOf(name)
+        local out = {}
+        for i = 1, #env.serverEvents do
+            if env.serverEvents[i].name == name and not env.serverEvents[i].clientLocal then
+                out[#out + 1] = env.serverEvents[i]
+            end
+        end
+        return out
+    end
+    function env.localEventsOf(name)
+        local out = {}
+        for i = 1, #env.serverEvents do
+            if env.serverEvents[i].name == name and env.serverEvents[i].clientLocal then
+                out[#out + 1] = env.serverEvents[i]
+            end
+        end
+        return out
+    end
+
+    -- The CLIENT-side stop event, which is a different global from the
+    -- server's onResourceStop and fires for OTHER resources. A file that binds
+    -- it and gets nil here would be untestable rather than broken, so it is
+    -- recorded through the same handler table.
+    function onClientResourceStop(fn)
+        env.handlers.onClientResourceStop = env.handlers.onClientResourceStop or {}
+        env.handlers.onClientResourceStop[#env.handlers.onClientResourceStop + 1] = fn
+    end
+
+    -- The exports table the files under test install onto, modelled on the real
+    -- one: callable as `exports('Name', fn)` and indexable as
+    -- `exports['resource']`. `env.EXPORTS` is cis_libs's OWN table -- which is
+    -- what a file loaded inside cis_libs registers into -- and `env.foreign`
+    -- is where a test puts the fake resources a 'resource:export' reference
+    -- resolves against.
+    local EXPORTS = {}
+    setmetatable(EXPORTS, {
+        __call = function(_, name, fn)
+            EXPORTS[name] = fn
+        end,
+    })
+    env.EXPORTS = EXPORTS
+    exports = EXPORTS
+    function env.foreign(resource)
+        EXPORTS[resource] = EXPORTS[resource] or {}
+        return EXPORTS[resource]
+    end
 
     function env.reset()
         for i = #env.saved, 1, -1 do
@@ -266,9 +341,7 @@ local function syncEnv(opts)
     local env = newEnv(opts)
     env.nextEntity = 100
     env.modelReady = true
-    -- The event handlers client/sync.lua registers, so a test can deliver the
-    -- same events the server would.
-    env.netEvents = {}
+    env.netEvents = env.netEvents or {}
     function RegisterNetEvent(name, fn)
         env.netEvents[name] = fn
     end
@@ -433,6 +506,306 @@ do
     end
     check(networked == false,
         'L-C4: a client-local record creates a NON-networked entity on the client')
+    env.reset()
+end
+
+-- ============================ 3. client callbacks by reference (L-C11)
+--
+-- `client/callback.lua` had no remote dispatch at all. `RegisterCallback(name,
+-- 'res:export')` stored the STRING, and the dispatch pcall failed on every
+-- call -- so the documented form silently did not work, and failed as a raised
+-- error answered to the server as `false, 'error'`. api.lua has always declared
+-- RegisterCallback's realm as `both`.
+--
+-- The unbound-method trap is asserted here too, because it is the reason a
+-- correct-looking fix still fails: `exports[res][name]` swallows the first real
+-- argument as `self`.
+do
+    local env = newEnv({})
+    local promises = {}
+    function promise.new()
+        local p = { done = false }
+        p.resolve = function(self, v) self.done, self.value = true, v end
+        p.reject = function(self, v) self.done, self.value = true, v end
+        promises[#promises + 1] = p
+        return p
+    end
+    Citizen = {
+        Await = function(p)
+            if not p.done then
+                -- Settle it the way the sweep would, so a test that awaits does
+                -- not hang. The value carries the packed reply the real path
+                -- resolves with.
+                p.resolve({ 'timed out in the harness' })
+            end
+            return p.value
+        end,
+    }
+    loadModule('client/callback.lua')
+
+    local seenSelf, seenArgs
+    env.foreign('my_resource').MyHandler = function(self, ...)
+        seenSelf, seenArgs = self, table.pack(...)
+        return 'answered', 7
+    end
+
+    check(env.EXPORTS.RegisterCallback('x', 'my_resource:MyHandler') == true,
+        'L-C11: a client callback registers by "resource:export" reference')
+    check(env.EXPORTS.RegisterCallback('bad', 'not-a-reference') == false,
+        'L-C11: a malformed reference is refused rather than stored as a string')
+
+    -- The server asks for it, and the client's own handler answers.
+    env.net('cis_libs:cb', 1, 'x', 1, 'a', 'b')
+    check(seenSelf == env.EXPORTS.my_resource,
+        'L-C11: the handler is called with the exports table as self, not shifted')
+    check(seenArgs and seenArgs.n == 2 and seenArgs[1] == 'a' and seenArgs[2] == 'b',
+        ('L-C11: the caller\'s arguments arrive unmoved (n=%s)')
+            :format(tostring(seenArgs and seenArgs.n)))
+    env.reset()
+end
+
+-- A stopped consumer's client callback is released (L-C7), so the next request
+-- answers 'unknown' instead of raising against a dead export.
+do
+    local env = newEnv({})
+    function promise.new()
+        local p = { done = false }
+        p.resolve = function(self, v) self.done, self.value = true, v end
+        p.reject = p.resolve
+        return p
+    end
+    Citizen = { Await = function(p) return p.value end }
+    loadModule('client/callback.lua')
+
+    env.invoking = 'res_a'
+    env.EXPORTS.RegisterCallback('y', function() return 1 end)
+    env.invoking = 'res_b'
+    env.EXPORTS.RegisterCallback('z', function() return 2 end)
+
+    -- THE WIRE SHAPE OF A REPLY IS (key, ok, ...). Slot 1 is the key, slot 2 is
+    -- the flag, slot 3 is the refusal reason. Reading one slot off would pass
+    -- against the wrong field -- `args[3] == 1` is the HANDLER's first result,
+    -- not the ok flag, and an assertion written that way looks right and proves
+    -- nothing.
+    local function lastReply()
+        local r = env.serverEvents[#env.serverEvents]
+        return r and r.name == 'cis_libs:cb:serverRes' and r or nil
+    end
+
+    env.serverEvents = {}
+    env.net('cis_libs:cb', 1, 'y', 1)
+    local before = lastReply()
+    check(before ~= nil, 'L-C7: the callback answers before the stop')
+    check(before and before.args[2] == true,
+        'L-C7: and answers success, not a refusal: ' .. tostring(before and before.args[2]))
+    check(before and before.args[3] == 1,
+        'L-C7: with the handler result behind the flag')
+
+    env.fire('onClientResourceStop', 'res_a')
+
+    env.serverEvents = {}
+    env.net('cis_libs:cb', 1, 'y', 2)
+    local after = lastReply()
+    check(after and after.args[2] == false,
+        'L-C7: after res_a stops, its client callback refuses')
+    check(after and after.args[3] == 'unknown',
+        ('L-C7: and the refusal is "unknown", not an error: %s')
+            :format(tostring(after and after.args[3])))
+
+    env.serverEvents = {}
+    env.net('cis_libs:cb', 1, 'z', 3)
+    local z = lastReply()
+    check(z and z.args[2] == true,
+        "L-C7: res_b's client callback SURVIVES another resource's stop")
+    env.reset()
+end
+
+-- ================================== 4. zone insideEvent cannot flood (L-C14)
+--
+-- A zone created with `insideEvent` set and `insideInterval = 0` fired that
+-- event EVERY FRAME, and the second zone thread runs on `Wait(0)` while any such
+-- zone is active -- so a player standing in one produced 60 net events a second,
+-- per zone, aimed at the server's rate limiter. The author's intent with an
+-- interval of 0 is "as often as possible"; aimed at the SERVER it is only ever
+-- a client-side flood.
+--
+-- The audit's number for the test: at most 4 per simulated second. That is the
+-- 250ms floor rather than an arbitrary tolerance, which is why the assertion
+-- states it exactly.
+local function zoneEnv()
+    local env = newEnv({})
+    env.coords = { x = 0.0, y = 0.0, z = 0.0 }
+    -- A REAL vector3, not a plain table. client/zones.lua does `#(coords -
+    -- lastPos)` to decide whether the player has moved half a cell, and both
+    -- operators are Cfx natives on the real type. A plain table makes that line
+    -- raise, and the loop dies on its first pass -- which looks exactly like a
+    -- zone that never fires.
+    local Vec = {}
+    Vec.__index = Vec
+    Vec.__sub = function(a, b) return vector3(a.x - b.x, a.y - b.y, a.z - b.z) end
+    Vec.__len = function(v) return math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z) end
+    function vector3(x, y, z) return setmetatable({ x = x, y = y, z = z }, Vec) end
+    env.saved[#env.saved + 1] = { name = 'CisReadyState', value = rawget(_G, 'CisReadyState') }
+    CisReadyState = { wait = function() return true end, ready = true }
+    -- Only the LAST thread is the one that drives inside-events; the sweeps are
+    -- collected rather than run, for the reason in the base harness.
+    local threads = {}
+    function CreateThread(fn) threads[#threads + 1] = fn end
+    -- zones.lua starts TWO threads and the ORDER IS LOAD-BEARING FOR THE TEST:
+    -- threads[1] is the main pass loop (movement, containment, inside-events)
+    -- and threads[2] is the `Wait(0)` loop that only exists to serve a zone
+    -- asking for interval 0 -- which is precisely the flood under test. Driving
+    -- the second one would measure the loop that was always going to be fast
+    -- rather than the one that had to be clamped.
+    env.saved[#env.saved + 1] = { name = 'Cis', value = rawget(_G, 'Cis') }
+    env.saved[#env.saved + 1] = { name = 'vector3', value = rawget(_G, 'vector3') }
+    Cis = Cis or {}
+    Cis.player = Cis.player or {}
+    -- A player that walks a little and stops: inside the 20-unit box, and past
+    -- the half-cell movement threshold so containment is actually re-tested.
+    env.step = 0
+    Cis.player.coords = function()
+        env.step = (env.step or 0) + 1
+        return vector3(env.step * 0.1, 0.0, 0.0)
+    end
+    env.threads = threads
+    loadModule('client/zones.lua')
+    return env
+end
+
+-- ONE SIMULATED SECOND OF THE ZONE LOOP.
+--
+-- The loop is `while true do ... Wait(waitMs) end`, so calling it directly never
+-- returns. `Wait` is where the loop goes round, so that is where the iteration
+-- is counted and where a private sentinel unwinds it -- the same technique the
+-- server harness uses, and for the same reason.
+--
+-- The WAKEUPS are what matter, not the loop iterations: `waitMs` is computed per
+-- pass from the zone's own interval, so a 250ms zone produces about four wakeups
+-- a second and an unclamped one produces sixty. Counting wakeups therefore
+-- measures the rate the audit is about, which counting iterations would not.
+-- A private sentinel, LOCAL: as a bare assignment this would create a
+-- global named `env`, which would then be indexed on every call.
+local TICK_LIMIT = {}
+local function simulateSecond(env)
+    env.serverEvents = {}
+    env.clock = 0
+    -- The loop only re-tests containment after HALF A CELL of movement, so a
+    -- player standing still never enters the zone and the test measures nothing.
+    -- The first pass always moves (lastPos is nil), so the very first tick is
+    -- the one that matters -- but the coords move every frame here so the zone
+    -- is entered and STAYED in, which is what an insideEvent is about.
+    env.move = 0
+    -- The MAIN loop, not the last one. See the note in zoneEnv.
+    local last = env.threads[1]
+    if not last then
+        return 0
+    end
+    local wakeups = 0
+    local realWait = Wait
+    Wait = function(ms)
+        env.clock = env.clock + (tonumber(ms) or 0)
+        wakeups = wakeups + 1
+        if env.clock >= 1000 then
+            error(TICK_LIMIT, 0)
+        end
+    end
+    local ok, err = pcall(last)
+    Wait = realWait
+    if not ok and err ~= TICK_LIMIT then
+        error(err, 0)
+    end
+    if wakeups == 0 then
+        env.lastErr = tostring(err)
+    end
+    return wakeups
+end
+
+do
+    local env = zoneEnv()
+    local created = exports.CreateZone('box', 'shop',
+        { x = 0.0, y = 0.0, z = 0.0 }, { x = 20.0, y = 20.0, z = 20.0 }, {
+            insideEvent = 'my_resource:inShop',
+            insideInterval = 0,
+        })
+    check(created == true, 'L-C14: a zone with an insideEvent creates')
+
+    local wakeups = simulateSecond(env)
+
+    local fired = #env.serverEventsOf('my_resource:inShop')
+    check(fired <= 4,
+        ('L-C14: an insideEvent with interval 0 fires at most 4 times per second (fired=%d)')
+            :format(fired))
+    check(fired >= 1,
+        ('L-C14: and it still fires at all (fired=%d wakeups=%s err=%s grid=%s)')
+            :format(fired, tostring(wakeups), tostring(env.lastErr), tostring(CisGrid)))
+    env.reset()
+end
+
+-- `local = true` keeps the event on the client. Every zone event reaches the
+-- server by default, because that is the only way a server-side consumer can be
+-- notified -- but a consumer that only cares about its own client does not need
+-- the round trip, and paying one per inside-tick is what made the flood.
+do
+    local env = zoneEnv()
+    exports.CreateZone('box', 'localShop',
+        { x = 0.0, y = 0.0, z = 0.0 }, { x = 20.0, y = 20.0, z = 20.0 }, {
+            insideEvent = 'my_resource:localInShop',
+            insideInterval = 0,
+            ['local'] = true,
+        })
+
+    simulateSecond(env)
+
+    check(#env.serverEventsOf('my_resource:localInShop') == 0,
+        'L-C14: `local = true` sends NOTHING to the server')
+    check(#env.localEventsOf('my_resource:localInShop') >= 1,
+        ('L-C14: and fires it on the client instead (fired=%d)')
+            :format(#env.localEventsOf('my_resource:localInShop')))
+    env.reset()
+end
+
+-- A zone whose `inside` is a plain FUNCTION keeps whatever interval the caller
+-- asked for, including 0. The clamp exists because an event aimed at the SERVER
+-- spends someone else's budget; a local function spends none, and clamping it
+-- would be a silent behaviour change for a caller who asked for per-frame and
+-- got 4Hz.
+do
+    local env = zoneEnv()
+    local insideCalls = 0
+    exports.CreateZone('box', 'localFn',
+        { x = 0.0, y = 0.0, z = 0.0 }, { x = 20.0, y = 20.0, z = 20.0 }, {
+            inside = function() insideCalls = insideCalls + 1 end,
+            insideInterval = 0,
+        })
+
+    -- The MAIN loop first, and deliberately: an `inside` FUNCTION with interval 0
+    -- is SKIPPED by it (`if interval > 0`), because the second loop is the one
+    -- that serves interval 0. So the main loop's job here is to put the player
+    -- INSIDE the zone, which is a precondition rather than the measurement.
+    simulateSecond(env)
+
+    -- The second loop is where the measurement happens. This is the thread the
+    -- clamp must NOT have made unnecessary: a function callback costs nothing on
+    -- the server, so clamping it would silently take a per-frame callback away
+    -- from a caller who explicitly asked for one.
+    local before = insideCalls
+    local TICK = {}
+    local realWait = Wait
+    Wait = function(ms)
+        env.clock = env.clock + (tonumber(ms) or 0)
+        if insideCalls - before >= 30 then error(TICK, 0) end
+    end
+    local ok, err = pcall(env.threads[2])
+    Wait = realWait
+    if not ok and err ~= TICK then error(err, 0) end
+
+    local fast = insideCalls - before
+    check(fast >= 30,
+        ('L-C14: a plain `inside` FUNCTION is NOT clamped to 250ms -- it reaches '
+            .. 'per-frame (calls=%d in a burst)'):format(fast))
+    check(#env.serverEventsOf('my_resource:anything') == 0,
+        'L-C14: and it never became a server event -- it was always a local call')
     env.reset()
 end
 
