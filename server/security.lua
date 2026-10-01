@@ -57,12 +57,46 @@ end
 -- does have this file is an install that already ran the decision below once.
 -- Read and written under pcall because a read-only resource directory (a
 -- cooked/packed deploy) must degrade to "no marker", not to a hard stop.
-local function hasInstallMarker()
+--
+-- RETURNS THE PARSED MARKER, not a boolean, and that is the whole fix.
+--
+-- `hasInstallMarker()` used to be a presence test, and `legacyByConfig()` read
+-- presence as "a written config already exists", which means legacy, which
+-- means permissive. The marker is written only when the posture is RESTRICTIVE,
+-- so its presence meant the opposite of what it was taken to mean: boot 1 ran
+-- restrictive and wrote the marker, boot 2 read it as legacy and ran
+-- permissive, on the same server with the same files. An operator who installed
+-- fresh, saw the refusal, rebooted, and found door mutations wide open had no
+-- way to get back to refusing without deleting a file they had never heard of.
+--
+-- The two cases are now distinct, which is what they always were:
+--
+--   {"restricted":true}  -- THIS library wrote it, and it decided to refuse.
+--                           Boot 2 must refuse again. That is the whole point
+--                           of writing it: the decision is STABLE across boots.
+--   anything else, or an
+--   unparsable body        -- something else wrote it, or an older version of
+--                           this library did. Unknown provenance is not
+--                           evidence of a decision, so it is NOT treated as
+--                           legacy on the strength of existing.
+local function readInstallMarker()
     if not LoadResourceFile then
-        return false
+        return nil
     end
     local ok, body = pcall(LoadResourceFile, GetCurrentResourceName(), INSTALL_MARKER)
-    return ok and type(body) == 'string' and body ~= ''
+    if not ok or type(body) ~= 'string' or body == '' then
+        return nil
+    end
+    -- Deliberately not a JSON parser. The file is one flat table of primitives
+    -- written by the function below, and a body with an embedded quote or brace
+    -- must read as "not a marker this library wrote" rather than raise -- a
+    -- syntax error while deciding a security posture is the worst possible time
+    -- to raise.
+    local restricted = body:match('"restricted"%s*:%s*true')
+    if restricted then
+        return { restricted = true }
+    end
+    return { restricted = false }
 end
 
 -- Only ever called from applyPosture('restrictive'), so writing the file is
@@ -89,8 +123,12 @@ end
 -- no database call is made. With it on, the answer needs a query, and until
 -- that query returns the install stays permissive.
 local function legacyByConfig()
-    if hasInstallMarker() then
-        return true, 'a written config already exists'
+    -- A marker this library wrote is a decision, and the decision is
+    -- RESTRICTIVE. Re-deciding it as legacy on the second boot is the inversion
+    -- described on readInstallMarker.
+    local marker = readInstallMarker()
+    if marker and marker.restricted then
+        return false, 'this install previously decided to refuse, and that decision is being kept'
     end
     if not persistConfigured() then
         return false, 'no written config and no product that persists state is installed'
@@ -175,6 +213,27 @@ local function rebuildAuthorized()
 end
 
 rebuildAuthorized()
+
+-- Rebuild the allow-list, for SetConfig.
+--
+-- `rebuildAuthorized` used to run exactly once, at load, against the DEFAULT
+-- empty Security. SetConfig then replaced that table wholesale and nothing
+-- rebuilt, so an operator who wrote AuthorizedResources into their master config
+-- got a library that read it, stored it, printed it -- and enforced nothing.
+-- Every foreign resource stayed refused while the console showed the resource
+-- named as permitted, which is the worst shape of bug to receive a support
+-- ticket about.
+--
+-- Exposed as a named function rather than triggered by a global, because a
+-- global is a worse contract than a call another file can see and audit.
+--
+-- Safe to call when the posture is already decided, which matters because
+-- SetConfig runs again on every `onResourceStart('cis_libs')` -- a restart must
+-- not reprint a paragraph the operator has already read, and must not rewrite
+-- the marker over a decision this very file made.
+function CisSecurityRebuild()
+    rebuildAuthorized()
+end
 
 -- Resolve the deferred case: wait for whichever product persists state to
 -- register its probe, then ask it whether it holds any rows. A store created

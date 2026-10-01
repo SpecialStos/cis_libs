@@ -89,7 +89,16 @@ exports('SetConfig', function(config, security, discord)
     -- cis_libs's own built-in defaults are NOT a supplier. They are the floor,
     -- set before anything can call this, and a product replacing them is the
     -- intended path rather than a conflict.
-    if Config and Config.__owned and Config.__owner ~= 'cis_libs' then
+    --
+    -- THE SAME RESOURCE IS NOT A CONFLICT. It has to be allowed, and the reason
+    -- is not politeness: this export is called again on every
+    -- `onResourceStart('cis_libs')`, because a restarted cis_libs loses every
+    -- config value cis_core supplied to it. Refusing the owner on the second
+    -- call meant a restarted cis_libs silently kept the defaults -- an empty
+    -- allow-list, an empty webhook table -- while cis_core's console said the
+    -- configuration had been supplied. The refusal is what made it invisible.
+    local supplier = GetInvokingResource() or 'cis_libs'
+    if Config and Config.__owned and Config.__owner ~= 'cis_libs' and Config.__owner ~= supplier then
         return false, ('configuration was already supplied by %s'):format(tostring(Config.__owner))
     end
     if type(config) == 'table' then
@@ -119,6 +128,13 @@ exports('SetConfig', function(config, security, discord)
     end
     Config.__owned = true
     Config.__owner = GetInvokingResource() or 'cis_libs'
+    -- The allow-list is DERIVED from Security, so replacing Security has to
+    -- rebuild it. Without this the operator's AuthorizedResources was read,
+    -- stored, printed and never enforced. No-op when no security table arrived,
+    -- so a config-only SetConfig cannot silently re-decide the posture.
+    if type(security) == 'table' and CisSecurityRebuild then
+        CisSecurityRebuild()
+    end
     Logging.Info(('cis_libs: configuration supplied by %s'):format(tostring(Config.__owner)))
     return true
 end)
@@ -173,6 +189,13 @@ AddEventHandler('onResourceStop', function(resource)
     for _, slot in ipairs(CisRegistry.releaseOwner(resource)) do
         warned = {}
         Logging.Warn(('cis_libs: capability %q released: %s stopped'):format(slot, resource))
+    end
+    -- The configuration owner is released with everything else it held. cis_libs
+    -- itself restarting must not leave the next cis_core looking like a SECOND
+    -- supplier and being refused for a config it is entitled to supply.
+    if Config and Config.__owner == resource then
+        Config.__owned = nil
+        Config.__owner = nil
     end
 end)
 

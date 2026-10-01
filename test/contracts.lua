@@ -386,12 +386,22 @@ do
     CisInvokingAllowed = nil
     env.reset()
 
-    -- Legacy install, signal 1: a written config already exists.
-    env = securityScenario({ authorized = {}, marker = '{"restricted":true}' })
-    check(env.EXPORTS.InvokingAllowed() == true,
-        'legacy install (written config present) keeps the permissive path')
-    check(mentions(env, 'PERMISSIVE'), 'legacy install: the console says it is permissive')
-    check(not mentions(env, 'REFUSED'), 'legacy install: no refusal is announced')
+    -- A marker written by an OLDER version of this library, or by something else,
+    -- carries no decision of ours, so it does not by itself make the install
+    -- legacy. L-C2 corrected this: the marker used to be read as "a written
+    -- config exists", which meant permissive, while it was in fact only ever
+    -- written for a RESTRICTIVE decision. The restrictive boot therefore
+    -- unlocked itself on the next one.
+    --
+    -- What actually makes an install legacy is a product that persists state
+    -- already holding rows -- the signal asserted below.
+    env = securityScenario({
+        authorized = {},
+        marker = '{"eventPrefix":"cis_libs"}',
+        invoking = 'cis_someProduct',
+    })
+    check(env.EXPORTS.InvokingAllowed() == false,
+        'a marker carrying no restrictive flag is not evidence of a legacy install')
     CisInvokingAllowed = nil
     env.reset()
 
@@ -461,6 +471,166 @@ do
     check(env.EXPORTS.GetLibsPrefix() == 'cis_libs', 'GetLibsPrefix is stable after a report')
     CisInvokingAllowed = nil
     env.reset()
+end
+
+-- ============================ 2d. SetConfig after a cis_libs restart
+--
+-- cis_libs's own restart takes every value cis_core supplied with it: a fresh
+-- Lua state, a fresh Config. The owner has to be able to supply them again, or
+-- the server silently reverts to defaults while cis_core's console reports the
+-- configuration as supplied.
+do
+    local env = securityScenario({ authorized = {}, invoking = 'cis_core' })
+    loadModule('server/proxy.lua')
+
+    local first, firstWhy = env.EXPORTS.SetConfig(nil, { AuthorizedResources = { 'res_a' } })
+    check(first == true, 'the first SetConfig is accepted: ' .. tostring(firstWhy))
+    env.invoking = 'res_a'
+    check(env.EXPORTS.InvokingAllowed() == true, 'the supplied allow-list takes effect')
+
+    -- L-C6: the SAME owner again. This is what `onResourceStart('cis_libs')`
+    -- looks like, and refusing it is what left a restarted cis_libs on defaults.
+    env.invoking = 'cis_core'
+    local again, againWhy = env.EXPORTS.SetConfig(nil, { AuthorizedResources = { 'res_b' } })
+    check(again == true, 'L-C6: the same owner may re-supply the config: ' .. tostring(againWhy))
+    env.invoking = 'res_b'
+    check(env.EXPORTS.InvokingAllowed() == true, 'L-C6: the re-supplied allow-list takes effect')
+    env.invoking = 'res_a'
+    check(env.EXPORTS.InvokingAllowed() == false,
+        'L-C6: the previous list is gone, not merged with the new one')
+
+    -- A DIFFERENT resource is still refused. L-C6 relaxed the owner check, and
+    -- "relaxed" must not have become "open": two products both believing they
+    -- own the config is the failure this guard was written for.
+    local other, otherWhy = env.EXPORTS.SetConfig(nil, { AuthorizedResources = { 'res_c' } })
+    check(other == false, 'L-C6: a different resource is still refused')
+    check(tostring(otherWhy):find('cis_core') ~= nil,
+        'L-C6: the refusal names the resource that already supplied the config')
+    CisInvokingAllowed = nil
+    env.reset()
+end
+
+-- ================================= 2b. SetConfig must rebuild the allow-list
+--
+-- `rebuildAuthorized()` ran once, at load, against the DEFAULT empty Security.
+-- SetConfig then replaced Security wholesale and never rebuilt, so an operator
+-- who wrote
+--
+--     Security.AuthorizedResources = { 'cis_housing' }
+--
+-- into their master config got a library that read it, kept the table, and
+-- never enforced it: every foreign resource stayed refused. The config looked
+-- like it was working -- it was read, it was printed, and nothing refused --
+-- which is the worst shape of bug to get a support ticket about.
+--
+-- The scenario drives the real files in the manifest's load order and calls the
+-- real SetConfig, because the defect is in the interaction between them and no
+-- test that mocks one of the two out can see it.
+do
+    local env = securityScenario({ authorized = {}, invoking = 'res_a' })
+    check(env.EXPORTS.InvokingAllowed() == false,
+        'L-C1 before: an empty default allow-list refuses a foreign resource')
+
+    -- proxy.lua too, and in the manifest's order: SetConfig is defined there
+    -- and the rebuild has to reach security.lua's already-loaded state, which
+    -- is exactly the ordering the server runs.
+    loadModule('server/proxy.lua')
+    check(type(env.EXPORTS.SetConfig) == 'function', 'SetConfig is registered on the exports table')
+
+    -- The operator's real configuration, arriving at runtime the way a product
+    -- supplies it.
+    env.invoking = 'cis_core'
+    local ok, why = env.EXPORTS.SetConfig(nil, { AuthorizedResources = { 'res_a' } })
+    check(ok == true, 'SetConfig accepts a security table: ' .. tostring(why))
+
+    env.invoking = 'res_a'
+    check(env.EXPORTS.InvokingAllowed() == true,
+        'L-C1: a resource named in the supplied allow-list is allowed')
+    env.invoking = 'res_b'
+    check(env.EXPORTS.InvokingAllowed() == false,
+        'L-C1: a resource absent from the supplied allow-list is still refused')
+
+    -- And the reverse: replacing the config with an empty list must make it
+    -- strict again, not leave the previous list in force. A rebuild that only
+    -- ever widens is a rebuild that cannot be undone.
+    env.invoking = 'cis_core'
+    env.EXPORTS.SetConfig(nil, { AuthorizedResources = {} })
+    env.invoking = 'res_a'
+    check(env.EXPORTS.InvokingAllowed() == false,
+        'L-C1: supplying an empty list again makes the install strict again')
+    CisInvokingAllowed = nil
+    env.reset()
+end
+
+-- ==================== 2c. the install marker must survive a second boot
+--
+-- The marker is written ONLY when the posture is restrictive, but
+-- `legacyByConfig()` read ANY marker as "a written config already exists",
+-- which means legacy, which means permissive. Boot 1 therefore ran restrictive
+-- and every boot after it ran permissive -- on the same server, with the same
+-- files, minutes apart. An operator who installed fresh, saw the refusal,
+-- rebooted and found doors wide open, had no way to get that back.
+--
+-- The scenario BOOTS TWICE in one env and keeps `env.marker` across both, which
+-- is what models a restart: SaveResourceFile writes and LoadResourceFile
+-- reads the same file.
+do
+    local env = securityScenario({ authorized = {}, invoking = 'cis_someProduct' })
+    check(env.EXPORTS.InvokingAllowed() == false, 'L-C2 boot 1: a new install refuses')
+    check(env.marker ~= nil, 'L-C2 boot 1: the restrictive decision is recorded on disk')
+    check(env.marker:find('"restricted"', 1, true) ~= nil or env.marker:find('restricted', 1, true) ~= nil,
+        'L-C2 boot 1: the marker records that the decision was RESTRICTIVE')
+
+    -- Restart. Same marker file, fresh module state.
+    local env2 = securityScenario({ authorized = {}, marker = env.marker, invoking = 'cis_someProduct' })
+    check(env2.EXPORTS.InvokingAllowed() == false,
+        'L-C2 boot 2: a marker that says restricted keeps the install restrictive')
+    check(not mentions(env2, 'PERMISSIVE'),
+        'L-C2 boot 2: the second boot does not announce the permissive path')
+    CisInvokingAllowed = nil
+    env.reset()
+    env2.reset()
+
+    -- A marker that does NOT claim restricted was written by something other than
+    -- this library's decision path, so it is not evidence of anything -- and the
+    -- install is then classified on the remaining signal alone. With no
+    -- persisting product, that means NEW, so restrictive.
+    local env3 = securityScenario({
+        authorized = {},
+        marker = '{"eventPrefix":"cis_libs"}',
+        invoking = 'cis_someProduct',
+    })
+    check(env3.EXPORTS.InvokingAllowed() == false,
+        'L-C2: a marker without the restrictive flag is not treated as legacy')
+    check(not mentions(env3, 'PERMISSIVE'),
+        'L-C2: and it does not announce the permissive path')
+    CisInvokingAllowed = nil
+    env3.reset()
+
+    -- Same marker, but this time a persisting product already holds rows. THAT
+    -- is what makes an install legacy, and it is the signal that has always
+    -- been the honest one -- it asks a product about its own store instead of
+    -- inferring history from a file.
+    local env5 = securityScenario({
+        authorized = {},
+        marker = '{"eventPrefix":"cis_libs"}',
+        persisted = true,
+        hasRows = true,
+        invoking = 'cis_someProduct',
+    })
+    check(env5.EXPORTS.InvokingAllowed() == true,
+        'L-C2: a populated store is still the signal that makes an install legacy')
+    check(mentions(env5, 'PERMISSIVE'), 'L-C2: and it announces the permissive path')
+    CisInvokingAllowed = nil
+    env5.reset()
+
+    -- Unreadable or absent is NOT legacy. That was the whole defect: absence and
+    -- refusal were being read the same way.
+    local env4 = securityScenario({ authorized = {}, marker = '', invoking = 'cis_someProduct' })
+    check(env4.EXPORTS.InvokingAllowed() == false,
+        'L-C2: an absent marker is a new install, not a legacy one')
+    CisInvokingAllowed = nil
+    env4.reset()
 end
 
 -- ========================= 3. the database boundary, and Cis.db.transaction
