@@ -1,100 +1,78 @@
-const fs = require('fs')
+// Orchestrate the suites, each in its own process. T2.
+//
+// Before this, every suite shared one lua_State and one stdout. Two consequences,
+// both of them real:
+//
+//   * An ordering assumption in one suite was satisfied by a side effect in
+//     another. `CisReadyState` is the clearest example: test/client.lua REPLACES
+//     it with a stub and saves the original, which only works if the suite that
+//     reads it afterwards is looking at the one that was restored. Nothing
+//     asserted that; it was an accident that had been load-bearing.
+//   * A suite that threw killed every suite after it, and the exit code was the
+//     same as a clean pass. A silent exit is indistinguishable from a pass, and
+//     the handoff records exactly that having happened once before -- a test that
+//     "passed" because it never ran.
+//
+// One child process per suite fixes both: the state is genuinely fresh, and a
+// suite that dies is a suite that reports.
+const { spawnSync } = require('child_process')
 const path = require('path')
-const fengari = require('fengari')
 
-const lua = fengari.lua
-const lauxlib = fengari.lauxlib
-const lualib = fengari.lualib
-const toLua = fengari.to_luastring
+const SUITES = [
+  ['test/run.lua', 'registry and core'],
+  ['test/binding.lua', 'exports self-binding'],
+  ['test/contracts.lua', 'exports and init boundary'],
+  ['test/modules.lua', 'algo and util modules'],
+  ['test/client.lua', 'client modules'],
+  ['test/server.lua', 'server modules'],
+]
 
-const root = path.join(__dirname, '..')
-const L = lauxlib.luaL_newstate()
-lualib.luaL_openlibs(L)
+const runner = path.join(__dirname, 'suite-runner.js')
+const results = []
 
-// arg[0] is what binding.lua uses to locate the repo root.
-lua.lua_pushstring(L, toLua(path.join(__dirname, 'binding.lua')))
-lua.lua_setglobal(L, toLua('arg'))
+for (const [file, what] of SUITES) {
+  const r = spawnSync(process.execPath, [runner, file], { encoding: 'utf8' })
+  const out = `${r.stdout || ''}${r.stderr || ''}`
+  process.stdout.write(out)
 
-// Files the contract tests need to read as text. fengari's io library in the
-// node build has no `open`, so the contents are injected from here.
-//
-// This list is DERIVED FROM THE MANIFEST rather than written out by hand, and
-// that is the whole point. The contract suite asserts properties over "every
-// file this resource loads" -- most importantly that none of them creates a
-// table or calls a third-party resource -- and a hand-maintained list would
-// quietly fall behind the next file somebody added, at which point the
-// strongest promise in the repository would be checked against a subset of the
-// code and still pass.
-//
-// `init.lua` is added explicitly because consumers `shared_script` it, so it is
-// not in any of the manifest's three script blocks. `fxmanifest.lua` is added
-// because several contracts read the manifest itself rather than a script.
-const EXTRA_INJECTED = ['init.lua', 'fxmanifest.lua']
+  // A suite reports its own line. Three things are consulted, because trusting
+  // any one of them is how a suite "passes" having never run:
+  //
+  //   * the exit status -- a suite that throws prints no summary at all;
+  //   * the summary line -- the suite's own count;
+  //   * EVERY `FAIL` line in the output, counted independently.
+  //
+  // The third is not redundant. A suite writes its summary with io.write and its
+  // failures with io.stderr:write, so a failure that happens after the summary
+  // is printed is counted in neither. That is exactly the "silent exit is
+  // indistinguishable from a pass" failure this rewrite exists to remove, and it
+  // was reproduced deliberately: appending `expect(false)` to the end of
+  // modules.lua printed "module tests: passed=326 failed=0" and exited 0, with
+  // the FAIL sitting on stderr underneath it. A runner that only reads the
+  // summary would have passed that run.
+  const summary = out.split(/\r?\n/).find(l => /passed=\d+/.test(l)) || ''
+  const fails = (out.match(/^FAIL/gm) || []).length
+  const crashed = r.status !== 0
+  const reportedFail = /failed=[1-9]/.test(summary)
+  const ok = !crashed && !reportedFail && fails === 0 && /passed=\d+/.test(summary)
 
-function manifestScripts() {
-  const manifest = fs.readFileSync(path.join(root, 'fxmanifest.lua'), 'utf8')
-  const found = new Set(EXTRA_INJECTED)
-  // Every quoted string ending in .lua inside the three script blocks. A quoted
-  // path is the only form the manifest uses for them, so this is exact rather
-  // than approximate.
-  for (const m of manifest.matchAll(/'([^']+\.lua)'/g)) {
-    found.add(m[1])
-  }
-  return [...found]
+  let count = 0
+  const m = /passed=(\d+)/.exec(summary)
+  if (m) count = Number(m[1])
+  results.push({ file, what, ok, count, fails, crashed, status: r.status, summary: summary.trim() })
 }
 
-function injectFiles(L) {
-  lua.lua_createtable(L)
-  for (const rel of manifestScripts()) {
-    const body = fs.readFileSync(path.join(root, rel), 'utf8')
-    lua.lua_pushstring(L, toLua(body))
-    lua.lua_setfield(L, -2, toLua(rel))
-  }
-  lua.lua_setglobal(L, toLua('CIS_TEST_FILES'))
+console.log('\n===== per-suite summary =====')
+let total = 0
+for (const r of results) {
+  total += r.count
+  const verdict = r.ok ? 'ok  ' : 'FAIL'
+  const detail = r.crashed ? `crashed (exit ${r.status})` : `${r.count} passed`
+  console.log(`  ${verdict}  ${r.file.padEnd(20)} ${detail}`)
 }
-
-function runFile(rel) {
-  const src = fs.readFileSync(path.join(root, rel), 'utf8')
-  const status = lauxlib.luaL_dostring(L, toLua(src))
-  if (status !== lua.LUA_OK) {
-    const err = lua.lua_tojsstring(L, -1)
-    throw new Error(`${rel}: ${err}`)
-  }
+const failed = results.filter(r => !r.ok)
+console.log(`\n${results.length} suites, ${total} assertions, ${failed.length} failed`)
+if (failed.length) {
+  for (const r of failed) console.log(`  ${r.file}: ${r.crashed ? `crashed (exit ${r.status})` : r.fails + ' failing assertions'}`)
+  process.exit(1)
 }
-
-runFile('shared/defaults.lua')
-runFile('shared/registry.lua')
-runFile('shared/grid.lua')
-runFile('shared/pending.lua')
-runFile('shared/owned.lua')
-runFile('shared/config.lua')
-runFile('shared/ready.lua')
-runFile('shared/histogram.lua')
-runFile('shared/detect.lua')
-// The integration harness is a SEPARATE repository and a separate FiveM
-// resource (https://github.com/SpecialStos/cis_libstest). It used to be loaded
-// here so the library's suite could cover the report encoder and the probe
-// helpers -- which was the wrong home for them. The harness tests its own pure
-// modules now; this suite covers the library.
-injectFiles(L)
-runFile('test/run.lua')
-runFile('test/binding.lua')
-runFile('shared/algo/curve.lua')
-runFile('shared/algo/heap.lua')
-runFile('shared/algo/interp.lua')
-runFile('shared/algo/lru.lua')
-runFile('shared/algo/random.lua')
-runFile('shared/algo/rate.lua')
-runFile('shared/algo/sparse.lua')
-runFile('shared/algo/window.lua')
-runFile('shared/util/id.lua')
-runFile('shared/util/json.lua')
-runFile('shared/util/semver.lua')
-runFile('shared/util/string.lua')
-runFile('shared/util/table.lua')
-runFile('shared/util/time.lua')
-runFile('shared/util/validate.lua')
-runFile('test/contracts.lua')
-runFile('test/modules.lua')
-runFile('test/client.lua')
-runFile('test/server.lua')

@@ -259,6 +259,48 @@ local function newEnv(opts)
         return n
     end
 
+    -- T2 / ISOLATION FINDING. `json` is a FiveM-provided global, so fengari has
+    -- no idea it exists. In the shared state this suite reached
+    -- server/initialize.lua and had never been asked for it, because the
+    -- `_G` fallback quietly answered nil and the ready line that calls
+    -- json.encode was never reached on the paths these tests drive.
+    --
+    -- It IS reached here, so the suite now supplies the one function the server
+    -- code actually calls. A stub that encodes nothing in particular is
+    -- honest: the test cares that a table was serialisable, not that the
+    -- serialiser matches FiveM's byte for byte.
+    env.saved[#env.saved + 1] = { name = 'json', value = rawget(_G, 'json') }
+    json = {
+        encode = function(t)
+            local parts = {}
+            for k, v in pairs(t) do parts[#parts + 1] = ('%q:%s'):format(tostring(k), tostring(v)) end
+            return '{' .. table.concat(parts, ',') .. '}'
+        end,
+        decode = function() return nil, 'decode is not stubbed' end,
+    }
+
+    -- T2 / ISOLATION FINDING. server/logging.lua is loaded HERE, inside the env,
+    -- because it needs `exports` at load time and only this harness provides it.
+    --
+    -- It was never loaded at all before. `Logging` was a global left behind by an
+    -- earlier suite in a shared lua_State, and server/sync.lua indexes it on its
+    -- first error path. Nothing asserted the dependency -- it worked by accident,
+    -- and the accident stopped working the moment the suites were given their own
+    -- processes. Loading it here is the honest version of what every env was
+    -- already relying on.
+    -- `loadModule` is declared below this point, so the load is inline. Logging
+    -- is already in the saved-globals list above, so env.reset puts the previous
+    -- one back and one env cannot leak its Logging into the next.
+    do
+        -- Re-established immediately before the load. logging.lua calls
+        -- `exports('LogInfo', ...)` at load time, so it has to be the callable
+        -- proxy, and an env that has been through a reset can have had it
+        -- cleared underneath it.
+        exports = env.EXPORTS
+        local chunk = assert(loadfile('./server/logging.lua'))
+        chunk()
+    end
+
     return env
 end
 

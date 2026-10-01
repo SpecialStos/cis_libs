@@ -6,10 +6,10 @@
   "license": "SEE LICENSE IN LICENSE.md",
   "scripts": {
     "test": "node test/run.js",
-    "test:luacheck": "node tools/luacheck.js",
     "test:api": "node tools/validate-api.js --api api.lua --resource .",
     "test:api-selftest": "node tools/validate-api.js --selftest",
-    "test:all": "npm run test:luacheck && npm run test && npm run test:api-selftest && npm run test:api"
+    "test:all": "npm run test:syntax && npm run test && npm run test:api-selftest && npm run test:api",
+    "test:syntax": "node tools/syntax-check.js"
   },
   "devDependencies": {
     "fengari": "^0.1.5"

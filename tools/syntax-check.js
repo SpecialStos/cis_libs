@@ -1,4 +1,4 @@
-// luacheck.js -- parse every .lua file in the repo and report syntax errors.
+// syntax-check.js -- parse every .lua file in the repo and report syntax errors.
 //
 // CI does this with luac5.4. Locally there is no Lua on PATH, and a parse error
 // in the integration harness is expensive to find: FiveM reports it on resource
@@ -10,7 +10,7 @@
 // which is the same exemption CI applies, so those are reported as skipped
 // rather than failures.
 //
-// Usage:  node tools/luacheck.js
+// Usage:  node tools/syntax-check.js
 // Exit 0 clean, 1 on a syntax error.
 const fs = require('fs')
 const path = require('path')
@@ -62,5 +62,5 @@ for (const abs of files) {
   failed++
 }
 
-console.log(`\nluacheck: ${files.length} files, ${failed} syntax errors, ${skipped} skipped`)
+console.log(`\nsyntax-check: ${files.length} files, ${failed} syntax errors, ${skipped} skipped`)
 process.exit(failed ? 1 : 0)
