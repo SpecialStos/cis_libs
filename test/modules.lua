@@ -280,7 +280,139 @@ do
     expect(T.roundTo(90, -60) == 0, 'roundTo with a negative unit is zero')
 end
 
--- ================================================================= CisGrid
+-- ================================================ Phase 4 · the error style
+--
+-- ONE RULE: a PROGRAMMER error (wrong type, nil where a value is required)
+-- RAISES, because the caller has to change code to fix it and a silent default
+-- lets it ship. A DATA error (NaN, an unparsable number, an inverted range)
+-- RETURNS `nil, reason`, because it arrived from a config file and the only
+-- honest answer is "nothing to give you, and here is why".
+--
+-- What this replaces is the quiet default: a 0 that reads like a result, or a
+-- NaN that propagates into a coordinate and surfaces three subsystems later as
+-- "spawns appear in the wrong place". Both are worse than an error, because
+-- neither names the fix.
+do
+    -- ------------------------------------------------------------ Random
+    -- `integer` answered 0 for a non-number bound AND for a non-finite one, so
+    -- "you passed a string" and "you passed NaN" were indistinguishable from
+    -- "the draw came up 0".
+    do
+        local function tryInteger(...)
+            local a = { ... }
+            return pcall(CisRandom.integer, a[1], a[2], a[3])
+        end
+
+        local okType = pcall(function() return CisRandom.integer('a', 5, nil) end)
+        expect(not okType, 'integer() with a string bound RAISES rather than answering 0')
+        local okType2 = pcall(function() return CisRandom.integer(0, {}, nil) end)
+        expect(not okType2, 'integer() with a table bound raises too')
+
+        local okNan, nanRes, nanWhy = tryInteger(0 / 0, 5, nil)
+        expect(okNan and nanRes == nil and type(nanWhy) == 'string' and nanWhy ~= '',
+            'integer() with a NaN bound returns nil and a reason, not 0')
+        local okInf, infRes, infWhy = tryInteger(0, math.huge, nil)
+        expect(okInf and infRes == nil and type(infWhy) == 'string',
+            'integer() with an infinite bound returns nil and a reason, not 0')
+
+        -- The raise must NAME the fix. A bare "bad argument #1" from the
+        -- comparison operator is what the rule exists to replace.
+        local message = select(2, pcall(function() return CisRandom.integer('a', 5, nil) end))
+        expect(type(message) == 'string' and message:find('number', 1, true) ~= nil,
+            ('integer() names what it wanted: %s'):format(tostring(message)))
+        expect(tostring(message):find('string', 1, true) ~= nil,
+            'and what it actually got, so the caller can find the call site')
+
+        -- The good paths are untouched. A grid that refuses everything passes
+        -- every assertion above.
+        local g = CisRandom.newGenerator(9)
+        expect(CisRandom.integer(5, 5, g) == 5, 'integer() still returns a single-value range')
+        local drew = CisRandom.integer(1, 6, g)
+        expect(type(drew) == 'number' and drew >= 1 and drew <= 6 and drew % 1 == 0,
+            'integer() still draws an ordinary range')
+    end
+
+    -- `float` sits beside `integer` with the identical quiet default and has no
+    -- callers anywhere in the repository, so leaving it would be indefensible:
+    -- the same mistake, one function away, for no reason at all.
+    do
+        expect(not pcall(function() return CisRandom.float('a', 5, nil) end),
+            'float() with a non-number bound raises rather than answering 0')
+        local ok, res, why = pcall(CisRandom.float, 0 / 0, 5, nil)
+        expect(ok and res == nil and type(why) == 'string',
+            'float() with a NaN bound returns nil and a reason')
+        local v = CisRandom.float(1, 2, CisRandom.newGenerator(4))
+        expect(type(v) == 'number' and v >= 1 and v < 2, 'float() still draws an ordinary range')
+    end
+
+    -- ------------------------------------------------------------- Interp
+    -- The defect here is NARROWER than in Random: clamp is called from
+    -- smoothDamp with INFINITE bounds (`maxSpeed or math.huge`), so an
+    -- infinite limit is a legitimate "no limit" and must keep working. Only a
+    -- NaN value is the bug -- every comparison against NaN is false, so it fell
+    -- through all three and came back out as NaN.
+    do
+        local I = CisInterp
+        expect(not pcall(function() return I.clamp('a', 0, 10) end),
+            'clamp() with a non-number value raises rather than answering a number')
+        expect(not pcall(function() return I.clamp(5, 'a', 10) end),
+            'clamp() with a non-number bound raises')
+
+        local res, why = I.clamp(0 / 0, 0, 10)
+        expect(res == nil and type(why) == 'string',
+            'clamp() of a NaN returns nil and a reason instead of passing NaN through')
+        expect(why and why:lower():find('nan') ~= nil,
+            ('and the reason names the NaN: %s'):format(tostring(why)))
+
+        local res2, why2 = I.clamp(5, 10, 0)
+        expect(res2 == nil and type(why2) == 'string',
+            'clamp() with an inverted range returns nil and a reason')
+
+        -- INFINITE BOUNDS ARE NOT AN ERROR. smoothDamp calls clamp with
+        -- `-maxChange, maxChange` where maxChange is `math.huge` whenever the
+        -- caller passes no maxSpeed, so refusing infinities here would break
+        -- the most common calling pattern in the module. This is the assertion
+        -- that stops a well-meaning "fix" from doing exactly that.
+        expect(I.clamp(5, -math.huge, math.huge) == 5,
+            'clamp() accepts infinite bounds, which smoothDamp relies on')
+        expect(I.clamp(1e308, -math.huge, math.huge) == 1e308,
+            'and clamps through them unchanged')
+        expect(I.clamp(math.huge, 0, 10) == 10,
+            'an infinite VALUE still clamps to the top of the range')
+        expect(I.clamp(-math.huge, 0, 10) == 0,
+            'and a negative infinite value to the bottom')
+
+        -- The ordinary path.
+        expect(I.clamp(5, 0, 10) == 5, 'clamp() passes a value inside the range')
+        expect(I.clamp(-1, 0, 10) == 0, 'clamp() raises a value below the range')
+        expect(I.clamp(11, 0, 10) == 10, 'clamp() lowers a value above the range')
+        -- And smoothDamp, the internal caller, must still work with its
+        -- infinite bounds -- this is what would break first otherwise.
+        -- maxSpeed is left nil on purpose, which is what makes smoothDamp
+        -- compute `maxChange = math.huge` and hand clamp infinite bounds.
+        local moved, vel = I.smoothDamp(0, 100, 0, 0.5, nil, 0.1)
+        expect(type(moved) == 'number' and type(vel) == 'number',
+            'smoothDamp still runs with its internal infinite clamp bounds')
+        expect(moved > 0 and moved < 100, 'and it still moves toward the target')
+    end
+
+    -- ----------------------------------------------------------- Validate
+    -- AUDITED, NOT CHANGED. `CisValidate.clamp` already returns `nil, reason`
+    -- for a non-number, a non-finite value and an inverted range -- it was
+    -- written this way. The plan named it as an audit target, and the honest
+    -- result of that audit is that there is nothing to do. Pinned here so a
+    -- future change that "simplifies" it back to a quiet default fails.
+    do
+        local V = CisValidate
+        local r1, w1 = V.clamp('a', 0, 10)
+        expect(r1 == nil and type(w1) == 'string', 'Validate.clamp refuses a non-number with a reason')
+        local r2, w2 = V.clamp(0 / 0, 0, 10)
+        expect(r2 == nil and type(w2) == 'string', 'Validate.clamp refuses a non-finite value')
+        local r3, w3 = V.clamp(5, 10, 0)
+        expect(r3 == nil and type(w3) == 'string', 'Validate.clamp refuses an inverted range')
+        expect(V.clamp(5, 0, 10) == 5, 'Validate.clamp still clamps an ordinary value')
+    end
+end
 do
     local G = CisGrid
     local grid = G.new()
@@ -548,16 +680,15 @@ do
         local ok2, r2 = tryInteger(0, 0 / 0, CisRandom.newGenerator(9))
         local ok3, r3 = tryInteger(0, 0 / 0)
         expect(ok1 and ok2 and ok3, 'a NaN bound does not raise on any path')
-        expect(r1 == 0 and r2 == 0 and r3 == 0,
+        expect(r1 == nil and r2 == nil and r3 == nil,
             'a NaN bound is refused on every path instead of propagating NaN')
 
         local ok4, r4 = tryInteger(0, math.huge, CisRandom.newGenerator(9))
-        expect(ok4 and r4 == 0, 'an infinite bound is refused, not answered with Infinity')
+        expect(ok4 and r4 == nil, 'an infinite bound is refused, not answered with Infinity')
 
         -- The ordinary integer path is untouched by any of that.
         local g = CisRandom.newGenerator(9)
         expect(CisRandom.integer(5, 5, g) == 5, 'a single-value range returns that value')
-        expect(CisRandom.integer('a', 5, g) == 0, 'a non-number bound keeps its documented answer')
     end
 
     -- L-S14. An infinite weight made the whole cumulative array infinite, so

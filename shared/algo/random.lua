@@ -61,27 +61,34 @@ local TWO32 = 4294967296
 -- Normalise caller bounds into an inclusive integer range, or nil when the
 -- request cannot be honoured.
 --
--- These are the three shapes a real config file contains: a fraction, a NaN
--- from a field that failed to parse, and an infinity from a division by an
--- empty total. They used to reach three different behaviours -- `math.random`
+-- These are the three shapes a real config file contains: a fraction, a NaN from
+-- a field that failed to parse, and an infinity from a division by an empty
+-- total. They used to reach three different behaviours -- `math.random`
 -- RAISES on a fractional bound, the generator returned 1.5, and a NaN came
 -- back out as NaN and straight into whatever used it. One helper means the
 -- paths cannot drift apart again.
 --
--- The low bound is floored and the high bound ceiled so the drawn integer
--- still spans everything the caller asked for. Flooring both, or rounding,
--- would silently drop one end of a range that came from a float division.
-local function intBounds(lo, hi)
+-- The low bound is floored and the high bound ceiled so the drawn integer still
+-- spans everything the caller asked for. Flooring both, or rounding, would
+-- silently drop one end of a range that came from a float division.
+--
+-- WRONG TYPES RAISE, non-finite values return nil. That split is the whole
+-- error-style rule: a string where a number belongs is a mistake in the CALLER'S
+-- CODE and nothing but a raise will stop it shipping, while a NaN arrived from
+-- a config file and the only useful answer is "nothing to give, and here is
+-- why". Both used to answer 0, which is not distinguishable from a real draw.
+local function intBounds(lo, hi, who)
     if type(lo) ~= 'number' or type(hi) ~= 'number' then
-        return nil
+        error(('%s: lo and hi must be numbers, got %s and %s')
+            :format(who, type(lo), type(hi)), 3)
     end
-    -- NaN fails every comparison, so it needs its own check: `lo > hi` is
-    -- false for it and it would sail through as if it were a valid bound.
+    -- NaN fails every comparison, so it needs its own check: `lo > hi` is false
+    -- for it and it would sail through as if it were a valid bound.
     if lo ~= lo or hi ~= hi then
-        return nil
+        return nil, 'a bound is NaN, which is not a range'
     end
     if lo == math.huge or lo == -math.huge or hi == math.huge or hi == -math.huge then
-        return nil
+        return nil, 'a bound is infinite, so there is no finite range to draw from'
     end
     lo = math.floor(lo)
     hi = math.ceil(hi)
@@ -144,6 +151,26 @@ end
 -- in 2^32-ish is rejected -- and CisRandom.newGenerator cannot reach it at all,
 -- because MINSTD visits every residue class in a full period.
 local MAX_RETRIES = 8
+
+-- The same rule for float bounds. Separate from intBounds because an infinite
+-- bound is meaningful for a FLOAT -- `float(-math.huge, math.huge)` is a
+-- perfectly good unbounded draw -- and is not for an integer.
+local function floatBounds(min, max, who)
+    if type(min) ~= 'number' or type(max) ~= 'number' then
+        error(('%s: min and max must be numbers, got %s and %s')
+            :format(who, type(min), type(max)), 3)
+    end
+    if min ~= min or max ~= max then
+        return nil, 'a bound is NaN, which is not a range'
+    end
+    if min == math.huge or max == math.huge or min == -math.huge or max == -math.huge then
+        return nil, 'a bound is infinite, so the draw has no range to land in'
+    end
+    if min > max then
+        min, max = max, min
+    end
+    return min, max
+end
 
 -- One draw in [0, span), assembled from as many rand01 calls as it takes.
 --
@@ -303,9 +330,9 @@ function CisRandom.newGenerator(seed)
     --- hold the low bits, so there is no exact draw to make and answering
     --- anyway would return a plausible wrong number.
     function gen:int(lo, hi)
-        local a, b = intBounds(lo, hi)
+        local a, b = intBounds(lo, hi, 'generator:int')
         if a == nil then
-            return nil
+            return nil, b
         end
         if a == b then
             return a
@@ -369,14 +396,16 @@ end
 --- Integer in [lo, hi] INCLUSIVE, uniformly.
 ---
 --- @param rng table|function|nil  see the header; nil uses math.random
---- @return number  `lo` when lo > hi, and `0` when either bound is not a
----         finite number (including NaN). Fractional bounds are floored and
----         ceiled, so `integer(1.5, 3.5)` draws from [1, 4] rather than
----         raising on one path and returning 1.5 on the other.
+--- @return number  the drawn integer
+--- @return number|nil,string  `nil, reason` when a bound is NaN or infinite
+--- @raise  when a bound is not a number -- a mistake in the caller's code, which
+---   a return value would let ship. Fractional bounds are floored and ceiled, so
+---   `integer(1.5, 3.5)` draws from [1, 4] rather than raising on one path and
+---   returning 1.5 on the other.
 function CisRandom.integer(lo, hi, rng)
-    local a, b = intBounds(lo, hi)
+    local a, b = intBounds(lo, hi, 'CisRandom.integer')
     if a == nil then
-        return 0
+        return nil, b
     end
     if a == b then
         return a
@@ -385,18 +414,23 @@ function CisRandom.integer(lo, hi, rng)
 end
 
 --- Float in [min, max).
---- @return number  `min` when the bounds are not numbers or the range is empty
+---
+--- Same error style as `integer`, and for the same reason: this used to answer
+--- 0 for a non-number bound, which is indistinguishable from a real draw at the
+--- bottom of the range.
+---
+--- @return number
+--- @return number|nil,string  `nil, reason` when a bound is NaN or infinite
+--- @raise  when a bound is not a number
 function CisRandom.float(min, max, rng)
-    if type(min) ~= 'number' or type(max) ~= 'number' then
-        return 0
+    local a, b = floatBounds(min, max, 'CisRandom.float')
+    if a == nil then
+        return nil, b
     end
-    if min > max then
-        min, max = max, min
+    if a == b then
+        return a
     end
-    if min == max then
-        return min
-    end
-    return min + rand01(rng) * (max - min)
+    return a + rand01(rng) * (b - a)
 end
 
 --- Fisher-Yates shuffle, IN PLACE.

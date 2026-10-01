@@ -246,7 +246,38 @@ end
 --- erroring, because the caller got the arguments the wrong way round and
 --- returning something usable beats a stack trace in a render loop.
 --- @return number
+--- Constrain `v` to [lo, hi].
+---
+--- INFINITE BOUNDS ARE LEGAL AND MEANINGFUL: smoothDamp calls this as
+--- `clamp(change, -maxChange, maxChange)` with `maxChange = (maxSpeed or
+--- math.huge) * smoothTime`, so "no speed limit" arrives here as two infinite
+--- bounds. Refusing infinities would break the most common calling pattern in
+--- this module, so the NaN check below is on `v` ONLY.
+---
+--- A NaN `v` is the actual bug: every comparison against NaN is false, so it
+--- fell through all three branches and came back out as NaN, three subsystems
+--- later, as a coordinate. It returns nil and a reason instead.
+---
+--- @return number
+--- @return number|nil,string  `nil, reason` for a NaN value or an inverted range
+--- @raise  when any argument is not a number
 function CisInterp.clamp(v, lo, hi)
+    if type(v) ~= 'number' then
+        error(('CisInterp.clamp: v must be a number, got %s'):format(type(v)), 2)
+    end
+    if type(lo) ~= 'number' or type(hi) ~= 'number' then
+        error(('CisInterp.clamp: lo and hi must be numbers, got %s and %s')
+            :format(type(lo), type(hi)), 2)
+    end
+    if v ~= v then
+        return nil, 'CisInterp.clamp: v is NaN, which cannot be clamped'
+    end
+    -- An infinite VALUE still clamps: inf > hi, so it lands on hi, and that is
+    -- the correct answer rather than an error.
+    if lo > hi then
+        return nil, ('CisInterp.clamp: lo %s is greater than hi %s')
+            :format(tostring(lo), tostring(hi))
+    end
     if v < lo then return lo end
     if v > hi then return hi end
     return v
