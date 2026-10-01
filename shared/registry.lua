@@ -411,6 +411,17 @@ function CisRegistry.missing(slot)
 end
 
 function CisRegistry.call(slot, ...)
+    -- A method name is REQUIRED, and its absence is a refusal rather than an
+    -- exception. `call('database')` used to walk into the method lookup and hit
+    -- `method:sub(1, 1)` on a nil, so a caller that built the name at runtime --
+    -- `call('database', config.queryName)`, where the name came from a
+    -- user-editable config -- raised inside whatever thread called it. The
+    -- contract everywhere else in this file is a refusal with a reason; this is
+    -- the one place it was not, and it is the place a caller is most likely to
+    -- reach by accident.
+    if select('#', ...) < 1 or type((...)) ~= 'string' then
+        return false, 'method name required'
+    end
     local held = slots[slot]
     local provider = held and held.resolved or CisRegistry.resolve(slot)
     if not provider then
@@ -428,14 +439,54 @@ function CisRegistry.call(slot, ...)
             if not ok then
                 return false, tostring(value)
             end
-            if type(value) == 'table' and not isCallable(value) then
+            if isCallable(value) then
+                -- The export answered with a FUNCTION rather than a method
+                -- table, so it is a dispatcher that takes the method name as its
+                -- first argument -- cis_migrate's shape. Record that ONCE
+                -- instead of asking again on every call.
+                --
+                -- This branch is checked BEFORE the method-table branch on
+                -- purpose, and the order is not interchangeable. A function that
+                -- arrived across the exports boundary is a TABLE carrying a
+                -- `__cfx_functionReference`, so `isCallable` and "is a table"
+                -- are both true of it; testing the table first would index a
+                -- dispatcher's reference table for method names and find none.
+                methods = false
+                held.methods = false
+            elseif type(value) == 'table' then
                 methods = value
                 held.methods = value
-            else
-                -- The export answered with a function rather than a method
-                -- table, so it is a dispatcher. Record that once instead of
-                -- asking again on every call.
+            elseif type(value) == 'table' and not isCallable(value) then
+                methods = value
+                held.methods = value
+            elseif isCallable(value) then
+                -- The export answered with a FUNCTION rather than a method
+                -- table, so it is a dispatcher that takes the method name as its
+                -- first argument -- cis_migrate's shape. That verdict is
+                -- definitive and is cached, so the export is asked once.
+                methods = false
                 held.methods = false
+            else
+                -- NIL. AMBIGUOUS, AND DELIBERATELY NOT CACHED.
+                --
+                -- Two providers legitimately answer nil here. A dispatcher asked
+                -- for no action may answer nil (cis_migrate does). And a method
+                -- table export asked before its resource finished registering
+                -- answers nil too -- which is the normal state of the first call
+                -- during a partial restart.
+                --
+                -- The old code folded both into `held.methods = false`, and
+                -- `false` means "confirmed dispatcher": a provider that had not
+                -- finished registering was written off as a dispatcher FOREVER.
+                -- Every later call put the method name at an export that takes
+                -- no arguments, and the capability answered nil or an error for
+                -- the lifetime of the process.
+                --
+                -- So this call falls through to the dispatcher path -- which is
+                -- right for a dispatcher and harmless for a provider that is not
+                -- ready -- and caches NOTHING. The next call asks again, and the
+                -- first one after the provider is ready dispatches correctly.
+                methods = false
             end
         end
         if methods then

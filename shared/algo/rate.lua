@@ -207,6 +207,14 @@ function CisRate.newSliding(opts)
         limit = math.floor(positive(opts.limit, 10)),
         windowSec = window,
         sliceSec = window / sub,
+        -- Stored on the limiter because `sumSlices` needs both and is called
+        -- from `peek` as well as from `allow`; reading them off the entry would
+        -- mean every key carrying a copy.
+        subdivisions = sub,
+        -- One slot MORE than there are slices in the window: the window is `sub`
+        -- slices wide, so `sub` of them are wholly inside it and one more is
+        -- partly in. See sumSlices.
+        ringSize = sub + 1,
         keys = {},
         size = 0,
     }
@@ -214,40 +222,112 @@ end
 
 -- Roll a sliding key forward to `now`, returning the weighted estimate. The
 -- caller decides what to do with it; this function never refuses anything.
+--
+-- A RING OF `sub` SLICES, not two buckets.
+--
+-- It used to keep exactly two numbers -- `previous` and `current` -- and weight
+-- them by progress through the slice:
+--
+--     previous * (1 - progress) + current
+--
+-- That is the textbook sliding-window COUNTER, and it is wrong for the job this
+-- module recommends it for. `current` is the number of events in the slice the
+-- caller is inside RIGHT NOW, and it was compared against the whole `limit`.
+-- The slice is a unit of RESOLUTION, not a unit of budget, so a caller that
+-- placed `limit` events in every slice was never over the limit: with
+-- limit=10, windowSec=1, subdivisions=10, a hundred evenly spaced calls inside
+-- one second were allowed. This is the limiter the module tells you to use for
+-- anti-cheat, and it enforced `limit` per tenth of a second.
+--
+-- The estimate is now the sum over every slice still inside the window, with the
+-- oldest one weighted down by how far through it we are:
+--
+--     sum of the `sub - 1` full slices + oldest * (1 - progress)
+--
+-- which is continuous across a slice change for the same reason the old one was
+-- -- at progress 1 the oldest slice's weight is 0, and on the next slice it has
+-- left the window and contributes 0 instead. Memory is `sub` integers per key
+-- rather than two, which is the price of the accuracy and is still O(1) in the
+-- number of events rather than O(hits in window).
+-- The estimate itself: every slice fully inside the window, whole, plus the one
+-- that is only partly inside it, weighted by the fraction that is.
+--
+-- The ring holds `subdivisions + 1` slices rather than `subdivisions`, and that
+-- extra slot is the whole correction. The window is `sub` slices WIDE, so at any
+-- moment `sub` of them are fully inside it and a `sub+1`th is partly in. A ring
+-- of exactly `sub` drops the oldest the instant the cursor moves, which decays
+-- the estimate a whole slice early: with limit=10, windowSec=1 and ten slices, a
+-- hundred evenly spread calls were allowed 18 times instead of 10, because the
+-- first slice had stopped counting a tenth of a second before it had actually
+-- left the window.
+--
+-- `entry.idx` is the slice we are inside, so slice `idx - d` is `d` slices old.
+-- For d in 0..sub-1 it is wholly inside the window. For d == sub it is the
+-- partial one, and `(1 - progress)` of it is still inside -- the same
+-- continuity the two-bucket version had, at a finer resolution.
+local function sumSlices(r, entry, progress)
+    local counts = entry.counts
+    local ring = r.ringSize
+    local idx = entry.idx or 0
+    local total = 0
+    for d = 0, ring - 1 do
+        local n = counts[(idx - d) % ring]
+        if n and n > 0 then
+            if d == r.subdivisions then
+                total = total + n * (1 - progress)
+            else
+                total = total + n
+            end
+        end
+    end
+    return total
+end
+
 local function slidingCount(r, entry, now)
     if entry.startedAt == nil then
-        entry.current = 0
-        entry.previous = 0
+        entry.counts = {}
         entry.startedAt = now
     end
-    -- Whole slices elapsed since the last call. Each one moves `current` into
-    -- `previous` and drops whatever was in `previous`, which is the whole
-    -- mechanism: memory is two numbers, not a list of timestamps.
+    local counts = entry.counts
+    local sliceSec = r.sliceSec
+
+    -- A clock that went backwards. Rewind rather than compute a negative
+    -- weight, which would make the estimate negative and hand out free
+    -- allowance.
     local elapsed = now - entry.startedAt
     if elapsed < 0 then
-        -- A clock that went backwards. Rewind to a single slice rather than
-        -- compute a negative weight, which would make the estimate negative
-        -- and hand out free allowance.
         entry.startedAt = now
-        entry.previous = 0
-        return entry.current
+        return sumSlices(r, entry, 0)
     end
-    local steps = math.floor(elapsed / r.sliceSec)
+
+    -- Advance the cursor one whole slice at a time, zeroing what it steps over.
+    -- A `while` here is a hang: a key idle for an hour against a 0.1s slice
+    -- would run 36000 times to do arithmetic that is one modulo.
+    local steps = math.floor(elapsed / sliceSec)
     if steps > 0 then
-        if steps == 1 then
-            entry.previous = entry.current
+        local ring = r.ringSize
+        if steps >= ring then
+            -- Wider than the whole ring: every slice is out of window.
+            for i = 0, ring - 1 do counts[i] = nil end
         else
-            -- More than one slice: whatever is in `previous` has now fallen out
-            -- of the window entirely, so the estimate is `current` alone.
-            entry.previous = 0
+            for _ = 1, steps do
+                entry.idx = (entry.idx + 1) % ring
+                counts[entry.idx] = nil
+            end
         end
-        entry.current = 0
-        entry.startedAt = entry.startedAt + steps * r.sliceSec
+        entry.startedAt = entry.startedAt + steps * sliceSec
     end
-    local progress = (now - entry.startedAt) / r.sliceSec
+
+    local progress = (now - entry.startedAt) / sliceSec
     if progress < 0 then progress = 0 end
     if progress > 1 then progress = 1 end
-    return entry.previous * (1 - progress) + entry.current
+    return sumSlices(r, entry, progress)
+end
+
+-- Spend into the current slice.
+local function slidingSpend(r, entry, cost)
+    entry.idx = entry.idx or 0
+    entry.counts[entry.idx] = (entry.counts[entry.idx] or 0) + cost
 end
 
 -- ============================================================== TOKEN BUCKET
@@ -342,7 +422,7 @@ function CisRate.allow(r, key, now, cost)
         if estimate + cost > r.limit then
             return false
         end
-        e.current = e.current + cost
+        slidingSpend(r, e, cost)
         return true
 
     else

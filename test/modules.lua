@@ -469,6 +469,180 @@ do
     expect(CisRate.allow(again, 'k', 211, 1), 'anchored: a genuinely new window restores the allowance')
 end
 
+-- ================================================================= CisRate
+-- THE SLIDING LIMITER ENFORCED THE LIMIT PER SLICE, NOT PER WINDOW.
+--
+-- This is the limiter the module itself recommends for anti-cheat, and it was
+-- the one that did not work. The estimate was
+--
+--     previous * (1 - progress) + current
+--
+-- over TWO numbers, so `current` -- the slice the caller is in right now -- was
+-- compared against the whole `limit`. With limit=10, windowSec=1 and ten
+-- subdivisions, a caller could place 10 events in every slice and the estimate
+-- never exceeded 10: 100 evenly spaced calls inside one second were allowed.
+-- The slice is a unit of RESOLUTION, not a unit of budget, and the code was
+-- treating it as a budget.
+do
+    -- The headline case, stated exactly as the audit found it.
+    local l = CisRate.newSliding({ limit = 10, windowSec = 1, subdivisions = 10 })
+    local allowed = 0
+    for i = 1, 100 do
+        if CisRate.allow(l, 'k', (i - 1) * 0.01, 1) then
+            allowed = allowed + 1
+        end
+    end
+    expect(allowed <= 11,
+        ('L-S1: 100 evenly spread calls in 1s allow at most limit+1 (allowed %d)')
+            :format(allowed))
+
+    -- Ten at once, then one a quarter of a second later: refused. This is the
+    -- case that separates a per-WINDOW limiter from a per-SLICE one -- the old
+    -- code reset `current` at the slice boundary and treated the reset as a
+    -- fresh allowance.
+    local burst = CisRate.newSliding({ limit = 10, windowSec = 1, subdivisions = 10 })
+    for _ = 1, 10 do CisRate.allow(burst, 'k', 0, 1) end
+    expect(not CisRate.allow(burst, 'k', 0.25, 1),
+        'L-S1: ten calls at t=0 followed by one at t=0.25 is refused')
+    -- ...and it recovers once the window has genuinely passed, which is what
+    -- makes it a limiter rather than a permanent lockout.
+    expect(CisRate.allow(burst, 'k', 2, 1),
+        'L-S1: the allowance returns once the window has passed')
+
+    -- The estimate must DECAY, not reset: a caller that is refused keeps
+    -- decaying toward the limit as the old slices age out of the window.
+    local decay = CisRate.newSliding({ limit = 10, windowSec = 2, subdivisions = 10 })
+    for _ = 1, 10 do CisRate.allow(decay, 'k', 0, 1) end
+    expect(not CisRate.allow(decay, 'k', 0.5, 1), 'still refused halfway through the window')
+    expect(CisRate.allow(decay, 'k', 2.1, 1), 'allowed once the earliest slices have aged out')
+
+    -- A refusal must still not consume budget, and a lower cost must fit where
+    -- a full one does not. Both are documented properties of `allow`.
+    local cost = CisRate.newSliding({ limit = 5, windowSec = 1, subdivisions = 5 })
+    for _ = 1, 5 do CisRate.allow(cost, 'k', 0, 1) end
+    expect(not CisRate.allow(cost, 'k', 0, 1), 'a full-cost call is refused at the limit')
+    expect(not CisRate.allow(cost, 'k', 0, 1),
+        'L-S1: a refused call does not consume budget, so it stays refused')
+end
+
+-- ================================================================= CisWindow
+-- L-S2 · recording a sample with an EARLIER timestamp than the newest one.
+--
+-- `record` walked the ring cursor forward to wherever `now` landed and set
+-- `lastBucket` to that index. A sample from before the newest one therefore
+-- rewound the cursor and evicted the newest bucket, so the count a caller read
+-- back was one short and the min/max were those of the wrong sample. A clock
+-- that goes backwards -- an NTP correction, a caller mixing seconds and
+-- milliseconds -- produced a window that silently under-counts forever after.
+do
+    local w = CisWindow.newStats(60, 1)
+    CisWindow.record(w, 'k', 1, 100)
+    CisWindow.record(w, 'k', 2, 50)
+    local r = CisWindow.read(w, 'k', 100)
+    expect(r ~= nil and r.count == 2,
+        ('L-S2: an earlier sample is merged rather than evicting the newest (count=%s)')
+            :format(tostring(r and r.count)))
+    expect(r and r.sum == 3, 'L-S2: both samples contribute to the sum')
+    expect(r and r.min == 1 and r.max == 2, 'L-S2: the extremes cover both samples')
+
+    -- The forward case must still work, which is the property the rewind fix
+    -- could plausibly have broken.
+    local f = CisWindow.newStats(60, 1)
+    for _, t in ipairs({ 10, 11, 12 }) do CisWindow.record(f, 'k', t, t) end
+    local rf = CisWindow.read(f, 'k', 12.5)
+    expect(rf and rf.count == 3, 'L-S2: forward recording is unaffected')
+end
+
+-- L-S3 · the bucket clamp was documented and missing.
+--
+-- The header says bucketSec is "clamped to at most windowSec and to at least
+-- 1/1000 of it", and the code clamped only the upper bound. `newStats(60, 1e-6)`
+-- therefore built a ring of 60 million slots: a table allocation large enough
+-- to fail, from a call whose arguments look reasonable.
+do
+    local s = CisWindow.newStats(60, 1e-6)
+    expect(s.bucketCount <= 1000,
+        ('L-S3: an absurd bucket width is clamped (bucketCount=%s)')
+            :format(tostring(s.bucketCount)))
+    expect(s.bucketSec >= 60 / 1000, 'L-S3: the clamp is at window/1000')
+    local ordinary = CisWindow.newStats(60, 5)
+    expect(ordinary.bucketCount == 12, 'L-S3: an ordinary bucket width is untouched')
+end
+
+-- L-S8 · `seen(d, key, nil)` incremented size and stored nothing.
+--
+-- `now - last` on a nil `now` raises inside arithmetic in some paths and
+-- compares nil in others; the one that stored a nil and bumped `size` left the
+-- dedupe window claiming a key it had no timestamp for, so `size` grew on every
+-- call and nothing ever expired.
+do
+    local d = CisWindow.newDedupe(1.0)
+    CisWindow.seen(d, 'k', 0)
+    local before = d.size
+    local ok = pcall(function() return CisWindow.seen(d, 'j', nil) end)
+    expect(ok, 'L-S8: seen() does not raise on a nil now')
+    expect(d.size == before, 'L-S8: a rejected now does not grow the window')
+end
+
+-- ================================================================ CisPending
+-- L-S5 · a throwing `onExpire` aborted the sweep.
+--
+-- `sweep` iterated `store.items` and called `onExpire` from inside the loop,
+-- uncaught. One consumer whose expire handler raised -- which is exactly what
+-- happens when the handler logs and the logger is gone -- left every OTHER
+-- expired key in the store for ever, and every future sweep to raise at the
+-- same key. The store leaked, one key at a time, and nothing said so.
+do
+    local store = CisPending.new()
+    CisPending.alloc(store, { n = 1 }, 10)
+    CisPending.alloc(store, { n = 2 }, 10)
+    CisPending.alloc(store, { n = 3 }, 10)
+    local reported = {}
+    local ok = pcall(CisPending.sweep, store, 20, function(key)
+        reported[#reported + 1] = key
+        if key == 1 then error('the logger is gone') end
+    end)
+    expect(ok, 'L-S5: a throwing onExpire does not escape the sweep')
+    expect(CisPending.count(store) == 0,
+        ('L-S5: every expired key is still removed (left=%d)')
+            :format(CisPending.count(store)))
+    expect(#reported == 3,
+        ('L-S5: every expired key is still reported (reported=%d)'):format(#reported))
+    expect(CisPending.peek(store, 1) == nil, 'L-S5: peek confirms the first key is gone')
+end
+
+-- peek does not consume, which is the property that lets a caller ask "is this
+-- mine?" before destroying it.
+do
+    local store = CisPending.new()
+    local k = CisPending.alloc(store, { n = 9 }, 100)
+    local item = CisPending.peek(store, k)
+    expect(item ~= nil and item.payload.n == 9, 'peek reads an entry without consuming it')
+    expect(CisPending.count(store) == 1, 'peek leaves the entry in the store')
+    expect(CisPending.take(store, k) ~= nil, 'take still gets it afterwards')
+    expect(CisPending.peek(store, k) == nil, 'and the entry is gone once taken')
+    expect(CisPending.peek(store, 9999) == nil, 'peek of an unknown key is nil, not an error')
+end
+
+-- ================================================================ CisRegistry
+-- L-S11 · `call(slot)` with a nil or non-string method raised.
+--
+-- A caller that builds the method name at runtime -- `call('database',
+-- queryName)` where the name came from a config -- hit `method:sub(1, 1)` on a
+-- nil and the exception surfaced in whatever thread called it. A refusal with a
+-- reason is the contract everywhere else in this file.
+do
+    local threw = not pcall(function() return CisRegistry.call('database') end)
+    expect(not threw, 'L-S11: call() with no method does not raise')
+    local ok, reason = CisRegistry.call('database')
+    expect(ok == false, 'L-S11: call() with no method refuses')
+    expect(type(reason) == 'string' and reason:find('method', 1, true) ~= nil,
+        'L-S11: and the refusal says a method name is required: ' .. tostring(reason))
+    local ok2, reason2 = CisRegistry.call('database', 42)
+    expect(ok2 == false and type(reason2) == 'string',
+        'L-S11: a non-string method name refuses rather than raising')
+end
+
 io.write(('module tests: passed=%d failed=%d\n'):format(passed, failed))
 if failed > 0 then
     os.exit(1)

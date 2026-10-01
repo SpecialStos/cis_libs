@@ -55,15 +55,50 @@ function CisPending.peek(store, key)
     return store.items[key]
 end
 
+-- Expire everything due, then report it.
+--
+-- The COLLECTION PASS AND THE REPORTING PASS ARE SEPARATE, and that is the
+-- whole fix. `onExpire` used to be called from inside the iteration over
+-- `store.items`, uncaught, so one consumer whose expire handler raised -- which
+-- is exactly what happens when the handler logs and the logger is already gone
+-- -- left every OTHER expired key in the store for ever, and made every
+-- subsequent sweep raise at the same key. The store leaked one key at a time and
+-- nothing said so.
+--
+-- The keys are collected first and removed first, so the store is consistent
+-- before any consumer code runs, and each `onExpire` is called under its own
+-- pcall: one bad handler reports its own error and the rest still run.
 function CisPending.sweep(store, now, onExpire)
+    local expired = {}
     for key, item in pairs(store.items) do
         if item.expireAt <= now then
-            store.items[key] = nil
-            if onExpire then
-                onExpire(key, item)
+            expired[#expired + 1] = { key = key, item = item }
+        end
+    end
+    for i = 1, #expired do
+        store.items[expired[i].key] = nil
+    end
+    if not onExpire then
+        return #expired
+    end
+    local failures = 0
+    for i = 1, #expired do
+        local ok, err = pcall(onExpire, expired[i].key, expired[i].item)
+        if not ok then
+            failures = failures + 1
+            -- Reported through the log when there is one, and printed when there
+            -- is not. Silently swallowing it is what let the leak run unnoticed
+            -- in the first place.
+            if Logging and Logging.Error then
+                Logging.Error(('cis_libs: pending onExpire raised for key %s: %s')
+                    :format(tostring(expired[i].key), tostring(err)))
+            else
+                print(('[cis_libs] pending onExpire raised for key %s: %s')
+                    :format(tostring(expired[i].key), tostring(err)))
             end
         end
     end
+    return #expired - failures
 end
 
 function CisPending.count(store)

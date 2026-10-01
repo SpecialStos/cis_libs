@@ -215,6 +215,15 @@ end
 --- consequence is one redundant event, whereas failing closed would silently
 --- stop a player's footsteps for the lifetime of the process.
 function CisWindow.seen(d, key, now)
+    -- A non-numeric or NaN `now` is REFUSED, not coerced. `d.entries[key] = nil`
+    -- alongside `d.size = d.size + 1` -- which is what storing a nil produced --
+    -- left the window claiming a key it had no timestamp for: `size` grew on
+    -- every call, the key never appeared in a read, and nothing ever expired. A
+    -- `now` this module cannot compare against is not "long expired", it is a
+    -- bug in the caller, and the honest answer is to decline and say so.
+    if type(now) ~= 'number' or now ~= now then
+        return false
+    end
     local last = d.entries[key]
     if last == nil or now - last >= d.windowSec or now < last then
         d.entries[key] = now
@@ -321,6 +330,17 @@ function CisWindow.newStats(windowSec, bucketSec)
     end
     if bucket > window then
         bucket = window
+    end
+    -- THE LOWER CLAMP, documented in the header since it was written and
+    -- absent from the code. `newStats(60, 1e-6)` -- a call whose arguments look
+    -- entirely reasonable -- built a ring of sixty million slots, which is a
+    -- table allocation large enough to take the server down. One thousandth of
+    -- the window is finer than any resolution a real metric is read at, so
+    -- clamping there costs nothing observable and removes a denial-of-service
+    -- from a public constructor.
+    local floorWidth = window / 1000
+    if bucket < floorWidth then
+        bucket = floorWidth
     end
     local count = math.ceil(window / bucket)
     if count < 1 then count = 1 end
