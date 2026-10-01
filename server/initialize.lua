@@ -156,6 +156,12 @@ RegisterCommand('cis_debug', function(src)
         if entry.owner then
             print(('[cis_libs]   %-18s %-16s %s'):format(
                 slot, entry.owner, entry.resolved and 'resolved' or 'UNRESOLVED'))
+            -- A provider that registered but cannot serve part of its contract
+            -- answers those calls with the fallback value forever. Naming the
+            -- methods turns that into a version mismatch someone can fix.
+            if entry.missing and #entry.missing > 0 then
+                print(('[cis_libs]   %-18s missing: %s'):format('', table.concat(entry.missing, ', ')))
+            end
         else
             print(('[cis_libs]   %-18s %-16s %s'):format(slot, '-', 'no provider installed'))
         end

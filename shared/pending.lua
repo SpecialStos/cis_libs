@@ -33,6 +33,12 @@ end
 -- arrives twice, or after the sweep already expired the key, is dropped rather
 -- than delivered -- the alternative is resolving a promise the caller has
 -- already rejected.
+--
+-- DESTRUCTIVE, which matters wherever the caller has not yet established that
+-- it is entitled to the entry. Use `peek` to answer that question first: see
+-- the response handler in server/callback.lua, where a client naming a key it
+-- does not own used to destroy another player's callback and leave nothing
+-- behind to time out.
 function CisPending.take(store, key)
     local item = store.items[key]
     if not item then
@@ -40,6 +46,13 @@ function CisPending.take(store, key)
     end
     store.items[key] = nil
     return item
+end
+
+-- Read without consuming. For a caller that must decide whether it owns the
+-- entry before the entry is destroyed -- an authorisation question, which
+-- should never be answered by an action that already changed the state.
+function CisPending.peek(store, key)
+    return store.items[key]
 end
 
 function CisPending.sweep(store, now, onExpire)

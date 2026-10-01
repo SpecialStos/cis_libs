@@ -379,6 +379,96 @@ do
     expect(enc, 'encode does not raise when the codec raises')
 end
 
+-- =================================================================== CisWindow
+-- A ring of time buckets. The invariant pinned here is that the ring cursor
+-- moves ONCE PER BUCKET, and that every slot it steps over is zeroed before
+-- the next write merges into it.
+--
+-- Both halves were wrong, in opposite directions, and neither showed up in the
+-- other tests because every existing case fed the window one sample at a time:
+--
+--   * the cursor advanced once per SAMPLE, so four samples inside one bucket
+--     landed in four slots and `bucketAt` dated three of them a bucket too old
+--     -- they expired early and the window UNDER-counted;
+--   * the slots stepped over were not always cleared, and the write merges
+--     ADDITIVELY, so on a one-bucket advance the oldest live sample was added
+--     to instead of replaced -- the window OVER-counted and reported a value a
+--     whole window old as live. `count` is what a rate check runs on.
+do
+    local s = CisWindow.newStats(3, 1)
+    for _, t in ipairs({ 10, 11, 12, 13 }) do
+        CisWindow.record(s, 'k', t, t)
+    end
+    local r = CisWindow.read(s, 'k', 13.5)
+    expect(r ~= nil and r.count == 3 and r.sum == 36 and r.min == 11,
+        'window: the three live buckets count, and the one that aged out does not')
+
+    local one = CisWindow.newStats(3, 1)
+    CisWindow.record(one, 'k', 5, 10)
+    local r1 = CisWindow.read(one, 'k', 11.5)
+    expect(r1 ~= nil and r1.count == 1 and r1.sum == 5,
+        'window: a single live sample counts once, not merged with a stale one')
+
+    local bucket = CisWindow.newStats(3, 1)
+    for _, t in ipairs({ 10.1, 10.2, 10.3, 10.4 }) do
+        CisWindow.record(bucket, 'k', 1, t)
+    end
+    local rb = CisWindow.read(bucket, 'k', 11.5)
+    expect(rb ~= nil and rb.count == 4,
+        'window: four samples inside ONE bucket stay in one slot and all count')
+
+    local summed = CisWindow.newStats(3, 1)
+    CisWindow.record(summed, 'k', 2, 10)
+    CisWindow.record(summed, 'k', 3, 10)
+    local rs = CisWindow.read(summed, 'k', 11.0)
+    expect(rs ~= nil and rs.count == 2 and rs.sum == 5 and rs.min == 2 and rs.max == 3,
+        'window: samples in one bucket merge into one sum with the right extremes')
+
+    local stale = CisWindow.newStats(3, 1)
+    CisWindow.record(stale, 'k', 7, 10)
+    expect(CisWindow.read(stale, 'k', 1000.0) == nil,
+        'window: a jump wider than the ring empties it')
+
+    local rolled = CisWindow.newStats(3, 1)
+    for t = 1, 50 do
+        CisWindow.record(rolled, 'k', t, t)
+    end
+    local rr = CisWindow.read(rolled, 'k', 50.5)
+    expect(rr ~= nil and rr.count == 3 and rr.sum == (48 + 49 + 50) and rr.min == 48,
+        'window: after 50 samples the ring holds exactly the last three')
+end
+
+-- ================================================================== CisRate
+-- ANCHORING, which is a separate mode from the fixed limiter tested above and
+-- had no test at all.
+--
+-- `anchored = true` used to fold the window anchor back into one window with
+-- `start = start % windowSec`, added to stop float error accumulating. Folding
+-- severs the anchor from wall-clock time, so the very next call found
+-- `now >= start + windowSec` trivially true, reset the counter and let the key
+-- spend again: an anchored limiter of 2 per 10s allowed 20 calls inside a
+-- single 10s window. A limiter that allows everything is worse than no limiter,
+-- because a caller trusts it.
+do
+    local anchored = CisRate.newFixed({ limit = 2, windowSec = 10, anchored = true })
+    expect(CisRate.allow(anchored, 'k', 200, 1), 'anchored: the allowance starts')
+    expect(CisRate.allow(anchored, 'k', 200, 1), 'anchored: the second of two is allowed')
+    -- 205 is still inside the anchored window that opened at 200, so none of
+    -- these twenty may be served. The fold bug served all twenty.
+    local spent = 0
+    for i = 1, 20 do
+        if CisRate.allow(anchored, 'k', 205 + i * 0.01, 1) then
+            spent = spent + 1
+        end
+    end
+    expect(spent == 0, 'anchored: the rest of that window is refused, not handed out again')
+
+    local again = CisRate.newFixed({ limit = 2, windowSec = 10, anchored = true })
+    CisRate.allow(again, 'k', 200, 1)
+    CisRate.allow(again, 'k', 200, 1)
+    expect(CisRate.allow(again, 'k', 211, 1), 'anchored: a genuinely new window restores the allowance')
+end
+
 io.write(('module tests: passed=%d failed=%d\n'):format(passed, failed))
 if failed > 0 then
     os.exit(1)

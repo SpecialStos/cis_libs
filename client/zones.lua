@@ -171,7 +171,16 @@ function CisZonesRemove(name)
         return false
     end
     if inside[name] then
-        invoke(zones[name], 'onExit')
+        -- WITH COORDINATES. The `onExit` call passed none, and `invoke` only
+        -- reaches `TriggerServerEvent` when it has coords to send -- so removing
+        -- a zone the player was standing in silently skipped the `onExitEvent`
+        -- and the consumer's "player left" handler never ran. A function cannot
+        -- cross the exports boundary, so `onExitEvent` is the ONLY way a
+        -- consumer learns about it, and this was the one route that lost it.
+        -- The zone's own centre is what the enter side would have reported, so
+        -- the pair still describes the same place.
+        local zone = zones[name]
+        invoke(zone, 'onExit', { x = zone.cx, y = zone.cy, z = zone.cz })
         inside[name] = nil
     end
     CisGrid.remove(grid, name)

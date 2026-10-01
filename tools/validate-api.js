@@ -19,7 +19,7 @@
 
 const fs = require('fs')
 const path = require('path')
-const { scanResource, PREFIX } = require('./lua-exports.js')
+const { scanResource, PREFIX, stripComments } = require('./lua-exports.js')
 
 const fengari = require('fengari')
 const lua = fengari.lua
@@ -157,6 +157,29 @@ function validate(manifest, surface, opts = {}) {
   }
   if (typeof manifest.version !== 'string' || !SEMVER.test(manifest.version)) {
     r.add('E001', 'version', `must be a MAJOR.MINOR.PATCH string (got ${JSON.stringify(manifest.version)})`)
+  } else {
+    // The product version is stated in three places, and they are not
+    // interchangeable: fxmanifest.lua is what the SERVER reports through
+    // GetResourceMetadata and therefore what server/version.lua compares an
+    // operator's update endpoint against, package.json is what a tool reads,
+    // and this field is the contract's own copy. They drifted apart here
+    // (2.0.0 against 1.0.0) and nothing noticed, which means every operator who
+    // turned on the update check was told their 2.0.0 install was out of date
+    // against a 1.0.0 endpoint, forever.
+    //
+    // So they are compared, and a disagreement is a failure. A version bump is
+    // three edits; finding out three weeks later that the updater is lying to
+    // every customer is not a cheap mistake.
+    const fromManifest = readManifestVersion(opts.resourceDir)
+    if (fromManifest && fromManifest !== manifest.version) {
+      r.add('E001', 'version',
+        `is ${manifest.version} here but ${fromManifest} in fxmanifest.lua; the server reports the manifest's value, ` +
+        'so the update check compares against the wrong number')
+    }
+    const pkg = readPackageVersion(REPO_ROOT)
+    if (pkg && pkg !== manifest.version) {
+      r.add('E001', 'version', `is ${manifest.version} here but ${pkg} in package.json`)
+    }
   }
   if (!Number.isInteger(manifest.api)) {
     r.add('E001', 'api', `contract major must be an integer (got ${JSON.stringify(manifest.api)})`)
@@ -330,6 +353,28 @@ function validate(manifest, surface, opts = {}) {
 
 const REPO_ROOT = path.join(__dirname, '..')
 
+// The `version` directive out of fxmanifest.lua, which is the number the FiveM
+// server actually reports. Null when there is no manifest, so a resource checked
+// without one is not failed for something it does not claim.
+function readManifestVersion(resourceDir) {
+  if (!resourceDir) return null
+  const file = path.join(resourceDir, 'fxmanifest.lua')
+  if (!fs.existsSync(file)) return null
+  const clean = stripComments(fs.readFileSync(file, 'utf8'))
+  const m = clean.match(/^\s*version\s+["']([^"']+)["']/m)
+  return m ? m[1] : null
+}
+
+function readPackageVersion(dir) {
+  const file = path.join(dir, 'package.json')
+  if (!fs.existsSync(file)) return null
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8')).version || null
+  } catch (e) {
+    return null
+  }
+}
+
 function runOne(apiFile, resourceDir, label, opts) {
   const surface = scanResource(resourceDir)
   const loaded = loadManifest(apiFile, path.join(REPO_ROOT, 'api.lua'))
@@ -338,7 +383,7 @@ function runOne(apiFile, resourceDir, label, opts) {
     r.add('E000', path.relative(process.cwd(), apiFile), `did not load: ${loaded.error}`)
     return r.render(label)
   }
-  return validate(loaded.table, surface, opts).render(label)
+  return validate(loaded.table, surface, { ...opts, resourceDir }).render(label)
 }
 
 function selftest(root) {
@@ -370,7 +415,7 @@ function selftest(root) {
     const loaded = loadManifest(apiFile, path.join(REPO_ROOT, 'api.lua'))
     const report = loaded.error
       ? Object.assign(new Report(), { findings: [{ code: 'E000', where: name, message: loaded.error }] })
-      : validate(loaded.table, surface, { strict: true })
+      : validate(loaded.table, surface, { strict: true, resourceDir: root })
     if (report.ok) {
       process.stdout.write(`  FAIL  broken/${name} validated clean; a broken fixture that passes proves nothing\n`)
       allGood = false
@@ -438,7 +483,7 @@ function main(argv) {
     process.stderr.write(`${path.relative(root, apiFile)} did not load: ${loaded.error}\n`)
     return 1
   }
-  const report = validate(loaded.table, surface, { strict: args.strict })
+  const report = validate(loaded.table, surface, { strict: args.strict, resourceDir })
 
   const label = `${path.relative(root, apiFile)} vs ${path.relative(root, resourceDir) || '.'}`
   const ok = report.render(label)

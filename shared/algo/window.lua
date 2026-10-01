@@ -392,41 +392,51 @@ function CisWindow.record(stats, key, value, now)
     -- that jumps backwards self-healing: it is just a smaller index, the ring
     -- rewinds, and nothing can get stuck as permanently live.
     local bucketIndex = math.floor(now / stats.bucketSec)
-    if entry.lastBucket >= 0 and bucketIndex ~= entry.lastBucket then
+    -- INVARIANT: `entry.idx` is the ring slot holding the NEWEST bucket. That is
+    -- what `bucketAt` assumes -- it maps slot `idx` to `lastBucket` and every
+    -- other slot backwards from there -- so the cursor moves when the BUCKET
+    -- moves, and the write below goes into the slot the cursor is already on.
+    --
+    -- It used to advance again at the write, once per SAMPLE, so four samples
+    -- inside one time bucket landed in four different slots; `bucketAt` then
+    -- dated three of them a bucket older than they were and they expired a
+    -- whole bucket early. And the slots it stepped over were not always
+    -- zeroed: with `steps == 1` nothing was cleared and the write merged
+    -- ADDITIVELY onto the oldest live sample, so a value a whole window old
+    -- kept being reported as live -- `newStats(3, 1)`, one sample a second,
+    -- then read, answered count 2 / sum 23 / min 10 for a window whose live
+    -- buckets held nothing at all.
+    local function clearSlot(i)
+        entry.sums[i] = nil
+        entry.counts[i] = nil
+        entry.mins[i] = nil
+        entry.maxs[i] = nil
+        entry.lasts[i] = nil
+    end
+
+    if entry.lastBucket < 0 then
+        entry.lastBucket = bucketIndex
+        entry.idx = 1
+    elseif bucketIndex ~= entry.lastBucket then
         local steps = bucketIndex - entry.lastBucket
         if steps >= ringSize then
             -- Wider than the whole ring: every bucket is stale, and zeroing
             -- them one cursor step at a time would be a loop of up to a
             -- million for a long-idle key.
             for i = 1, ringSize do
-                entry.sums[i] = nil
-                entry.counts[i] = nil
-                entry.mins[i] = nil
-                entry.maxs[i] = nil
-                entry.lasts[i] = nil
+                clearSlot(i)
             end
-            entry.idx = 0
-        elseif steps > 1 then
-            -- A short jump: zero exactly the buckets that are about to be
-            -- passed over, leaving the newest one (the next write overwrites it
-            -- anyway, so steps - 1, not steps).
-            for _ = 1, steps - 1 do
-                local i = entry.idx % ringSize + 1
-                entry.idx = i
-                entry.sums[i] = nil
-                entry.counts[i] = nil
-                entry.mins[i] = nil
-                entry.maxs[i] = nil
-                entry.lasts[i] = nil
+            entry.idx = 1
+        else
+            for _ = 1, steps do
+                entry.idx = entry.idx % ringSize + 1
+                clearSlot(entry.idx)
             end
         end
         entry.lastBucket = bucketIndex
-    elseif entry.lastBucket < 0 then
-        entry.lastBucket = bucketIndex
     end
 
-    local i = entry.idx % ringSize + 1
-    entry.idx = i
+    local i = entry.idx
     entry.sums[i] = (entry.sums[i] or 0) + value
     entry.counts[i] = (entry.counts[i] or 0) + 1
     local mn, mx = entry.mins[i], entry.maxs[i]

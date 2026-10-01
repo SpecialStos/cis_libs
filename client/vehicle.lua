@@ -254,6 +254,10 @@ function SetVehicleProperties(vehicle, props, fixVehicle)
     end
 
     if changed('extras') then
+        -- The native's third parameter is `disable`, and the getter above stores
+        -- 0 for an extra that was ON and 1 for one that was OFF, so the stored
+        -- value IS that flag and is passed through unchanged. Comparing it the
+        -- other way round inverts every restored extra.
         for id, disable in pairs(props.extras) do
             SetVehicleExtra(vehicle, tonumber(id), disable == 1)
         end

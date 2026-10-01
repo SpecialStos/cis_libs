@@ -1,8 +1,12 @@
 # cis_libs
 
-A standalone FiveM library and framework bridge. It depends on no other library
-— not ox_lib, not PolyZone. It sits beside ESX / QBCore / QBOX and normalises
-the differences.
+A standalone FiveM library. It depends on no other library — not ox_lib, not
+PolyZone. It sits beside ESX / QBCore / QBOX and normalises the differences.
+
+It is the shared boundary of the CIsoko platform and nothing more: it owns no
+table, reads no config file, and reaches no framework. Detection aside, it
+names no framework in its own code — the normalised framework surface lives in
+`cis_core` and the third-party adapters live in `cis_bridge`.
 
 ## Attribution
 

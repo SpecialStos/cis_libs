@@ -134,9 +134,17 @@ is what a restart handler looks like.
 | `discord` | `cis_bridge` | `Log`, `QueueDepth` |
 | `security` | `cis_core` | `drop` |
 | `dataProbe` | `cis_keys` | `hasRows` |
+| `migration` | `cis_migrate` | `plan`, `apply`, `sources` (one dispatcher export) |
 
-Method names are capitalised and **differ by realm where the realms genuinely
-differ**: the server's `Notify(src, message, kind)` can address a player, the
+A call names the slot's method (`count`), and the provider's table is searched
+for it in a fixed order: the exact key, then the provider-side name the slot
+declares (`Count(src, item)` declares `Count`), then the key with its first
+letter's case flipped. So `count` and `Count` both serve, and `target.named`
+reaches an adapter's `name()`. The match is cached per method and dropped when
+the provider restarts. When a resource stops, every slot it owns is released, so
+a call answers "no provider registered" until it registers again.
+
+Some methods **differ by realm where the realms genuinely differ**: the server's `Notify(src, message, kind)` can address a player, the
 client's `ShowNotification(message, kind)` cannot. Forcing them into one
 signature would mean one realm is always handed an argument that means nothing
 there.
@@ -155,7 +163,7 @@ Nothing here is a silent `nil`.
 | `Cis.doors.setState` | `0` | Doors changed |
 | `Cis.zones.*`, `Cis.target.*` | `false, reason` | The reason strings are published behaviour; a consumer across the boundary cannot read this console |
 
-Each missing capability warns **once**, not per call. A per-call warning on a
+Each missing slot method warns **once**, not per call. A per-call warning on a
 hot path is a denial-of-service against the operator's console.
 
 ---
@@ -521,10 +529,15 @@ source:
 [cis_libs]   doors             -               no provider installed
 [cis_libs]   framework         cis_core        resolved
 [cis_libs]   inventory         cis_core        resolved
+[cis_libs]                      missing: snapshot
 [cis_libs]   inventoryProvider cis_bridge      resolved
 [cis_libs]   target            cis_bridge      resolved
 [cis_libs] configuration supplied by: cis_core
 ```
+
+A `missing:` line names declared methods the provider's table cannot serve in
+this realm. Those calls answer the fallback value from §2.4, so the line usually
+means a product version mismatch. It appears after the slot's first call.
 
 `GetCapabilities()` returns the same data as a table, for a consumer that needs
 it programmatically.

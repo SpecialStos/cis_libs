@@ -136,11 +136,21 @@ local function fixedWindow(r, entry, now)
             -- operations.
             local windows = math.floor((now - entry.start) / r.windowSec)
             entry.start = entry.start + windows * r.windowSec
-            -- Fold the anchor back into one window. Without it, `start`
-            -- accumulates a year's worth of float addition and drifts away
-            -- from the exact boundary, and the drift is exactly the kind that
-            -- only shows up in a bug report three weeks later.
-            entry.start = entry.start % r.windowSec
+            -- NO FOLD BACK INTO ONE WINDOW. There used to be a
+            -- `entry.start = entry.start % r.windowSec` here, added to stop the
+            -- anchor accumulating float error, and it quietly switched the
+            -- limiter off. Folding maps the anchor into [0, W), which severs
+            -- it from wall-clock time; the very next call then finds
+            -- `now >= start + W` trivially true for any real `now`, resets
+            -- `used` to zero, and lets the key spend again. A fixed window of 2
+            -- per 10s, anchored, allowed 20 calls inside one 10s window.
+            --
+            -- The drift it was guarding against does not occur. `windows` is
+            -- recomputed from the true elapsed time on every call and the
+            -- anchor moves by whole multiples of W, so it never accumulates one
+            -- float addition at a time -- and an anchor that has drifted is
+            -- harmless anyway, because the only question ever asked of it is
+            -- "has a whole window passed since this key last reset".
             entry.used = 0
         end
     else

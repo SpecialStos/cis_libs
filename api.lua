@@ -21,7 +21,18 @@
 
 return {
     name = 'cis_libs',
-    version = '1.0.0',
+    -- The PRODUCT version, which is also what fxmanifest.lua reports and what
+    -- server/version.lua compares an operator's update endpoint against. It
+    -- must equal the `version` directive in fxmanifest.lua and the one in
+    -- package.json; the validator now fails on any disagreement, because the
+    -- three drifting apart is how a build ends up telling every customer it is
+    -- permanently outdated.
+    --
+    -- 2.0.0 is the split: the monolith became cis_libs / cis_core /
+    -- cis_bridge. The contract major below did NOT move, because no `Cis.*`
+    -- name or signature changed -- that was the constraint the split was
+    -- designed around, and it is the reason a 1.0 consumer needs no edit.
+    version = '2.0.0',
     -- Contract major. Bumped only by a breaking change; see COMPATIBILITY.md
     -- section 3. An older consumer pinned to a prior major gets an explicit
     -- typed refusal, never a silently wrong answer.
@@ -385,9 +396,15 @@ return {
         -- code does not change when the platform underneath it does.
         SetConfig = {
             since = '2.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Called by cis_core at boot with (config, security). First registration wins; a second is refused and named',
+            use = 'Called by cis_core at boot with (config, security, discord). First registration wins; a second is refused and named',
             realm = 'server',
-            signature = '(config, security)',
+            signature = '(config, security, discord)',
+        },
+        GetDiscordConfig = {
+            since = '2.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'The outbound/webhook configuration SetConfig was handed, for the capability that does the sending. Server realm only -- it holds webhook URLs and is deliberately not on the client payload whitelist',
+            realm = 'server',
+            signature = '()',
         },
         RegisterCapability = {
             since = '2.0.0', ['until'] = false, stable = true, deprecated = false,

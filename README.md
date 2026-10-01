@@ -90,7 +90,7 @@ OneSync on. Server build 4500+. MIT licensed.
 
 ```
 npm install
-npm test          # 453 assertions, no FiveM server required
+npm test          # 486 assertions, no FiveM server required
 npm run test:all  # the above + a syntax check + the api contract self-test
 ```
 

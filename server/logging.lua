@@ -62,11 +62,13 @@ function Logging.Log(message, level, discordType, errorInfo)
     if not (Config and Config.Printing and Config.Printing.UseDiscordLogs) then
         return
     end
-    -- Defensive. server/discord.lua loads first in fxmanifest, so at runtime
-    -- this global always exists; the check is here so that reordering the
-    -- manifest, or loading logging.lua into another resource, degrades to
-    -- console-only instead of raising on every log line.
-    if not DiscordQueue then
+    -- The outbound sink is a CAPABILITY, not a global. `DiscordQueue` used to
+    -- be read straight out of the adapter's Lua state, which is a different
+    -- state from this one: the check was therefore always true, every log line
+    -- returned early, and no server ever sent a webhook. `CisRegistry.has` is
+    -- the cheap test, and it is honest about the difference between "no adapter
+    -- installed" and "installed and broken".
+    if not CisRegistry.has('discord') then
         return
     end
 
@@ -90,16 +92,16 @@ function Logging.Log(message, level, discordType, errorInfo)
     local prefix = '[cis_libs] [' .. tag .. ']'
     local links = DiscordConfig and DiscordConfig.DiscordLogsLinks or {}
     if discordType == 'cheating' then
-        DiscordQueue.push(links.CheatingLogs, prefix, discordMessage, 'red', true)
+        CisRegistry.call('discord', 'log', links.CheatingLogs, prefix, discordMessage, 'red', true)
     elseif discordType == 'error' then
         -- Falls back to the master channel when ErrorLogs is unset, so a config
-        -- with no dedicated error webhook still gets its errors. DiscordQueue
-        -- discards the message if BOTH are unset or still hold CHANGE-ME, so
-        -- an unconfigured install posts nothing rather than posting to a
+        -- with no dedicated error webhook still gets its errors. The sink
+        -- discards the message if BOTH are unset or still hold CHANGE-ME, so an
+        -- unconfigured install posts nothing rather than posting to a
         -- placeholder.
-        DiscordQueue.push(links.ErrorLogs or links.MasterLogs, prefix, discordMessage, 'red', true)
+        CisRegistry.call('discord', 'log', links.ErrorLogs or links.MasterLogs, prefix, discordMessage, 'red', true)
     else
-        DiscordQueue.push(links.MasterLogs, prefix, discordMessage, discordColor, false)
+        CisRegistry.call('discord', 'log', links.MasterLogs, prefix, discordMessage, discordColor, false)
     end
 end
 

@@ -120,12 +120,19 @@ local function indexRecord(id, stored)
     byContent[contentKey(stored.kind, stored.print)] = id
 end
 
-local function unindexRecord(stored)
+local function unindexRecord(id, stored)
     if not stored then
         return
     end
     local key = contentKey(stored.kind, stored.print)
-    if byContent[key] ~= nil then
+    -- ONLY IF THE INDEX STILL POINTS AT THIS RECORD. The index is keyed on
+    -- content alone, so two caller-managed ids can share a key -- and the map
+    -- holds one of them, whichever was written last. Clearing it unconditionally
+    -- meant updating or removing the OTHER record wiped the index entry of a
+    -- record that still existed, so a later upsert with that content found no
+    -- index, allocated a fresh id, and spawned a duplicate of an entity that was
+    -- already in the world. The index exists precisely to stop that.
+    if byContent[key] == id then
         byContent[key] = nil
     end
 end
@@ -204,7 +211,7 @@ local function upsert(kind, data)
     -- Reindex in both directions: the old content no longer points at this id,
     -- and the new content does. Doing it in this order means a lookup can never
     -- observe an id that points at content the record no longer has.
-    unindexRecord(records[data.id])
+    unindexRecord(data.id, records[data.id])
     records[data.id] = stored
     indexRecord(data.id, stored)
 
@@ -227,7 +234,7 @@ local function remove(id)
     if not records[id] then
         return false
     end
-    unindexRecord(records[id])
+    unindexRecord(id, records[id])
     records[id] = nil
     -- Broadcast to EVERYONE (-1), not to the range that received the upsert.
     -- The server does not keep a per-record audience, and a player who is

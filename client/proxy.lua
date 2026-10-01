@@ -9,30 +9,37 @@
 
 local warned = {}
 
-local function warnOnce(slot, reason)
-    if warned[slot] then
+local function warnOnce(slot, method, reason)
+    local key = tostring(slot) .. '.' .. tostring(method)
+    if warned[key] then
         return
     end
-    warned[slot] = true
-    Logging.Warn(('cis_libs: no provider for %q -- %s'):format(tostring(slot), tostring(reason)))
+    warned[key] = true
+    Logging.Warn(('cis_libs: %s.%s unavailable -- %s'):format(tostring(slot), tostring(method), tostring(reason)))
 end
 
 -- `onFail` is this slot's failure shape, and a function when the failure needs
 -- more than one value: a count answers 0, a mutation answers false, a read
 -- answers nil.
+--
+-- On success EVERY value the provider produced is returned. Several slots
+-- answer in pairs -- a transaction is `ok, reason` and a zone create is
+-- `ok, reason` -- and taking only the first silently swallowed the half of the
+-- answer that explains the failure, which is the half a caller needs to decide
+-- whether to retry.
 local function forward(slot, onFail, ...)
-    local ok, reason = CisRegistry.call(slot, ...)
-    if not ok then
-        warnOnce(slot, reason)
+    local results = table.pack(CisRegistry.call(slot, ...))
+    if not results[1] then
+        warnOnce(slot, (...), results[2])
         if type(onFail) == 'function' then
             return onFail()
         end
         if onFail ~= nil then
             return onFail
         end
-        return nil, reason
+        return nil, results[2]
     end
-    return reason
+    return table.unpack(results, 2, results.n)
 end
 
 -- Registered from both realms, so a resource that speaks to cis_libs never has
@@ -48,6 +55,14 @@ end)
 
 exports('GetCapabilities', function()
     return CisRegistry.snapshot()
+end)
+
+-- See the server half: a stopped resource's exports are gone, so its slots are.
+AddEventHandler('onClientResourceStop', function(resource)
+    for _, slot in ipairs(CisRegistry.releaseOwner(resource)) do
+        warned = {}
+        Logging.Warn(('cis_libs: capability %q released: %s stopped'):format(slot, resource))
+    end
 end)
 
 -- ===========================================================================
@@ -149,12 +164,14 @@ end)
 --  their client last reported.
 -- ===========================================================================
 
+-- No leading src. The client service is `Count(item)` / `Has(item, amount)`: a
+-- client has no player to name, so a placeholder nil would arrive as the item.
 exports('InventoryCount', function(item)
-    return forward('inventory', 0, 'count', nil, item)
+    return forward('inventory', 0, 'count', item)
 end)
 
 exports('InventoryHas', function(item, amount)
-    return forward('inventory', false, 'has', nil, item, amount)
+    return forward('inventory', false, 'has', item, amount)
 end)
 
 -- ===========================================================================

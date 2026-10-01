@@ -505,7 +505,7 @@ do
     env.EXPORTS.DbTransaction({})
     local repeats = 0
     for i = 1, #env.lines do
-        if env.lines[i]:find('no provider for', 1, true) then
+        if env.lines[i]:find('database.transaction unavailable', 1, true) then
             repeats = repeats + 1
         end
     end

@@ -34,14 +34,15 @@ local warned = {}
 -- One line per missing capability, then silence. A per-call warning on a hot
 -- path is a denial-of-service against the operator's console, and a server that
 -- has run for a year should not be able to drown its own log.
-local function warnOnce(slot, reason)
-    if warned[slot] then
+local function warnOnce(slot, method, reason)
+    local key = tostring(slot) .. '.' .. tostring(method)
+    if warned[key] then
         return
     end
-    warned[slot] = true
-    Logging.Warn(('cis_libs: no provider for %q -- %s. %s'):format(
-        slot,
-        reason,
+    warned[key] = true
+    Logging.Warn(('cis_libs: %s.%s unavailable -- %s. %s'):format(
+        tostring(slot), tostring(method),
+        tostring(reason),
         'Install the product that provides it, or call '
             .. 'exports["cis_libs"]:GetCapabilities() to see what is missing.'))
 end
@@ -55,18 +56,18 @@ end
 -- tests were written against. Pass a function when the failure needs more than
 -- one value; it is called, not returned.
 local function forward(slot, onFail, ...)
-    local ok, reason = CisRegistry.call(slot, ...)
-    if not ok then
-        warnOnce(slot, reason)
+    local results = table.pack(CisRegistry.call(slot, ...))
+    if not results[1] then
+        warnOnce(slot, (...), results[2])
         if type(onFail) == 'function' then
             return onFail()
         end
         if onFail ~= nil then
             return onFail
         end
-        return nil, reason
+        return nil, results[2]
     end
-    return reason
+    return table.unpack(results, 2, results.n)
 end
 
 -- ===========================================================================
@@ -79,7 +80,7 @@ end
 --  the actual handler is registered as a capability below.
 -- ===========================================================================
 
-exports('SetConfig', function(config, security)
+exports('SetConfig', function(config, security, discord)
     -- FIRST SUPPLIER WINS, and the loser is told. Two products both believing
     -- they own the configuration is a real failure mode and it is invisible
     -- until something is mysteriously not taking effect; naming the resource
@@ -106,10 +107,31 @@ exports('SetConfig', function(config, security)
         Security.EventPrefix = Security.EventPrefix or 'cis_libs'
         Security.AuthorizedResources = Security.AuthorizedResources or {}
     end
+    if type(discord) == 'table' then
+        -- The webhook table is configuration like any other and has to arrive the
+        -- same way. It used to be read straight out of a `DiscordConfig` global
+        -- belonging to whichever resource loaded the config file -- which is a
+        -- different Lua state from this one, so the lookup was always nil and
+        -- every outbound log line was silently discarded. It is held here, on the
+        -- server only, and never reaches a client: `GetClientConfig` has its own
+        -- whitelist and this is not on it.
+        DiscordConfig = CisDefaults.sanitize(discord)
+    end
     Config.__owned = true
     Config.__owner = GetInvokingResource() or 'cis_libs'
     Logging.Info(('cis_libs: configuration supplied by %s'):format(tostring(Config.__owner)))
     return true
+end)
+
+--- The outbound/webhook configuration, for the capability that does the
+--- sending. Server realm only, and it is a secret: it holds webhook URLs, which
+--- is exactly why it is not on the client whitelist and not in the debug
+--- command's capability table.
+exports('GetDiscordConfig', function()
+    if GetInvokingResource() == 'cis_libs' then
+        return DiscordConfig
+    end
+    return DiscordConfig or {}
 end)
 
 --- Register a capability provider. The form is ALWAYS the string
@@ -142,6 +164,16 @@ end)
 --- "why is the database nil", and it is the first thing a support thread needs.
 exports('GetCapabilities', function()
     return CisRegistry.snapshot()
+end)
+
+-- A stopped resource's exports are gone. Releasing its slots turns every later
+-- call into an honest "no provider registered" and lets the restarted resource
+-- register again; the warning latch is cleared so the next failure is reported.
+AddEventHandler('onResourceStop', function(resource)
+    for _, slot in ipairs(CisRegistry.releaseOwner(resource)) do
+        warned = {}
+        Logging.Warn(('cis_libs: capability %q released: %s stopped'):format(slot, resource))
+    end
 end)
 
 --- The frameworks and drivers this library knows how to detect, copied out of

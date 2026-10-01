@@ -1,6 +1,6 @@
 {
   "name": "cis_libs",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "description": "FiveM library and framework bridge. Tests run under fengari; no FiveM server required.",
   "license": "SEE LICENSE IN LICENSE.md",

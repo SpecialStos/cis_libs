@@ -9,6 +9,12 @@
 local entities = {}
 local records = {}
 
+-- How long to wait for a model before giving up on a spawn. The same budget
+-- CreatePed already used, so a prop and a ped of the same rarity take the same
+-- time to appear rather than one of them appearing instantly and the other
+-- never.
+local MODEL_TIMEOUT = 5000
+
 local function hashOf(model)
     if type(model) == 'number' then
         return model
@@ -58,25 +64,27 @@ local function spawn(record)
             scenario = record.scenario,
         })
     elseif record.kind == 'vehicle' then
-        local loaded = IsModelInCdimage(modelHash) and IsModelValid(modelHash)
-        if not loaded then
-            CisLog('error', 'sync model invalid: ' .. tostring(record.model))
+        local ready = RequestModelTimeout(modelHash, MODEL_TIMEOUT)
+        if not ready then
+            CisLog('error', 'sync model unavailable: ' .. tostring(record.model))
             return
-        end
-        if not HasModelLoaded(modelHash) then
-            RequestModel(modelHash)
         end
         entity = CreateVehicle(modelHash, coords.x, coords.y, coords.z, heading, record.networked ~= false, false)
         if entity ~= 0 and record.props then
             SetVehicleProperties(entity, record.props)
         end
     else
-        if not IsModelInCdimage(modelHash) or not IsModelValid(modelHash) then
-            CisLog('error', 'sync model invalid: ' .. tostring(record.model))
+        -- WAIT FOR THE MODEL, the way the ped path does. This branch used to
+        -- call `RequestModel` and then immediately `CreateObject`, and a
+        -- RequestModel that has not finished is not a loaded model:
+        -- `CreateObject` returned 0, the `entity ~= 0` test below dropped it,
+        -- `spawning[id]` was cleared, and nothing ever retried. A static prop
+        -- synced before its model streamed simply never appeared, for the rest
+        -- of the session, with no error anywhere.
+        local ready = RequestModelTimeout(modelHash, MODEL_TIMEOUT)
+        if not ready then
+            CisLog('error', 'sync model unavailable: ' .. tostring(record.model))
             return
-        end
-        if not HasModelLoaded(modelHash) then
-            RequestModel(modelHash)
         end
         entity = CreateObject(modelHash, coords.x, coords.y, coords.z, record.networked ~= false, true, false)
         if entity ~= 0 then

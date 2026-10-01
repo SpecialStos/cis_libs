@@ -132,13 +132,22 @@ RegisterNetEvent('cis_libs:cb', function(name, key, ...)
 end)
 
 CisNetOn('cis_libs:cb:serverRes', function(src, key, ok, ...)
-    local item = CisPending.take(pending, key)
-    if not item then
+    -- Ownership is checked BEFORE the entry is consumed. Keys are sequential
+    -- integers, so a client can name any key it likes, and the take used to
+    -- happen first: a forged key removed the victim's pending entry, the
+    -- ownership test then correctly rejected it, and the victim was left with no
+    -- callback AND no pending entry for the sweep to time out -- so the call
+    -- never resolved and never reported. One client could silently hang another
+    -- client's request by guessing a number.
+    local peeked = CisPending.peek(pending, key)
+    if not peeked then
         return
     end
-    -- Keys are sequential integers, so a client could otherwise guess another
-    -- pending key and resolve it with a forged payload.
-    if item.payload.target ~= src then
+    if peeked.payload.target ~= src then
+        return
+    end
+    local item = CisPending.take(pending, key)
+    if not item then
         return
     end
     local payload = item.payload

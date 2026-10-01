@@ -337,25 +337,70 @@ withFakeExports(function()
 
     -- Register against a fake exports table and prove the call goes THROUGH the
     -- boundary, with every argument in its slot.
+    --
+    -- THE PROVIDER SHAPE HERE IS THE SHAPE EVERY REAL PROVIDER USES, and it is
+    -- worth being precise about, because getting it wrong is invisible in a test
+    -- and fatal in production. A provider exports ONE function that RETURNS a
+    -- table of methods; `call` is given a method name as its first argument and
+    -- dispatches into that table. This double used to be a single dispatcher
+    -- function taking (op, sql, params), which no provider in the platform has
+    -- ever been -- and the whole suite passed against it while every product
+    -- shipped broken, because the fiction was the only thing being tested.
     local seen = {}
     exports.cis_bridge = {
-        CisBridgeDatabase = function(self, op, sql, params)
-            seen.op, seen.sql, seen.params = op, sql, params
-            return { { id = 1 } }
+        CisBridgeDatabase = function(self)
+            return {
+                query = function(sql, params)
+                    seen.sql, seen.params = sql, params
+                    return { { id = 1 } }
+                end,
+                update = function(sql, params)
+                    seen.updateSql, seen.updateParams = sql, params
+                    return 7
+                end,
+            }
         end,
     }
     expect(CisRegistry.register('database', 'cis_bridge:CisBridgeDatabase'), 'a well-formed provider registers')
     expect(CisRegistry.has('database'), 'the slot is now held')
     expect(CisRegistry.owner('database') == 'cis_bridge', 'the owner is recorded')
+
+    -- The method name selects the implementation, and the remaining arguments
+    -- arrive in their own slots with nothing shifted.
     local rows = CisRegistry.value('database', 'query', 'SELECT 1', { a = 2 })
-    expect(seen.op == 'query' and seen.sql == 'SELECT 1' and seen.params.a == 2,
+    expect(seen.sql == 'SELECT 1' and seen.params.a == 2,
         'arguments survive the boundary unmoved')
     expect(rows and rows[1] and rows[1].id == 1, 'the provider result comes back')
+    expect(CisRegistry.value('database', 'update', 'UPDATE t', { b = 3 }) == 7,
+        'a second method on the same provider dispatches to its own function')
+    expect(seen.updateSql == 'UPDATE t' and seen.updateParams.b == 3,
+        'the second method receives its own arguments, not the first method\'s')
+
+    -- A method the provider does not implement is a refusal naming the method,
+    -- not a nil call and not the provider's whole table handed back.
+    local missing, why = CisRegistry.call('database', 'transaction', {}, {})
+    expect(missing == false, 'a method the provider does not implement is refused')
+    expect(tostring(why):find('transaction') ~= nil, 'the refusal names the method that is missing')
+    expect(seen.sql == 'SELECT 1', 'a refused method does not fall through to another one')
+
+    -- A provider that raises is contained: the caller gets a reason, not a
+    -- stack trace, and the slot survives for the next call.
+    exports.cis_bridge.CisBridgeDatabase = function(self)
+        return { query = function() error('driver exploded') end }
+    end
+    CisRegistry.invalidate('database')
+    local raised, raiseWhy = CisRegistry.call('database', 'query', 'SELECT 1', {})
+    expect(raised == false, 'a raising provider is contained at the boundary')
+    expect(tostring(raiseWhy):find('driver exploded') ~= nil, 'the provider error text survives')
 
     -- The unbound-method trap. `exports[res][name]` is an unbound method, so a
     -- dispatcher that omits the exports table shifts every argument one slot left
     -- and raises nothing. The fake records `self` as a parameter, so a shifted
     -- call shows up as op == the exports table rather than op == 'query'.
+    --
+    -- A cross-boundary export that answers with a single function rather than a
+    -- method table is still dispatched as a function, so an older or hand-written
+    -- provider keeps working instead of failing every call.
     exports.cis_bridge.CisBridgeDatabase = function(self, op, sql, params)
         seen.self, seen.op = self, op
         return true
@@ -394,6 +439,70 @@ withFakeExports(function()
     expect(CisRegistry.has('database') == true, 'the slot survives a non-owner release attempt')
     expect(CisRegistry.unregister('database', 'cis_bridge') == true, 'the owner may unregister')
     expect(CisRegistry.has('database') == false, 'the slot is empty after the owner releases it')
+end)
+
+-- Method resolution against the shapes the platform's providers really export.
+-- cis_core answers `Count`, cis_keys `lock`, cis_bridge's targets `name` for a
+-- slot method called `named`. Each fake below is that shape, so a slot whose
+-- method name drifts from its provider fails here rather than in production.
+withFakeExports(function()
+    local got = {}
+    exports.cis_core = {
+        CisCoreInventory = function(self)
+            return {
+                Count = function(src, item) got.count = { src, item }; return 4 end,
+                Has = function(src, item, amount) return amount <= 4 end,
+                Add = function() return true end,
+            }
+        end,
+    }
+    expect(CisRegistry.register('inventory', 'cis_core:CisCoreInventory'), 'inventory registers')
+    expect(CisRegistry.value('inventory', 'count', 3, 'bread') == 4,
+        'a lower-case slot method reaches a capitalised provider function')
+    expect(got.count[1] == 3 and got.count[2] == 'bread', 'arguments arrive unmoved after resolution')
+    expect(CisRegistry.value('inventory', 'has', 3, 'bread', 2) == true, 'has resolves the same way')
+
+    -- Conformance: what the cached table cannot serve, by slot method name.
+    local missing = CisRegistry.missing('inventory')
+    expect(type(missing) == 'table' and table.concat(missing, ',') == 'remove,snapshot',
+        'missing() names exactly the declared methods the provider lacks')
+    expect(CisRegistry.snapshot().inventory.missing ~= nil, 'the snapshot carries the missing list')
+    expect(CisRegistry.missing('database') == nil, 'an unregistered slot reports nothing to judge')
+
+    exports.cis_bridge = {
+        CisBridgeTargetOx = function(self)
+            return { name = function() return 'ox_target' end, available = function() return true end }
+        end,
+    }
+    expect(CisRegistry.register('target', 'cis_bridge:CisBridgeTargetOx'), 'target registers')
+    expect(CisRegistry.value('target', 'named') == 'ox_target',
+        'target.named reaches the adapter name() through the declared provider name')
+
+    -- A dispatcher provider (cis_migrate) takes the action as its first argument.
+    exports.cis_migrate = {
+        CisMigrateCapability = function(self, action, ...)
+            if action == nil then return nil end
+            return 'did:' .. tostring(action)
+        end,
+    }
+    expect(CisRegistry.register('migration', 'cis_migrate:CisMigrateCapability'),
+        'the migration slot is declared and accepts cis_migrate')
+    expect(CisRegistry.value('migration', 'sources') == 'did:sources',
+        'a dispatcher provider receives the action name')
+
+    -- A stopped resource releases everything it owned, and only that.
+    local released = CisRegistry.releaseOwner('cis_bridge')
+    expect(#released == 1 and released[1] == 'target', 'releaseOwner returns exactly the slots it held')
+    expect(not CisRegistry.has('target'), 'a released slot is empty')
+    local ok, why = CisRegistry.call('target', 'named')
+    expect(ok == false and tostring(why):find('no provider') ~= nil,
+        'a call into a released slot is an honest refusal')
+    expect(CisRegistry.has('inventory'), 'another resource\'s slot survives the release')
+    expect(CisRegistry.register('target', 'cis_bridge:CisBridgeTargetOx'),
+        'the restarted resource can register again')
+    CisRegistry.releaseOwner('cis_bridge')
+    CisRegistry.releaseOwner('cis_core')
+    CisRegistry.releaseOwner('cis_migrate')
 end)
 
 -- The snapshot is what `cis_debug` prints and what GetConfigSummary returns, and

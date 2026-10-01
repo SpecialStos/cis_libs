@@ -214,6 +214,33 @@ function readManifest(resourceDir) {
   const server = read('server_scripts')
   for (const [name, list] of [['shared_script', shared], ['client_script', client], ['server_script', server]]) {
     for (const entry of list) {
+      // `@resource/path` is a reference into ANOTHER resource, resolved by the
+      // server at load time from the resources root. It is not a file in this
+      // directory, so testing it against `resourceDir` reports a healthy
+      // manifest as broken -- which is how `shared_script '@cis_libs/init.lua'`,
+      // the one line every consumer of this platform is told to write, came to
+      // be reported as a missing file.
+      //
+      // The check is still worth having where it can be: if the referenced
+      // resource is checked out as a sibling (a working copy with several
+      // resources side by side), a typo in the path is a real error and is
+      // reported. If the sibling is not there at all -- CI running one
+      // repository, which is the normal case -- the file is simply not this
+      // repository's to check, and saying nothing is the correct answer rather
+      // than a warning nobody can act on.
+      if (entry.startsWith('@')) {
+        const rest = entry.slice(1)
+        const slash = rest.indexOf('/')
+        if (slash < 0) {
+          warnings.push(`fxmanifest lists ${name} ${entry}, which is not a @resource/path reference`)
+          continue
+        }
+        const sibling = path.join(resourceDir, '..', rest)
+        if (fs.existsSync(path.dirname(sibling)) && !fs.existsSync(sibling)) {
+          warnings.push(`fxmanifest lists ${name} ${entry}, but ${path.basename(path.dirname(sibling))} has no ${rest}`)
+        }
+        continue
+      }
       if (!fs.existsSync(path.join(resourceDir, entry))) {
         warnings.push(`fxmanifest lists ${name} ${entry}, which does not exist`)
       }
