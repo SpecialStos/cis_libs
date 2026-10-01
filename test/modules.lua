@@ -126,6 +126,48 @@ do
     CisSparse.add(s, 1) CisSparse.add(s, 2)
     expect(CisSparse.count(s) == 2, 'the set is reusable after a clear')
     expect(CisSparse.has(s, 1) and not CisSparse.has(s, 3), 'membership is correct after a clear')
+
+    -- L-S12. A SOFT clear is O(1) by not deleting anything, which means every
+    -- value ever added stayed in the slots table forever. A set cleared
+    -- repeatedly -- the streaming loops, a zone resync -- grew its hash without
+    -- bound while count() stayed at 0, which is exactly what a leak looks like
+    -- from the outside.
+    do
+        local churn = CisSparse.new()
+        for i = 1, 1000 do
+            CisSparse.add(churn, 'id' .. i)
+            CisSparse.clear(churn)
+        end
+        expect(CisSparse.count(churn) == 0, 'the churned set is empty')
+        local stale = CisSparse.staleCount(churn)
+        expect(stale <= 128,
+            '1000 soft add/clear cycles keep the stale slot count bounded, got ' .. tostring(stale))
+
+        -- Sweeping must not change what the set MEANS: a value from an earlier
+        -- cycle stays gone, a new one is accepted, and iteration agrees with
+        -- membership. A sweep that dropped live slots, or kept stale ones, would
+        -- still pass the count above.
+        CisSparse.add(churn, 'live')
+        expect(CisSparse.has(churn, 'live'), 'the set still accepts a value after sweeping')
+        expect(not CisSparse.has(churn, 'id500'), 'a value from an earlier cycle is still gone')
+        expect(CisSparse.count(churn) == 1, 'a sweep does not resurrect a stale value')
+        local visited = 0
+        CisSparse.each(churn, function() visited = visited + 1 end)
+        expect(visited == 1, 'iteration sees exactly the live values after a sweep')
+
+        -- A hard clear drops the tables outright, and removal has to keep the
+        -- write counter honest or the sweep threshold drifts upward forever.
+        local r = CisSparse.new()
+        for i = 1, 200 do CisSparse.add(r, i) end
+        for i = 1, 200 do CisSparse.remove(r, i) end
+        expect(CisSparse.staleCount(r) == 0, 'removing every value leaves no slots behind')
+        for i = 1, 100 do
+            CisSparse.add(r, i)
+            CisSparse.clear(r, true)
+        end
+        expect(CisSparse.staleCount(r) == 0, 'a hard clear leaves no slots behind either')
+        expect(CisSparse.count(r) == 0, 'the set is still usable after 100 hard clears')
+    end
 end
 
 -- =================================================================== CisRate

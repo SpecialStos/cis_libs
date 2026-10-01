@@ -65,24 +65,68 @@ CisSparse = {}
 -- 285 million years) and it costs one comparison per clear to be sure of that.
 local MAX_GENERATION = 9007199254740992
 
+-- The point of the structure is that clear is O(1), and the price is that it
+-- never deletes anything -- so a set that is cleared repeatedly grows its slots
+-- table without bound while count() stays at 0. That is the worst kind of leak:
+-- the API reports the set as empty for the whole time it is growing.
+--
+-- The sweep is therefore LAZY, and it cannot live in clear(): after a clear
+-- `size` is 0, so a `stale > 2 * size` test would fire on every single clear
+-- and turn the O(1) clear into the O(n) traversal this file exists to avoid.
+--
+-- So the check runs in add(), where size has grown back, and it is paid for out
+-- of the adds that caused it: after a sweep `written` equals `size`, and another
+-- sweep needs `size` to have doubled. Amortised, that is one comparison per add
+-- and a traversal per doubling -- still O(1) amortised, which is the claim the
+-- header makes.
+--
+-- The floor keeps a tiny set from thrashing. Without it, a set that holds one
+-- entry between clears sweeps on every single add, and a sweep of a growing
+-- table costs more than the adds it is amortising against.
+local SWEEP_FLOOR = 64
+
 --- Create an empty set.
---- @return table  { slots, dense, size, generation }
+--- @return table  { slots, dense, size, generation, written }
 function CisSparse.new()
     return {
         slots = {},    -- value -> { gen, index }
         dense = {},    -- index -> value, valid for 1..size
         size = 0,
         generation = 1,
+        -- Slots ever written, live or stale. Maintained in O(1) by add and
+        -- remove so the sweep test never has to walk the table to find out.
+        written = 0,
     }
+end
+
+-- Drop every slot that is not from the current generation. O(written), and
+-- called only when written has already grown past the threshold that makes it
+-- worth it.
+local function sweepSlots(set)
+    local live = {}
+    for value, slot in pairs(set.slots) do
+        if slot.gen == set.generation then
+            live[value] = slot
+        end
+    end
+    set.slots = live
+    set.written = set.size
 end
 
 --- Add a value.
 --- @return boolean  true when the value was not already present. The return is
 ---         what lets a caller use the set as a "is this new" filter:
---         `if CisSparse.add(set, id) then onFirstSight(id) end`
+---         `if CisSparse.add(set, id) then onFirstSight(id) end`
 function CisSparse.add(set, value)
     if value == nil then
         return false
+    end
+    -- `or 0` so a set assembled by hand rather than by new() still works; a
+    -- missing counter would otherwise compare nil against a number and raise
+    -- inside the module's hottest function.
+    local written = set.written or 0
+    if written > SWEEP_FLOOR and written > 2 * set.size then
+        sweepSlots(set)
     end
     local slot = set.slots[value]
     if slot and slot.gen == set.generation then
@@ -91,6 +135,7 @@ function CisSparse.add(set, value)
     set.size = set.size + 1
     set.dense[set.size] = value
     set.slots[value] = { gen = set.generation, index = set.size }
+    set.written = (set.written or 0) + 1
     return true
 end
 
@@ -126,6 +171,12 @@ function CisSparse.remove(set, value)
     set.dense[set.size] = nil
     set.slots[value] = nil
     set.size = set.size - 1
+    -- The slot really is gone, so the counter has to say so. Without this the
+    -- sweep threshold drifts upward as a caller removes instead of adds, and
+    -- the set pays for a sweep long after the slots are gone.
+    if set.written then
+        set.written = set.written - 1
+    end
     return true
 end
 
@@ -180,6 +231,12 @@ end
 
 --- Empty the set in O(1).
 ---
+--- The slots are NOT swept here, deliberately. At this point `size` is 0, so a
+--- "stale slots outnumber live ones" test would fire on every clear and turn
+--- the O(1) clear into the O(n) traversal the structure exists to avoid. The
+--- sweep happens lazily during `add`, where `size` has grown back and the cost
+--- amortises against the adds that caused it. See SWEEP_FLOOR above.
+---
 --- @param hard boolean|nil  when true, also drop the dense array so the memory
 ---        goes back to the collector. The O(1) part is the same either way --
 ---        dropping a table reference is one assignment -- but the COLLECTOR only
@@ -190,6 +247,7 @@ function CisSparse.clear(set, hard)
     if hard then
         set.dense = {}
         set.slots = {}
+        set.written = 0
     end
     set.size = 0
     if set.generation >= MAX_GENERATION then
@@ -199,6 +257,7 @@ function CisSparse.clear(set, hard)
         -- every value any live slot holds.
         set.slots = {}
         set.dense = {}
+        set.written = 0
         set.generation = 1
         return 1
     end
@@ -221,6 +280,10 @@ end
 --- The number of hash slots ever written, including stale ones. Only useful as
 --- a diagnostic: it is what a caller watches to decide whether the next clear
 --- should be `hard`.
+---
+--- It is BOUNDED now. It used to grow one entry per add for the life of the
+--- process while `count()` reported 0, which is the shape of a leak the API
+--- actively hides. See SWEEP_FLOOR for why the sweep is not in clear().
 --- @return number
 function CisSparse.staleCount(set)
     -- Counting is O(slots) and defeats the purpose of the structure, so this
