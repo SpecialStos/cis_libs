@@ -234,6 +234,154 @@ do
         end
     end
     expect(distinct, 'shuffle introduces no duplicates')
+
+    -- L-S6. A range wider than one MINSTD period. Every draw used to come back
+    -- `hi`: the generator could not represent the range, and the collapse was
+    -- silent. A caller drawing a 64-bit id got the same id every time, which
+    -- looks like a working feature right up until two players draw one.
+    do
+        local wide = CisRandom.newGenerator(31337)
+        local seen = {}
+        for _ = 1, 100 do seen[wide:int(0, 2 ^ 40)] = true end
+        local distinctWide = 0
+        for _ in pairs(seen) do distinctWide = distinctWide + 1 end
+        expect(distinctWide > 1, 'gen:int over a range wider than 2^31 does not collapse to one value')
+
+        local stayedInRange = true
+        local highest = 0
+        for _ = 1, 200 do
+            local v = wide:int(0, 2 ^ 40)
+            if type(v) ~= 'number' or v < 0 or v > 2 ^ 40 or v % 1 ~= 0 then stayedInRange = false end
+            if v > highest then highest = v end
+        end
+        expect(stayedInRange, 'gen:int stays in range and integral past 2^31')
+        -- "Not all equal" is the weakest form of this assertion: a fix that
+        -- drew from one 31-bit step and took `% n` would produce 200 distinct
+        -- low-valued numbers and pass it. The draw has to actually reach the
+        -- top of the range, which only an assembled 53-bit draw does.
+        expect(highest > 2 ^ 39, 'gen:int uses the high bits of a wide range, not just the low ones')
+
+        -- The public entry point, and the injected-function path, hit the same
+        -- ceiling from a different direction and have to survive it too.
+        local g2 = CisRandom.newGenerator(31337)
+        local seen2 = {}
+        for _ = 1, 100 do seen2[CisRandom.integer(0, 2 ^ 40, g2)] = true end
+        local distinct2 = 0
+        for _ in pairs(seen2) do distinct2 = distinct2 + 1 end
+        expect(distinct2 > 1, 'integer(lo, hi, gen) survives a range wider than 2^31')
+
+        local g3 = CisRandom.newGenerator(31337)
+        local seen3 = {}
+        for _ = 1, 100 do
+            seen3[CisRandom.integer(0, 2 ^ 40, function() return g3:float() end)] = true
+        end
+        local distinct3 = 0
+        for _ in pairs(seen3) do distinct3 = distinct3 + 1 end
+        expect(distinct3 > 1, 'integer(lo, hi, injected fn) survives a range wider than 2^32')
+
+        -- Past what a double can hold exactly there is no honest answer to
+        -- give, so the generator refuses instead of returning a plausible one.
+        -- Pinning that here is the point: a fix that quietly answered `lo`
+        -- would pass every assertion above.
+        local ok, err = pcall(function() return wide:int(0, 1e18) end)
+        expect(not ok and type(err) == 'string',
+            'gen:int refuses a range wider than it can represent, rather than answering')
+    end
+
+    -- L-S7. The two paths disagreed about the same call: math.random raises on
+    -- a fractional bound, the generator returned 1.5, and a NaN bound came back
+    -- out of the generator as NaN and straight into whatever used it.
+    do
+        -- A wrapper, because `pcall(CisRandom.integer, a, b, nil)` is a parse
+        -- error in fengari: the call cannot end on a bare nil.
+        local function tryInteger(a, b, rng)
+            return pcall(CisRandom.integer, a, b, rng)
+        end
+
+        local withGen = CisRandom.integer(1.5, 3.5, CisRandom.newGenerator(9))
+        local okNoGen, withoutGen = tryInteger(1.5, 3.5)
+        expect(okNoGen, 'integer(1.5, 3.5) does not raise without a generator')
+        expect(type(withGen) == 'number' and withGen % 1 == 0,
+            'integer(1.5, 3.5, gen) is integral, not 1.5')
+        expect(type(withoutGen) == 'number' and withoutGen % 1 == 0,
+            'integer(1.5, 3.5) is integral on the math.random path too')
+        -- Type-guarded, because on the broken build `withoutGen` is the pcall
+        -- ERROR STRING and an ordering comparison against a string raises --
+        -- which would abort the whole file instead of reporting a failure.
+        expect(type(withGen) == 'number' and type(withoutGen) == 'number'
+            and withGen >= 1 and withGen <= 4 and withoutGen >= 1 and withoutGen <= 4,
+            'a fractional range floors its low bound and ceils its high bound')
+
+        local ok1, r1 = tryInteger(0 / 0, 5, CisRandom.newGenerator(9))
+        local ok2, r2 = tryInteger(0, 0 / 0, CisRandom.newGenerator(9))
+        local ok3, r3 = tryInteger(0, 0 / 0)
+        expect(ok1 and ok2 and ok3, 'a NaN bound does not raise on any path')
+        expect(r1 == 0 and r2 == 0 and r3 == 0,
+            'a NaN bound is refused on every path instead of propagating NaN')
+
+        local ok4, r4 = tryInteger(0, math.huge, CisRandom.newGenerator(9))
+        expect(ok4 and r4 == 0, 'an infinite bound is refused, not answered with Infinity')
+
+        -- The ordinary integer path is untouched by any of that.
+        local g = CisRandom.newGenerator(9)
+        expect(CisRandom.integer(5, 5, g) == 5, 'a single-value range returns that value')
+        expect(CisRandom.integer('a', 5, g) == 0, 'a non-number bound keeps its documented answer')
+    end
+
+    -- L-S14. An infinite weight made the whole cumulative array infinite, so
+    -- the binary search walked to the last index and the infinite entry was
+    -- never picked -- 0 times out of 200, not occasionally.
+    do
+        local g = CisRandom.newGenerator(3)
+        expect(CisRandom.weightedIndex({ math.huge, 1 }, g) == 1,
+            'an infinite weight is picked, not skipped')
+        local hits = 0
+        local g2 = CisRandom.newGenerator(3)
+        for _ = 1, 200 do
+            if CisRandom.weightedIndex({ math.huge, 1 }, g2) == 1 then hits = hits + 1 end
+        end
+        expect(hits == 200, 'an infinite weight wins every draw, not none of them')
+        expect(CisRandom.weighted({ { weight = math.huge, value = 'a' }, { weight = 1, value = 'b' } }, g2) == 'a',
+            'weighted agrees with weightedIndex on an infinite weight')
+
+        local g3 = CisRandom.newGenerator(3)
+        expect(CisRandom.weightedIndex({ 0, 0 }, g3) == nil, 'a table of zero weights still returns nil')
+        expect(CisRandom.weightedIndex({ 0 / 0, 1 }, g3) == 2,
+            'a NaN weight is skipped rather than summed into the total')
+        expect(CisRandom.weightedIndex({}, g3) == nil, 'an empty weight table still returns nil')
+
+        -- The ordinary path is untouched: a big but finite weight still draws
+        -- by proportion, and neither entry is starved.
+        local seen = { [1] = 0, [2] = 0 }
+        local g4 = CisRandom.newGenerator(3)
+        for _ = 1, 400 do
+            local idx = CisRandom.weightedIndex({ 3, 1 }, g4)
+            seen[idx] = (seen[idx] or 0) + 1
+        end
+        expect(seen[1] and seen[2] and seen[1] > 0 and seen[2] > 0,
+            'finite weights still draw both entries in proportion')
+    end
+
+    -- L-S15. abs() then floor() then a modulo folded 1, -1 and 1.7 onto the
+    -- same state, so three different seeds produced three identical streams.
+    do
+        local function firstDraw(seed)
+            return CisRandom.newGenerator(seed):float()
+        end
+        expect(firstDraw(1) ~= firstDraw(-1),
+            'a negative seed is not the same generator as its absolute value')
+        expect(firstDraw(1) ~= firstDraw(1.7),
+            'a fractional seed is not floored onto its integer part')
+        expect(firstDraw(2147483646) ~= firstDraw(2147483647),
+            'seeds either side of the period do not collide')
+        expect(firstDraw(0) ~= firstDraw(1), 'seed 0 is not the generator fixed point')
+        expect(firstDraw(12345) == firstDraw(12345), 'hashing the seed keeps it deterministic')
+        expect(firstDraw('nope') == firstDraw('nope'),
+            'a nonsense seed still gives a usable, repeatable generator')
+        local a, b = CisRandom.newGenerator(12345), CisRandom.newGenerator(12345)
+        expect(a.state == b.state and a.state ~= nil and a.state >= 1 and a.state <= 2147483646,
+            'the hashed state still lands inside the generator period')
+    end
 end
 
 -- =================================================================== CisCurve
