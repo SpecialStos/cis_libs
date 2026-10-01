@@ -270,6 +270,21 @@ CreateThread(function()
 
     local lastWeaponAt = 0
     while true do
+        -- THE INTERVALS ARE RE-READ EVERY PASS, not captured above.
+        --
+        -- The server re-pushes the client payload after SetConfig, so a client
+        -- can be told a different interval mid-session -- and it was not
+        -- listening. `playerMs` was read once before the loop, so the one value
+        -- a re-push is most likely to change was the one value that could not,
+        -- and the push looked like it had worked while nothing had.
+        --
+        -- Two table lookups and a `math.max` per pass, against a loop that
+        -- already costs ten natives: not a measurable cost, and it is what makes
+        -- the re-push mean anything.
+        intervals = (Config and Config.UpdateInterval) or {}
+        playerMs = math.max(100, intervals.Player or 1000)
+        weaponMs = math.max(100, intervals.Weapon or playerMs)
+
         local ped = refreshPed()
         local inVeh = IsPedInAnyVehicle(ped, false)
         if inVeh then

@@ -30,6 +30,35 @@ local function copyPublic(value)
     return out
 end
 
+-- THE CLIENT FALLBACKS COME FROM CisDefaults, NOT FROM A SECOND COPY.
+--
+-- They used to be literals written out here, and they had already drifted from
+-- shared/defaults.lua: 250ms for Player and Weapon here against 1000ms there. A
+-- client that never received a server payload -- which is every client on a
+-- server whose getData answer has not landed yet, and every client for the whole
+-- first second of a session -- ran its cache four times faster than the library
+-- documents. Nothing reported it: the cache works either way, it just costs four
+-- times the natives.
+--
+-- Deriving them means there is one place to change a default and no second copy
+-- to forget. It does NOT mean copying CisDefaults wholesale: the whitelist below
+-- is still written out key by key, and CheckVersion and VersionCheckUrl are in
+-- CisDefaults and must stay on this side of the wire.
+local function clientIntervals(config)
+    local defaults = CisDefaults.config().UpdateInterval
+    local supplied = config.UpdateInterval
+    local out = {}
+    for _, key in ipairs({ 'Player', 'Weapon', 'Vehicle', 'VehicleProperties' }) do
+        -- Key by key rather than `supplied or defaults`: a config carrying
+        -- `{ Player = 3000 }` must keep the OTHER THREE, not replace the whole
+        -- table with a one-key table. That is the failure mode a naive `or` has,
+        -- and it is the same one CisDefaults.merge exists to prevent.
+        local v = type(supplied) == 'table' and supplied[key]
+        out[key] = (type(v) == 'number' and v) or defaults[key]
+    end
+    return out
+end
+
 -- The defaults here are a FLOOR, not the shipped values. A server running
 -- cis_libs alone gets exactly these; a server with cis_core installed gets
 -- whatever the operator wrote, and these values are what any key they left out
@@ -39,16 +68,12 @@ function CisConfigUtil.clientPayload(config, security)
     config = config or {}
     security = security or {}
     local framework = config.Framework or {}
+    local defaults = CisDefaults.config()
     return {
         Config = {
-            UpdateInterval = copyPublic(config.UpdateInterval) or {
-                Player = 250,
-                Weapon = 250,
-                Vehicle = 1000,
-                VehicleProperties = 5000,
-            },
-            AimingCheckType = config.AimingCheckType or 'default',
-            CallbackTimeout = config.CallbackTimeout or 10000,
+            UpdateInterval = clientIntervals(config),
+            AimingCheckType = config.AimingCheckType or defaults.AimingCheckType,
+            CallbackTimeout = config.CallbackTimeout or defaults.CallbackTimeout,
             Framework = {
                 -- 'NONE' rather than 'AUTO' on the client, deliberately. The
                 -- client has no framework of its own to detect, and sending AUTO

@@ -115,6 +115,7 @@ local function newEnv(opts)
         lines = {},
         http = {},
         saved = {},
+        clientEvents = {},
         clock = 0,
         marker = opts.marker or nil,
         started = opts.started or {},
@@ -197,6 +198,28 @@ local function newEnv(opts)
     function SaveResourceFile(_, path, body)
         env.marker = body
         return true
+    end
+    -- Recorded rather than discarded: `TriggerClientEvent` returns nothing, so
+    -- "did the client get told" is unanswerable from a caller's point of view.
+    -- `target` is kept because WHO was told is half the question -- a broadcast
+    -- to -1 and a reply to one player are different behaviours.
+    function TriggerClientEvent(name, target, ...)
+        local n = select('#', ...)
+        local args = { n = n }
+        for i = 1, n do args[i] = select(i, ...) end
+        env.clientEvents[#env.clientEvents + 1] = {
+            name = name, target = target, args = args,
+        }
+    end
+    -- Every broadcast aimed at every connected client.
+    function env.broadcastsOf(name)
+        local out = {}
+        for i = 1, #env.clientEvents do
+            if env.clientEvents[i].name == name and env.clientEvents[i].target == -1 then
+                out[#out + 1] = env.clientEvents[i]
+            end
+        end
+        return out
     end
     function env.reset()
         for i = #env.saved, 1, -1 do
@@ -631,6 +654,90 @@ do
         'L-C2: an absent marker is a new install, not a legacy one')
     CisInvokingAllowed = nil
     env4.reset()
+end
+
+-- ============================== 2e. clients get the config they were given
+--
+-- The client payload was PUSHED once, in answer to `cis_libs:server:getData`,
+-- which a client fires once at connect. SetConfig changed the server's Config
+-- afterwards and told nobody: every already-connected client kept running on the
+-- defaults it had fetched, on a server whose operator had just told it
+-- something different. The two answers to "why is my server ignoring my
+-- config" are indistinguishable from the outside.
+--
+-- The fix has two halves and both are asserted here. SetConfig re-pushes to -1,
+-- and the client's FALLBACK values come from CisDefaults rather than a second
+-- hand-written copy -- those copies had already drifted, which is the same class
+-- of bug one layer down.
+do
+    local env = securityScenario({ authorized = { 'cis_core' } })
+    loadModule('server/proxy.lua')
+    loadModule('server/initialize.lua')
+
+    env.invoking = 'cis_core'
+    env.clientEvents = {}
+    local ok, why = env.EXPORTS.SetConfig({
+        UpdateInterval = { Player = 3000, Weapon = 3000, Vehicle = 3000, VehicleProperties = 9000 },
+    }, { AuthorizedResources = { 'cis_core' } })
+    check(ok == true, 'L-C22: SetConfig accepted: ' .. tostring(why))
+
+    local pushes = env.broadcastsOf('cis_libs:client:getData')
+    check(#pushes >= 1,
+        ('L-C22: SetConfig re-pushes the client payload to every client (pushes=%d)')
+            :format(#pushes))
+    local payload = pushes[1] and pushes[1].args[1]
+    check(payload and payload.Config and payload.Config.UpdateInterval,
+        'L-C22: and the pushed payload carries the config')
+    check(payload and payload.Config.UpdateInterval.Player == 3000,
+        'L-C22: a client is told the NEW interval, not the one it fetched at connect')
+    env.reset()
+end
+
+-- The second half: the client's own fallbacks must not be a second copy of the
+-- defaults. They were, and they had already drifted -- 250ms in the payload
+-- against 1000ms in CisDefaults -- so a client that never received a config ran
+-- its cache four times faster than the library says it should, for no reason
+-- anyone could point at.
+do
+    local d = CisDefaults.config()
+    local p = CisConfigUtil.clientPayload({}, {}, {})
+    check(p.Config.UpdateInterval.Player == d.UpdateInterval.Player,
+        ('L-C22: the client fallback for Player comes from CisDefaults (%s vs %s)')
+            :format(tostring(p.Config.UpdateInterval.Player), tostring(d.UpdateInterval.Player)))
+    check(p.Config.UpdateInterval.Weapon == d.UpdateInterval.Weapon,
+        'L-C22: the client fallback for Weapon comes from CisDefaults')
+    check(p.Config.UpdateInterval.Vehicle == d.UpdateInterval.Vehicle,
+        'L-C22: the client fallback for Vehicle comes from CisDefaults')
+    check(p.Config.UpdateInterval.VehicleProperties == d.UpdateInterval.VehicleProperties,
+        'L-C22: the client fallback for VehicleProperties comes from CisDefaults')
+    check(p.Config.CallbackTimeout == d.CallbackTimeout,
+        'L-C22: the client fallback for CallbackTimeout comes from CisDefaults')
+
+    -- An operator's value still wins. Deriving the fallback from the defaults
+    -- must not make the fallback override a real config.
+    local supplied = CisConfigUtil.clientPayload(
+        { UpdateInterval = { Player = 77 } }, {}, {})
+    check(supplied.Config.UpdateInterval.Player == 77,
+        'L-C22: an explicitly configured interval still reaches the client')
+    check(supplied.Config.UpdateInterval.Weapon == d.UpdateInterval.Weapon,
+        'L-C22: and the keys the operator left out still fall back to CisDefaults')
+
+    -- A PARTIAL interval table must not blank the siblings. This is the failure
+    -- mode a naive `config.UpdateInterval or defaults` has, and it is the reason
+    -- the merge helper exists.
+    check(supplied.Config.UpdateInterval.VehicleProperties == d.UpdateInterval.VehicleProperties,
+        'L-C22: a partial UpdateInterval does not blank the keys it omits')
+
+    -- Nothing in the defaults may leak through the whitelist. Deriving the
+    -- fallback from CisDefaults must not turn into copying it wholesale --
+    -- CheckVersion and VersionCheckUrl are in CisDefaults and must stay out.
+    local clean = CisConfigUtil.clientPayload({}, {})
+    check(clean.Config.CheckVersion == nil,
+        'L-C22: CheckVersion does not leak through the derived defaults')
+    check(clean.Config.VersionCheckUrl == nil,
+        'L-C22: VersionCheckUrl does not leak through the derived defaults')
+    check(not CisConfigUtil.containsSecret(clean),
+        'L-C22: the derived payload still passes the secret check')
 end
 
 -- ========================= 3. the database boundary, and Cis.db.transaction

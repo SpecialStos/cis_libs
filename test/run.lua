@@ -267,9 +267,24 @@ local withIntervals = CisConfigUtil.clientPayload({
 expect(withIntervals.Config.UpdateInterval.Player == 750, 'update interval reaches client')
 
 -- Defaults must be present when the server sends no intervals.
+--
+-- These used to be pinned at 250, which is where the drift lived: the payload
+-- carried its own literal copy of the defaults and it had already fallen behind
+-- shared/defaults.lua. Asserting the literal kept the drift in place -- a test
+-- that pins the wrong number is worse than no test, because it reads as
+-- coverage. They are asserted against CisDefaults now, so there is one source
+-- and a change to it cannot break this file.
 local noIntervals = CisConfigUtil.clientPayload({}, {}, {})
-expect(noIntervals.Config.UpdateInterval.Player == 250, 'update interval has a default')
-expect(noIntervals.Config.UpdateInterval.Weapon == 250, 'weapon interval has a default')
+local defaultIntervals = CisDefaults.config().UpdateInterval
+expect(noIntervals.Config.UpdateInterval.Player == defaultIntervals.Player,
+    'update interval has the default')
+expect(noIntervals.Config.UpdateInterval.Weapon == defaultIntervals.Weapon,
+    'weapon interval has the default')
+expect(noIntervals.Config.UpdateInterval.Vehicle == defaultIntervals.Vehicle,
+    'vehicle interval has the default')
+expect(noIntervals.Config.UpdateInterval.VehicleProperties
+    == defaultIntervals.VehicleProperties,
+    'vehicle-properties interval has the default')
 
 -- Enable flags default to true when absent, and honour an explicit false.
 expect(CisConfigUtil.clientPayload({}, {}, {}).Config.Sync.Enabled == true, 'sync enabled by default')

@@ -135,6 +135,29 @@ exports('SetConfig', function(config, security, discord)
     if type(security) == 'table' and CisSecurityRebuild then
         CisSecurityRebuild()
     end
+    -- EVERY CONNECTED CLIENT IS TOLD, not just the ones that have not fetched
+    -- yet.
+    --
+    -- The client payload was pushed once, in answer to
+    -- `cis_libs:server:getData`, which a client fires once at connect. Anything
+    -- SetConfig changed after that point reached nobody: every connected client
+    -- carried on running the config it had fetched, on a server whose operator
+    -- had just told it something different. From the outside, "my config is being
+    -- ignored" and "my config arrived too late" are the same bug report.
+    --
+    -- Re-pushed rather than cached-and-diffed: SetConfig runs a handful of times
+    -- in a server's life (boot, and once per cis_libs restart), the payload is a
+    -- few hundred bytes, and a diff would have to be right about which keys a
+    -- client actually holds -- a client that connected between two SetConfigs
+    -- would be left with a half-updated config and no way to tell.
+    --
+    -- Guarded on the natives rather than assumed: this file is loaded in the
+    -- harness and by a consumer's VM in tests, where TriggerClientEvent may not
+    -- exist, and a missing native must not turn a config call into an error.
+    if CisConfigUtil and TriggerClientEvent then
+        TriggerClientEvent('cis_libs:client:getData', -1,
+            CisConfigUtil.clientPayload(Config, Security))
+    end
     Logging.Info(('cis_libs: configuration supplied by %s'):format(tostring(Config.__owner)))
     return true
 end)
