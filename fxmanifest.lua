@@ -136,4 +136,5 @@ server_scripts {
     'server/proxy.lua',
     'server/sync.lua',
     'server/initialize.lua',
+    'server/selfcheck.lua',
 }

@@ -850,6 +850,117 @@ do
     env.reset()
 end
 
+-- ============================== T8 · the boot self-check, and its own promise
+--
+-- The block's entire value is that it is ACTIONABLE. A check that reports a
+-- problem without saying what to change has moved the work from the operator to
+-- whoever wrote it, which is the opposite of what a boot self-check is for. So
+-- the last assertion here is the important one: EVERY problem line is followed
+-- by a line that names the change.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+
+    -- A three-resource world: one that needs a capability nobody provides, one
+    -- that names a slot that does not exist, and one that is simply fine.
+    local RESOURCES = {
+        'cis_core', 'cis_needs_db', 'cis_typo_slot', 'cis_fine', 'cis_libs',
+    }
+    local REQUIREMENTS = {
+        cis_needs_db = 'database',
+        cis_typo_slot = 'databse',
+    }
+    env.saved[#env.saved + 1] = { name = 'GetNumResources', value = rawget(_G, 'GetNumResources') }
+    env.saved[#env.saved + 1] = { name = 'GetResourceByFindIndex', value = rawget(_G, 'GetResourceByFindIndex') }
+    env.saved[#env.saved + 1] = { name = 'GetResourceMetadata', value = rawget(_G, 'GetResourceMetadata') }
+    env.saved[#env.saved + 1] = { name = 'GetResourceState', value = rawget(_G, 'GetResourceState') }
+    env.saved[#env.saved + 1] = { name = 'SetTimeout', value = rawget(_G, 'SetTimeout') }
+
+    GetNumResources = function() return #RESOURCES end
+    GetResourceByFindIndex = function(i) return RESOURCES[i + 1] end
+    GetResourceMetadata = function(name, key)
+        if key == 'cis_requires' then return REQUIREMENTS[name] end
+        return nil
+    end
+    GetResourceState = function() return 'started' end
+
+    -- Captured rather than run on a timer: the check is the thing under test,
+    -- so the test drives it.
+    local scheduled
+    SetTimeout = function(ms, fn) scheduled = { ms = ms, fn = fn } end
+
+    -- A provider that RESOLVES but hands back a method table missing most of its
+    -- contract. This is the real shape -- a resource in another repo exporting
+    -- a table -- and it is the one no test inside THIS repository can catch,
+    -- because the table comes from outside. It has to be a table provider, not
+    -- a bare callable: a bare callable is cached as `resolved` without ever
+    -- caching `methods`, so CisRegistry.missing() answers nil for it and the
+    -- check would be blind to exactly the case it exists for.
+    exports.cis_doortest = {
+        Get = function() return { state = function() end, lock = function() end } end,
+    }
+    CisRegistry.register('doors', 'cis_doortest:Get')
+
+    loadModule('server/selfcheck.lua')
+
+    check(scheduled ~= nil and scheduled.ms == 20000,
+        'T8: the check is scheduled on a 20s grace period, not run at once')
+    check(type(scheduled.fn) == 'function', 'T8: and it is a real callback')
+
+    env.lines = {}
+    scheduled.fn()
+
+    local body = table.concat(env.lines, '\n')
+    check(body:find('cis_needs_db', 1, true) ~= nil,
+        'T8: a consumer whose required capability has no provider is named')
+    check(body:find('no provider is registered', 1, true) ~= nil,
+        'T8: and it says the capability has no provider')
+    check(body:find('cis_typo_slot', 1, true) ~= nil,
+        'T8: a consumer naming a slot that does not exist is named')
+    check(body:find('not a slot this library knows', 1, true) ~= nil,
+        'T8: and it says the slot is unknown, rather than blaming the provider')
+    check(body:find('missing:', 1, true) ~= nil,
+        'T8: a slot that resolved but is missing a method is reported')
+
+    -- THE PROMISE. Every line that reports a problem must be followed by one
+    -- that names the change. Counted over the whole block rather than per
+    -- assertion, because a check that names the fix for one of three problems
+    -- reads identically to one that names all three.
+    local problems, fixes = 0, 0
+    for _, l in ipairs(env.lines) do
+        if l:find('[x]', 1, true) then problems = problems + 1 end
+        if l:find('fix:', 1, true) then fixes = fixes + 1 end
+    end
+    check(problems >= 3, ('T8: the block reported the problems (lines=%d)'):format(problems))
+    check(fixes >= problems,
+        ('T8: every problem line is followed by one that names the change (problems=%d fixes=%d)')
+            :format(problems, fixes))
+
+    -- And it does not cry wolf. A resource with no requirements and a slot with
+    -- nothing missing must produce no problems at all -- a self-check that always
+    -- finds something is one the operator learns to skip.
+    --
+    -- The doors provider is REPLACED with a complete one first. Same owner, so
+    -- re-registering is the update path rather than a conflict -- which is also
+    -- how a real fix would land. Without it this pass would still find the
+    -- half-built provider, and the "clean install" assertion would end up
+    -- asserting that the check lies.
+    env.lines = {}
+    RESOURCES = { 'cis_libs', 'cis_fine' }
+    local complete = {}
+    for method in pairs(CisRegistry.SLOTS.doors) do complete[method] = function() end end
+    exports.cis_doortest.Get = function() return complete end
+    CisRegistry.register('doors', 'cis_doortest:Get')
+    scheduled.fn()
+    local quiet = table.concat(env.lines, '\n')
+    check(quiet:find('[x]') == nil, 'T8: a clean install reports no problems')
+    check(quiet:find('no capability problems found', 1, true) ~= nil,
+        'T8: and says so explicitly, so the block being quiet is legible')
+
+    env.reset()
+end
+
 -- A DIFFERENT event name is a different handler, and must not be collapsed.
 do
     local env = newEnv({})
