@@ -170,6 +170,94 @@ do
     end
 end
 
+-- ================================================================ CisReady
+-- The whole contract of this gate is that it SETTLES ONCE. Three ways it did
+-- not: a failure after a success left both flags true, a late waiter learned
+-- it had failed but not why, and the immediate callback was not under pcall,
+-- so a consumer's throw escaped onReady() with every other waiter still
+-- queued behind it.
+--
+-- The module has had no tests at all until now, which is why "the whole module
+-- is untested" in the audit was true rather than an exaggeration. It was also
+-- unreachable until 185ad1c, when the runner started loading it.
+do
+    local R = CisReadyState
+
+    -- A settled gate is one or the other, never both.
+    R.reset()
+    R.markReady()
+    R.markFailed('too late')
+    expect(R.ready and not R.failed, 'a failure after a success is refused; the gate stays ready')
+
+    R.reset()
+    R.markFailed('config never arrived')
+    R.markReady()
+    expect(R.failed and not R.ready, 'a success after a failure is refused; the gate stays failed')
+    expect(R.reason == 'config never arrived', 'the failure reason survives a refused success')
+
+    -- A waiter arriving after the failure is told WHY, not just that it failed.
+    local readyNow, whyNow
+    R.onReady(function(ready, why)
+        readyNow, whyNow = ready, why
+    end)
+    expect(readyNow == false, 'a late waiter is told the gate failed')
+    expect(whyNow == 'config never arrived', 'a late waiter is told the reason it failed')
+
+    -- The immediate path runs a CONSUMER's function, so it is under pcall like the
+-- queued one. A throw here used to escape onReady() itself.
+--
+-- Tested from a freshly-settled gate in EACH state on purpose. Reaching it from
+-- the state left behind by the assertions above would have made this pass
+-- against the broken build for the wrong reason -- it only said the call
+-- returned, not that the throw was contained.
+    R.reset()
+    R.markReady()
+    local survivedReady = pcall(function()
+        R.onReady(function() error('consumer callback exploded') end)
+    end)
+    expect(survivedReady, 'a throwing immediate callback does not escape onReady when ready')
+
+    R.reset()
+    R.markFailed('nope')
+    local survivedFailed = pcall(function()
+        R.onReady(function() error('consumer callback exploded') end)
+    end)
+    expect(survivedFailed, 'a throwing immediate callback does not escape onReady when failed')
+
+    -- And a throwing waiter must not strand the waiters behind it.
+    R.reset()
+    local reached = {}
+    R.onReady(function() error('first waiter exploded') end)
+    R.onReady(function() reached[#reached + 1] = 'second' end)
+    R.markReady()
+    expect(#reached == 1, 'a throwing waiter does not strand the waiters behind it')
+
+    -- A queued waiter fires exactly once, and not before the gate settles.
+    R.reset()
+    local fired = 0
+    R.onReady(function() fired = fired + 1 end)
+    R.onReady(function() fired = fired + 1 end)
+    expect(fired == 0, 'a queued waiter does not fire before the gate settles')
+    R.markReady()
+    expect(fired == 2, 'both queued waiters fire when the gate becomes ready')
+    R.markReady()
+    expect(fired == 2, 'a second markReady does not re-fire them')
+
+    -- wait() short-circuits on a settled gate. Deliberately NOT testing the
+    -- polling path: sleep() is a no-op outside FiveM, so a real wait would spin
+    -- against os.clock until its deadline.
+    expect(R.wait(0) == true, 'wait answers immediately once the gate is ready')
+    R.reset()
+    R.markFailed('nope')
+    expect(R.wait(0) == false, 'wait answers immediately once the gate has failed')
+
+    -- Hand the gate back the way it was found, because the suites that run
+    -- after this one read it.
+    R.reset()
+end
+
+-- 
+-- =
 -- =================================================================== CisRate
 -- The three limiters differ in boundary behaviour and nothing else. Options
 -- are `limit` and `windowSec`, and `now` is in SECONDS -- an earlier draft of

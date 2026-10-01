@@ -11,6 +11,10 @@
 CisReadyState = {
     ready = false,
     failed = false,
+    -- WHY it failed, kept so a consumer that arrives after the fact is told the
+    -- reason and not just the fact. It used to be dropped on the floor, which
+    -- left "cis_libs never became ready" with nothing behind it.
+    reason = nil,
     waiters = {},
 }
 
@@ -35,7 +39,37 @@ end
 function CisReadyState.reset()
     CisReadyState.ready = false
     CisReadyState.failed = false
+    CisReadyState.reason = nil
     CisReadyState.waiters = {}
+end
+
+-- Run one waiter's callback, under pcall, always.
+--
+-- pcall everywhere, including on the IMMEDIATE path, because the callback is
+-- the consumer's code and this is a gate rather than a sandbox: a consumer whose
+-- callback throws must not be able to strand the waiters queued behind it, and
+-- must not have its exception surface from a call whose entire job is to
+-- register interest. `markReady` already did this for queued waiters; the
+-- immediate call did not, and a throw there propagated straight out of
+-- onReady() into whatever was configuring a zone.
+local function callWaiter(context, cb, ...)
+    local ok, err = pcall(cb, ...)
+    if not ok and print then
+        print(('[cis_libs] %s error: %s'):format(context, err))
+    end
+end
+
+-- Ready is terminal. Both setters refuse once the gate has settled, in EITHER
+-- direction, so `ready` and `failed` can never both be true.
+--
+-- They used to be able to: markReady set `failed = false` and markFailed set
+-- `failed = true` without looking at `ready`, so a failure arriving after a
+-- success left the gate reporting itself both ready and failed. Every reader
+-- checks `ready` first and answered `true` -- a consumer was told its API was
+-- available while `Cis.isFailed` said otherwise. There is no second transition
+-- to make, because nothing in the library ever un-readies the gate.
+local function settle()
+    return CisReadyState.ready or CisReadyState.failed
 end
 
 -- Waiters are released exactly once: the list is swapped out before they run,
@@ -43,18 +77,15 @@ end
 -- cannot see a half-drained list. pcall around each one because a consumer's
 -- callback throwing must not strand the waiters behind it.
 function CisReadyState.markReady()
-    if CisReadyState.ready then
+    if settle() then
         return
     end
     CisReadyState.ready = true
-    CisReadyState.failed = false
+    CisReadyState.reason = nil
     local waiters = CisReadyState.waiters
     CisReadyState.waiters = {}
     for i = 1, #waiters do
-        local ok, err = pcall(waiters[i], true)
-        if not ok and print then
-            print(('[cis_libs] ready waiter error: %s'):format(err))
-        end
+        callWaiter('ready waiter', waiters[i], true)
     end
     if Cis then
         Cis.isReady = true
@@ -65,13 +96,17 @@ end
 -- Failure is terminal and distinct from "not yet". wait() returns false for
 -- both, but only `failed` is permanent: it means the library gave up waiting
 -- for its configuration and the API is unavailable for the rest of the session.
--- Nothing retries.
+-- Nothing retries, and nothing can undo it -- not even a later markReady.
 function CisReadyState.markFailed(reason)
+    if settle() then
+        return
+    end
     CisReadyState.failed = true
+    CisReadyState.reason = reason
     local waiters = CisReadyState.waiters
     CisReadyState.waiters = {}
     for i = 1, #waiters do
-        pcall(waiters[i], false, reason)
+        callWaiter('failure waiter', waiters[i], false, reason)
     end
     if Cis then
         Cis.isReady = false
@@ -93,13 +128,23 @@ function CisReadyState.wait(timeout)
     return CisReadyState.ready
 end
 
+--- Register interest in the gate.
+---
+--- @param cb function  called `(true)` when the gate becomes ready, or
+---         `(false, reason)` when it has failed. The reason is passed to a
+---         waiter arriving AFTER the failure as well as to one queued before
+---         it -- it used to be dropped for the late case, which is the one a
+---         consumer starting up late actually hits.
 function CisReadyState.onReady(cb)
+    if type(cb) ~= 'function' then
+        return
+    end
     if CisReadyState.ready then
-        cb(true)
+        callWaiter('ready waiter', cb, true)
         return
     end
     if CisReadyState.failed then
-        cb(false)
+        callWaiter('failure waiter', cb, false, CisReadyState.reason)
         return
     end
     CisReadyState.waiters[#CisReadyState.waiters + 1] = cb
