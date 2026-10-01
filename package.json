@@ -9,7 +9,8 @@
     "test:api": "node tools/validate-api.js --api api.lua --resource .",
     "test:api-selftest": "node tools/validate-api.js --selftest",
     "test:all": "npm run test:syntax && npm run test && npm run test:api-selftest && npm run test:api",
-    "test:syntax": "node tools/syntax-check.js"
+    "test:syntax": "node tools/syntax-check.js",
+    "bench": "node bench/run.js"
   },
   "devDependencies": {
     "fengari": "^0.1.5"
