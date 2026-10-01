@@ -141,3 +141,52 @@ jobs:
             fi
           done < <(find . -name '*.lua' -not -path './node_modules/*')
           exit $status
+
+  # T1 -- REAL LINT.
+  #
+  # `tools/syntax-check.js` only PARSES. It cannot see an unused variable, a
+  # shadowed local, a global written without `local`, or a misspelled native --
+  # and a misspelled native is a runtime nil-index in a different subsystem
+  # entirely, which is the class of defect that costs a day.
+  #
+  # luacheck is installed HERE and not as an npm dependency, so the library
+  # keeps its zero-runtime-dependency property.
+  luacheck:
+    name: luacheck (real lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Lua and luacheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.4 luarocks
+          sudo luarocks install luacheck
+
+      - name: Lint
+        # --codes so a finding is greppable and a suppression can be argued
+        # with in review, rather than a count.
+        run: luacheck . --codes
+
+  # T4 -- the pure modules under a REAL Lua 5.4.
+  #
+  # fengari is Lua 5.3 semantics in JavaScript, which is close enough to be
+  # dangerous. Two differences already bit this repository: fengari's
+  # string.format('%d', x) rejects a float outright where real Lua 5.4 accepts
+  # any float with an exact integer representation, and Lua 5.4 has features
+  # (integer division, <close>, <const>) that a change can use, that pass here,
+  # and that then fail on a server.
+  #
+  # Both directions are wrong, so this runs the shared/ modules under the
+  # interpreter a server actually uses.
+  lua54:
+    name: lua 5.4 (pure modules)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Lua 5.4
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lua5.4
+
+      - name: Load every pure module and run the smoke check
+        run: lua5.4 test/lua54.lua
