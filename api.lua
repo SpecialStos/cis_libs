@@ -517,11 +517,14 @@ return {
         },
 
         -- ----------------------------------------------------------- security
+        -- L-C24: `opts` is forwarded, and the registration result is returned.
+        -- Both used to be dropped -- so a consumer's rate limit was silently
+        -- ignored and a refusal was indistinguishable from a success.
         SecureNetOn = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Cis.net.on(name, fn)',
+            use = 'Cis.net.on(name, fn, opts) -> true when the event was bound',
             realm = 'server',
-            signature = '(name, fn)',
+            signature = '(name, fn, opts)',
         },
         SecurityReport = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,

@@ -76,6 +76,9 @@ Target.Create = function(zoneType, name, coords, size, options)
         return false, 'cis_libs never became ready'
     end
     options = options or {}
+    -- Read HERE, while the export is executing and GetInvokingResource() still
+    -- names the consumer. Read later it names whatever called last.
+    local owner = GetInvokingResource() or 'cis_libs'
     if not targetEnabled() then
         return false, 'target disabled by config'
     end
@@ -109,17 +112,27 @@ Target.Create = function(zoneType, name, coords, size, options)
         options = options,
     }
 
+    -- [D3] REFUSED, WITH THE HOLDER NAMED -- same rule as zones, and the same
+    -- reason for refusing rather than namespacing: namespacing changes what
+    -- `remove(name)` means.
+    --
+    -- Here it matters more than for zones, because the zone LIVES IN THE
+    -- PROVIDER. Replacing the bookkeeping entry leaves a real zone in ox_target
+    -- that only an ox_target restart clears, and it is one a player can still
+    -- interact with.
+    local holder = CreatedZones[name] and CreatedZones[name].owner
+    if holder and holder ~= owner then
+        return false, ('target %q is already registered by %s; pick a different name')
+            :format(name, tostring(holder))
+    end
+
     local ok, reason = CisRegistry.call('target', 'create', spec)
     if not ok or reason == false then
         return false, ok and 'the target provider refused this request' or reason
     end
 
     CreatedZones[name] = spec
-    -- L-C7: the owner, captured while the EXPORT is executing and so while
-    -- GetInvokingResource() still names the consumer. Read it any later and it
-    -- names whatever called last, which is how a zone ends up owned by a resource
-    -- that has never heard of it.
-    spec.owner = GetInvokingResource() or 'cis_libs'
+    spec.owner = owner
     CisOwned.track(owned, spec.owner, 'target', name)
     return true
 end

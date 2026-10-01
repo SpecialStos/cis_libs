@@ -150,6 +150,38 @@ function CisZonesCreate(kind, name, a, b, options)
     if type(a) ~= 'vector3' and type(a) ~= 'vector4' and type(a) ~= 'table' then
         return false, ('coords arrived as %s'):format(type(a))
     end
+    -- [D3] A NAME HELD BY ANOTHER RESOURCE IS REFUSED, NOT REPLACED.
+    --
+    -- Namespacing (`owner:name`) was the other option and it was rejected because
+    -- it changes what `remove(name)` means -- a caller writing `remove('shop')`
+    -- would silently stop working, which is worse than a loud refusal.
+    --
+    -- The behaviour being replaced is that the second registration overwrote the
+    -- first: `zones[name]` and the grid entry both became the new zone, so
+    -- `remove('shop')` removed the SECOND resource's zone while the first
+    -- resource's kept firing from a record nothing could reach. Two resources, one
+    -- name, and neither able to see the other.
+    --
+    -- The SAME owner re-creating its own zone is the update path, not a conflict,
+    -- and is explicitly allowed -- refusing it would break every resource that
+    -- rebuilds a zone on a reconfigure, which is the common case.
+    -- Read HERE, before anything can yield or reach another resource: this is the
+    -- only point at which GetInvokingResource() still names the caller.
+    local zoneOwner = GetInvokingResource() or 'cis_libs'
+    local holder = zones[name] and zones[name].owner
+    if holder and holder ~= zoneOwner then
+        return false, ('zone %q is already registered by %s; pick a different name')
+            :format(name, tostring(holder))
+    end
+    -- A BOX WITH NO SIZE IS REFUSED, NOT DEFAULTED (L-C24).
+    --
+    -- `size` arrives from a consumer's exports call, and the boundary can drop a
+    -- value entirely. Indexing the nil raised inside this file -- so the stack
+    -- trace landed in the CONSUMER's log naming a file it does not own, for a
+    -- mistake the caller could have been told about in a return value.
+    if kind == 'box' and (b == nil) then
+        return false, 'a box zone needs a size; it arrived as nil'
+    end
     if zones[name] then
         CisZonesRemove(name)
     end
@@ -157,9 +189,7 @@ function CisZonesCreate(kind, name, a, b, options)
         name = name,
         kind = kind,
         -- L-C7: recorded so a consumer's stop can take its zones with it.
-        -- Read inside the resource that called the export, which is the only
-        -- place this is true.
-        owner = GetInvokingResource() or 'cis_libs',
+        owner = zoneOwner,
         onEnter = options.onEnter,
         onExit = options.onExit,
         inside = options.inside,
@@ -229,7 +259,12 @@ function CisZonesCreate(kind, name, a, b, options)
         zone.radius = b or 1.0
         zone.aabb = CisGrid.aabbFromCenter(zone.cx, zone.cy, zone.cz, zone.radius, zone.radius, zone.radius)
     else
-        return false
+        -- L-C24: an unknown kind is a refusal WITH A REASON. A bare `false`
+        -- leaves a caller with nothing to print and nowhere to look: the kind
+        -- came from their own code, so the reason has to name what they passed
+        -- and what the three accepted values are.
+        return false, ('unknown zone kind %q; valid kinds are box, poly and sphere')
+            :format(tostring(kind))
     end
 
     register(zone)
@@ -267,7 +302,14 @@ function CisZonesContains(name, point)
     if not zone then
         return false
     end
-    return contains(zone, asVec3(point))
+    -- L-C24: a point the boundary dropped must be a `false`, not a throw. Both
+    -- a nil name and a nil point arrive the same way and mean the same thing to
+    -- a caller: they did not get their argument through.
+    local p = asVec3(point)
+    if not p then
+        return false
+    end
+    return contains(zone, p)
 end
 
 local function refreshInside(coords)

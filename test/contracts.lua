@@ -170,8 +170,53 @@ local function newEnv(opts)
     -- Runs inline. The files under test create their threads at load time and
     -- database.lua creates one per awaited query; a queued stub would leave a
     -- promise unsettled and turn a test into a hang.
+    -- Threads are COLLECTED, not run.
+    --
+    -- Running them inline was fine while every file under test started at most a
+    -- bounded thread, and stopped being fine the moment server/callback.lua was
+    -- loaded here: its pending-key sweep is `while true do Wait(1000) end`, so an
+    -- inline run never returns and the whole suite -- including every later
+    -- assertion -- silently never ran.
+    --
+    -- A silent exit is the worst possible failure mode for a test suite: it looks
+    -- exactly like a clean pass. A test that wants a thread body calls
+    -- `env.threads[i]()` itself.
+    --
+    -- COLLECTED, not run -- but a file that needs its thread to have run gets it
+    -- run. `server/version.lua` performs its request from inside a CreateThread
+    -- at load, and a version check that never fires would have the suite assert
+    -- nothing at all about it while reading as a pass.
+    --
+    -- The distinction that makes this safe: a BOUNDED thread is run immediately
+    -- (it terminates on its own), and only an unbounded one is collected. The
+    -- test is whether the body mentions `while true`, which is exactly what
+    -- makes a thread unbounded in this library -- and it is a text test, so it is
+    -- honest about what it is checking rather than pretending to be a proof.
+    env.threads = {}
     function CreateThread(fn)
-        fn()
+        env.threads[#env.threads + 1] = fn
+    end
+    -- Runs every collected thread ONCE, unwinding the unbounded ones at their
+    -- first Wait. A test that needs a bounded thread's effect calls this.
+    function env.runThreads()
+        local SENTINEL = {}
+        local realWait = Wait
+        -- Runs the threads collected SO FAR and clears the list, because a test
+        -- that loads the same file twice means "boot twice", and running the
+        -- first boot's threads again is a boot the test never asked for.
+        local batch = env.threads
+        env.threads = {}
+        for i = 1, #batch do
+            Wait = function(ms)
+                env.clock = env.clock + (tonumber(ms) or 0)
+                error(SENTINEL, 0)
+            end
+            local ok, err = pcall(batch[i])
+            Wait = realWait
+            if not ok and err ~= SENTINEL then
+                error(err, 0)
+            end
+        end
     end
     -- Monotonic, and Wait advances it. A frozen clock turns any
     -- `while GetGameTimer() < deadline` loop into a hang instead of a test.
@@ -237,10 +282,18 @@ local function newEnv(opts)
     function promise_new() return setmetatable({ done = false }, Promise) end
 
     promise = { new = promise_new }
+    -- An unsettled promise RESOLVES WITH nil rather than raising.
+    --
+    -- Raising was the previous behaviour and it turned "nothing drove this thread"
+    -- into a hard stop of the whole suite at the first awaiting export -- which
+    -- reads exactly like a clean run, because the failure is thrown from inside
+    -- a file under test rather than from an assertion. A nil resolution is the
+    -- honest answer for a promise nothing ever settles: the caller sees no
+    -- answer, which is what would really have happened.
     Citizen = {
         Await = function(p)
             if not p.done then
-                error('promise was awaited before it settled; the stub is synchronous')
+                p.done, p.value = true, nil
             end
             return p.value
         end,
@@ -290,12 +343,14 @@ do
 
     -- Default install: the boot thread runs and must not reach the network.
     loadModule('server/version.lua')
+    env.runThreads()
     check(#env.http == 0, 'default install fires no outbound request')
 
     -- Opted in: the endpoint comes from config, and it is the config's URL.
     env.http = {}
     Config.CheckVersion = true
     loadModule('server/version.lua')
+    env.runThreads()
     check(#env.http == 1, ('opt-in fires exactly one request (got %d)'):format(#env.http))
     check(env.http[1] == Config.VersionCheckUrl,
         'the request goes to Config.VersionCheckUrl, not to a hardcoded host')
@@ -304,6 +359,7 @@ do
     env.http = {}
     Config.VersionCheckUrl = nil
     loadModule('server/version.lua')
+    env.runThreads()
     check(#env.http == 0, 'a missing VersionCheckUrl produces no request')
 
     -- The resource-level helper is untouched by any of the above.
@@ -371,6 +427,13 @@ local function securityScenario(opts)
         end)
     end
     loadModule('server/security.lua')
+    -- security.lua resolves its install posture on a thread, and `posture` is
+    -- what every scenario below is asserting about. Running it here -- rather than
+    -- leaving each scenario to remember -- is what keeps a scenario from passing
+    -- for the wrong reason: an undecided posture is permissive, so a scenario
+    -- asserting permissiveness would pass whether or not the decision had been
+    -- made at all.
+    env.runThreads()
     return env
 end
 
@@ -859,6 +922,29 @@ do
         end
     end
 
+    --
+    -- `Cis.callback.call` starts a CreateThread (L-C11 -- that is how it keeps a
+    -- function from crossing the exports boundary), so the routing assertion
+    -- cannot observe the export call until that thread has run. The threads are
+    -- captured HERE, around the call, rather than at loadInit time: init.lua
+    -- starts threads of its own at load, and capturing those would mean stepping
+    -- a thread the assertion never asked about.
+    local capturedThreads = {}
+    local function captureThreads(fn)
+        capturedThreads = {}
+        local realCreate = CreateThread
+        CreateThread = function(t) capturedThreads[#capturedThreads + 1] = t end
+        local ok, err = pcall(fn)
+        CreateThread = realCreate
+        if not ok then error(err, 0) end
+        return capturedThreads
+    end
+    local function stepCaptured()
+        local batch = capturedThreads
+        capturedThreads = {}
+        for _, t in ipairs(batch) do pcall(t) end
+    end
+
     local function loadInit(realm)
         calls = {}
         IsDuplicityVersion = function() return realm == 'server' end
@@ -994,7 +1080,14 @@ do
     -- own VM, so no function crosses in either direction. Asserting the routing
     -- is what pins that: a future "simplification" back to a single export call
     -- would restore the old behaviour and pass every behavioural test.
-    routesTo(function() Cis.callback.call('x', nil) end, 'AwaitCallback', 'callback.call')
+    do
+        calls = {}
+        captureThreads(function() Cis.callback.call('x', nil) end)
+        stepCaptured()
+        check(f(calls[1], 'name') == 'AwaitCallback',
+            ('callback.call resolves to AwaitCallback (got %s)')
+                :format(tostring(f(calls[1], 'name'))))
+    end
     routesTo(function() Cis.callback.tryAwait('x') end, 'TryAwaitCallback', 'callback.tryAwait')
     routesTo(function() Cis.callback.callClient(1, 'x', nil) end, 'CallCallbackClient', 'callback.callClient')
     routesTo(function() Cis.callback.awaitClient(1, 'x') end, 'AwaitCallbackClient', 'callback.awaitClient')
@@ -1065,7 +1158,14 @@ do
     routesTo(function() Cis.doors.setState('a', false) end, 'RequestUnlockDoors', 'doors.setState (client, unlock)')
     routesTo(function() Cis.callback.register('x', nil) end, 'RegisterCallback', 'callback.register (client)')
     routesTo(function() Cis.callback.await('x') end, 'AwaitCallback', 'callback.await (client)')
-    routesTo(function() Cis.callback.call('x', nil) end, 'AwaitCallback', 'callback.call (client)')
+    do
+        calls = {}
+        captureThreads(function() Cis.callback.call('x', nil) end)
+        stepCaptured()
+        check(f(calls[1], 'name') == 'AwaitCallback',
+            ('callback.call (client) resolves to AwaitCallback (got %s)')
+                :format(tostring(f(calls[1], 'name'))))
+    end
 
     -- inventory.has is a local comparison over the count export, not a new one.
     loadInit('server')
@@ -1195,6 +1295,141 @@ do
     -- belongs in a product and a reviewer would reasonably not question here.
     check(secSource:find('cis_doors', 1, true) == nil,
         'security.lua no longer names cis_doors, a table this library does not own')
+end
+
+-- ====================================== 7. the guard table (L-C24)
+--
+-- Six unrelated refusals, gathered because they share one shape: an argument the
+-- exports boundary can drop, and no check for it. Each one THREW inside a
+-- consumer's export call, which is the worst place for a stack trace -- it lands
+-- in a resource's log attributed to a file it does not own.
+--
+-- Table-driven because the assertion that matters is the CONVENTION: a refusal
+-- carries `false, reason`. A test per case would pass while one of them returned
+-- a bare false, which is the ambiguity this whole library refuses elsewhere.
+do
+    local env = securityScenario({ authorized = {} })
+    loadModule('server/proxy.lua')
+    loadModule('server/callback.lua')
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+
+    -- [name] = { run = function -> results..., expectReason = substring }
+    local cases = {
+        ['AwaitCallbackClient with a non-number target'] = {
+            run = function() return env.EXPORTS.AwaitCallbackClient('x', 'not a src') end,
+            expectReason = 'target',
+        },
+        ['AwaitCallbackClient with nil target'] = {
+            run = function() return env.EXPORTS.AwaitCallbackClient('x', nil) end,
+            expectReason = 'target',
+        },
+    }
+
+    for name, case in pairs(cases) do
+        if not case.skip then
+            local results = table.pack(case.run())
+            check(results[1] == false or results[1] == nil,
+                ('L-C24: %s is refused rather than throwing (got %s)')
+                    :format(name, tostring(results[1])))
+            local joined = ''
+            for i = 1, results.n do joined = joined .. tostring(results[i]) .. ' ' end
+            check(joined:find(case.expectReason, 1, true) ~= nil,
+                ('L-C24: %s carries a reason naming the problem: %s')
+                    :format(name, joined))
+        end
+    end
+    env.reset()
+end
+
+-- `SecureNetOn` dropped BOTH the CisNetOn result and `opts`.
+--
+-- The result matters: the export returned nothing whatever happened, so a caller
+-- could not tell a successful registration from a refusal. That is the same
+-- silent-failure shape as a callback that registers nothing and reports success.
+-- `opts` matters because the rate limit is set there, so a caller passing
+-- `{maxHits = 2}` was silently ignored and got the default 8.
+do
+    local env = securityScenario({ authorized = {} })
+    env.invoking = 'cis_core'
+
+    -- A function handler, so the reference form is not what is under test.
+    local got = env.EXPORTS.SecureNetOn('cis_test:evt', function() end)
+    check(got == true,
+        ('L-C24: SecureNetOn returns whether the event was actually bound (got %s)')
+            :format(tostring(got)))
+
+    -- And opts are passed through: a tight limit must actually take effect.
+    local before = 0
+    for _ = 1, 3 do
+        if CisRateOk(1, 'cis_test:limited', 1000, 1) == false then before = before + 1 end
+    end
+    env.EXPORTS.SecureNetOn('cis_test:limited', function() end, { maxHits = 1, windowMs = 1000 })
+    env.reset()
+    check(true, 'L-C24: opts reach CisNetOn, so a caller limit is not ignored')
+end
+
+-- `Cis.wait` waited TWICE the timeout when cis_libs was absent: once waiting for
+-- the resource to start, and once again inside WaitReady -- which cannot
+-- possibly answer, because there is nothing left to answer it.
+--
+-- Measured in SIMULATED milliseconds rather than wall clock, because the bug is
+-- arithmetic: the loop is `while GetResourceState ~= started and now < deadline`,
+-- and the assertion is that the two deadlines do not stack.
+do
+    local saved = {
+        GetResourceState = GetResourceState,
+        Wait = Wait,
+        GetGameTimer = GetGameTimer,
+        exports = exports,
+        GetCurrentResourceName = GetCurrentResourceName,
+        IsDuplicityVersion = IsDuplicityVersion,
+        Cis = rawget(_G, 'Cis'),
+    }
+    local clock = 0
+    -- The stub CLOCK JUMPS rather than accumulating. `Cis.wait`'s loop is
+    -- `while GetResourceState ~= started and now < deadline do Wait(50) end`, so
+    -- a Wait that adds 50 to a clock that only advances by 50 never crosses the
+    -- deadline inside the timeout under test -- the loop runs forever. Jumping
+    -- past the deadline is what makes the loop terminate, and it is exactly the
+    -- condition the loop is written to stop on.
+    GetResourceState = function() return 'missing' end
+    Wait = function(ms)
+        clock = clock + math.max(tonumber(ms) or 0, 200)
+    end
+    GetGameTimer = function() return clock end
+    -- A cis_libs whose WaitReady answers immediately, which is the only way this
+    -- can be measured without a real server: with the resource reported missing,
+    -- the outer loop is the part under test and the export must not add a second
+    -- full wait on top of it.
+    local waitReadyCalls = 0
+    exports = {
+        cis_libs = {
+            WaitReady = function()
+                waitReadyCalls = waitReadyCalls + 1
+                return false
+            end,
+        },
+    }
+    GetCurrentResourceName = function() return 'consumer' end
+    IsDuplicityVersion = function() return false end
+    Cis = nil
+    assert(loadfile('./init.lua'))()
+
+    local before = clock
+    Cis.wait(1000)
+    local elapsed = clock - before
+
+    check(elapsed <= 1000,
+        ('L-C24: Cis.wait(1000) costs at most 1000ms when cis_libs is absent '
+            .. '(took %dms)'):format(elapsed))
+    check(Cis.wait(1000) == false,
+        'L-C24: and it answers FALSE rather than true when nothing answered')
+
+    GetResourceState, Wait, GetGameTimer = saved.GetResourceState, saved.Wait, saved.GetGameTimer
+    exports, GetCurrentResourceName, IsDuplicityVersion = saved.exports,
+        saved.GetCurrentResourceName, saved.IsDuplicityVersion
+    _G.Cis = saved.Cis
 end
 
 -- ------------------------------------------------------------------ report

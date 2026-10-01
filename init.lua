@@ -85,16 +85,37 @@ function Cis.ready(cb, timeout)
 end
 
 function Cis.wait(timeout)
+    timeout = timeout or 15000
     if IS_SELF and CisReadyState then
         return CisReadyState.wait(timeout)
     end
+    -- ONE DEADLINE FOR THE WHOLE CALL (L-C24).
+    --
+    -- It used to be two: the loop below waited up to `timeout` for cis_libs to
+    -- start, and then WaitReady waited up to `timeout` again for a resource that
+    -- -- having just failed to start -- cannot possibly answer. So a caller who
+    -- asked for a one-second wait got two, and a caller who asked for fifteen
+    -- got thirty. Every `Cis.ready(timeout)` inherited the doubling, and the
+    -- doubling was invisible: the call simply took longer than the number the
+    -- caller had written down.
+    --
+    -- ONE deadline, and the export is asked only for the time that is actually
+    -- left. If cis_libs never started there is nothing left to ask, so it is not
+    -- asked at all -- which is also the only way to avoid a second blocking
+    -- export call to a resource that is known to be absent.
+    local deadline = GetGameTimer() + timeout
     if GetResourceState(RESOURCE) ~= 'started' then
-        local deadline = GetGameTimer() + (timeout or 15000)
         while GetResourceState(RESOURCE) ~= 'started' and GetGameTimer() < deadline do
             Wait(50)
         end
     end
-    local ok = tryExport('WaitReady', timeout or 15000)
+    local remaining = deadline - GetGameTimer()
+    if remaining <= 0 then
+        -- The wait is over. Answering `false` is the honest result: whatever the
+        -- caller wanted to be ready by now is not.
+        return false
+    end
+    local ok = tryExport('WaitReady', remaining)
     return ok == true
 end
 
@@ -361,8 +382,11 @@ else
     -- invocation raises inside the protected call. RegisterNetEvent plus your
     -- own source check is the working form today; see the known-defect list in
     -- COMPATIBILITY.md.
-    function Cis.net.on(name, fn)
-        return exportCall('SecureNetOn', name, fn)
+    -- `opts` is forwarded so a consumer's rate limit is not silently ignored, and
+    -- the registration result is returned so a refusal is visible rather than
+    -- indistinguishable from success.
+    function Cis.net.on(name, fn, opts)
+        return exportCall('SecureNetOn', name, fn, opts)
     end
 end
 

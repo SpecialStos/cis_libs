@@ -373,10 +373,31 @@ end)
 -- a client that never replies and never trips the timeout would park the
 -- coroutine for the life of the resource.
 exports('AwaitCallbackClient', function(name, target, ...)
+    -- L-C24 · THE TARGET IS VALIDATED BEFORE ANYTHING IS ALLOCATED.
+    --
+    -- A `target` that is not a player id used to be stored in the pending entry
+    -- and handed to TriggerClientEvent, which either raised inside the exports
+    -- call or addressed nobody. Either way the caller -- who is inside THIS
+    -- resource, on its own thread -- got a stack trace naming a file it does not
+    -- own, for a mistake it could have been told about in a return value.
+    if type(target) ~= 'number' or target <= 0 then
+        return false, ('callback %q: target must be a player id, got %s')
+            :format(tostring(name), tostring(target))
+    end
     local p = promise.new()
     local key = CisPending.alloc(pending, { promise = p, target = target }, GetGameTimer() + timeoutMs())
     TriggerClientEvent('cis_libs:cb', target, name, key, ...)
-    return table.unpack(Citizen.Await(p))
+    -- The reply arrives PACKED, so a nil in the middle of it survives. Unpacked
+    -- with the count for the same reason `invoke` returns a pack: `return ...`
+    -- through a vararg truncates at the first nil.
+    local settled, results = Citizen.Await(p)
+    if not settled then
+        return false, ('callback %q: %s'):format(tostring(name), tostring(results))
+    end
+    if type(results) == 'table' and results.n then
+        return true, table.unpack(results, 1, results.n)
+    end
+    return true, results
 end)
 
 -- Deliberately unchecked, and the only registration path that is. It exists

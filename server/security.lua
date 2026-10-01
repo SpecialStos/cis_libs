@@ -643,8 +643,19 @@ function CisSecurityReport(src, reason)
     return false
 end
 
-exports('SecureNetOn', function(name, fn)
-    CisNetOn(name, fn)
+-- L-C24 · THE RESULT IS RETURNED, AND `opts` IS PASSED THROUGH.
+--
+-- Both were dropped. The result is the worse of the two: an export that returns
+-- nothing whatever happened cannot be told apart from a REFUSAL, so a caller
+-- registering a handler that was never registered had no way to find out. That
+-- is the same silent-success shape as a callback that registers nothing and
+-- reports success.
+--
+-- `opts` matters just as much in practice and much less visibly: the rate limit
+-- is set there, so a consumer passing `{maxHits = 2}` was silently ignored and
+-- got the default 8. A security control the caller believes they set and did not.
+exports('SecureNetOn', function(name, fn, opts)
+    return CisNetOn(name, fn, opts)
 end)
 
 -- Exposed so a companion resource can ask "would a mutation from me be

@@ -1066,6 +1066,142 @@ do
     env.reset()
 end
 
+-- ============================= 8. zone and target names are NOT global (L-C23)
+--
+-- [D3] Namespacing would change what `remove(name)` means, so the choice is to
+-- REFUSE a name another resource already holds, and say who holds it.
+--
+-- The behaviour being replaced is worse than it looks. Resource B creating a zone
+-- called 'shop' did not fail and did not warn: it overwrote B's own table entry,
+-- so from then on `remove('shop')` removed B's zone while A's kept firing from the
+-- grid, and A's exit callbacks went to A for a zone A had lost. Two resources,
+-- one name, and neither able to see the other.
+do
+    local env = zoneEnv()
+
+    env.invoking = 'res_a'
+    local first = exports.CreateZone('box', 'shop',
+        { x = 0.0, y = 0.0, z = 0.0 }, { x = 20.0, y = 20.0, z = 20.0 }, {})
+    check(first == true, 'L-C23: the first resource creates a zone with the name')
+
+    -- The SAME resource re-creating its own zone is the update path, not a
+    -- conflict. Refusing it would break every resource that legitimately rebuilds
+    -- a zone, which is the common case on a reconfigure.
+    env.invoking = 'res_a'
+    local again = exports.CreateZone('box', 'shop',
+        { x = 5.0, y = 0.0, z = 0.0 }, { x = 20.0, y = 20.0, z = 20.0 }, {})
+    check(again == true, 'L-C23: the same owner may re-create its own zone')
+
+    -- A DIFFERENT resource is refused, and told who holds it.
+    env.invoking = 'res_b'
+    local clash, why = exports.CreateZone('box', 'shop',
+        { x = 0.0, y = 0.0, z = 0.0 }, { x = 20.0, y = 20.0, z = 20.0 }, {})
+    check(clash == false, 'L-C23: a DIFFERENT owner is refused the name')
+    check(tostring(why):find('res_a', 1, true) ~= nil,
+        ('L-C23: and the reason names the holder, so it is actionable: %s')
+            :format(tostring(why)))
+
+    -- And the refused zone really did not replace the live one. Coordinates are
+    -- the observable: the zone B tried to create was at the origin, A's moved.
+    check(exports.ZoneContains('shop', { x = 5.0, y = 0.0, z = 0.0 }) == true,
+        'L-C23: and the FIRST zone is still the one registered under that name')
+    check(exports.RemoveZone('shop') == true, 'L-C23: remove() works on the surviving zone')
+    env.reset()
+end
+
+-- The same rule for TARGETS, where the consequence is worse: the zones live in
+-- ox_target, so a silent replacement leaves an orphaned zone in the world that
+-- only a restart of ox_target clears.
+do
+    local env = newEnv({})
+    env.invoking = 'res_a'
+    -- A target provider that records what it was asked to remove, so the test can
+    -- assert on the effect rather than on cis_libs's bookkeeping.
+    local created, removed = {}, {}
+    env.foreign('cis_bridge').CisBridgeTargetOx = function()
+        return {
+            name = function() return 'ox_target' end,
+            available = function() return true end,
+            create = function(spec)
+                created[#created + 1] = spec.name
+                return true
+            end,
+            remove = function(name)
+                removed[#removed + 1] = name
+                return true
+            end,
+        }
+    end
+    -- `Target.Create` waits on CisReadyState before it will do anything, and the
+    -- base harness leaves it unset. Set here rather than in the harness because a
+    -- test that needs readiness should SAY it needs readiness -- a harness that
+    -- always reported ready would make every other test pass for the wrong
+    -- reason if that guard ever regressed.
+    env.saved[#env.saved + 1] = { name = 'CisReadyState', value = rawget(_G, 'CisReadyState') }
+    CisReadyState = { wait = function() return true end, ready = true, failed = false }
+    loadModule('client/target.lua')
+    CisRegistry.register('target', 'cis_bridge:CisBridgeTargetOx')
+
+    local CreateTarget = env.EXPORTS.CreateTarget
+    local okA = CreateTarget('box', 't', { x = 0.0, y = 0.0, z = 0.0 }, { x = 2.0, y = 2.0, z = 2.0 }, {})
+    check(okA == true, 'L-C23: the first resource creates a target')
+
+    env.invoking = 'res_a'
+    check(CreateTarget('box', 't', { x = 1.0, y = 0.0, z = 0.0 }, { x = 2.0, y = 2.0, z = 2.0 }, {}) == true,
+        'L-C23: the same owner may re-create its own target')
+
+    env.invoking = 'res_b'
+    local okB, whyB = CreateTarget('box', 't', { x = 0.0, y = 0.0, z = 0.0 }, { x = 2.0, y = 2.0, z = 2.0 }, {})
+    check(okB == false, 'L-C23: a DIFFERENT owner is refused the target name')
+    check(tostring(whyB):find('res_a', 1, true) ~= nil,
+        ('L-C23: and told who holds it: %s'):format(tostring(whyB)))
+
+    -- The provider was never asked to create the refused one. A refusal that
+    -- still hits the provider has already leaked a zone.
+    local createdT = 0
+    for _, n in ipairs(created) do
+        if n == 't' then createdT = createdT + 1 end
+    end
+    check(createdT == 2,
+        ('L-C23: the provider was asked exactly twice (A initial, A update), '
+            .. 'never for the refused one (asked %d)'):format(createdT))
+    env.reset()
+end
+
+-- ======================================= 9. the zone guards (L-C24, rest)
+--
+-- Arguments the exports boundary can drop, and no check for them. Each raised
+-- INSIDE this file, so the stack trace landed in the consumer's log naming a file
+-- it does not own -- for a mistake the caller could have been told about in a
+-- return value.
+do
+    local env = zoneEnv()
+
+    local ok, why = exports.CreateZone('box', 'noSize',
+        { x = 0.0, y = 0.0, z = 0.0 }, nil, {})
+    check(ok == false, 'L-C24: a box with a nil size is refused, not defaulted')
+    check(tostring(why):find('size', 1, true) ~= nil,
+        ('L-C24: and the reason names the missing argument: %s'):format(tostring(why)))
+
+    ok, why = exports.CreateZone('hexagon', 'weird', { x = 0.0, y = 0.0, z = 0.0 }, 5.0, {})
+    check(ok == false, 'L-C24: an unknown zone kind is refused')
+    check(tostring(why):find('hexagon', 1, true) ~= nil,
+        ('L-C24: and the reason names the kind it did not recognise: %s')
+            :format(tostring(why)))
+
+    -- ZoneContains with a point the boundary dropped. Indexing the nil raised in
+    -- `contains`, and a caller asking "am I in this zone?" cannot act on a
+    -- stack trace.
+    exports.CreateZone('box', 'ok', { x = 0.0, y = 0.0, z = 0.0 }, { x = 4.0, y = 4.0, z = 4.0 }, {})
+    local threw = not pcall(function() return exports.ZoneContains('ok', nil) end)
+    check(not threw, 'L-C24: ZoneContains with a nil point does not throw')
+    check(exports.ZoneContains('ok', nil) == false,
+        'L-C24: and answers false, which is what a caller can act on')
+    check(exports.ZoneContains('noSuchZone', { x = 0.0, y = 0.0, z = 0.0 }) == false,
+        'L-C24: an unknown zone name is also a false, not an error')
+    env.reset()
+end
+
 -- ==================================================================== report
 for i = 1, #failures do
     io.stderr:write('FAIL(client): ' .. failures[i] .. '\n')
