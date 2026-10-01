@@ -429,6 +429,15 @@ return {
             realm = 'server',
             signature = '(slot)',
         },
+        -- T9. Exists so START ORDER DOES NOT MATTER: a consumer that starts
+        -- before the provider no longer has to poll, retry, or cache a nil it
+        -- read during boot.
+        WaitCapability = {
+            since = '2.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Waits up to timeoutMs for a capability slot to be filled. Returns true and the owner, or nil and a reason naming the slot. No proxy equivalent -- a consumer waits from its own resource.',
+            realm = 'server',
+            signature = '(slot, timeoutMs)',
+        },
         GetCapabilities = {
             since = '2.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'The one call that answers "which of my four resources is actually running". Returns { [slot] = { owner, resolved } }',
@@ -735,6 +744,14 @@ return {
     -- unchanged, so a consumer listening for them keeps working across a
     -- framework change -- which is the whole reason they stayed in this file.
     events = {
+        -- T9. Fired by cis_libs at the ONE place a slot changes hands, so a
+        -- consumer can stop polling. Announced on register AND on release: a
+        -- waiter that only heard about registration would wait out its full
+        -- timeout after a provider restarted.
+        ['cis_libs:capabilityChanged'] = {
+            since = '2.1.0',
+            payload = 'both realms: ({ slot, action, owner, previousOwner, resolved })',
+        },
         ['cis_libs:cb'] = {
             since = '1.0.0',
             payload = 'client to server and server to client: (name, key, ...)',

@@ -205,6 +205,17 @@ exports('GetCapabilities', function()
     return CisRegistry.snapshot()
 end)
 
+--- T9. Wait for a slot instead of answering nil during boot.
+---
+--- This is what makes start order irrelevant. `Cis.db.*` used to answer "no
+--- provider registered" for the whole window between cis_libs starting and the
+--- database adapter starting, and a consumer that read that as "there is no
+--- database" would cache it. Waiting costs one coroutine park and turns a
+--- silent nil into a bounded, reported answer.
+exports('WaitCapability', function(slot, timeoutMs)
+    return CisRegistry.wait(slot, timeoutMs)
+end)
+
 -- A stopped resource's exports are gone. Releasing its slots turns every later
 -- call into an honest "no provider registered" and lets the restarted resource
 -- register again; the warning latch is cleared so the next failure is reported.

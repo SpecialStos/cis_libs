@@ -251,7 +251,13 @@ function readManifest(resourceDir) {
 
 // --------------------------------------------------------------------- events
 
-const EVENT_RE = /\b(RegisterNetEvent|CisNetOn|SecureNetOn|TriggerClientEvent|TriggerServerEvent|CisNetOn)\s*\(\s*(?:[^,()]*,\s*)?(['"])((?:[^'"\\]|\\.)*)\2/g
+// `TriggerEvent` is in this list for a reason worth stating: it is how
+// cis_libs fires its OWN events (cis_libs:jobUpdated, cis_libs:playerLoaded,
+// cis_libs:capabilityChanged), and leaving it out meant a declaration in
+// api.lua for an event fired that way could never be confirmed. E041 then
+// rejected a correct contract -- the validator catching its own blind spot,
+// which is worse than it not checking at all.
+const EVENT_RE = /\b(RegisterNetEvent|CisNetOn|SecureNetOn|TriggerEvent|TriggerClientEvent|TriggerServerEvent)\s*\(\s*(?:[^,()]*,\s*)?(['"])((?:[^'"\\]|\\.)*)\2/g
 const PREFIX_EVENT_RE = /\beventPrefix\(\)\s*\.\.\s*(['"])((?:[^'"\\]|\\.)*)\1/g
 const PREFIX = '${Security.EventPrefix}'
 

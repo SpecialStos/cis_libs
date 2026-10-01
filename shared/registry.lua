@@ -198,6 +198,40 @@ end
 ---
 --- Re-registering from the SAME resource is allowed and is not a conflict --
 --- that is what a `onResourceStart` handler after a restart looks like.
+-- T9. One place that turns a slot change into an event, so `register`,
+-- `unregister`, `invalidate` and `releaseOwner` cannot drift apart and so a
+-- future path that adds a fifth way to change a slot is forced through here by
+-- the fact that nothing else announces.
+--
+-- `TriggerEvent` is guarded rather than assumed: this file is shared with the
+-- CLIENT, where `TriggerEvent` exists but `TriggerServerEvent` does not, and a
+-- shared file that raised on the missing one would take the whole library down.
+-- The event name is written out HERE rather than held in a local, because
+-- tools/validate-api.js checks that every event declared in api.lua is
+-- referenced by a source file. A constant holding the only copy of the string
+-- would make the declaration a lie the validator is right to reject.
+local TICK_MS = 50
+
+local function nowMs()
+    if GetGameTimer then
+        return GetGameTimer()
+    end
+    return math.floor(os.clock() * 1000)
+end
+
+function CisRegistry.announce(slot, action, previousOwner, owner)
+    if not TriggerEvent then
+        return
+    end
+    TriggerEvent('cis_libs:capabilityChanged', {
+        slot = slot,
+        action = action,
+        owner = owner,
+        previousOwner = previousOwner,
+        resolved = slots[slot] ~= nil,
+    })
+end
+
 function CisRegistry.register(slot, provider)
     if type(slot) ~= 'string' or not CisRegistry.SLOTS[slot] then
         return false, ('unknown capability slot %q'):format(tostring(slot))
@@ -225,8 +259,44 @@ function CisRegistry.register(slot, provider)
     if held and held.owner ~= owner then
         return false, ('capability %q is already registered by %s'):format(slot, held.owner)
     end
+    local wasResolved = held ~= nil
     slots[slot] = { owner = owner, ref = provider }
+    -- T9. Announced HERE, at the one place a slot changes hands, rather than by
+    -- each caller announcing its own registration. A caller that forgets is
+    -- then the only possible way to miss the event, and the waiters below stop
+    -- being the thing that decides when start order matters.
+    CisRegistry.announce(slot, 'registered', wasResolved and held.owner or nil, owner)
     return true
+end
+
+--- Wait for a slot to be filled, so start order stops mattering.
+---
+--- `Cis.db.*` used to answer nil during boot and the caller had to poll. This is
+--- the same idea as the ready gate, one slot narrower: wait up to `timeoutMs`
+--- for `slot` to resolve, and answer whether it did.
+---
+--- @param slot string  a slot name from CisRegistry.SLOTS
+--- @param timeoutMs number|nil  default 30000; 0 polls once and answers now
+--- @return boolean  true when the slot resolved within the timeout
+--- @return string|nil,string  the owner when it resolved, or nil and a reason --
+---   which names the slot, because "no provider registered for database" is the
+---   difference between "nobody installed one" and "it is named wrong".
+function CisRegistry.wait(slot, timeoutMs)
+    if type(slot) ~= 'string' or not CisRegistry.SLOTS[slot] then
+        return false, ('unknown capability slot %q'):format(tostring(slot))
+    end
+    local deadline = nowMs() + (timeoutMs == nil and 30000 or tonumber(timeoutMs) or 30000)
+    -- TICK_MS is a local constant rather than a literal so the waiter's cost is
+    -- one readable comparison, and so changing the resolution is a one-line edit
+    -- rather than a hunt through three literals.
+    while not CisRegistry.has(slot) do
+        if nowMs() >= deadline then
+            return false, ('capability %q was not provided within %dms: %s'):format(
+                slot, timeoutMs or 30000, CisRegistry.missing(slot))
+        end
+        Wait(TICK_MS)
+    end
+    return true, CisRegistry.owner(slot)
 end
 
 --- Release a slot. Only the owner may release it, or cis_libs itself at
@@ -240,6 +310,12 @@ function CisRegistry.unregister(slot, resource)
         return false
     end
     slots[slot] = nil
+    -- T9: a release is announced too, and it is announced with the owner that
+    -- held the slot. A consumer waiting on a capability learns it is GONE rather
+    -- than waiting out its timeout for something that will not arrive -- which
+    -- is the difference between a re-register that resolves in 2s and one that
+    -- takes the full timeout and reports the wrong reason.
+    CisRegistry.announce(slot, 'unregistered', held.owner, nil)
     return true
 end
 
@@ -314,6 +390,11 @@ function CisRegistry.releaseOwner(resource)
         if held.owner == resource then
             slots[slot] = nil
             released[#released + 1] = slot
+            -- T9: announced per slot, inside the loop, because a consumer is
+            -- waiting on ONE slot. One event naming the whole set would leave
+            -- every waiter to search it, and a waiter that guessed wrong would
+            -- wait out its full timeout.
+            CisRegistry.announce(slot, 'unregistered', held.owner, nil)
         end
     end
     table.sort(released)

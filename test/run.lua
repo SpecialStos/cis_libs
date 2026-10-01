@@ -355,6 +355,70 @@ withFakeExports(function()
     expect(badSlot == false, 'a typo in a slot name is refused')
     expect(tostring(badWhy):find('unknown capability slot') ~= nil, 'the refusal names the unknown slot')
 
+    -- T9. WaitCapability, and the event it is paired with. The point of both is
+    -- that START ORDER STOPS MATTERING: a consumer that starts before the
+    -- provider used to read "no provider registered" for the whole window
+    -- between the two, and a consumer that cached that nil was wrong for the
+    -- rest of the session.
+    do
+        -- A WAIT STUB. wait() parks on Wait(TICK_MS) until the deadline, so
+        -- without a clock that advances it would spin. This one also counts the
+        -- parks, which is what proves the wait is bounded rather than a busy
+        -- loop -- the same distinction this file draws everywhere else.
+        local clock, parks = 0, 0
+        local realTimer, realWait = GetGameTimer, Wait
+        GetGameTimer = function() return clock end
+        Wait = function(ms) clock = clock + (ms or 0); parks = parks + 1 end
+
+        -- Already filled: answers immediately, and names the owner.
+        CisRegistry.register('database', 'cis_bridge:CisBridgeDatabase')
+        local filled, owner = CisRegistry.wait('database', 1000)
+        expect(filled == true, 'T9: wait on a filled slot answers true at once')
+        expect(owner == 'cis_bridge', 'and names the owner that filled it')
+        expect(parks == 0, 'without parking once, because it was already there')
+
+        -- Unknown slot: refused, and the reason names it.
+        local badOk, badWaitWhy = CisRegistry.wait('databse', 10)
+        expect(badOk == false, 'T9: waiting on an unknown slot is refused')
+        expect(tostring(badWaitWhy):find('unknown capability slot') ~= nil,
+            'and the refusal names the slot, so a typo is visible')
+
+        -- Never filled: a BOUNDED refusal. The reason has to name the slot --
+        -- "no provider registered for database" is the difference between
+        -- "nobody installed one" and "it is named wrong", and a caller that
+        -- cannot tell those two apart will retry the wrong thing.
+        CisRegistry.unregister('database')
+        parks = 0
+        local okWait, emptyWhy = CisRegistry.wait('database', 200)
+        expect(okWait == false, 'T9: waiting on a slot nobody fills times out')
+        expect(tostring(emptyWhy):find('database') ~= nil, 'and the refusal names the slot')
+        expect(parks > 0 and parks <= 10,
+            ('and it waited in bounded parks rather than spinning (parks=%d)'):format(parks))
+
+        -- THE EVENT, on both edges. A consumer that only heard about
+        -- registration would wait out its full timeout after a provider
+        -- restarted, which is the failure mode this pairing exists to remove.
+        local seen = {}
+        local realTrigger = TriggerEvent
+        TriggerEvent = function(name, payload)
+            if name == 'cis_libs:capabilityChanged' then seen[#seen + 1] = payload end
+        end
+        CisRegistry.register('database', 'cis_bridge:CisBridgeDatabase')
+        expect(#seen == 1, 'T9: registering fires cis_libs:capabilityChanged')
+        expect(seen[1] and seen[1].slot == 'database' and seen[1].resolved == true,
+            'and the payload names the slot and says it resolved')
+        expect(seen[1] and seen[1].owner == 'cis_bridge', 'and who filled it')
+
+        CisRegistry.unregister('database')
+        expect(#seen == 2, 'T9: releasing fires it too')
+        expect(seen[2] and seen[2].resolved == false, 'with resolved false, so a waiter knows it is gone')
+        expect(seen[2] and seen[2].previousOwner == 'cis_bridge',
+            'and the owner that went away, which is what a restart looks like')
+
+        TriggerEvent = realTrigger
+        GetGameTimer, Wait = realTimer, realWait
+    end
+
     -- The registration form is a string, because a function cannot be sent over
     -- the boundary. A malformed one is refused rather than stored and failed at
     -- the first call, hours later.
