@@ -98,6 +98,9 @@ end
 --- Kept as its own pass rather than folded into encode() so that the check is
 --- available on its own -- it is the answer to "why did my door row not save",
 --- and it works with no codec at all.
+---@param value
+---@param opts
+--- @return boolean,string|nil  true when the value encodes, or false and a PATH that names the offending key. A table keyed by a function is a real Lua shape and fails here.
 function CisJson.checkEncodable(value, opts)
     opts = opts or {}
     local maxDepth = opts.maxDepth or CisJson.MAX_DEPTH

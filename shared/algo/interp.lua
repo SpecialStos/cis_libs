@@ -347,6 +347,11 @@ end
 --- Map `v` from one range to another.
 --- @param clamped boolean|nil when true, the input is clamped to the input
 ---        range first; when false or nil, values outside the range extrapolate
+---@param v
+---@param inMin
+---@param inMax
+---@param outMin
+---@param outMax
 --- @return number
 function CisInterp.remap(v, inMin, inMax, outMin, outMax, clamped)
     if inMin == inMax then
@@ -728,6 +733,9 @@ end
 --- EITHER input is taken from the other rather than treated as 0 -- blending a
 --- real x with a 0 z would drop the point to the floor.
 --- @param out table|nil  optional table to write into instead of allocating
+---@param a
+---@param b
+---@param t
 --- @return table  { x, y, z }; a zero vector if either input is unusable
 function CisInterp.lerpVec3(a, b, t, out)
     local ax, ay, az = xyz(a)
@@ -752,6 +760,10 @@ end
 
 --- Frame-rate independent smoothing of a point, per axis. See the header.
 --- @param out table|nil
+---@param current
+---@param target
+---@param smoothTime
+---@param dt
 --- @return table  { x, y, z }
 function CisInterp.dampVec3(current, target, smoothTime, dt, out)
     local cx, cy, cz = xyz(current)

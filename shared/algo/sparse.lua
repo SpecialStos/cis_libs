@@ -87,6 +87,7 @@ local SWEEP_FLOOR = 64
 
 --- Create an empty set.
 --- @return table  { slots, dense, size, generation, written }
+--- @return table  a fresh empty set: { slots, dense, size, generation, written }
 function CisSparse.new()
     return {
         slots = {},    -- value -> { gen, index }
@@ -253,6 +254,7 @@ end
 ---        dropping a table reference is one assignment -- but the COLLECTOR only
 ---        reclaims the old array at its next cycle, so `hard` is about when the
 ---        memory comes back, not about the cost of the call.
+---@param set
 --- @return number  the generation the set is now on
 function CisSparse.clear(set, hard)
     if hard then

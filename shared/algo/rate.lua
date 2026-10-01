@@ -403,6 +403,9 @@ end
 ---
 --- @param cost number|nil  events to spend, default 1. Must be >= 1; a
 ---        fractional or zero cost is treated as 1 rather than as a free action.
+---@param r
+---@param key
+---@param now
 --- @return boolean  true when the action is allowed. A refusal leaves the
 ---         budget untouched -- see the header for why.
 function CisRate.allow(r, key, now, cost)
@@ -521,6 +524,9 @@ function CisRate.peek(r, key, now)
 end
 
 --- Forget one key entirely. The right call when a player disconnects.
+---@param r
+---@param key
+--- @return nil  it mutates the limiter in place; a key that was not present is a no-op
 function CisRate.reset(r, key)
     if r.keys[key] ~= nil then
         r.keys[key] = nil
@@ -529,6 +535,8 @@ function CisRate.reset(r, key)
 end
 
 --- Forget every key.
+---@param r
+--- @return nil  it mutates the limiter in place
 function CisRate.clear(r)
     r.keys = {}
     r.size = 0
@@ -542,6 +550,8 @@ end
 ---
 --- @param idleSec number|nil  defaults to a full window (or, for a token
 ---        bucket, to the time to refill the whole capacity)
+---@param r
+---@param now
 --- @return number  how many keys were reclaimed
 function CisRate.prune(r, now, idleSec)
     now = clock(now)

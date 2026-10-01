@@ -135,6 +135,10 @@ end
 ---
 --- @param alpha number|nil  knot exponent: 0.5 centripetal (default), 0 uniform
 --- @param t number          0 returns p1, 1 returns p2; not clamped
+---@param p0
+---@param p1
+---@param p2
+---@param p3
 --- @return number, number, number  x, y, z
 function CisCurve.catmullRom(p0, p1, p2, p3, t, alpha)
     alpha = alpha == nil and DEFAULT_ALPHA or alpha
@@ -209,6 +213,9 @@ end
 -- @param points table  list of point tables; entries that are not usable
 --        points are dropped, so a route with one bad entry still works
 -- @return table  the path; treat it as read-only
+---@param points
+---@param opts
+--- @return table  a path handle: { points, closed, alpha, samples, segments, count, length, arcD }. A non-table or too-few points still yields a usable empty path rather than nil.
 function CisCurve.newPath(points, opts)
     opts = opts or {}
     local closed = opts.closed and true or false
@@ -459,6 +466,8 @@ end
 
 --- The point at `distance` metres along the path, as a table.
 --- @param out table|nil  write into this instead of allocating
+---@param path
+---@param distance
 --- @return table|nil  { x, y, z }, or nil when the path has no points
 function CisCurve.pointAt(path, distance, out)
     local x, y, z, ok = CisCurve.pointAtXYZ(path, distance)
@@ -523,6 +532,7 @@ end
 --- @param count number|nil  number of POINTS; default is one per whole metre,
 ---        clamped to [1, 4096] because a caller asking for a million points has
 ---        a bug and allocating for it would hide the bug behind an OOM
+---@param path
 --- @return table  array of { x, y, z }; empty for a path with no points.
 ---         On an open path the first and last samples are the two endpoints.
 ---         On a closed path the samples do NOT repeat the start, so the list can

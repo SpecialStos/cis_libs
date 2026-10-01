@@ -396,6 +396,8 @@ end
 --- Integer in [lo, hi] INCLUSIVE, uniformly.
 ---
 --- @param rng table|function|nil  see the header; nil uses math.random
+---@param lo
+---@param hi
 --- @return number  the drawn integer
 --- @return number|nil,string  `nil, reason` when a bound is NaN or infinite
 --- @raise  when a bound is not a number -- a mistake in the caller's code, which
@@ -495,6 +497,8 @@ end
 --- twenty lines and the shape is the same.
 ---
 --- @param k number  clamped to [0, #list]; k <= 0 returns an empty table
+---@param list
+---@param rng
 --- @return table  a NEW array of exactly k elements, in random order; never the
 ---         input
 function CisRandom.sample(list, k, rng)

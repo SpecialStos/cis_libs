@@ -73,6 +73,8 @@ end
 --- does not. That is the conventional choice for version strings.
 ---
 --- Empty pieces never appear, so the result is always a dense list.
+---@param s
+--- @return table  a dense array of words; {} for a non-string or an empty one
 function CisString.words(s)
     if type(s) ~= 'string' or s == '' then
         return {}
@@ -154,6 +156,8 @@ end
 --- The first word is lowercased and the rest are capitalised. Input may be any
 --- of the shapes words() understands: 'GiveMoney', 'GIVE_MONEY', 'give-money'
 --- and 'give money' all produce 'giveMoney'.
+---@param s
+--- @return string  '' in, '' out
 function CisString.camel(s)
     local words = CisString.words(s)
     if #words == 0 then
@@ -163,6 +167,8 @@ function CisString.camel(s)
 end
 
 --- 'give_money' -> 'GiveMoney'. Same input contract as camel.
+---@param s
+--- @return string  same input contract as camel
 function CisString.pascal(s)
     local words = CisString.words(s)
     if #words == 0 then
@@ -177,6 +183,8 @@ end
 --- lowercased: 'GiveHTTPServer' -> 'give_http_server', not
 --- 'Give_HTTPServer'. A snake_case identifier that still contains 'HTTPServer'
 --- is not snake_case, and every consumer of it has to special-case that.
+---@param s
+--- @return string  '' for a non-string input
 function CisString.snake(s)
     local words = CisString.words(s)
     local parts = {}
@@ -187,6 +195,8 @@ function CisString.snake(s)
 end
 
 --- 'GiveMoney' -> 'give-money'. Identical rules to snake, different joiner.
+---@param s
+--- @return string  same rules as snake, different joiner
 function CisString.kebab(s)
     local words = CisString.words(s)
     local parts = {}
@@ -225,6 +235,10 @@ end
 ---
 --- The separator is matched LITERALLY: it is a Lua pattern, so `split('a.b', '.')`
 --- would match any character without the escape that is used here.
+---@param s
+---@param sep
+---@param opts
+--- @return table|nil,string  the pieces, or nil and a reason for a bad separator or maxsplit
 function CisString.split(s, sep, opts)
     if type(s) ~= 'string' or s == '' then
         return {}
@@ -350,6 +364,7 @@ end
 
 --- Whether this runtime has the utf8 library. Exported so a caller can decide
 --- whether byte-length semantics are acceptable before it uses truncate.
+--- @return boolean  true when this runtime has the utf8 library
 function CisString.hasUtf8()
     return HAS_UTF8
 end
@@ -358,6 +373,8 @@ end
 ---
 --- `\t\n\r\v\f` and space are all whitespace; nothing else is. A string of
 --- only whitespace becomes ''. nil in gives ''.
+---@param s
+--- @return string  every whitespace run collapsed to one space, both ends trimmed
 function CisString.collapse(s)
     if type(s) ~= 'string' then
         return ''
@@ -412,6 +429,10 @@ function CisString.contains(s, needle, ignoreCase)
     return s:find(needle, 1, true) ~= nil
 end
 
+---@param s
+---@param prefix
+---@param ignoreCase
+--- @return boolean  false for a non-string, and true for an empty prefix
 function CisString.startsWith(s, prefix, ignoreCase)
     if type(s) ~= 'string' or type(prefix) ~= 'string' then
         return false
@@ -425,6 +446,10 @@ function CisString.startsWith(s, prefix, ignoreCase)
     return s:sub(1, #prefix) == prefix
 end
 
+---@param s
+---@param suffix
+---@param ignoreCase
+--- @return boolean  false for a non-string, and true for an empty suffix
 function CisString.endsWith(s, suffix, ignoreCase)
     if type(s) ~= 'string' or type(suffix) ~= 'string' then
         return false
@@ -445,6 +470,10 @@ end
 --- fill like '0' pads '7' to '007' and a one-byte fill needs no special case.
 --- Padding is in BYTES: with the utf8 library present or not, this is a display
 --- width, not a codepoint count.
+---@param s
+---@param width
+---@param fill
+--- @return string  padded on the left to a BYTE width; unchanged when already long enough
 function CisString.padStart(s, width, fill)
     s = type(s) == 'string' and s or tostring(s)
     fill = (type(fill) == 'string' and fill ~= '') and fill or ' '
@@ -456,6 +485,10 @@ function CisString.padStart(s, width, fill)
 end
 
 --- Pad on the right to `width`. Same byte-width rule as padStart.
+---@param s
+---@param width
+---@param fill
+--- @return string  padded on the right to a BYTE width
 function CisString.padEnd(s, width, fill)
     s = type(s) == 'string' and s or tostring(s)
     fill = (type(fill) == 'string' and fill ~= '') and fill or ' '

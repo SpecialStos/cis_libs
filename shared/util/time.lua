@@ -92,6 +92,8 @@ end
 --- because there is no such thing as "negative 3 hours" and forcing one is how
 --- a formatter ends up printing `--1h`. `fractional` carries whatever is left
 --- over below one second.
+---@param seconds
+--- @return table  { weeks, days, hours, minutes, seconds, fractional, negative }. A non-number, NaN or infinity is 0 rather than an error.
 function CisTime.parts(seconds)
     local negative = false
     -- Strict about the type, unlike a `tonumber(seconds) or 0`. Half this file

@@ -86,6 +86,7 @@ end
 --- @param time number|nil  recorded alongside the value; `pop` and `each`
 ---        hand it back. A ring with no use for the timestamp is one fewer
 ---        number per slot, so it is optional rather than mandatory.
+---@param w
 --- @return any  the value that was pushed, for chaining
 function CisWindow.push(w, value, time)
     local i = slotAt(w, w.size)
@@ -169,6 +170,8 @@ end
 --- refilled constantly (every second, per player), and a fresh table per clear
 --- would be the single biggest allocator in a server that uses one. The slots
 --- are nilled so a stale value cannot be read back.
+---@param w
+--- @return nil  it empties the ring in place
 function CisWindow.clear(w)
     for i = 1, w.capacity do
         w.values[i] = nil
@@ -265,6 +268,9 @@ end
 
 --- Forget a key entirely, so the next `seen` accepts it regardless of the
 --- window. This is the "the player moved, play it again" button.
+---@param d
+---@param key
+--- @return nil  it mutates the stats in place; a key that was not present is a no-op
 function CisWindow.reset(d, key)
     if d.entries[key] ~= nil then
         d.entries[key] = nil
@@ -399,6 +405,9 @@ end
 ---        poisoning the arithmetic for the whole window. A single NaN in a sum
 ---        makes every later min, max and mean NaN too, and a NaN mean looks
 ---        exactly like a server bug to whoever is reading the dashboard.
+---@param stats
+---@param key
+---@param now
 --- @return boolean  whether the sample was recorded
 function CisWindow.record(stats, key, value, now)
     if type(value) ~= 'number' or value ~= value then
@@ -568,6 +577,9 @@ CisWindow.count = CisWindow.samples
 
 --- Largest or smallest live sample, without building the result table.
 --- @param wantMax boolean|nil  true for the max, false or nil for the min
+---@param stats
+---@param key
+---@param now
 --- @return number|nil  nil when there is no live sample
 function CisWindow.extreme(stats, key, now, wantMax)
     local entry = stats.entries[key]

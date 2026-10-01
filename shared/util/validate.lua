@@ -53,6 +53,8 @@ end
 --- would break every value that arrived through JSON, because a JSON `5.0`
 --- decodes to a float on this side of the boundary. The wire format does not
 --- distinguish them and neither should a config check.
+---@param v
+--- @return boolean  true for a number with no fractional part, INCLUDING 5.0. NaN is not an integer.
 function CisValidate.isInteger(v)
     if type(v) ~= 'number' then
         return false
@@ -68,6 +70,8 @@ end
 --- value then reaches arithmetic that poisons everything downstream. The one
 --- place it usually shows up is `tonumber('')`, which is nil, and
 --- `0/0`, which is not.
+---@param v
+--- @return boolean  true only for a real number: NaN and +/-infinity are rejected
 function CisValidate.isFinite(v)
     if type(v) ~= 'number' then
         return false
@@ -112,6 +116,9 @@ end
 --- Check that a value has no fractional part. Returns `true` for 5 as well as
 --- for 5.0 -- see the note on CisValidate.isInteger for why a float that has
 --- no fractional part still counts.
+---@param v
+---@param opts
+--- @return boolean|nil,string  true, or nil and a reason. Same as number() with integer forced on, and opts is not mutated.
 function CisValidate.integer(v, opts)
     opts = opts or {}
     -- A fresh table rather than mutating the caller's: adding `integer = true`
@@ -200,6 +207,9 @@ end
 --- Check a boolean. There is no truthy coercion: 1, 'true' and {} all fail,
 --- because every silent truthiness conversion in a config file is a bug that
 --- ships.
+---@param v
+---@param opts
+--- @return boolean|nil,string  true only for a real boolean. There is no truthy coercion: 1, 'true' and {} all fail.
 function CisValidate.boolean(v, opts)
     local name = nameOf(opts)
     if v == nil then
@@ -287,6 +297,9 @@ end
 ---
 --- A table with an __index metatable reports its real storage, not what the
 --- metamethod would answer, which is what a check wants.
+---@param v
+---@param opts
+--- @return boolean|nil,string  true, or nil and a reason. Reads real storage, so an __index metatable cannot make an empty table pass a nonEmpty check.
 function CisValidate.tableValue(v, opts)
     opts = opts or {}
     local name = nameOf(opts)

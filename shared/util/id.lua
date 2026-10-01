@@ -161,6 +161,7 @@ end
 ---   opts.length    characters of entropy (default CisId.LENGTH, 12)
 ---   opts.alphabet  the symbol set (default CisId.ALPHABET)
 ---   opts.rng       the generator (default math.random)
+---@param prefix
 --- @return the id, or `nil, reason`. A prefix that is not a string, or an
 ---   rng that misbehaves, is a refusal and not a broken id.
 function CisId.short(prefix, opts)
@@ -188,6 +189,8 @@ end
 --- what the format is for: downstream code that validates the shape, and log
 --- grep. It is not a UUID in the cryptographic sense, for the reason in the
 --- header, and nothing should parse one back apart expecting randomness.
+---@param rng
+--- @return string|nil,string  an RFC 4122 version-4 shaped string, or nil and a reason if the rng misbehaves. Not a UUID in the cryptographic sense -- see the header.
 function CisId.uuid(rng)
     rng = rng or math.random
     local hex = '0123456789abcdef'
@@ -225,6 +228,7 @@ end
 --- about what id 41 is.
 ---
 --- @return a fresh counter table: `{ seq = 0 }`.
+--- @return table  a counter handle; feed it to CisId.next
 function CisId.newCounter()
     return { seq = 0 }
 end
@@ -299,6 +303,8 @@ end
 ---   opts.maxLength  default 32. Longer names are CUT, and a cut can collide,
 ---                   which the `used` pass then resolves.
 ---   opts.separator  default '_'. Any string; it is pattern-escaped internally.
+---@param raw
+---@param used
 --- @return the key, or `nil, reason` when `raw` is not a string or normalises
 ---   to nothing (which is a refusal, not an empty key: `''` and a name of
 ---   '!!!' would both index the same row).

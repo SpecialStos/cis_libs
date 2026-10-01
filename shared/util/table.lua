@@ -97,6 +97,8 @@ end
 --
 -- A float key (1.5) makes it a map: JSON has no such index, and nothing else
 -- in a FiveM server does either.
+---@param t
+--- @return boolean  true only for a table whose keys are all integers
 function CisTable.isArray(t)
     if type(t) ~= 'table' then
         return false
@@ -124,6 +126,8 @@ end
 --- both accept `{}`, and why a caller cannot use isMap to reject an empty
 --- array. `next(t) == nil` is the test for "empty"; this only answers the shape
 --- question for a table that has entries.
+---@param t
+--- @return boolean  true for any table that is not an array; {} counts as a map
 function CisTable.isMap(t)
     if type(t) ~= 'table' then
         return false
@@ -134,6 +138,8 @@ function CisTable.isMap(t)
     return not CisTable.isArray(t)
 end
 
+---@param t
+--- @return boolean  true for nil, a non-table, or a table with no entries
 function CisTable.isEmpty(t)
     if type(t) ~= 'table' then
         return true
@@ -153,6 +159,8 @@ end
 --- metamethod is copied by its REAL storage and not by whatever view that
 --- metamethod returns. A FiveM export proxy answers __pairs with a filtered
 --- set, and copying the filtered view would quietly drop half the table.
+---@param t
+--- @return any  a new table with the same entries one level down; a non-table is returned unchanged
 function CisTable.shallowCopy(t)
     if type(t) ~= 'table' then
         return t
@@ -197,6 +205,9 @@ end
 ---     case and skips them entirely in the other.
 ---   * identity of table KEYS. See shallowCopy.
 ---   * nil-valued keys, which do not exist in Lua.
+---@param value
+---@param seen
+--- @return any  a copy with the structure reproduced; non-tables are returned as-is, and a cycle resolves to the copy in progress
 function CisTable.deepCopy(value, seen)
     if type(value) ~= 'table' then
         return value
@@ -346,6 +357,8 @@ end
 --- restated here because a consumer holding a private copy of this file has no
 --- boundary crossing available to call that export. It is deliberately SHALLOW:
 --- deepSize is a different function with a different, more expensive answer.
+---@param t
+--- @return number  how many keys, at any depth 0. A non-table is 0
 function CisTable.count(t)
     if type(t) ~= 'table' then
         return 0
@@ -366,6 +379,9 @@ end
 ---
 --- A self-referential table `t.self = t` is 2: the key `self` and the key that
 --- pointed at the table from above.
+---@param t
+---@param opts
+--- @return number  how many values at any depth, cycles counted once; opts.maxDepth caps the walk
 function CisTable.deepSize(t, opts)
     if type(t) ~= 'table' then
         return 0
@@ -434,6 +450,9 @@ end
 --- is what makes the pair usable for zipping, and it is the reason these are
 --- two functions over one walk rather than two independent walks that happen to
 --- agree today.
+---@param t
+---@param comparator
+--- @return table|nil  the values in key order, or nil when the keys cannot be ordered
 function CisTable.values(t, comparator)
     local ks = CisTable.keys(t, comparator)
     if not ks then
@@ -448,6 +467,10 @@ end
 
 --- Iterate in the same order as CisTable.keys without allocating the key array.
 --- fn(value, key); returning `false` from fn stops the walk.
+---@param t
+---@param comparator
+---@param fn
+--- @return number|nil,string  how many were visited, or nil and a reason for a bad argument. fn returning false stops the walk early and counts as visited.
 function CisTable.each(t, comparator, fn)
     if type(t) ~= 'table' then
         return nil, ('table expected, got %s'):format(type(t))
@@ -644,6 +667,10 @@ end
 --- Returns the SAME table, sorted in place: there is one array to sort and
 --- making a copy would be pure waste. Callers who still need the original pass
 --- a shallowCopy.
+---@param list
+---@param keyOf
+---@param comparator
+--- @return table|nil,string  the SAME list, sorted in place, or nil and a reason. The sort is stable: equal keys keep their original order.
 function CisTable.sortBy(list, keyOf, comparator)
     if type(list) ~= 'table' then
         return nil, ('table expected, got %s'):format(type(list))
@@ -683,6 +710,9 @@ end
 --- `sep` defaults to ''. nil entries in the list are skipped; a nil `sep` is an
 --- error rather than a silent '' because the caller clearly had a separator in
 --- mind.
+---@param list
+---@param sep
+--- @return string  the tostring() of each entry joined by sep (default ''). A non-table is ''.
 function CisTable.join(list, sep)
     if type(list) ~= 'table' then
         return ''
@@ -808,6 +838,11 @@ end
 --- policy and reason semantics as deepMerge; the difference is only that the
 --- base is written to rather than copied first. `target` must not be aliased
 --- anywhere the caller still needs intact.
+---@param target
+---@param overlay
+---@param policy
+---@param opts
+--- @return table|nil,string  the SAME target, merged in place, or nil and a reason. Use this when the caller needs its original table identity preserved.
 function CisTable.deepMergeInto(target, overlay, policy, opts)
     if type(target) ~= 'table' then
         return nil, ('target must be a table, got %s'):format(type(target))

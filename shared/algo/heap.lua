@@ -227,6 +227,8 @@ end
 --- Drop everything. The backing array is replaced rather than nil-filled: a
 --- table does not shrink when its entries are nil'd, so a drained heap would
 --- keep its peak allocation forever.
+---@param h
+--- @return nil  it mutates the heap in place; there is nothing to hand back
 function CisHeap.clear(h)
     h.items = {}
     h.size = 0
@@ -297,6 +299,7 @@ end
 --- and it is paid here rather than in CisHeap, so the heap stays a container of
 --- arbitrary values for a caller who has their own tie-break.
 --- @return table  the queue; use enqueue / dequeue / peekQueue
+--- @return table  a heap ordered by priority, then insertion order, so equal priorities dequeue first-in-first-out
 function CisHeap.newQueue()
     local h = CisHeap.new(function(a, b)
         if a.priority == b.priority then

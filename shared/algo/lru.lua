@@ -164,6 +164,8 @@ end
 ---        nil and pretending otherwise would make a key that is present with a
 ---        nil value indistinguishable from one that is absent in a way the
 ---        caller cannot detect.
+---@param lru
+---@param key
 --- @return any  the key that had to be evicted to make room, or nil. The
 ---         caller needs the KEY rather than the value to invalidate whatever
 ---         it built on top of the cache.
@@ -272,6 +274,8 @@ end
 --- every map slot and every next pointer is O(n) AND leaves the tables with
 --- their full allocated capacity, so the memory is not actually released. New
 --- tables cost two allocations and hand the old ones straight to the collector.
+---@param lru
+--- @return nil  it mutates the cache in place
 function CisLRU.clear(lru)
     local head = sentinel()
     local tail = sentinel()
@@ -304,6 +308,9 @@ end
 --- node the walk is standing on. That restriction is deliberate: a walk that
 --- silently corrupts itself is worse than one that says so, and the safe
 --- pattern (collect the keys, mutate, then walk) is two lines.
+---@param lru
+---@param fn
+--- @return number  how many entries were visited; 0 when fn is not a function. Most recently used first.
 function CisLRU.each(lru, fn)
     if type(fn) ~= 'function' then
         return 0
