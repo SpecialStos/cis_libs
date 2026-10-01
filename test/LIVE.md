@@ -141,6 +141,70 @@ its own script environment, where `CisDefaults` does not exist.
 
 ---
 
+## cis_debug — the slot contract, as reported on the live server
+
+Captured at 23:15:53, after the clean restart. This is the output the
+definition of done asks for ("`cis_debug` shows every slot `resolved` with no
+`missing:` lines"). It does not, and the reason is not cis_libs.
+
+```
+[cis_libs] ready=true jobs={"police":0}
+[cis_libs] client payload has secrets: false
+[cis_libs] --- capabilities ---
+[cis_libs]   dataProbe          cis_keys         resolved
+[cis_libs]   database           -                no provider installed
+[cis_libs]   discord            -                no provider installed
+[cis_libs]   doors              cis_keys         resolved
+[cis_libs]   doorsClient        -                no provider installed
+[cis_libs]   framework          -                no provider installed
+[cis_libs]   inventory          cis_core         resolved
+[cis_libs]   inventoryProvider  -                no provider installed
+[cis_libs]   migration          -                no provider installed
+[cis_libs]   security           cis_core         resolved
+[cis_libs]   target             -                no provider installed
+[cis_libs]   qbx_core: started
+[cis_libs]   qb-core: started
+[cis_libs]   es_extended: missing
+[cis_libs]   oxmysql: started
+[cis_libs]   mysql-async: started
+[cis_libs]   ghmattimysql: started
+[cis_libs]   mongodb: missing
+[cis_libs] configuration supplied by: cis_core
+```
+
+**4 resolved, 8 with no provider installed.** Every unresolved slot belongs to
+cis_core or cis_bridge, neither of which has had its phase started:
+
+| slot | who owes it | plan item |
+|---|---|---|
+| framework | cis_core | C-1 / C-2 |
+| inventoryProvider | cis_bridge | B-4 |
+| database | cis_bridge | B-1 |
+| target | cis_bridge | B-4 / B-5 |
+| migration, discord, doorsClient | cis_core / cis_bridge | C-6, B-13 |
+
+So the "no `missing:` lines" gate cannot pass until Phases 6 and 7 exist. cis_libs
+is reporting this accurately, which is the behaviour the gate depends on.
+
+Three things this run does confirm about cis_libs itself:
+
+* `ready=true` — the ready gate settles, and `CisReadyState` is healthy
+  (the L-S16 work from this session behaves on a real server).
+* `client payload has secrets: false` — the L-C22 client-payload work holds; the
+  config pushed to clients carries no secrets.
+* The security posture is enforced and explains itself. `cis_keys` is correctly
+  **refused** door mutation, with the fix named:
+  `[x] this resource may mutate doors on cis_libs` /
+  `fix: Add "cis_keys" to Security.AuthorizedResources in cis_libs's
+  configs/security_config.lua`. That is L-C1 and L-C2 working: the operator's
+  allow-list is read, enforced, and a refusal says what to change.
+
+Detection is also healthy: qbx_core, qb-core, oxmysql, mysql-async and
+ghmattimysql all report started; es_extended and mongodb report missing, which
+is correct for this server.
+
+---
+
 ## Not covered by this run
 
 The definition of done asks for more than this run achieved. Explicitly **not**
@@ -157,6 +221,10 @@ verified:
   restarted and the server restarted, but with 0 players, so no per-consumer
   owned-record teardown was observed.
 
-`cis_debug` was not captured in this run either: the txAdmin console input is a
-terminal widget and neither `fill()` + `Enter` nor the history entry submitted a
-command. A different input path is needed for that.
+`cis_debug` WAS captured — see the section above. Getting a command into the
+txAdmin console needs one non-obvious step: the input is a plain `<input>`, and
+`fill()` followed by `press("Enter")` silently does nothing — the text lands and
+stays. The value must be filled, the input **clicked**, and only then `Enter`
+pressed. A command that "did not run" here is indistinguishable from one that ran
+and printed nothing, so the log file is the only trustworthy check that a console
+command actually executed.
