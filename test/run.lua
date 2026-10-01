@@ -175,9 +175,21 @@ local rev = { vec(0, 0), vec(0, 10), vec(10, 10), vec(10, 0) }
 expect(CisGrid.pointInPolygon(5, 5, rev), 'polygon works with reversed winding')
 expect(not CisGrid.pointInPolygon(15, 5, rev), 'reversed polygon rejects outside point')
 
--- aabbFromPoints with an empty list must not produce an infinite box
-local emptyBox = CisGrid.aabbFromPoints({}, 0, 1, 0)
-expect(emptyBox.minX ~= math.huge, 'empty point list does not yield infinite AABB')
+-- aabbFromPoints with an empty list is REFUSED, not answered with a box.
+--
+-- This assertion used to read `emptyBox.minX ~= math.huge`, which pinned the
+-- old behaviour: it accepted the zero-size box at the world origin that the
+-- function returned. That box was not a neutral placeholder -- a poly zone
+-- configured with no points got registered at (0,0) and fired onEnter for a
+-- player standing there. A flipped pin is exactly what a reviewer should
+-- question, so the change is called out rather than made quietly.
+local emptyBox, emptyWhy = CisGrid.aabbFromPoints({}, 0, 1, 0)
+expect(emptyBox == nil and type(emptyWhy) == 'string',
+    'empty point list is refused rather than answered with the origin')
+-- A real list still produces the same box it always did.
+local realBox = CisGrid.aabbFromPoints({ vec(0, 0), vec(10, 10) }, 0, 1, 0)
+expect(realBox ~= nil and realBox.minX == 0 and realBox.maxX == 10 and realBox.maxY == 10,
+    'a real point list still produces the box it always did')
 
 -- ------------------------------------------------------------- pending keys
 local store = CisPending.new()

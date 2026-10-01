@@ -121,12 +121,19 @@ local function invoke(zone, name, ...)
 end
 
 local function register(zone)
+    -- The grid goes FIRST, so a refusal cannot leave a zone recorded that no
+    -- query can ever find. It used to be the other way round: zones[name] was
+    -- set before insert, so any failure left an entry nothing could reach.
+    local ok, why = CisGrid.insert(grid, zone.name, zone.aabb, zone)
+    if not ok then
+        return false, why
+    end
     zones[zone.name] = zone
-    CisGrid.insert(grid, zone.name, zone.aabb, zone)
     -- The OWNER, captured at creation. A zone created by cis_libs's own code
     -- (none today, but the doorlock and the sync layer both reach here) is owned
     -- by cis_libs and is never swept on a consumer's stop.
     CisOwned.track(owned, zone.owner, 'zone', zone.name)
+    return true
 end
 
 function CisZonesCreate(kind, name, a, b, options)
@@ -237,7 +244,16 @@ function CisZonesCreate(kind, name, a, b, options)
         zone.points = points
         zone.minZ = options.minZ or -1000.0
         zone.maxZ = options.maxZ or 10000.0
-        zone.aabb = CisGrid.aabbFromPoints(points, zone.minZ, zone.maxZ, 0.5)
+        -- L-S17. A poly zone with no points, or a point that did not survive
+        -- the exports boundary, has no box. It used to get one at the world
+        -- origin -- which is not a neutral answer, it is a zone that fires
+        -- onEnter for a player standing at (0,0) and is invisible to everyone
+        -- asking why their real zone never fires.
+        local box, boxWhy = CisGrid.aabbFromPoints(points, zone.minZ, zone.maxZ, 0.5)
+        if not box then
+            return false, ('poly zone %q: %s'):format(name, tostring(boxWhy))
+        end
+        zone.aabb = box
     elseif kind == 'box' then
         local center = asVec3(a)
         local size = b
@@ -267,7 +283,10 @@ function CisZonesCreate(kind, name, a, b, options)
             :format(tostring(kind))
     end
 
-    register(zone)
+    local registered, registerWhy = register(zone)
+    if not registered then
+        return false, registerWhy
+    end
     return true
 end
 

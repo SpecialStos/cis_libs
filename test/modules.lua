@@ -280,7 +280,86 @@ do
     expect(T.roundTo(90, -60) == 0, 'roundTo with a negative unit is zero')
 end
 
--- =
+-- ================================================================= CisGrid
+do
+    local G = CisGrid
+    local grid = G.new()
+    -- L-S17. insert() walks every cell an AABB overlaps, in a nested loop, on
+    -- the main thread. A size in metres that reached this file as a cell count,
+    -- or a zone covering "the whole map", is a config typo away from freezing
+    -- the client -- and there is no way to interrupt a Lua loop once it starts.
+    --
+    -- The magnitude below is deliberately one that TERMINATES when uncapped
+    -- (24649 cells, a few milliseconds). The catastrophic case -- 1e9, which is
+    -- billions of iterations -- cannot be written as a failing test, because
+    -- against the uncapped code the suite does not fail, it hangs. The cap is
+    -- what makes that case safe, and this assertion is what holds the cap.
+    local refused, why = G.insert(grid, 'huge', G.aabbFromCenter(0, 0, 0, 5000, 5000, 5000))
+    expect(refused == false and type(why) == 'string',
+        'an AABB covering too many cells is refused with a reason, not walked')
+
+    -- A refusal must leave the grid untouched, or a caller that ignores the
+    -- return has a half-inserted item it can then query.
+    local hitsAfterRefusal = 0
+    G.queryPoint(grid, 0, 0, 0, function() hitsAfterRefusal = hitsAfterRefusal + 1 end)
+    expect(hitsAfterRefusal == 0, 'a refused insert leaves nothing queryable behind')
+
+    -- NaN fails every comparison, so it slips past a naive sanity check and
+    -- makes the cell loops silently cover nothing.
+    local nanRefused, nanWhy = G.insert(grid, 'nan',
+        { minX = 0 / 0, maxX = 10, minY = 0, maxY = 10, minZ = 0, maxZ = 10 })
+    expect(nanRefused == false and type(nanWhy) == 'string', 'a NaN coordinate is refused')
+
+    local invRefused, invWhy = G.insert(grid, 'inverted',
+        { minX = 100, maxX = 0, minY = 0, maxY = 10, minZ = 0, maxZ = 10 })
+    expect(invRefused == false and type(invWhy) == 'string', 'an inverted AABB is refused')
+
+    local nilRefused, nilWhy = G.insert(grid, 'nilbox', nil)
+    expect(nilRefused == false and type(nilWhy) == 'string', 'a missing AABB is refused')
+
+    -- THE REFUSAL ITSELF MUST NEVER RAISE, for ANY input. An infinite bound is
+    -- the case that got through the first version of this fix: the cell count
+    -- is then infinite, and the refusal message formatted it with %d, which
+    -- raises on a value with no integer representation. So the worst possible
+    -- input turned the refusal into the crash it was written to prevent -- and
+    -- a test written only against NaN would have passed it, because NaN takes
+    -- the earlier check and never reaches the message.
+    local infRefused, infWhy = G.insert(grid, 'inf', {
+        minX = -math.huge, maxX = math.huge,
+        minY = -math.huge, maxY = math.huge,
+        minZ = 0, maxZ = 10,
+    })
+    expect(infRefused == false and type(infWhy) == 'string',
+        'an infinite AABB is refused with a reason rather than raising')
+    expect(infWhy and infWhy:lower():find('inf') ~= nil,
+        'the refusal for an infinite AABB names the infinite count, and returns')
+
+    -- Same for the overwhelming-but-finite case the cap exists for: the whole
+    -- map in one box.
+    local wholeMap, wholeMapWhy = G.insert(grid, 'whole-map', G.aabbFromCenter(0, 0, 0, 1e9, 1e9, 1e9))
+    expect(wholeMap == false and type(wholeMapWhy) == 'string',
+        'a whole-map AABB is refused with a reason rather than walked')
+
+    -- An empty point list is a config error, not a box at the world origin. It
+    -- used to return one, which registers a poly zone covering (0,0) and fires
+    -- its enter event for a player who happened to spawn there.
+    local box, boxWhy = G.aabbFromPoints({}, 0, 1, 0)
+    expect(box == nil and type(boxWhy) == 'string',
+        'an empty point list is refused rather than answered with the origin')
+    expect(G.aabbFromPoints(nil, 0, 1, 0) == nil, 'a nil point list is refused too')
+
+    -- And the ordinary path is untouched: a real zone still inserts, still
+    -- queries, and still reports success.
+    local ok = G.insert(grid, 'real', G.aabbFromCenter(10, 10, 0, 5, 5, 5), { name = 'real' })
+    expect(ok ~= false, 'a normal AABB still inserts')
+    local hits = 0
+    G.queryPoint(grid, 10, 10, 0, function() hits = hits + 1 end)
+    expect(hits == 1, 'a normal AABB is still found by queryPoint')
+    local box2 = G.aabbFromPoints({ { x = 0, y = 0 }, { x = 10, y = 10 } }, 0, 1, 0)
+    expect(box2 ~= nil and box2.minX == 0 and box2.maxX == 10,
+        'a real point list still produces the box it always did')
+end
+
 -- =================================================================== CisRate
 -- The three limiters differ in boundary behaviour and nothing else. Options
 -- are `limit` and `windowSec`, and `now` is in SECONDS -- an earlier draft of

@@ -13,6 +13,21 @@ CisGrid = {
 local CELL = CisGrid.CELL
 local STRIDE = CisGrid.STRIDE
 
+-- The most cells one item may cover.
+--
+-- insert() walks every cell an AABB overlaps, in a nested loop, on the main
+-- thread. The loop is driven by the caller's NUMBERS, so a size written in
+-- metres that arrives here as a cell count, or a zone covering "the whole map",
+-- is one config typo away from a freeze -- and a Lua loop cannot be interrupted
+-- once it starts, so nothing downstream can save it.
+--
+-- 4096 cells is 64 by 64, which at CELL = 64 is a four-kilometre box. Every
+-- zone in a real map is orders of magnitude smaller than that, so nothing
+-- legitimate is refused; the cap is set by what is absurd rather than by what is
+-- large. A caller who genuinely needs a bigger box wants a different structure,
+-- and gets told so.
+local MAX_CELLS = 4096
+
 function CisGrid.cell(x, y)
     return math.floor(x / CELL), math.floor(y / CELL)
 end
@@ -37,6 +52,45 @@ function CisGrid.new()
     }
 end
 
+-- Validate an AABB before anything walks it.
+--
+-- NaN gets its own line because it passes every ordinary test: `NaN > x` is
+-- false, so an inverted-AABB check and a bounds check both wave it through, and
+-- the cell loops then cover nothing at all -- the item is inserted and can never
+-- be found. Silent in both directions, which is why it is named here.
+local function checkAabb(aabb)
+    if type(aabb) ~= 'table' then
+        return nil, ('an AABB is required, got %s'):format(type(aabb))
+    end
+    local minX, maxX = aabb.minX, aabb.maxX
+    local minY, maxY = aabb.minY, aabb.maxY
+    -- An array, not a keyed table: ipairs walks 1..n, and a table built with
+    -- string keys has an empty array part, so the loop would not run at all.
+    for _, v in ipairs({ minX, maxX, minY, maxY }) do
+        if type(v) ~= 'number' then
+            return nil, ('an AABB bound is %s, not a number'):format(type(v))
+        end
+        -- NaN passes every ordinary test: `NaN > x` is false, so both an
+        -- inverted-AABB check and a range check wave it through, and the cell
+        -- loops then cover nothing. The item inserts and can never be found.
+        if v ~= v then
+            return nil, 'the AABB has a NaN bound'
+        end
+    end
+    -- minZ and maxZ may be nil -- queryPoint reads a nil z as "do not test z" --
+    -- but not NaN.
+    for _, v in ipairs({ aabb.minZ, aabb.maxZ }) do
+        if v ~= nil and v ~= v then
+            return nil, 'the AABB has a NaN z bound'
+        end
+    end
+    if minX > maxX or minY > maxY then
+        return nil, ('the AABB is inverted: minX %s > maxX %s, minY %s > maxY %s')
+            :format(tostring(minX), tostring(maxX), tostring(minY), tostring(maxY))
+    end
+    return true
+end
+
 local function eachOverlappingCells(aabb, fn)
     local minCx = math.floor(aabb.minX / CELL)
     local maxCx = math.floor(aabb.maxX / CELL)
@@ -52,7 +106,34 @@ end
 -- insert() re-inserts rather than updating, so a caller that grows an AABB
 -- does not have to remove first. The `keys` list is what makes remove() exact:
 -- without it, removal would have to rescan every cell in the grid.
+--
+-- @return boolean|nil  true on success; `false, reason` when the AABB is
+--   malformed or covers more cells than MAX_CELLS. Nothing is inserted on a
+--   refusal, so a caller that ignores the return has no half-inserted item it
+--   could go on to query.
 function CisGrid.insert(grid, id, aabb, data)
+    local ok, why = checkAabb(aabb)
+    if not ok then
+        return false, why
+    end
+
+    -- The cell count is computed BEFORE the loop, not inside it, so the refusal
+    -- happens before any work rather than after most of it. Both dimensions are
+    -- checked as well as the product: a single huge axis has to be caught even
+    -- when the product has already overflowed to infinity and stopped meaning
+    -- anything.
+    local minCx = math.floor(aabb.minX / CELL)
+    local maxCx = math.floor(aabb.maxX / CELL)
+    local minCy = math.floor(aabb.minY / CELL)
+    local maxCy = math.floor(aabb.maxY / CELL)
+    local cols = maxCx - minCx + 1
+    local rows = maxCy - minCy + 1
+    if cols > MAX_CELLS or rows > MAX_CELLS or cols * rows > MAX_CELLS then
+        return false, ('the AABB covers %.0fx%.0f cells; at most %d are allowed. '
+            .. 'A size in metres read as a cell count lands here.')
+            :format(cols, rows, MAX_CELLS)
+    end
+
     CisGrid.remove(grid, id)
     local keys = {}
     eachOverlappingCells(aabb, function(key)
@@ -69,6 +150,7 @@ function CisGrid.insert(grid, id, aabb, data)
         data = data,
         keys = keys,
     }
+    return true
 end
 
 function CisGrid.remove(grid, id)
@@ -159,22 +241,35 @@ function CisGrid.queryNeighbors(grid, x, y, z, fn)
     end
 end
 
+--- The smallest box containing every point.
+---
+--- @return the box, or `nil, reason`. An EMPTY list is refused rather than
+---   answered with a zero-size box at the world origin, which is what it used
+---   to return. That was not a neutral answer: a poly zone configured with no
+---   points registered a box covering (0,0), so it fired its enter event for
+---   any player who spawned or respawned near the origin and nothing else ever
+---   heard about it. A config mistake with a shape is a support ticket; a
+---   config mistake with a location is a bug report about the wrong zone.
 function CisGrid.aabbFromPoints(points, minZ, maxZ, pad)
+    if type(points) ~= 'table' then
+        return nil, ('a point list is required, got %s'):format(type(points))
+    end
     pad = pad or 0
     local minX, minY = math.huge, math.huge
     local maxX, maxY = -math.huge, -math.huge
     for i = 1, #points do
         local p = points[i]
         local px, py = p.x or p[1], p.y or p[2]
+        if px ~= px or py ~= py then
+            return nil, ('point %d has a NaN coordinate'):format(i)
+        end
         if px < minX then minX = px end
         if py < minY then minY = py end
         if px > maxX then maxX = px end
         if py > maxY then maxY = py end
     end
     if minX == math.huge then
-        -- No points: hand back an empty box rather than infinities, which
-        -- would make the box uninsertable and the arithmetic below useless.
-        return { minX = 0, minY = 0, maxX = 0, maxY = 0, minZ = minZ or -1000, maxZ = maxZ or 10000 }
+        return nil, 'the point list is empty, so there is no box to build'
     end
     return {
         minX = minX - pad,
