@@ -1202,6 +1202,80 @@ do
     env.reset()
 end
 
+-- ============================ 10. zone registration, which is now the grid's
+--
+-- L-S17 made CisGrid.insert refuse a malformed AABB, and register() now inserts
+-- BEFORE recording the zone, so a refusal cannot leave a zone stored that no
+-- query can reach. That reordering touches the ordinary update path, and
+-- nothing above tested what register() does at all -- `CreateZone` was only
+-- ever checked for its ROUTING (contracts.lua), never for its result. So the
+-- ordinary path is pinned here: a zone that works, a zone re-created under the
+-- same name, and zones refused for having no usable box.
+do
+    local env = zoneEnv()
+
+    local ok, why = exports.CreateZone('box', 'shop',
+        { x = 10.0, y = 10.0, z = 0.0 }, { x = 4.0, y = 4.0, z = 4.0 }, {})
+    check(ok == true, 'L-S17: an ordinary box zone is created')
+    check(exports.ZoneContains('shop', { x = 10.0, y = 10.0, z = 0.0 }) == true,
+        'L-S17: and it contains its own centre')
+
+    -- THE UPDATE PATH. Re-creating a zone under the same name is the common
+    -- case -- every resource that rebuilds a zone on a reconfigure does it --
+    -- and it is the path most exposed by an insert that can now fail. If the
+    -- reorder lost the update, the OLD box would still be what every query
+    -- answered with and the new position would simply never match.
+    ok = exports.CreateZone('box', 'shop',
+        { x = 90.0, y = 90.0, z = 0.0 }, { x = 4.0, y = 4.0, z = 4.0 }, {})
+    check(ok == true, 'L-S17: the same owner may re-create its own zone')
+    check(exports.ZoneContains('shop', { x = 90.0, y = 90.0, z = 0.0 }) == true,
+        'L-S17: the re-created zone is at its NEW position')
+    check(exports.ZoneContains('shop', { x = 10.0, y = 10.0, z = 0.0 }) == false,
+        'L-S17: and no longer at the old one')
+
+    -- A POLY WITH REAL POINTS, which is the branch that now has to build a box
+    -- or refuse.
+    ok, why = exports.CreateZone('poly', 'yard', {
+        { x = 0.0, y = 0.0, z = 0.0 },
+        { x = 10.0, y = 0.0, z = 0.0 },
+        { x = 10.0, y = 10.0, z = 0.0 },
+        { x = 0.0, y = 10.0, z = 0.0 },
+    }, nil, {})
+    check(ok == true, ('L-S17: a poly zone with real points is created: %s'):format(tostring(why)))
+    check(exports.ZoneContains('yard', { x = 5.0, y = 5.0, z = 0.0 }) == true,
+        'L-S17: and contains a point inside its polygon')
+
+    -- THE DEFECT THIS EXISTS FOR. A poly with no points used to register a
+    -- zero-size box at the WORLD ORIGIN, so it fired onEnter for anyone who
+    -- spawned or respawned at (0,0), and nothing ever heard about the real
+    -- zone not working. "It silently works somewhere else" is the worst shape
+    -- a config mistake can take, because the mistake is invisible.
+    ok, why = exports.CreateZone('poly', 'ghost', {}, nil, {})
+    check(ok == false, 'L-S17: a poly zone with no points is refused')
+    check(tostring(why):find('empty', 1, true) ~= nil,
+        ('L-S17: and the reason says why: %s'):format(tostring(why)))
+    check(exports.ZoneContains('ghost', { x = 0.0, y = 0.0, z = 0.0 }) == false,
+        'L-S17: and it is not registered at the origin')
+    check(exports.RemoveZone('ghost') == false,
+        'L-S17: and there is nothing to remove, because it was never registered')
+
+    -- A box whose AABB would cover an absurd number of cells. The refusal has
+    -- to leave nothing behind: a zone stored that no query can reach is the
+    -- same invisible-record failure L-C7 was about, in a new place.
+    ok, why = exports.CreateZone('box', 'vast',
+        { x = 0.0, y = 0.0, z = 0.0 }, { x = 1e9, y = 1e9, z = 1e9 }, {})
+    check(ok == false, 'L-S17: a zone covering an absurd number of cells is refused')
+    check(tostring(why):find('cells', 1, true) ~= nil,
+        ('L-S17: and the reason names the cell count: %s'):format(tostring(why)))
+    check(exports.ZoneContains('vast', { x = 0.0, y = 0.0, z = 0.0 }) == false,
+        'L-S17: and leaves no zone nothing-can-reach behind')
+
+    -- The ordinary teardown still works after all of that.
+    check(exports.RemoveZone('shop') == true, 'L-S17: an ordinary zone still removes')
+    check(exports.RemoveZone('yard') == true, 'L-S17: and so does the poly')
+    env.reset()
+end
+
 -- ==================================================================== report
 for i = 1, #failures do
     io.stderr:write('FAIL(client): ' .. failures[i] .. '\n')
