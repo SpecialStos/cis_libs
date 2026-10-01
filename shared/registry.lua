@@ -67,18 +67,18 @@ CisRegistry.SLOTS = {
     target = {
         available = 'Available() -> boolean',
         create = 'Create(spec) -> ok, reason',
-        remove = 'Remove(name, isPed) -> ok, reason',
+        remove = 'Remove(name, spec, isPed) -> ok, reason',
         exists = 'Exists(name) -> boolean',
-        named = 'ProviderName() -> string|nil',
+        named = 'name() -> string|nil',
     },
     -- The inventory SERVICE: name -> amount normalisation, framework fallback,
     -- and the client snapshot push. Not a third-party adapter -- see
     -- inventoryProvider for that.
     inventory = {
-        count = 'Count(src, item) -> number',
-        add = 'Add(src, item, amount, metadata) -> boolean',
-        remove = 'Remove(src, item, amount) -> boolean',
-        has = 'Has(src, item, amount) -> boolean',
+        count = 'Count(src, item) -> number. On the client: Count(item)',
+        add = 'Add(src, item, amount, metadata) -> boolean. Server only',
+        remove = 'Remove(src, item, amount) -> boolean. Server only',
+        has = 'Has(src, item, amount) -> boolean. On the client: Has(item, amount)',
         snapshot = 'Snapshot(src) -> { [item] = count }',
     },
     -- The third-party inventory ADAPTER behind the service. ox_inventory and its
@@ -111,7 +111,7 @@ CisRegistry.SLOTS = {
     -- has told it about, so these are reads over a pushed snapshot and two
     -- REQUESTS rather than commands.
     doorsClient = {
-        add = 'AddDoor(data) -> boolean',
+        add = 'AddDoorToSystem(data) -> boolean',
         addGroup = 'AddDoorGroup(data) -> boolean',
         closest = 'GetClosestDoor() -> { id, distance, door }|nil',
         state = 'GetDoorState(doorId) -> boolean|nil',
@@ -132,7 +132,38 @@ CisRegistry.SLOTS = {
     dataProbe = {
         hasRows = 'HasRows() -> boolean|nil',
     },
+    -- cis_migrate. A single dispatcher taking the action as its first argument,
+    -- so it is called through the dispatcher path in `call`.
+    migration = {
+        plan = 'plan(sourceName, options) -> report|nil, err',
+        apply = "apply(sourceName, { confirm = 'APPLY' }) -> result|nil, err",
+        sources = 'sources() -> { name }',
+    },
 }
+
+-- The provider-side function name a slot method answers to: the leading
+-- identifier of its declared signature. `inventory.count` is declared
+-- 'Count(src, item)', so a provider exporting either `count` or `Count` serves
+-- it. Products in this platform use both conventions, and a dispatch that only
+-- tried the key silently answered every call with the fallback value.
+local function declaredName(slot, method)
+    local spec = CisRegistry.SLOTS[slot] and CisRegistry.SLOTS[slot][method]
+    return type(spec) == 'string' and spec:match('^([%a_][%w_]*)') or nil
+end
+
+-- The realm a declared method is limited to, read off its contract string.
+local function declaredRealm(spec)
+    if spec:find('Server only', 1, true) then return 'server' end
+    if spec:find('Client only', 1, true) then return 'client' end
+    return nil
+end
+
+local function currentRealm()
+    if type(IsDuplicityVersion) ~= 'function' then
+        return nil
+    end
+    return IsDuplicityVersion() and 'server' or 'client'
+end
 
 -- slot -> { owner = resourceName, ref = 'resource:Export' or callable, at = time }
 local slots = {}
@@ -247,6 +278,12 @@ function CisRegistry.resolve(slot)
         held.resolved = isCallable(fn) and function(...)
             return fn(target, ...)
         end or nil
+        if held.resolved then
+            -- Record that this provider came across the boundary, so `call`
+            -- knows to dispatch into the table it hands back. See `call` for why
+            -- the two provider shapes must not be confused.
+            held.crossBoundary = true
+        end
         return held.resolved
     end
     held.resolved = ref
@@ -259,7 +296,28 @@ function CisRegistry.invalidate(slot)
     local held = slots[slot]
     if held then
         held.resolved = nil
+        -- The method table belongs to the provider that handed it back. A
+        -- restarted resource exports new closures over new upvalues, so keeping
+        -- the old table would call the previous instance.
+        held.methods = nil
+        held.lookups = nil
     end
+end
+
+--- Release every slot a resource owns. Called when that resource stops: its
+--- exports are gone, so a held reference would answer every call with an error
+--- about a missing export instead of the honest "no provider registered", and
+--- `has` would keep telling callers the capability is installed.
+function CisRegistry.releaseOwner(resource)
+    local released = {}
+    for slot, held in pairs(slots) do
+        if held.owner == resource then
+            slots[slot] = nil
+            released[#released + 1] = slot
+        end
+    end
+    table.sort(released)
+    return released
 end
 
 --- Is anything registered for this slot?
@@ -276,16 +334,125 @@ end
 --- Call a capability. Returns true plus the provider's results, or false plus a
 --- reason that is safe to show an operator.
 ---
+--- THE METHOD NAME IS THE FIRST ARGUMENT, AND IT IS DISPATCHED
+---
+-- `CisRegistry.SLOTS` is a table of method names per slot -- a database provider
+-- answers `query`, `single`, `update`, `transaction` -- so a call is
+-- `call(slot, 'query', sql, params)` and the slot's provider has to be indexed
+-- by that name. Every provider in the platform registers in that shape: one
+-- export that RETURNS a table of methods, handed back across the boundary as
+-- callable references.
+--
+-- The other shape is a provider cis_libs registered as a bare callable, which is
+-- already the implementation and takes the method name as its first argument.
+-- `resolve` tags the cross-boundary wrapper so the two are never confused --
+-- without the tag the result of a callable provider is indistinguishable from a
+-- method table, and a provider that returns rows would be indexed as though the
+-- rows were its methods.
+--
 --- NEVER THROWS. A capability provider is another resource's code, and its
 --- failure is not this library's to propagate into a caller's thread. The pcall
 --- below is the boundary that keeps a bug in a bridge adapter from becoming a
 --- stack trace in somebody else's script.
+--- Find the function a method table serves `method` with. Tried in order: the
+--- slot's own key (`count`), the provider-side name its contract declares
+--- (`Count`), and the key with its first letter flipped in case. The answer is
+--- cached on the held entry, so the lookup is paid once per method per provider
+--- instance and `invalidate` discards it along with the table.
+function CisRegistry.lookup(held, slot, methods, method)
+    local cache = held.lookups
+    if not cache then
+        cache = {}
+        held.lookups = cache
+    end
+    local key = cache[method]
+    if key == nil then
+        key = false
+        if type(method) == 'string' then
+            local declared = declaredName(slot, method)
+            local flipped = method:sub(1, 1):upper() == method:sub(1, 1)
+                and method:sub(1, 1):lower() .. method:sub(2)
+                or method:sub(1, 1):upper() .. method:sub(2)
+            for _, candidate in ipairs({ method, declared, flipped }) do
+                if candidate and isCallable(methods[candidate]) then
+                    key = candidate
+                    break
+                end
+            end
+        end
+        cache[method] = key
+    end
+    return key and methods[key] or nil
+end
+
+--- The declared methods of a slot that the cached provider table cannot
+--- serve in this realm, sorted. nil when there is nothing to judge yet: no
+--- provider, a dispatcher-shaped provider, or a table not fetched so far.
+--- Never fetches the table itself -- for some providers that blocks for
+--- seconds, and this is called from diagnostics.
+function CisRegistry.missing(slot)
+    local held = slots[slot]
+    local methods = held and held.methods
+    local declared = CisRegistry.SLOTS[slot]
+    if type(methods) ~= 'table' or not declared then
+        return nil
+    end
+    local realm = currentRealm()
+    local out = {}
+    for method, spec in pairs(declared) do
+        local limited = declaredRealm(spec)
+        if (not limited or not realm or limited == realm)
+            and not CisRegistry.lookup(held, slot, methods, method) then
+            out[#out + 1] = method
+        end
+    end
+    table.sort(out)
+    return out
+end
+
 function CisRegistry.call(slot, ...)
-    local fn = CisRegistry.resolve(slot)
-    if not fn then
+    local held = slots[slot]
+    local provider = held and held.resolved or CisRegistry.resolve(slot)
+    if not provider then
         return false, ('no provider registered for %q'):format(tostring(slot))
     end
-    local results = table.pack(pcall(fn, ...))
+    local method = ...
+
+    if held and held.crossBoundary then
+        local methods = held.methods
+        if methods == nil then
+            -- First call for this provider: take the table it hands back. Every
+            -- provider in the platform exports exactly this, and asking for it
+            -- with no arguments is asking for it the way it expects to be asked.
+            local ok, value = pcall(provider)
+            if not ok then
+                return false, tostring(value)
+            end
+            if type(value) == 'table' and not isCallable(value) then
+                methods = value
+                held.methods = value
+            else
+                -- The export answered with a function rather than a method
+                -- table, so it is a dispatcher. Record that once instead of
+                -- asking again on every call.
+                held.methods = false
+            end
+        end
+        if methods then
+            local fn = CisRegistry.lookup(held, slot, methods, method)
+            if not isCallable(fn) then
+                return false, ('provider for %q has no method %q'):format(
+                    tostring(slot), tostring(method))
+            end
+            local results = table.pack(pcall(fn, select(2, ...)))
+            if not results[1] then
+                return false, tostring(results[2])
+            end
+            return true, table.unpack(results, 2, results.n)
+        end
+    end
+
+    local results = table.pack(pcall(provider, ...))
     if not results[1] then
         return false, tostring(results[2])
     end
@@ -312,6 +479,7 @@ function CisRegistry.snapshot()
         out[slot] = {
             owner = slots[slot] and slots[slot].owner or nil,
             resolved = CisRegistry.resolve(slot) ~= nil,
+            missing = CisRegistry.missing(slot),
         }
     end
     return out
