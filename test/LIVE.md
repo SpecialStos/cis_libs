@@ -294,15 +294,47 @@ What is established is the mechanism; what remains is one call site.
 
 ---
 
+## Consumer restarts — no leaks, no stacking (L-C7 / L-C8)
+
+Two full rounds of `restart` over `cis_libs`, `cis_signal`, `cis_evidence`,
+`cis_keys`, `cis_medic` and `cis_electricity` — twelve restarts in total.
+
+| | round 1 | round 2 |
+|---|---|---|
+| `No such export` raises | 0 | 0 |
+| cis_libs refusals logged | 22 | 22 |
+| consumers reaching `[ok] cis_libs is running` | 5 | 5 |
+
+Equal counts across rounds is the point. L-C8 fixed `RegisterNetEvent` APPENDing
+a fresh handler on every registration, which meant a resource restarted a few
+times turned one client action into a burst of identical error lines. Stacking
+would show here as round 2 reporting twice round 1. It reports the same.
+
+The 22 refusals each round are the same registrations being refused once per
+boot, because the underlying contract mismatch still exists and is now reported
+rather than raised. One per registration per boot is correct; one per restart
+per registration would be the leak.
+
 ## Not covered by this run
 
 The definition of done asks for more than this run achieved. Explicitly **not**
 verified:
 
-* **Two-client entity sync, with one client joining late.** This is the highest
-  value item in the whole plan — the sync rewrite is the change most likely to
-  need real entities in a real world — and it was **not** exercised. It needs two
-  players connected.
+* **Entity sync, in any form.** This is the highest value item in the whole plan —
+  the sync rewrite is the change most likely to need real entities in a real
+  world — and it was **not** exercised at all, because no real client is
+  connected. `players.json` reports `id 0`, empty `identifiers` and `ping 0`,
+  which is the FiveM server-list placeholder rather than a player: a connected
+  client has a non-zero id, identifiers and a real ping. A probe resource was
+  written and deployed to ask the client what `GetSyncedEntities()` returns; it
+  produced no output at all, because there is no client VM to run it in.
+
+  The create side was deliberately not attempted from that probe: it would have
+  been refused. `server/sync.lua` calls `CisInvokingAllowed()` before any work,
+  and the probe is not on `Security.AuthorizedResources` — which is the D2/L-C1
+  posture behaving exactly as designed, confirmed from the other side.
+
+  The probe resource (`cis_u1probe`) has been removed from the server.
 * Zones, and callbacks in both directions, as observable behaviour.
 * U1 — ANSWERED, see above. The specific `onEnter`-in-an-options-table
   path through init.lua is still unverified: that needs a second resource.
