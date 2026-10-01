@@ -521,8 +521,32 @@ function CisNetOn(name, fn, opts)
     if type(fn) == 'string' then
         resource, exportName = fn:match('^([^:]+):(.+)$')
         if resource and exportName then
-            self = exports[resource]
-            handler = self and self[exportName]
+            -- pcall BECAUSE LOOKING UP A MISSING EXPORT RAISES.
+            --
+            -- `exports[resource]` is nil for a resource that is not running, so
+            -- the old `self and self[exportName]` covered that case. It said
+            -- nothing about a resource that IS running and does not export this
+            -- name: indexing a FiveM resource export proxy with an unexported
+            -- key RAISES "No such export X in resource Y" rather than returning
+            -- nil. So the raise happened on the very line the guard was written
+            -- to make safe, and escaped this function before the "registered
+            -- nothing" refusal underneath could run -- propagating into the
+            -- CONSUMER's own boot, where it can stop that consumer registering
+            -- anything after this line.
+            --
+            -- Found on a live server: 29 distinct exports across 6 resources
+            -- produced one of these each. A missing export is a refusal with a
+            -- reason, not an exception, and that is what the block below now
+            -- does -- the reason names the reference, so an operator looking at
+            -- thirty registrations can see which one is wrong.
+            local ok, fetched = pcall(function()
+                local res = exports[resource]
+                return res and res[exportName] or nil
+            end)
+            if ok then
+                self = exports[resource]
+                handler = fetched
+            end
         end
         if not isCallableRef(handler) then
             handler = nil
@@ -533,9 +557,21 @@ function CisNetOn(name, fn, opts)
     end
 
     if not handler then
-        Logging.Error(('Cis.net.on("%s") registered nothing: the handler must be a function '
-            .. '(cis_libs only) or a "resource:export" reference, not %s')
-            :format(tostring(name), type(fn)))
+        -- The message has to name the REFERENCE, not just the type. A server
+        -- can have thirty of these registrations and an operator reading one
+        -- console line has to be able to tell which one is wrong. It used to
+        -- report `not string` for a string reference whose export was missing,
+        -- which reads as "a string is not allowed" -- when a string is exactly
+        -- the supported form, and the export simply is not there.
+        if type(fn) == 'string' and resource and exportName then
+            Logging.Error(('Cis.net.on("%s") registered nothing: resource %q does '
+                .. 'not export %q. Check the name, and that the resource is started.')
+                :format(tostring(name), tostring(resource), tostring(exportName)))
+        else
+            Logging.Error(('Cis.net.on("%s") registered nothing: the handler must be a function '
+                .. '(cis_libs only) or a "resource:export" reference, not %s')
+                :format(tostring(name), type(fn)))
+        end
         return false
     end
 

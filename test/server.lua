@@ -720,6 +720,94 @@ do
     env.reset()
 end
 
+-- ============================== L-S26: a missing export is a REFUSAL, not a raise
+--
+-- FOUND ON A LIVE SERVER, not in the suite. `exports[resource][name]` against a
+-- resource that IS running but does not export `name` RAISES in FiveM --
+-- "No such export handleFile in resource cis_dispatch" -- it does not return
+-- nil. So this line:
+--
+--     self = exports[resource]
+--     handler = self and self[exportName]
+--
+-- guards the WRONG case. It covers a resource that is not running, where `self`
+-- is nil, and says nothing about an export missing from one that is. The raise
+-- happens on the very line the guard was written to make safe, and it escapes
+-- CisNetOn before the "registered nothing" refusal underneath can run -- so it
+-- propagates into the CONSUMER's own boot path and that consumer's remaining
+-- registrations may never happen.
+--
+-- 29 distinct exports across 6 resources did exactly this on a live server.
+--
+-- THE STUB REPLICATES THE FIVE BEHAVIOUR rather than using a plain table. A
+-- plain table returns nil for a missing key, which IS the defect -- a stub more
+-- forgiving than the runtime passes against this bug and certifies it, which is
+-- the same trap as a `type(x)=='function'` check meeting a stub that returns 1.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+
+    -- Stub Logging itself, rather than chasing where its output goes.
+    -- server/logging.lua is never loaded by this suite, so `Logging` is whatever
+    -- survived from an earlier suite and there is nothing here to capture. What
+    -- is under test is what security.lua REPORTS, not how the logger prints it.
+    local logged = {}
+    env.saved[#env.saved + 1] = { name = 'Logging', value = rawget(_G, 'Logging') }
+    env.saved[#env.saved + 1] = { name = 'CisLog', value = rawget(_G, 'CisLog') }
+    Logging = setmetatable({}, {
+        __index = function(_, key)
+            return function(message)
+                logged[#logged + 1] = { key = key, message = message }
+            end
+        end,
+    })
+    CisLog = function() end
+
+    -- A resource that IS running and DOES export OnBuy -- and RAISES, like
+    -- FiveM, for anything it does not export.
+    local rigid = setmetatable({}, {
+        __index = function(_, key)
+            error(('No such export %s in resource cis_rigid'):format(tostring(key)), 2)
+        end,
+    })
+    rigid.OnBuy = function(_, src) env.buyHits = (env.buyHits or 0) + 1 end
+    exports.cis_rigid = rigid
+
+    loadModule('server/security.lua')
+
+    local ok, result = pcall(CisNetOn, 'cis_rigid:buy', 'cis_rigid:NotExported')
+    check(ok,
+        'L-S26: a missing export is REFUSED, not raised -- the consumer keeps booting')
+    check(result == false,
+        'L-S26: and the refusal is false, so the caller has something to act on')
+
+    -- The message must name the reference that failed. "registered nothing"
+    -- without saying WHAT leaves an operator guessing which of thirty
+    -- registrations is broken.
+    local found = false
+    for _, entry in ipairs(logged) do
+        if tostring(entry.message):find('cis_rigid', 1, true) then found = true end
+    end
+    check(found, 'L-S26: and the error names the reference that failed')
+
+    -- An export that DOES exist must still bind and still fire, or "fix" the
+    -- raise by refusing everything would pass every assertion above.
+    check(CisNetOn('cis_rigid:buy', 'cis_rigid:OnBuy') == true,
+        'L-S26: an export that exists still registers')
+    env.emit('cis_rigid:buy', 5, 1)
+    check(env.buyHits == 1,
+        ('L-S26: and still fires exactly once (hits=%s)'):format(tostring(env.buyHits)))
+
+    -- A resource that is NOT running at all is the case the old guard covered,
+    -- and must keep answering false rather than raising.
+    local ok2, result2 = pcall(CisNetOn, 'cis_absent:ev', 'cis_absent:Nope')
+    check(ok2 and result2 == false,
+        'L-S26: a resource that is not running is still a plain false')
+
+    env.reset()
+end
+
 -- A DIFFERENT event name is a different handler, and must not be collapsed.
 do
     local env = newEnv({})
