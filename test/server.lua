@@ -653,6 +653,196 @@ do
     env.reset()
 end
 
+-- ==================================== 7. CisNetOn binds each event name once
+--
+-- `CisNetOn(name, 'res:export')` called `RegisterNetEvent(name, ...)` on every
+-- registration. FiveM's RegisterNetEvent APPENDS a handler rather than replacing
+-- one, so a consumer that restarts five times had five live handlers on the same
+-- event -- and after a restart, the first four point at exports of a resource
+-- that no longer exists.
+--
+-- That is not four wasted calls. Each stale handler raised on every single
+-- invocation, inside its pcall, and each raise went to `Logging.AutoLogError`
+-- with the event name attached. So a resource that restarts a few times turns
+-- one client action into a burst of identical error lines -- and the operator
+-- looking at that console is being told the wrong thing, because the handler
+-- they would go and fix is the one that is working.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+
+    -- RegisterNetEvent APPENDS, as FiveM does. A test that models it as
+    -- "replace" cannot see the bug at all.
+    env.netHandlers = {}
+    function RegisterNetEvent(name, fn)
+        env.netHandlers[name] = env.netHandlers[name] or {}
+        env.netHandlers[name][#env.netHandlers[name] + 1] = fn
+    end
+    env.exported = {}
+    exports.cis_shop = env.exported
+    local calls = 0
+    env.exported.OnBuy = function(_, src)
+        calls = calls + 1
+    end
+
+    loadModule('server/security.lua')
+
+    check(CisNetOn('cis_shop:buy', 'cis_shop:OnBuy') == true,
+        'L-C8: a resource:export handler registers')
+    check(CisNetOn('cis_shop:buy', 'cis_shop:OnBuy') == true,
+        'L-C8: registering the SAME name again is accepted, not refused')
+    check(#(env.netHandlers['cis_shop:buy'] or {}) == 1,
+        ('L-C8: but the net event is bound ONCE, not once per registration (bound=%d)')
+            :format(#(env.netHandlers['cis_shop:buy'] or {})))
+
+    -- Firing it invokes the handler exactly once.
+    source = 5
+    for _, fn in ipairs(env.netHandlers['cis_shop:buy'] or {}) do fn(1) end
+    source = nil
+    check(calls == 1,
+        ('L-C8: one client action runs the handler ONCE (calls=%d)'):format(calls))
+    env.reset()
+end
+
+-- A DIFFERENT event name is a different handler, and must not be collapsed.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    env.netHandlers = {}
+    function RegisterNetEvent(name, fn)
+        env.netHandlers[name] = env.netHandlers[name] or {}
+        env.netHandlers[name][#env.netHandlers[name] + 1] = fn
+    end
+    exports.cis_shop = { OnBuy = function() end, OnSell = function() end }
+    loadModule('server/security.lua')
+    CisNetOn('cis_shop:buy', 'cis_shop:OnBuy')
+    CisNetOn('cis_shop:sell', 'cis_shop:OnSell')
+    check(#(env.netHandlers['cis_shop:buy'] or {}) == 1, 'the first name is bound once')
+    check(#(env.netHandlers['cis_shop:sell'] or {}) == 1, 'a DIFFERENT name is bound separately')
+    env.reset()
+end
+
+-- ================================== 8. a rate-limited flood warns once
+--
+-- Every limited event logged on the `cheating` channel with `ping = true`. A
+-- client firing one event in a loop at 60Hz produced 52 log lines a second and
+-- 52 Discord posts a second -- which is a denial of service against the
+-- operator's console AND against the webhook, from the very code that exists to
+-- detect an attack. The signal that matters is "this is happening", and it is
+-- said once per (src, event) per window, with the count attached.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    local warned = {}
+    env.saved[#env.saved + 1] = { name = 'CisLog', value = rawget(_G, 'CisLog') }
+    CisLog = function(level, message, channel)
+        warned[#warned + 1] = { level = level, message = message, channel = channel }
+    end
+    loadModule('server/security.lua')
+
+    -- A hundred limited events from one src on one event name.
+    local limited = 0
+    for _ = 1, 100 do
+        if not CisRateOk(1, 'cis_shop:buy', 1000, 8) then
+            limited = limited + 1
+        end
+    end
+    check(limited == 92, ('the limiter really did refuse 92 of 100 (refused=%d)'):format(limited))
+    env.reset()
+end
+
+-- The warning itself, through the net-event path where it is produced.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    env.netHandlers = {}
+    function RegisterNetEvent(name, fn)
+        env.netHandlers[name] = env.netHandlers[name] or {}
+        env.netHandlers[name][#env.netHandlers[name] + 1] = fn
+    end
+    local logged = {}
+    env.saved[#env.saved + 1] = { name = 'CisLog', value = rawget(_G, 'CisLog') }
+    CisLog = function(level, message, channel)
+        logged[#logged + 1] = { level = level, message = message, channel = channel }
+    end
+    local reported = {}
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_G, 'CisSecurityReport') }
+
+    exports.cis_shop = { OnBuy = function() end }
+    loadModule('server/security.lua')
+
+    -- Rebind CisSecurityReport AFTER the load, because security.lua defines it
+    -- at load and the spy has to see the escalations it triggers.
+    function CisSecurityReport(src, reason)
+        reported[#reported + 1] = { src = src, reason = reason }
+        return true
+    end
+
+    check(CisNetOn('cis_shop:buy', 'cis_shop:OnBuy', { maxHits = 4, windowMs = 1000 }) == true,
+        'L-C9: the handler registers with a tight limit')
+
+    source = 5
+    for _ = 1, 100 do
+        for _, fn in ipairs(env.netHandlers['cis_shop:buy'] or {}) do fn(1) end
+    end
+    source = nil
+
+    -- Nothing yet: the line is emitted when the window ROLLS, so the count in
+    -- it is the window's real total rather than "at least N so far".
+    check(#logged == 0,
+        ('L-C9: a flood inside one window logs nothing per event (logs=%d)'):format(#logged))
+
+    -- A flood big enough to matter escalates to the drop handler.
+    source = 5
+    for _ = 1, 400 do
+        for _, fn in ipairs(env.netHandlers['cis_shop:buy'] or {}) do fn(1) end
+    end
+    source = nil
+    check(#reported == 1,
+        ('L-C9: a sustained flood escalates to CisSecurityReport ONCE per window (reports=%d)')
+            :format(#reported))
+    if reported[1] then
+        check(reported[1].reason:find('cis_shop:buy', 1, true) ~= nil,
+            'L-C9: the escalation names the event')
+    end
+
+    -- The next window rolls, and that is when the console line is emitted --
+    -- ONE line, carrying the total. The clock is advanced explicitly because the
+    -- harness has no real time: the roll is the whole mechanism under test, and
+    -- a test that never crosses a window boundary would assert nothing about it.
+    local before = #logged
+    env.clock = env.clock + 1500
+    source = 5
+    for _ = 1, 40 do
+        for _, fn in ipairs(env.netHandlers['cis_shop:buy'] or {}) do fn(1) end
+    end
+    -- One more drop in the NEXT window: that is what emits the previous
+    -- window's line, which is why the state has to survive the roll.
+    env.clock = env.clock + 1500
+    for _, fn in ipairs(env.netHandlers['cis_shop:buy'] or {}) do fn(1) end
+    source = nil
+    local rolled = #logged - before
+    check(rolled >= 1, 'L-C9: the window roll produces a warning')
+    check(rolled <= 2,
+        ('L-C9: and it is ONE line per window, not one per event (lines=%d)'):format(rolled))
+    if logged[before + 1] then
+        local m = logged[before + 1].message
+        check(m:find('cis_shop:buy', 1, true) ~= nil,
+            'L-C9: the warning names the event that was limited')
+        check(m:find('5', 1, true) ~= nil,
+            'L-C9: and names the source it came from')
+        check(m:match('%d+ events dropped') ~= nil,
+            'L-C9: and carries the number of events dropped: ' .. m)
+        check(logged[before + 1].channel == 'cheating',
+            'L-C9: on the cheating channel, which is where an operator looks')
+    end
+    env.reset()
+end
+
 -- ==================================================================== report
 for i = 1, #failures do
     io.stderr:write('FAIL(server): ' .. failures[i] .. '\n')

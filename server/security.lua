@@ -347,6 +347,70 @@ function CisRateOk(src, name, windowMs, maxHits)
     return rateOk(src, name, windowMs, maxHits)
 end
 
+-- ONCE PER (src, event) PER WINDOW, carrying the number dropped.
+--
+-- Every limited event used to log on the `cheating` channel with `ping = true`.
+-- A client firing one event in a loop at 60Hz produced 52 console lines a second
+-- and 52 Discord posts a second -- a denial of service against the operator's
+-- console and against the webhook, produced by the very code that exists to
+-- detect an attack. The operator ends up with the console scroll to explain what
+-- is already sitting in their Discord channel.
+--
+-- The line is emitted when the window ROLLS rather than as the drops arrive, so
+-- the count in it is the window's real total instead of "at least N so far". A
+-- player who taps an event twice costs one line naming a count of 2; a script
+-- firing 60 times a second costs one line naming 60. Both are visible and
+-- neither is amplified.
+--
+-- Past a threshold it escalates to `CisSecurityReport`, which reaches the drop
+-- handler and the webhook -- that is for the case it exists for, and one call
+-- per window is not an amplification. The threshold is 100, which no UI
+-- produces: it is roughly two seconds of a client firing as fast as the server
+-- will accept.
+local RATE_WARN_LIMIT = 100
+local rateWarned = {}
+
+local function warnRateLimited(src, name)
+    local key = tostring(src) .. '\29' .. tostring(name)
+    local state = rateWarned[key]
+    local now = GetGameTimer()
+
+    if state then
+        if now - state.windowStarted >= 1000 then
+            -- The window just rolled. ONE line, carrying the total it cost.
+            CisLog('warn', ('rate limited %s from %s: %d events dropped in one second')
+                :format(tostring(name), tostring(src), state.count), 'cheating')
+            state.windowStarted = now
+            state.count = 1
+            state.escalated = false
+            return
+        end
+        state.count = state.count + 1
+        if state.count > RATE_WARN_LIMIT and not state.escalated then
+            state.escalated = true
+            CisSecurityReport(src, ('rate limited %s: %d events dropped in one second')
+                :format(tostring(name), state.count))
+        end
+        return
+    end
+
+    rateWarned[key] = { count = 1, windowStarted = now, escalated = false }
+end
+
+-- A player who drops takes their rate buckets AND their warning state. Server
+-- ids are reused, so a returning player would otherwise inherit a throttle
+-- budget spent by the previous occupant of their id, and an operator would see
+-- the previous occupant's flood re-reported against their own name.
+AddEventHandler('playerDropped', function()
+    rates[source] = nil
+    local prefix = tostring(source) .. '\29'
+    for k in pairs(rateWarned) do
+        if k:sub(1, #prefix) == prefix then
+            rateWarned[k] = nil
+        end
+    end
+end)
+
 -- Every net event a client can reach goes through here. Two things it does
 -- that a bare RegisterNetEvent does not:
 --
@@ -386,12 +450,35 @@ end
 -- Note the name is used verbatim: CisNetOn does not prepend a prefix. Callers
 -- that want Security.EventPrefix applied pass it in (see server/doorlock.lua);
 -- the rest use the literal `cis_libs:` namespace.
+-- event name -> { owner, self, handler, opts }
+--
+-- ONE BINDING PER NAME, and the ref is resolved on EVERY CALL.
+--
+-- `RegisterNetEvent` APPENDS. It does not replace, and it does not return the
+-- previous handler. Calling it per registration meant a consumer that restarted
+-- five times had five live handlers on the same event, and after a restart the
+-- first four pointed at exports of a resource that no longer existed.
+--
+-- That is not four wasted calls. Each stale handler raised on every single
+-- invocation, inside its own pcall, and each raise went to
+-- `Logging.AutoLogError` tagged with the event name. So a resource that
+-- restarts a few times turns one client action into a burst of identical error
+-- lines -- and the operator reading that console is sent to go and fix the one
+-- handler that is working correctly.
+--
+-- So the binding happens once, and what changes on a re-registration is the ref
+-- it dispatches to. The handler is looked up per call rather than captured,
+-- because a restarted resource exports NEW closures: capturing at bind time
+-- would keep calling the previous instance, which is the same class of bug seen
+-- in the capability registry.
+local netBindings = {}
+
 function CisNetOn(name, fn, opts)
     opts = opts or {}
 
-    local self, handler
+    local resource, exportName, self, handler
     if type(fn) == 'string' then
-        local resource, exportName = fn:match('^([^:]+):(.+)$')
+        resource, exportName = fn:match('^([^:]+):(.+)$')
         if resource and exportName then
             self = exports[resource]
             handler = self and self[exportName]
@@ -400,6 +487,7 @@ function CisNetOn(name, fn, opts)
             handler = nil
         end
     elseif type(fn) == 'function' then
+        resource = GetInvokingResource() or 'cis_libs'
         handler = fn
     end
 
@@ -410,20 +498,71 @@ function CisNetOn(name, fn, opts)
         return false
     end
 
+    local binding = netBindings[name]
+    if binding then
+        -- Same owner, re-registering: exactly what a `onResourceStart` handler
+        -- after a restart looks like, and it replaces the ref rather than
+        -- stacking a second one.
+        if binding.owner == resource then
+            binding.self = self
+            binding.handler = handler
+            binding.opts = opts
+            binding.resource = resource
+            binding.exportName = exportName
+            return true
+        end
+        Logging.Warn(('cis_libs: net event %q is already bound by %s; %s was refused')
+            :format(tostring(name), tostring(binding.owner), tostring(resource)))
+        return false
+    end
+
+    netBindings[name] = {
+        owner = resource, resource = resource, exportName = exportName,
+        self = self, handler = handler, opts = opts,
+    }
+
     RegisterNetEvent(name, function(...)
         local src = source
         if type(src) ~= 'number' or src <= 0 then
             return
         end
-        if not rateOk(src, name, opts.windowMs, opts.maxHits) then
-            CisLog('warn', ('rate limited %s from %s'):format(name, src), 'cheating')
+        local live = netBindings[name]
+        if not live then
+            return
+        end
+        -- Re-resolved per call: a restarted resource exports new closures, and a
+        -- captured ref keeps calling the instance that no longer exists.
+        local target = live.handler
+        local exportsTable = live.self
+        if live.exportName then
+            exportsTable = exports[live.resource]
+            target = exportsTable and exportsTable[live.exportName]
+            if not isCallableRef(target) then
+                -- The owning resource is gone, or has not finished restarting.
+                -- Nothing to call. Returning quietly is right here: raising would
+                -- put a stack trace on the console for every client action until
+                -- the resource came back, which is a louder failure than the
+                -- one being avoided.
+                return
+            end
+        end
+        if not isCallableRef(target) then
+            return
+        end
+        if not rateOk(src, name, live.opts.windowMs, live.opts.maxHits) then
+            -- ONE WARNING PER (src, name) PER WINDOW, with the number dropped.
+            -- Logging every limited event was a denial of service against the
+            -- operator's console AND against the webhook, produced by the very
+            -- code that exists to detect an attack: 52 lines a second from one
+            -- client firing one event in a loop.
+            warnRateLimited(src, name)
             return
         end
         local ok, err
-        if self then
-            ok, err = pcall(handler, self, src, ...)
+        if exportsTable then
+            ok, err = pcall(target, exportsTable, src, ...)
         else
-            ok, err = pcall(handler, src, ...)
+            ok, err = pcall(target, src, ...)
         end
         if not ok then
             Logging.AutoLogError(err, name)
@@ -483,10 +622,20 @@ exports('GetLibsPrefix', function()
     return (Security and Security.EventPrefix) or 'cis_libs'
 end)
 
--- The only cleanup this file does, and it is required rather than tidy: the
--- buckets are keyed by src, and server ids are REUSED. Without this a returning
--- player would inherit whatever limit the previous occupant of their id had
--- left behind, and would be rate limited on their first event.
-AddEventHandler('playerDropped', function()
-    rates[source] = nil
+-- A resource that stops takes its net bindings with it (L-C7).
+--
+-- Not tidiness. The binding is gone from this table, but `RegisterNetEvent`
+-- cannot be undone -- FiveM offers no unregister -- so the event stays bound for
+-- the life of the process and now dispatches to `netBindings[name]`, which is
+-- nil, and returns. That is the honest outcome: a stopped resource's event
+-- accepts connections and does nothing, rather than raising on every one of
+-- them. What MUST happen is that the name becomes bindable again, so a resource
+-- that stops and restarts re-registers instead of being told the name is taken
+-- by a resource that no longer exists.
+AddEventHandler('onResourceStop', function(resource)
+    for name, binding in pairs(netBindings) do
+        if binding.owner == resource then
+            netBindings[name] = nil
+        end
+    end
 end)
