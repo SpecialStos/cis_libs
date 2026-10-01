@@ -935,20 +935,86 @@ do
     end
 end
 
--- ===================================================================== CisId
+-- ================================================================= CisId
 do
     -- CONTRACT MISMATCH between the two modules, found only by running them
-    -- together: CisId wants a bare FUNCTION returning [0,1), while
-    -- CisRandom.newGenerator returns an OBJECT with :float(). Bridged with a
-    -- closure here; one signature should absorb the other, and that is
-    -- recorded rather than papered over.
+    -- together: CisId wanted a bare FUNCTION returning [0,1), while
+    -- CisRandom.newGenerator returns an OBJECT with :float(). It used to be
+    -- bridged with a closure, and the mismatch recorded rather than fixed.
+    --
+    -- Phase 4 settles the convention: the rng is LAST and OPTIONAL, and it
+    -- accepts either shape. So the closure below should no longer be needed --
+    -- which is the assertion, because "the shim exists" is worth nothing unless
+    -- something stops needing the workaround.
     local gen = CisRandom.newGenerator(4242)
-    local r = function() return gen:float() end
-    local a = CisId.short('door', { rng = r, length = 8 })
-    local b = CisId.short('door', { rng = r, length = 8 })
+    local a = CisId.short('door', { rng = gen, length = 8 })
+    local b = CisId.short('door', { rng = gen, length = 8 })
     expect(type(a) == 'string', 'short returns a string or a refusal: ' .. tostring(a))
     expect(a:sub(1, 5) == 'door_', 'short puts the readable prefix first, for log lines')
     expect(a ~= b, 'two draws differ')
+
+    -- draw, with the rng in the CONVENTIONAL position and a generator object
+    -- handed straight in.
+    do
+        local g = CisRandom.newGenerator(99)
+        local s, why = CisId.draw(8, nil, g)
+        expect(type(s) == 'string' and #s == 8,
+            ('draw(count, alphabet, generator) works: %s'):format(tostring(why)))
+
+        -- Optional: no rng at all means math.random, which is what every other
+        -- function in this file does when handed no generator.
+        local s2 = CisId.draw(8)
+        expect(type(s2) == 'string' and #s2 == 8, 'draw(count) with no rng at all still draws')
+
+        -- A plain function still works in the same position.
+        local s3 = CisId.draw(8, nil, function() return 0.5 end)
+        expect(type(s3) == 'string' and #s3 == 8, 'draw accepts a bare function in the last position')
+
+        -- THE LEGACY FIRST-POSITION FORM STILL WORKS. This is a minor version,
+        -- and a consumer written against 2.0.0 has `draw(rng, count, alphabet)`
+        -- in its code already.
+        local legacyFn = CisId.draw(function() return 0.5 end, 8, nil)
+        expect(type(legacyFn) == 'string' and #legacyFn == 8,
+            'the legacy draw(rng, count, alphabet) form still works')
+        local legacyGen = CisId.draw(CisRandom.newGenerator(99), 8, nil)
+        expect(type(legacyGen) == 'string' and #legacyGen == 8,
+            'and it now accepts a generator object there too, which it used to refuse')
+
+        -- Determinism: the same generator twice gives the same id. This is the
+        -- whole reason to pass an rng, and it is only true if the object was
+        -- actually used rather than ignored in favour of math.random.
+        local g1, g2 = CisRandom.newGenerator(7), CisRandom.newGenerator(7)
+        expect(CisId.draw(12, nil, g1) == CisId.draw(12, nil, g2),
+            'the same generator gives the same id, so the object really is the source')
+
+        -- A broken generator is still refused with a reason. Accepting the
+        -- object shape must not have loosened this.
+        local bad, badWhy = CisId.draw(4, nil, function() return 1.0 end)
+        expect(bad == nil and type(badWhy) == 'string',
+            'a generator returning 1.0 is still refused with a reason')
+        local bad2, badWhy2 = CisId.draw(4, nil, 'not an rng')
+        expect(bad2 == nil and type(badWhy2) == 'string',
+            'and something that is not an rng at all is refused with a reason')
+    end
+
+    -- gaussian: same convention, and it is the OTHER function the plan named.
+    do
+        local g = CisRandom.newGenerator(11)
+        local v = CisRandom.gaussian(0, 1, g)
+        expect(type(v) == 'number' and v == v, 'gaussian(mean, sd, generator) draws a number')
+        expect(type(CisRandom.gaussian()) == 'number',
+            'gaussian() with no arguments at all still draws')
+        -- Guarded, because the broken form does not return a wrong number here --
+        -- it performs arithmetic on the rng itself and RAISES, which would
+        -- abort the whole file instead of reporting one failed assertion.
+        local legacyOk, legacy = pcall(CisRandom.gaussian, function() return 0.5 end, 10, 1)
+        expect(legacyOk and type(legacy) == 'number',
+            'the legacy gaussian(rng, mean, sd) form still works')
+        -- The generator really is used: same seed, same value.
+        local g1, g2 = CisRandom.newGenerator(3), CisRandom.newGenerator(3)
+        expect(CisRandom.gaussian(0, 1, g1) == CisRandom.gaussian(0, 1, g2),
+            'gaussian is deterministic in the generator it was given')
+    end
 end
 
 -- =================================================================== CisJson

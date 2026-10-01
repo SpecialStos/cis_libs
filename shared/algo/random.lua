@@ -678,11 +678,24 @@ end
 ---
 --- The second normal from each pair is thrown away rather than cached. Caching
 --- it would need state, and state in a random function means two draws no
--- longer being independent in a way a seeded test would have to model. The
+--- longer being independent in a way a seeded test would have to model. The
 --- cost is one extra log and one extra cos.
 ---
+--- @param mean number|nil                default 0
+--- @param standardDeviation number|nil  default 1
+--- @param rng table|function|nil        LAST and optional, like every rng
+---        argument in this library. The original order was
+---        `gaussian(rng, mean, sd)`; that still works, but it is no longer the
+---        documented one, because an rng you cannot omit without passing a
+---        placeholder for it is not an optional argument.
 --- @return number  mean + z * standardDeviation
-function CisRandom.gaussian(rng, mean, standardDeviation)
+function CisRandom.gaussian(mean, standardDeviation, rng)
+    -- Legacy form: gaussian(rng, mean, standardDeviation). Detected by asking
+    -- whether the FIRST argument can only be an rng.
+    if type(mean) == 'function'
+        or (type(mean) == 'table' and type(mean.float) == 'function') then
+        rng, mean, standardDeviation = mean, standardDeviation, rng
+    end
     mean = mean or 0
     standardDeviation = standardDeviation or 1
     -- A draw of exactly 0 makes log(0) -inf and the whole result NaN, which

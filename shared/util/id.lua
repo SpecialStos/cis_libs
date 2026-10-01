@@ -67,10 +67,55 @@ CisId = {
 --- is a read one past the end -- which is nil, which makes the next line fail
 --- with a message about string.sub and no mention of the rng.
 ---
+-- Is this argument an rng rather than a count or an alphabet?
+--
+-- Two shapes count, not one: a bare function, or an object from
+-- CisRandom.newGenerator. That is the whole reason this shim exists. CisId
+-- asked for a function and CisRandom hands back an object, so the two modules
+-- could not be given to each other at all without a closure in between -- which
+-- is exactly the mismatch the test file used to carry a comment about instead
+-- of fixing.
+local function isRng(value)
+    if type(value) == 'function' then
+        return true
+    end
+    return type(value) == 'table' and type(value.float) == 'function'
+end
+
+-- The generator argument into "call this with no arguments, get a float in
+-- [0, 1)". nil means math.random, so the argument is genuinely optional rather
+-- than merely defaulted.
+local function normaliseRng(value)
+    if value == nil then
+        return math.random
+    end
+    if type(value) == 'function' then
+        return value
+    end
+    if type(value) == 'table' and type(value.float) == 'function' then
+        return function() return value:float() end
+    end
+    return nil
+end
+
+--- @param count number|nil     how many symbols; default CisId.LENGTH
+--- @param alphabet string|nil  default CisId.ALPHABET
+--- @param rng function|table|nil  a function returning [0,1), or an object
+---        from `CisRandom.newGenerator`. Last and optional, like every rng
+---        argument in this library.
+---
 --- @return a string, or `nil, reason`.
-function CisId.draw(rng, count, alphabet)
-    if type(rng) ~= 'function' then
-        return nil, 'rng must be a function returning a number in [0,1)'
+function CisId.draw(count, alphabet, rng)
+    -- The original form was draw(rng, count, alphabet), and a consumer written
+    -- against 2.0.0 has that call in its code already. This is a minor version,
+    -- so the old shape still works; it is just no longer the documented one.
+    if isRng(count) then
+        rng, count, alphabet = count, alphabet, rng
+    end
+    local draw01 = normaliseRng(rng)
+    if not draw01 then
+        return nil, ('rng must be a function returning a number in [0,1), '
+            .. 'or a CisRandom.newGenerator object, got %s'):format(type(rng))
     end
     count = count or CisId.LENGTH
     if alphabet == nil then
@@ -86,7 +131,7 @@ function CisId.draw(rng, count, alphabet)
     local out = {}
     local i = 1
     while i <= count do
-        local r = rng()
+        local r = draw01()
         if type(r) ~= 'number' or r ~= r then
             return nil, ('rng returned %s, not a number'):format(type(r))
         end
@@ -120,8 +165,10 @@ end
 ---   rng that misbehaves, is a refusal and not a broken id.
 function CisId.short(prefix, opts)
     opts = opts or {}
-    local rng = opts.rng or math.random
-    local body, why = CisId.draw(rng, opts.length or CisId.LENGTH, opts.alphabet or CisId.ALPHABET)
+    -- The rng goes LAST, and no longer needs a closure wrapped round it: draw
+    -- accepts a CisRandom.newGenerator object as well as a bare function.
+    local body, why = CisId.draw(opts.length or CisId.LENGTH,
+        opts.alphabet or CisId.ALPHABET, opts.rng)
     if not body then
         return nil, why
     end
