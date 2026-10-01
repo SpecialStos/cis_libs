@@ -347,7 +347,8 @@ function CisTime.elapsed(now, since)
     return now - since
 end
 
---- Round a duration to a whole number of `unit`s, to the NEAREST.
+--- Round a duration in SECONDS to a whole number of `unit`s, to the NEAREST,
+--- and return it in SECONDS.
 ---
 --- opts.unit  one of CisTime.SECOND/MINUTE/HOUR/DAY/WEEK (default MINUTE)
 ---
@@ -357,9 +358,17 @@ end
 --- the same fraction every time. Rounding to nearest keeps the average exact,
 --- so the configured budget is the budget that runs.
 ---
---- @return the number of whole units. Ties go UP (90s to one unit is 2), which
----   is the conservative direction for a rate limit and the documented one
----   rather than whatever a float landed on.
+--- THE RETURN IS SECONDS, NOT A COUNT OF UNITS. The doc here used to say
+--- "the number of whole units", which is a factor of `unit` away from the truth:
+--- `roundTo(90, 60)` returns 120, not 2. Nothing else in this file is ambiguous
+--- about its unit -- everything public is seconds or milliseconds, named as
+--- such -- so "units" here was the odd one out, and it was the one a caller
+--- reading only the doc would get wrong. `roundTo(90, 60) == 120` is pinned in
+--- test/modules.lua so the doc cannot drift back.
+---
+--- @return SECONDS, rounded to a whole multiple of `unit`. Ties go UP (30s to a
+---   60s unit is 60, not 0), which is the conservative direction for a rate
+---   limit and the documented one rather than whatever a float landed on.
 function CisTime.roundTo(seconds, unit)
     if type(seconds) ~= 'number' or seconds ~= seconds then
         return 0

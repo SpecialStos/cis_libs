@@ -256,7 +256,30 @@ do
     R.reset()
 end
 
--- 
+-- ================================================================= CisTime
+do
+    local T = CisTime
+    -- L-S13. The doc said roundTo returns "the number of whole units"; the code
+    -- returns a whole number of SECONDS. For roundTo(90, 60) those differ by a
+    -- factor of sixty, and the doc is the one a caller reads. Asserting the
+    -- real contract is the only way a wrong doc fails anything.
+    expect(T.roundTo(90, 60) == 120, 'roundTo returns SECONDS, not a count of units')
+    expect(T.roundTo(89, 60) == 60, 'roundTo rounds down below the halfway point')
+    expect(T.roundTo(91, 60) == 120, 'roundTo rounds up above the halfway point')
+    expect(T.roundTo(150, 60) == 180, 'a tie goes up, the conservative direction for a rate limit')
+    -- An EXACT tie rounds up too, which is the documented rule rather than a
+    -- defect: 30s is precisely half of a minute and goes to 60.
+    expect(T.roundTo(30, 60) == 60, 'an exact tie rounds up, as documented')
+    expect(T.roundTo(29, 60) == 0, 'roundTo strictly below half a unit rounds to zero')
+    expect(T.roundTo(90, T.MINUTE) == 120, 'roundTo is the same with the named constant')
+    expect(T.roundTo(90) == 120, 'roundTo defaults to minutes')
+    expect(T.roundTo(3600) == 3600, 'roundTo leaves an exact multiple alone')
+    expect(T.roundTo(0, 60) == 0, 'roundTo of zero is zero')
+    expect(T.roundTo('x', 60) == 0, 'roundTo of a non-number is zero')
+    expect(T.roundTo(90, 0) == 0, 'roundTo with a zero unit is zero rather than a division by zero')
+    expect(T.roundTo(90, -60) == 0, 'roundTo with a negative unit is zero')
+end
+
 -- =
 -- =================================================================== CisRate
 -- The three limiters differ in boundary behaviour and nothing else. Options
