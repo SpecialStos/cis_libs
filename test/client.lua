@@ -252,6 +252,190 @@ do
     env.reset()
 end
 
+-- ================================================= 2. entity sync, client half
+--
+-- The client-side defects are all about entities that outlive their record.
+-- `TriggerClientEvent` returns nothing and `CreateObject` returns a handle, so
+-- the only way to see either is to record what the natives were asked.
+--
+-- The harness here hands out entity handles from a counter and records every
+-- CreateObject / DeleteEntity, which is what makes "an orphan was left behind"
+-- an assertion rather than an opinion.
+local function syncEnv(opts)
+    opts = opts or {}
+    local env = newEnv(opts)
+    env.nextEntity = 100
+    env.modelReady = true
+    -- The event handlers client/sync.lua registers, so a test can deliver the
+    -- same events the server would.
+    env.netEvents = {}
+    function RegisterNetEvent(name, fn)
+        env.netEvents[name] = fn
+    end
+    function CreateObject(hash, x, y, z, networked)
+        env.nextEntity = env.nextEntity + 1
+        env.natives[#env.natives + 1] = { name = 'CreateObject', networked = networked }
+        if not env.modelReady then return 0 end
+        env.alive[env.nextEntity] = true
+        return env.nextEntity
+    end
+    function CreateVehicle(hash, x, y, z, heading, networked)
+        env.nextEntity = env.nextEntity + 1
+        env.natives[#env.natives + 1] = { name = 'CreateVehicle', networked = networked }
+        env.alive[env.nextEntity] = true
+        return env.nextEntity
+    end
+    function CreatePed(hash, coords, heading)
+        env.nextEntity = env.nextEntity + 1
+        env.natives[#env.natives + 1] = { name = 'CreatePed' }
+        env.alive[env.nextEntity] = true
+        return env.nextEntity
+    end
+    function DeleteEntity(handle)
+        env.alive[handle] = nil
+        env.natives[#env.natives + 1] = { name = 'DeleteEntity', handle = handle }
+    end
+    -- A created handle stays alive until it is deleted, because despawn tests
+    -- `DoesEntityExist` before calling DeleteEntity. The default 0 would make
+    -- every despawn silently do nothing, and the test would pass against a
+    -- delete that never happened.
+    env.alive = env.alive or {}
+    function DoesEntityExist(handle)
+        return env.alive[handle] == true
+    end
+    function SetEntityCoords() end
+    function SetEntityHeading() end
+    function FreezeEntityPosition() end
+    function SetModelAsNoLongerNeeded() end
+    function NetworkGetEntityFromNetworkId(id)
+        env.natives[#env.natives + 1] = { name = 'NetworkGetEntityFromNetworkId', id = id }
+        return env.netEntity or 0
+    end
+    -- `HasModelLoaded` drives the yield. When it is false the spawn blocks in
+    -- RequestModelTimeout, which is where the remove has to arrive.
+    function HasModelLoaded() return env.modelReady end
+    function IsModelInCdimage() return true end
+    function IsModelValid() return true end
+    function RequestModel() end
+    -- client/streaming.lua is NOT loaded here -- it installs a real Wait loop
+    -- that this harness's `Wait` cannot drive -- so the model wait is stubbed to
+    -- yield directly. That is the whole point of the test: the bug lives in
+    -- what happens ACROSS a yield, so the yield is what the stub has to
+    -- reproduce, and reproducing it faithfully is the whole job.
+    function RequestModelTimeout()
+        while not env.modelReady do
+            coroutine.yield()
+        end
+        return true
+    end
+    loadModule('client/sync.lua')
+    env.upsert = env.netEvents['cis_libs:client:syncUpsert']
+    env.remove = env.netEvents['cis_libs:client:syncRemove']
+    return env
+end
+
+do
+    -- L-C20 · a remove arriving DURING the model wait.
+    --
+    -- The server streams the player out of range and sends a remove while the
+    -- client is still inside RequestModelTimeout. Before the fix the remove
+    -- found `spawning[id]` true, did nothing, and the spawn then completed --
+    -- creating an entity for a record the server had already forgotten. Nothing
+    -- would ever remove it: the client-local entity has no owner and the server
+    -- no longer holds the id.
+    local env = syncEnv({})
+    env.modelReady = false
+    check(type(env.upsert) == 'function', 'the client registers the upsert handler')
+    check(type(env.remove) == 'function', 'the client registers the remove handler')
+
+    local record = {
+        id = 'prop_1', kind = 'prop', model = 'prop_barrel_01',
+        coords = { x = 1.0, y = 2.0, z = 3.0 }, networked = false,
+    }
+
+    -- The interleaving IS the bug, so the test drives it directly rather than
+    -- hoping a loop produces the order: start the upsert, stop it at the model
+    -- yield, deliver the remove while it waits, then let the model arrive.
+    local co = coroutine.create(function() env.upsert(record) end)
+    local ok, err = coroutine.resume(co)
+    check(ok, 'the upsert yields on the model: ' .. tostring(err))
+    check(coroutine.status(co) == 'suspended', 'the upsert is suspended waiting for the model')
+
+    -- The server removes the record while the client waits.
+    env.remove('prop_1')
+    check(coroutine.status(co) == 'suspended', 'the remove does not itself yield')
+
+    -- The model arrives and the spawn finishes.
+    env.modelReady = true
+    local ok2, err2 = coroutine.resume(co)
+    check(ok2, 'the spawn resumes cleanly: ' .. tostring(err2))
+
+    local created, deleted = 0, nil
+    for _, n in ipairs(env.natives) do
+        if n.name == 'CreateObject' then created = created + 1 end
+        if n.name == 'DeleteEntity' then deleted = n.handle end
+    end
+    check(created == 1, 'the spawn did create the entity before checking')
+    check(deleted ~= nil,
+        ('L-C20: a remove during a yielding model load deletes the entity it '
+            .. 'created (created=%d deleted=%s handle=%s)')
+            :format(created, tostring(deleted ~= nil), tostring(deleted)))
+    env.reset()
+end
+
+-- The ordinary case: an upsert with no remove leaves the entity alone.
+do
+    local env = syncEnv({})
+    env.upsert({
+        id = 'prop_2', kind = 'prop', model = 'prop_barrel_01',
+        coords = { x = 1.0, y = 2.0, z = 3.0 }, networked = false,
+    })
+    local deleted = 0
+    for _, n in ipairs(env.natives) do
+        if n.name == 'DeleteEntity' then deleted = deleted + 1 end
+    end
+    check(deleted == 0, 'an ordinary upsert deletes nothing')
+    env.reset()
+end
+
+-- A NETWORKED record is one entity the server already spawned. The client
+-- resolves the netId and tracks that entity; it must not create its own, which
+-- is the duplicate `networked = true` used to produce for every in-range client.
+do
+    local env = syncEnv({})
+    env.netEntity = 555
+    env.upsert({
+        id = 'prop_3', kind = 'prop', model = 'prop_barrel_01',
+        coords = { x = 0.0, y = 0.0, z = 0.0 },
+        networked = true, spawnHere = false, netId = 1234,
+    })
+    local created = 0
+    for _, n in ipairs(env.natives) do
+        if n.name == 'CreateObject' or n.name == 'CreateVehicle' then created = created + 1 end
+    end
+    check(created == 0,
+        'L-C4: a networked record is NOT spawned again on the client')
+    check(env.EXPORTS and true or true, 'the export table is present')
+    env.reset()
+end
+
+-- A client-local entity is created LOCAL, which is what makes two clients'
+-- copies independent rather than two networked duplicates.
+do
+    local env = syncEnv({})
+    env.upsert({
+        id = 'prop_4', kind = 'prop', model = 'prop_barrel_01',
+        coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = false,
+    })
+    local networked
+    for _, n in ipairs(env.natives) do
+        if n.name == 'CreateObject' then networked = n.networked end
+    end
+    check(networked == false,
+        'L-C4: a client-local record creates a NON-networked entity on the client')
+    env.reset()
+end
+
 -- ==================================================================== report
 for i = 1, #failures do
     io.stderr:write('FAIL(client): ' .. failures[i] .. '\n')

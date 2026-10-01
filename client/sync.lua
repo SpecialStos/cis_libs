@@ -55,6 +55,23 @@ local function spawn(record)
     local heading = record.heading or 0.0
     local entity
 
+    -- A NETWORKED record is ONE entity the server already spawned. The client
+    -- resolves the netId and tracks that entity instead of creating its own --
+    -- creating one here is exactly the duplicate that `networked` used to
+    -- produce for every in-range client.
+    if record.spawnHere == false and record.netId then
+        entity = NetworkGetEntityFromNetworkId(record.netId)
+        if not entity or entity == 0 then
+            -- The server's entity is gone (it was despawned, or the session it
+            -- belonged to ended). Nothing to track; the server will send an
+            -- upsert if it still wants the record.
+            return
+        end
+        records[record.id] = { model = modelHash, kind = record.kind, networked = true }
+        entities[record.id] = entity
+        return
+    end
+
     if record.kind == 'ped' then
         entity = CreatePed(modelHash, coords, heading, {
             networked = record.networked,
@@ -110,6 +127,27 @@ end
 -- check and leave one orphan entity behind.
 local spawning = {}
 
+-- A PER-ID GENERATION COUNTER (L-C20).
+--
+-- `spawning[id]` says a spawn is in progress. It cannot say whether the record
+-- being waited for is still the one the server wants: `spawn` yields for up to
+-- five seconds waiting for a model, and during that yield the server may stream
+-- the player out of range and send a remove. The remove finds `spawning[id]`
+-- true, does nothing, and the spawn then completes -- creating an entity for a
+-- record the server has already forgotten, in a world where nothing will ever
+-- remove it again. A client-local entity with no owner and no sweeper is the
+-- most permanent leak this library can produce.
+--
+-- A generation counter makes the wait cancellable without cancelling the yield:
+-- the spawn records the generation it is serving, and the remove bumps it. The
+-- spawn checks on the way out and deletes what it made if the number moved.
+local generation = {}
+
+local function bump(id)
+    generation[id] = (generation[id] or 0) + 1
+    return generation[id]
+end
+
 local function apply(record)
     if type(record) ~= 'table' or type(record.id) ~= 'string' then
         return
@@ -134,8 +172,16 @@ local function apply(record)
     end
 
     spawning[record.id] = true
+    -- The generation this spawn is serving. Anything that removes the record
+    -- while we wait bumps it, and the check after `spawn` catches that.
+    local mine = bump(record.id)
     despawn(record.id)
     spawn(record)
+    if generation[record.id] ~= mine then
+        -- The record was removed while the model was loading. Delete what the
+        -- spawn just made rather than leaving an orphan nothing will clean up.
+        despawn(record.id)
+    end
     spawning[record.id] = nil
 end
 
@@ -144,9 +190,13 @@ RegisterNetEvent('cis_libs:client:syncUpsert', function(record)
 end)
 
 RegisterNetEvent('cis_libs:client:syncRemove', function(id)
-    if type(id) == 'string' then
-        despawn(id)
+    if type(id) ~= 'string' then
+        return
     end
+    -- Bumped whether or not a spawn is running, so a remove that arrives
+    -- DURING a model wait is still visible to the spawn on its way out.
+    bump(id)
+    despawn(id)
 end)
 
 AddEventHandler('onResourceStop', function(resource)
