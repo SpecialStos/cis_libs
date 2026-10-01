@@ -507,13 +507,23 @@ function CisWindow.read(stats, key, now)
     }
 end
 
---- Count only, without building the result table.
+--- The number of live SAMPLES for `key` inside the window.
 ---
 --- The query a rate check runs on the hot path, where allocating a six-field
 --- table per event to read one number is a real cost at 512 players and a
 --- packet rate in the hundreds.
+---
+--- NAMING, and the reason this is not called `count`. Everywhere else in this
+--- library `count` means "how many entries does this container hold" --
+--- CisSparse.count, CisLRU.count, CisPending.count, CisOwned.count,
+--- CisCurve.count, CisHistogram.count. This counts SAMPLES for one key, which
+--- is a different question: three samples of one key is one key and three
+--- samples. Both numbers are wanted, but a reader who saw `count` had no way to
+--- know which one they were being handed. For a rate limit this is the one that
+--- matters, so the function stays and the name moves.
+---
 --- @return number
-function CisWindow.count(stats, key, now)
+function CisWindow.samples(stats, key, now)
     local entry = stats.entries[key]
     if not entry or type(now) ~= 'number' or now ~= now then
         return 0
@@ -528,6 +538,13 @@ function CisWindow.count(stats, key, now)
     end
     return total
 end
+
+--- @deprecated  use `samples`. Kept because this is a minor version and a
+--- consumer reading a rate limit out of it has that call in its code already.
+---
+--- An alias to the SAME function, not a second implementation: one body, so the
+--- two names can never drift into disagreeing about what they count.
+CisWindow.count = CisWindow.samples
 
 --- Largest or smallest live sample, without building the result table.
 --- @param wantMax boolean|nil  true for the max, false or nil for the min

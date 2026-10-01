@@ -280,7 +280,39 @@ do
     expect(T.roundTo(90, -60) == 0, 'roundTo with a negative unit is zero')
 end
 
--- ================================================ Phase 4 · the error style
+-- ================================================== the meaning of `count`
+--
+-- `count` means "how many entries does this container hold" everywhere else in
+-- this library: CisSparse.count, CisLRU.count, CisPending.count,
+-- CisOwned.count, CisCurve.count, CisHistogram.count. CisWindow.count was the
+-- exception -- it counts SAMPLES for one key, which is a different question.
+-- For a rate check it is the question that matters, so the function stays and
+-- the NAME moves; the old name is kept as an alias rather than removed.
+do
+    local s = CisWindow.newStats(3, 1)
+    for t = 10, 12 do
+        CisWindow.record(s, 'k', t, t)
+    end
+    expect(CisWindow.samples(s, 'k', 12.5) == 3, 'samples() counts the live samples for a key')
+    expect(CisWindow.count == CisWindow.samples,
+        'count is kept as an alias of samples, not a second implementation')
+    expect(CisWindow.count(s, 'k', 12.5) == 3, 'and the alias answers the same thing')
+
+    -- THE DISTINCTION THE RENAME EXISTS FOR. Three samples of one key is one
+    -- key and three samples. Only one of those is what `count` means in every
+    -- other module, which is why the same word doing two jobs was worth fixing.
+    local keys = 0
+    for _ in pairs(s.entries) do keys = keys + 1 end
+    expect(keys == 1, 'this stats table holds exactly one key')
+    expect(CisWindow.samples(s, 'k', 12.5) == 3,
+        'and samples() still reports 3, which is not what count() means elsewhere')
+
+    -- The edges the alias has to keep.
+    expect(CisWindow.samples(s, 'nope', 12.5) == 0, 'an unknown key has no samples')
+    expect(CisWindow.samples(s, 'k', 0 / 0) == 0, 'a NaN now answers 0 rather than raising')
+end
+
+-- ================================================== Phase 4 · the error style
 --
 -- ONE RULE: a PROGRAMMER error (wrong type, nil where a value is required)
 -- RAISES, because the caller has to change code to fix it and a silent default
