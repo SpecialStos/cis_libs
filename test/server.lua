@@ -148,6 +148,18 @@ local function newEnv(opts)
         if not env.netOk then return 0 end
         return env.serverEntity or 77
     end
+    -- A fresh exports table per env, exactly like the contracts harness. Each
+    -- scenario loads the files again, and a table shared between them would let
+    -- one scenario pass against another scenario's registrations.
+    local EXPORTS = {}
+    setmetatable(EXPORTS, {
+        __call = function(_, name, fn)
+            EXPORTS[name] = fn
+        end,
+    })
+    env.EXPORTS = EXPORTS
+    exports = EXPORTS
+
     function TriggerClientEvent(name, target, ...)
         local n = select('#', ...)
         local args = { n = n }
@@ -507,6 +519,137 @@ do
         'a record with no coords is refused')
     check(env.EXPORTS.SyncCreate('prop', { model = 'x', coords = { y = 1.0 } }) == nil,
         'a record missing an x is refused')
+    env.reset()
+end
+
+-- ======================================= 5. GetFramework returns a TABLE
+--
+-- `exports['cis_libs']:GetFramework()` returned `CisRegistry.resolve('framework')`
+-- -- the provider's export, which is a callable or a callable TABLE once it has
+-- crossed the exports boundary, and not the table its methods live in. Every
+-- caller then did `fw.GetPlayer(src)` on that, got nil, and had no way to tell
+-- it apart from "this player has no framework record". api.lua documents a
+-- table; the source returned something else.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+
+    -- `GetFramework` waits on CisReadyState for up to 15s before giving up, and
+    -- this harness's clock never reaches 15s on its own. Marked ready rather
+    -- than stubbed, because the wait is part of what is being tested.
+    CisReadyState.reset()
+    CisReadyState.ready = true
+
+    check(env.EXPORTS.GetFramework() == nil,
+        'L-C17: GetFramework is nil when no framework is registered')
+
+    -- Register a framework the way a product does: one export that returns the
+    -- method table.
+    local EXPORTS = env.EXPORTS
+    env.EXPORTS.cis_core = {
+        CisCoreFramework = function()
+            return {
+                get = function() return true end,
+                NormalizedPlayer = function(src) return { id = src, name = 'Tester' } end,
+                Notify = function() end,
+                HasPermission = function(src, permission)
+                    return src == 1 and permission == 'admin'
+                end,
+                IsLoaded = function() return true end,
+            }
+        end,
+    }
+    check(CisRegistry.register('framework', 'cis_core:CisCoreFramework'),
+        'a framework provider registers')
+
+    local fw = env.EXPORTS.GetFramework()
+    check(type(fw) == 'table',
+        'L-C17: GetFramework returns a TABLE, not a function: got ' .. type(fw))
+    check(fw and type(fw.NormalizedPlayer) == 'function',
+        'L-C17: and the table carries the provider methods')
+    local player = fw and fw.NormalizedPlayer(7)
+    check(player and player.id == 7,
+        'L-C17: a caller can call straight into it -- fw.NormalizedPlayer(7)')
+    CisRegistry.releaseOwner('cis_core')
+    env.reset()
+end
+
+-- ================================== 6. cis_debug runs for an in-game admin
+--
+-- The permission check asked `CisRegistry.resolve('framework')` for a
+-- `HasPermission` field. That is the export, not the method table, so the field
+-- was nil, the `and` chain short-circuited to a refusal, and an in-game admin
+-- got NOTHING: no output, no error, no trace. The command an operator is told to
+-- run in game was dead in game.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+
+    -- The command handler, captured at registration.
+    local command
+    local savedRegister = RegisterCommand
+    RegisterCommand = function(name, fn) command = fn end
+    -- server/player.lua defines CisJobCount and the job histogram; cis_debug
+    -- prints a count from it, so the command cannot run without it.
+    loadModule('server/player.lua')
+    loadModule('server/initialize.lua')
+    RegisterCommand = savedRegister
+
+    check(command ~= nil, 'cis_debug is registered')
+    if not command then
+        env.reset()
+        return
+    end
+
+    -- No framework at all: a player is refused, and nothing is printed.
+    local before = #env.lines
+    command(1)
+    check(#env.lines == before,
+        'L-C17: with no framework, an in-game call prints nothing')
+
+    -- A framework that grants admin to src 1.
+    local exported = env.EXPORTS
+    exported.cis_core = {
+        CisCoreFramework = function()
+            return {
+                HasPermission = function(src, permission)
+                    return src == 1 and permission == 'admin'
+                end,
+            }
+        end,
+    }
+    check(CisRegistry.register('framework', 'cis_core:CisCoreFramework'),
+        'a framework provider registers for the debug command test')
+    CisRegistry.invalidate('framework')
+
+    before = #env.lines
+    local threw = not pcall(command, 1)
+    check(not threw, 'L-C17: cis_debug does not throw for an in-game admin')
+    check(#env.lines > before,
+        ('L-C17: cis_debug PRINTS for an in-game admin (lines=%d)'):format(#env.lines - before))
+
+    local found = false
+    for i = before + 1, #env.lines do
+        if env.lines[i]:find('ready=', 1, true) then found = true end
+    end
+    check(found, 'L-C17: and the output is the diagnostic block, not a trace')
+
+    -- A player who is not an admin is still refused, with no output.
+    before = #env.lines
+    command(2)
+    check(#env.lines == before, 'L-C17: a player without the permission still gets nothing')
+
+    -- The console, which has no src, always gets the block.
+    env.lines = {}
+    command(0)
+    check(#env.lines > 0, 'L-C17: the console always gets the block')
+    CisRegistry.releaseOwner('cis_core')
     env.reset()
 end
 

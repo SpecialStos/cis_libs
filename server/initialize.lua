@@ -116,12 +116,30 @@ end)
 -- to run this without permission.
 RegisterCommand('cis_debug', function(src)
     if src ~= 0 then
-        -- The permission check asks whichever framework is registered. A server
-        -- with no framework cannot answer, and the answer it gives is "no" --
-        -- which is the right direction: an unauthenticated player gets nothing,
-        -- and an operator who needs this uses the server console.
-        local fw = CisRegistry.resolve('framework')
-        if not (fw and fw.HasPermission and fw.HasPermission(src, 'admin')) then
+        -- `CisRegistry.call('framework', 'HasPermission', ...)`, and NOT
+        -- `resolve('framework')`. `resolve` returns the provider's export
+        -- ITSELF -- a callable, or a callable TABLE once it has crossed the
+        -- exports boundary -- not the method table the methods live in. So
+        -- `fw.HasPermission` was nil on every server whose framework arrives
+        -- from another resource, the `and` chain short-circuited to a refusal,
+        -- and an in-game admin running `cis_debug` got NOTHING: no output, no
+        -- error, no trace. The command the documentation tells an operator to
+        -- run in game was silently dead in game, and dead the same way on every
+        -- server that had a framework registered.
+        --
+        -- `call` is the dispatcher: it resolves the method against the
+        -- provider's declared name and answers false with a reason when nothing
+        -- is registered. A refusal is the right direction -- an
+        -- unauthenticated player gets nothing, and an operator who needs this
+        -- uses the server console, which arrives as src == 0.
+        --
+        -- TWO VALUES, AND THE PERMISSION IS THE SECOND. `call` answers
+        -- `ok, ...provider results`, so the provider's own `false` arrives as
+        -- `true, false` -- and testing the FIRST value would grant the command
+        -- to every player on the server whose framework is registered at all,
+        -- which is the opposite of what this check is for.
+        local ok, allowed = CisRegistry.call('framework', 'HasPermission', src, 'admin')
+        if not (ok and allowed) then
             return
         end
     end

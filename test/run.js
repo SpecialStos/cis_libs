@@ -67,6 +67,7 @@ runFile('shared/registry.lua')
 runFile('shared/grid.lua')
 runFile('shared/pending.lua')
 runFile('shared/config.lua')
+runFile('shared/ready.lua')
 runFile('shared/histogram.lua')
 runFile('shared/detect.lua')
 // The integration harness is a SEPARATE repository and a separate FiveM

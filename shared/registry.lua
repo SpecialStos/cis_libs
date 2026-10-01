@@ -331,6 +331,54 @@ function CisRegistry.owner(slot)
     return held and held.owner or nil
 end
 
+--- The provider's METHOD TABLE for a slot: fetched, and cached like a
+--- resolution, or nil.
+---
+--- `resolve` hands back the provider's export -- a callable, or a callable table
+--- once it has crossed the exports boundary. That is the right answer for
+--- `call`, which dispatches by method name, and the WRONG answer for a caller
+--- that wants to reach a method directly, because the export is not the table the
+--- methods live in. `exports['cis_libs']:GetFramework()` did exactly that and
+--- returned a function where every caller then did `fw.GetPlayer(src)` and got
+--- nil -- so cis_core's inventory counts read 0 for every item on the server.
+---
+--- `missing` deliberately never fetches the table, because for some providers
+--- that blocks for seconds and `missing` is called from diagnostics. This DOES
+--- fetch it, which is why it is not what the debug command uses.
+---
+--- @return table|nil  the method table, or nil when the slot is empty or the
+---         provider answered with a dispatcher rather than a table
+function CisRegistry.methods(slot)
+    local held = slots[slot]
+    if not held then
+        return nil
+    end
+    local cached = held.methods
+    if cached ~= nil then
+        return cached or nil
+    end
+    local provider = CisRegistry.resolve(slot)
+    if not provider then
+        return nil
+    end
+    local ok, value = pcall(provider)
+    if not ok then
+        return nil
+    end
+    if isCallable(value) then
+        -- A dispatcher has no method table to hand out. Recorded so the next
+        -- caller does not pay for the fetch again -- and, unlike the nil case,
+        -- this verdict IS definitive.
+        held.methods = false
+        return nil
+    end
+    if type(value) ~= 'table' then
+        return nil
+    end
+    held.methods = value
+    return value
+end
+
 --- Call a capability. Returns true plus the provider's results, or false plus a
 --- reason that is safe to show an operator.
 ---

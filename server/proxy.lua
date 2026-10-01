@@ -281,11 +281,20 @@ end)
 --  they returned before any framework existed.
 -- ===========================================================================
 
+-- The normalized framework API TABLE, which is what every caller actually
+-- wants: `fw.GetPlayer(src)`, `fw.Notify(src, msg, kind)`.
+--
+-- It used to return `CisRegistry.resolve('framework')`, which is the provider's
+-- export -- a callable, or a callable table once it has crossed the boundary --
+-- and NOT the table those methods live in. Every caller then did
+-- `fw.GetPlayer(src)` on a function, got nil, and had no way to tell that from
+-- "this player has no framework record". api.lua documents a table, and the
+-- source returned something else.
 exports('GetFramework', function()
     if not CisReadyState.wait(15000) then
         return nil
     end
-    return CisRegistry.resolve('framework')
+    return CisRegistry.methods('framework')
 end)
 
 exports('GetNormalizedPlayer', function(src)
