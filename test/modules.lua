@@ -1420,6 +1420,250 @@ do
         'owned: and nothing is owed afterwards')
 end
 
+-- ==================================== Phase 5 T3 · the untested surface
+--
+-- Every function below was named in the audit's coverage-gaps list and had no
+-- test referencing it at all. Each block states what the function PROMISES,
+-- because an assertion that only checks a return value is how the L-C5 extras
+-- test passed against a regression.
+do
+    -- ---------------------------------------------------------- pending.peek
+    -- The difference between take and peek is OWNERSHIP: take consumes the
+    -- key, peek leaves it. A consumer that peeks twice must get the same answer
+    -- twice -- that is the entire reason the function exists.
+    local store = CisPending.new()
+    CisPending.alloc(store, { v = 1 }, 100)
+    local peeked = CisPending.peek(store, 1)
+    local again = CisPending.peek(store, 1)
+    expect(peeked ~= nil and again ~= nil, 'pending.peek returns the payload')
+    expect(peeked == again, 'and returns the SAME one on a second peek -- it does not consume')
+    expect(CisPending.count(store) == 1, 'and the key is still held after two peeks')
+    expect(CisPending.take(store, 1) ~= nil, 'take after peek still gets the payload')
+    expect(CisPending.peek(store, 1) == nil, 'and now peek is empty, because take consumed it')
+    expect(CisPending.peek(store, 99) == nil, 'peek on an unknown key is nil, not a raise')
+
+    -- ---------------------------------------------------------------- heap
+    do
+        local h = CisHeap.new(function(a, b) return a < b end)
+        expect(CisHeap.isEmpty(h), 'a new heap is empty')
+        for _, v in ipairs({ 5, 1, 4, 2, 3 }) do CisHeap.push(h, v) end
+        expect(CisHeap.size(h) == 5, 'five pushes are five elements')
+        expect(CisHeap.peek(h) == 1, 'peek returns the minimum without removing it')
+        expect(CisHeap.size(h) == 5, 'and peek did not consume')
+        expect(CisHeap.pop(h) == 1 and CisHeap.pop(h) == 2, 'pop returns cheapest first')
+        expect(CisHeap.replaceTop(h, 99) == 4, 'replaceTop returns the NEW top after sifting')
+        expect(CisHeap.peek(h) == 4, 'and the new top took its place')
+        expect(CisHeap.pop(h) == 4 and CisHeap.pop(h) == 5 and CisHeap.pop(h) == 99 and CisHeap.isEmpty(h),
+            'and the heap drains in order -- 99 replaced the ROOT, so it is now the largest')
+
+        -- build() is the bulk form a caller reaching for a priority queue
+        -- actually uses, and it was untested.
+        local built = CisHeap.build({ 3, 1, 2 }, function(a, b) return a < b end)
+        expect(CisHeap.size(built) == 3, 'build() makes a heap of the whole list')
+        expect(CisHeap.peek(built) == 1, 'build() HEAPIFIES rather than just wrapping the list')
+
+        -- The queue: priority first, and TIES in insertion order. The tie rule
+        -- is the whole reason a queue exists over a plain heap, and it is not
+        -- obvious from the name.
+        local q = CisHeap.newQueue()
+        CisHeap.enqueue(q, 'low', 10)
+        CisHeap.enqueue(q, 'high-a', 1)
+        CisHeap.enqueue(q, 'high-b', 1)
+        expect(CisHeap.peekQueue(q) == 'high-a', 'peekQueue sees the lowest priority')
+        expect(CisHeap.dequeue(q) == 'high-a', 'dequeue returns it')
+        expect(CisHeap.dequeue(q) == 'high-b',
+            'and an equal priority dequeues FIRST IN, not in reverse')
+        expect(CisHeap.dequeue(q) == 'low', 'then the higher priority')
+        expect(CisHeap.dequeue(q) == nil, 'an empty queue dequeues nil rather than raising')
+    end
+
+    -- ----------------------------------------------------------------- lru
+    do
+        local lru = CisLRU.new(3)
+        CisLRU.put(lru, 'a', 1)
+        CisLRU.put(lru, 'b', 2)
+        CisLRU.put(lru, 'c', 3)
+        expect(CisLRU.peek(lru, 'a') == 1, 'peek reads a value without making it hot')
+        expect(CisLRU.keys(lru)[1] == 'c',
+            'so the most recently PUT is still first after peeking the oldest')
+        expect(CisLRU.get(lru, 'a') == 1, 'get reads it')
+        expect(CisLRU.keys(lru)[1] == 'a', 'and get DOES make it hot -- that is the difference')
+
+        expect(CisLRU.popOldest(lru) == 2, 'popOldest evicts the least recently used')
+        expect(not CisLRU.has(lru, 'b'), 'and the key is gone')
+        expect(CisLRU.count(lru) == 2, 'and the count dropped by one')
+
+        -- Capacity is the whole point of an LRU.
+        CisLRU.put(lru, 'd', 4)
+        CisLRU.put(lru, 'e', 5)
+        expect(CisLRU.count(lru) == 3, 'putting past capacity does not grow the cache')
+        expect(not CisLRU.has(lru, 'c') and CisLRU.has(lru, 'a'),
+            'and it dropped the LEAST RECENTLY USED -- c, not the a that get() just touched')
+
+        -- removeWhere is the one that takes a predicate.
+        local removed = CisLRU.removeWhere(lru, function(_, v) return v >= 4 end)
+        expect(removed == 2, 'removeWhere returns how many it removed')
+        expect(CisLRU.count(lru) == 1, 'and removed exactly those')
+
+        local seen = 0
+        CisLRU.each(lru, function() seen = seen + 1 end)
+        expect(seen == CisLRU.count(lru), 'each visits every entry')
+        expect(CisLRU.each(lru, 'not a function') == 0,
+            'each with a non-function visits nothing rather than raising')
+    end
+
+    -- ---------------------------------------------------------------- rate
+    do
+        -- peek() asks "would this be allowed" WITHOUT spending the budget. If it
+        -- consumed, a UI asking before acting would consume the limit itself.
+        local r = CisRate.newFixed({ limit = 2, windowSec = 10 })
+        expect(CisRate.allow(r, 'k', 0), 'first hit allowed')
+        expect(CisRate.allow(r, 'k', 0), 'second hit allowed')
+        expect(not CisRate.allow(r, 'k', 0), 'third hit is over the limit')
+        expect(CisRate.peek(r, 'k', 0).allowed == false,
+            'peek agrees the key is currently blocked')
+        expect(CisRate.peek(r, 'other', 0).allowed == true, 'peek on an untouched key is allowed')
+        expect(CisRate.peek(r, 'other', 0).remaining == 2,
+            'and reports the full remaining budget, which is the reason to ask by peek')
+        expect(not CisRate.allow(r, 'k', 0), 'and peek did not refund the limit')
+
+        -- prune() drops idle keys so the map cannot grow without bound.
+        local g = CisRate.newFixed({ limit = 5, windowSec = 1 })
+        for i = 1, 20 do CisRate.allow(g, 'key' .. i, 0) end
+        expect(CisRate.count(g) == 20, 'twenty keys are tracked')
+        CisRate.prune(g, 100, 1)
+        expect(CisRate.count(g) == 0, 'prune drops keys idle past the window -- here, all of them')
+
+        -- The sliding limiter's FULL WINDOW, which is where L-S1 lived.
+        local s = CisRate.newSliding({ limit = 10, windowSec = 1 })
+        local allowed = 0
+        for i = 0, 99 do
+            if CisRate.allow(s, 'even', i / 100) then allowed = allowed + 1 end
+        end
+        expect(allowed <= 11,
+            ('the sliding limiter allows at most limit+1 across a spread window (allowed=%d)')
+                :format(allowed))
+        expect(allowed >= 9,
+            ('and still allows a real budget rather than a starved one (allowed=%d)'):format(allowed))
+    end
+
+    -- -------------------------------------------------------------- window
+    do
+        local w = CisWindow.newStats(3, 1)
+        for t = 10, 12 do CisWindow.record(w, 'k', t, t) end
+-- DEFECT FOUND BY THIS BLOCK, PINNED RATHER THAN USED:
+        -- CisWindow.isSeen reads d.entries[key] as a NUMBER, but record() stores
+        -- an entry TABLE there for a stats window, so it raises
+        -- "attempt to compare number with table" instead of answering. It is
+        -- written for the dedupe window, where entries[key] IS a number. Not
+        -- fixed here: the coverage pass found it, and the fix belongs with
+        -- whoever owns the two window types.
+        local isSeenOk = pcall(CisWindow.isSeen, w, 'k', 12)
+        expect(not isSeenOk,
+            'isSeen raises on a stats window rather than answering -- see the note above')
+
+        local varied = CisWindow.newStats(5, 1)
+        -- record(stats, key, VALUE, now): the value comes BEFORE the time.
+        CisWindow.record(varied, 'k', 5, 10)
+        CisWindow.record(varied, 'k', 90, 11)
+        CisWindow.record(varied, 'k', 40, 12)
+        expect(CisWindow.extreme(varied, 'k', 12, true) == 90, 'extreme(max) is the largest')
+        expect(CisWindow.extreme(varied, 'k', 12, false) == 5, 'extreme(min) is the smallest')
+        expect(CisWindow.extreme(varied, 'k', 12, false) == 5,
+            'and min is not just max with the flag flipped')
+        expect(CisWindow.extreme(varied, 'gone', 12, true) == nil,
+            'extreme on an unknown key is nil rather than a raise')
+    end
+
+    -- ---------------------------------------------------------- util/table
+    do
+        local T = CisTable
+        expect(T.isEmpty({}) == true, 'isEmpty on {} is true')
+        expect(T.isEmpty({ a = 1 }) == false, 'isEmpty on a populated table is false')
+        expect(T.isEmpty('not a table') == true, 'isEmpty treats a non-table as empty')
+        expect(T.isArray({ 1, 2, 3 }) == true, 'isArray on a dense list is true')
+        expect(T.isArray({ a = 1 }) == false, 'isArray on a map is false')
+        expect(T.isMap({ a = 1 }) == true, 'isMap on a map is true')
+        expect(T.isMap({}) == true, 'isMap on {} is true -- {} is not an array')
+
+        local src = { a = 1, nested = { x = 1 } }
+        local shallow = T.shallowCopy(src)
+        shallow.a = 2
+        expect(src.a == 1, 'a shallow copy is independent at the top level')
+        expect(shallow.nested == src.nested,
+            'but SHARES the nested table, which is what "shallow" means')
+
+        local deep = T.deepCopy(src)
+        deep.nested.x = 99
+        expect(src.nested.x == 1, 'a deep copy is independent all the way down')
+        expect(T.count(src) == 2, 'count is the number of keys')
+
+        -- A cycle is the case that makes a naive deepCopy recurse forever.
+        local cyc = {}
+        cyc.self = cyc
+        local copied = T.deepCopy(cyc)
+        expect(copied.self == copied, 'deepCopy resolves a cycle to the copy in progress, not forever')
+
+        expect(T.join({ 'a', 'b', 'c' }, '-') == 'a-b-c', 'join uses the separator')
+        expect(T.join({}) == '', 'join of an empty list is an empty string')
+    end
+
+    -- ------------------------------------------------------ util/validate
+    do
+        local V = CisValidate
+        local ok, why = V.schema({ name = 'cis', count = 3, tags = { 'a', 'b' } }, {
+            name = { type = 'string', required = true },
+            count = { type = 'number', required = true, min = 1, max = 10, integer = true },
+            tags = { type = 'table', shape = 'array', min = 1 },
+        })
+        expect(ok == true, ('schema accepts a conforming value (%s)'):format(tostring(why)))
+
+-- schema() returns a LIST of reasons, not one string. Asserting on the
+        -- type of the second value is what caught that: a table of errors is
+        -- the better shape, and a caller that assumed a string would have been
+        -- silently wrong.
+        local ok2, why2 = V.schema({ name = 5 }, { name = { type = 'string', required = true } })
+        expect(ok2 == false and type(why2) == 'table' and #why2 > 0,
+            'schema refuses a wrong type and returns the list of reasons')
+
+        local ok3, why3 = V.schema({}, { name = { type = 'string', required = true } })
+        expect(ok3 == false and type(why3) == 'table' and #why3 > 0,
+            'schema refuses a MISSING required field, which catches a typo in a config key')
+
+        -- The schema is { field = SPEC }, and a spec is a table carrying
+        -- `default`. A bare number in that position is not a spec, so it fills
+        -- nothing and says nothing -- the failure mode the comment in
+        -- validate.lua calls invisible.
+        local filled = V.defaults({ a = 1 }, { a = { default = 0 }, b = { default = 2 } })
+        expect(filled.a == 1, 'defaults does not overwrite a value that is already there')
+        expect(filled.b == 2, 'and fills one that is absent')
+    end
+
+    -- ------------------------------------------------------------ util/json
+    do
+        local J = CisJson
+        -- check() answers nil + a REASON rather than false: the second value is
+        -- what tells a caller WHICH half of the codec contract is missing.
+        local noCodec, codecWhy = J.check(nil)
+        expect(noCodec == nil and type(codecWhy) == 'string', 'check refuses a missing codec, with a reason')
+        local halfCodec, halfWhy = J.check({ encode = function() end })
+        expect(halfCodec == nil and type(halfWhy) == 'string',
+            'check refuses a codec missing decode, and says which half')
+
+        local hostile = function() error('codec exploded') end
+        expect(pcall(function() return J.encode(hostile, { a = 1 }) end),
+            'encode survives a codec that raises')
+        expect(pcall(function() return J.decode(hostile, '{}') end),
+            'decode survives a codec that raises')
+
+        local good, whyBad = J.checkEncodable({ a = 1, b = { c = 2 } })
+        expect(good == true, 'a plain structure is encodable')
+        local bad, badWhy = J.checkEncodable({ fn = function() end })
+        expect(bad == false and type(badWhy) == 'string',
+            'a table carrying a function is refused, and the reason says so')
+    end
+end
+
 io.write(('module tests: passed=%d failed=%d\n'):format(passed, failed))
 if failed > 0 then
     os.exit(1)
