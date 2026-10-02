@@ -173,6 +173,14 @@ function replaceBetween(text, generated, label) {
   return text.slice(0, begin + BEGIN.length) + '\n\n' + generated + '\n\n' + text.slice(endIdx)
 }
 
+// Compare and write in one line ending, always LF.
+//
+// Git may hand this file CRLF (core.autocrlf on a Windows checkout) while the
+// generated string is LF. A raw byte compare then reports a phantom difference
+// on a tree where nothing changed -- which trains everyone to ignore the
+// staleness check, and an ignored staleness check catches no drift at all.
+const nl = s => s.replace(/\r\n/g, '\n')
+
 function main() {
   const check = process.argv.includes('--check')
   const api = loadApi()
@@ -181,11 +189,11 @@ function main() {
 
   const types = buildTypes(api, surface)
   const typesPath = path.join(root, OUT_TYPES)
-  const existing = fs.existsSync(typesPath) ? fs.readFileSync(typesPath, 'utf8') : null
-  if (existing !== types) {
+  const existing = fs.existsSync(typesPath) ? nl(fs.readFileSync(typesPath, 'utf8')) : null
+  if (existing !== nl(types)) {
     if (check) { console.error(`FAIL ${OUT_TYPES} is stale. Run: npm run gen-types`); stale = true } else {
       fs.mkdirSync(path.dirname(typesPath), { recursive: true })
-      fs.writeFileSync(typesPath, types)
+      fs.writeFileSync(typesPath, nl(types))
       console.log(`wrote ${OUT_TYPES}`)
     }
   } else {
@@ -193,7 +201,7 @@ function main() {
   }
 
   const docPath = path.join(root, OUT_DOC)
-  const doc = fs.readFileSync(docPath, 'utf8')
+  const doc = nl(fs.readFileSync(docPath, 'utf8'))
   let nextDoc
   try {
     nextDoc = replaceBetween(doc, buildDocTables(api), OUT_DOC)
@@ -204,7 +212,7 @@ function main() {
   }
   if (nextDoc !== doc) {
     if (check) { console.error(`FAIL ${OUT_DOC} is stale. Run: npm run gen-types`); stale = true } else {
-      fs.writeFileSync(docPath, nextDoc)
+      fs.writeFileSync(docPath, nl(nextDoc))
       console.log(`wrote ${OUT_DOC}`)
     }
   } else {
