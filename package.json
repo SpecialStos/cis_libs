@@ -10,6 +10,7 @@
     "test:api-selftest": "node tools/validate-api.js --selftest",
     "test:all": "npm run test:syntax && npm run test && npm run test:api-selftest && npm run test:api && npm run gen-types:check",
     "test:syntax": "node tools/syntax-check.js",
+    "scan:consumers": "node tools/scan-consumers.js",
     "bench": "node bench/run.js",
     "gen-types": "node tools/gen-types.js",
     "gen-types:check": "node tools/gen-types.js --check"
