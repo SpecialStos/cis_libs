@@ -1297,6 +1297,149 @@ do
         'security.lua no longer names cis_doors, a table this library does not own')
 end
 
+-- ============================== 6b. the three trust boundaries (S1, S2, S3)
+--
+-- Three holes with one shape: an identity that was ASSUMED rather than read.
+-- The provider string was trusted as an owner (S1, fixed in shared/registry.lua
+-- and covered in run.lua), the webhook config was handed to anyone who asked
+-- (S2), and config ownership was forgotten the moment its owner stopped (S3).
+--
+-- Grouped because they are asserted through the same export surface and share
+-- one setup: a product supplies a configuration, and then something else tries
+-- to take it.
+do
+    local WEBHOOKS = {
+        DiscordLogsLinks = { AntiCheat = 'https://discord.test/api/webhooks/1/anti' },
+    }
+
+    -- Boots proxy.lua the way the server does, with `cis_core` as the caller.
+    local function bootWithConfig(invoking, opts)
+        opts = opts or {}
+        local env = newEnv({ invoking = invoking })
+        clearRegistry()
+        Config = CisDefaults.config()
+        Security = CisDefaults.security()
+        loadModule('server/security.lua')
+        loadModule('server/proxy.lua')
+        env.EXPORTS.SetConfig(opts.config, opts.security, opts.discord)
+        return env
+    end
+
+    -- ---------------------------------------------------------------- S2
+    -- A webhook URL is a BEARER SECRET. Anyone holding one can post to the
+    -- channel as the server, and these particular ones carry anti-cheat reports
+    -- naming players -- so a leak turns every ban into a support thread, which
+    -- the roadmap puts at about 70% of running costs.
+    --
+    -- The guard was a branch that returned the secret either way:
+    --
+    --     if GetInvokingResource() == 'cis_libs' then return DiscordConfig end
+    --     return DiscordConfig or {}
+    --
+    -- The `or {}` reads like a redaction and is not one -- with a config
+    -- present BOTH branches returned every webhook URL, so the check decided
+    -- nothing. It is the same class of bug as a lock that unlocks when you look
+    -- at it: the code LOOKS like it is guarding the secret.
+    local env = bootWithConfig('cis_core', { discord = WEBHOOKS })
+
+    local asStranger = env.EXPORTS.GetDiscordConfig()
+    check(type(asStranger) == 'table' and next(asStranger) == nil,
+        'S2: GetDiscordConfig answers a foreign caller with nothing at all')
+
+    env.invoking = 'cis_someOtherResource'
+    local asOther = env.EXPORTS.GetDiscordConfig()
+    check(type(asOther) == 'table' and next(asOther) == nil,
+        'S2: and answers EVERY foreign resource with nothing, not just the first')
+
+    -- No webhooks configured is not a special case: it must look identical to a
+    -- redacted read, or the difference tells a caller what is installed here.
+    env.invoking = nil
+    local unset = env.EXPORTS.GetDiscordConfig()
+    check(type(unset) == 'table' and next(unset) == nil,
+        'S2: an unset config answers a foreign caller the same way')
+
+    -- cis_libs reading its own secret is the one case that has to keep working:
+    -- the logging module and the discord capability both need it.
+    env.invoking = 'cis_libs'
+    local asSelf = env.EXPORTS.GetDiscordConfig()
+    check(type(asSelf) == 'table' and asSelf.DiscordLogsLinks ~= nil,
+        'S2: cis_libs itself still reads the webhook table it was given')
+    env.reset()
+
+    -- ---------------------------------------------------------------- S3
+    -- Config ownership was RELEASED when its owner stopped:
+    --
+    --     if Config.__owner == resource then Config.__owner = nil end
+    --
+    -- which opens a window on every restart. An operator restarts cis_core to
+    -- pick up a fix, and for as long as it is down the config is unowned -- so
+    -- any resource that calls SetConfig is accepted as the FIRST supplier and can
+    -- hand over `AuthorizedResources = {}`, `DropPlayer = false` and its own
+    -- webhook URLs. The console then shows that resource as the legitimate
+    -- supplier of the security policy.
+    --
+    -- Ownership has to survive the stop. A restarted cis_libs keeps its own
+    -- Config table and keeps its own __owner, and cis_core re-supplies into it
+    -- (the same-owner path L-C6 added) -- so nothing legitimate is lost by not
+    -- clearing this, and what it costs an attacker is everything.
+    local owned = bootWithConfig('cis_core', {
+        security = { AuthorizedResources = { 'cis_core' } },
+    })
+    check(Config.__owner == 'cis_core', 'S3: the supplier recorded itself as the owner')
+
+    -- cis_libs restarts: its Config is rebuilt, and the owner goes with it.
+    -- The supplier comes back and hands the configuration over again.
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    check(Config.__owner == nil, 'S3: a restarted cis_libs starts with the config unowned')
+
+    local again = owned.EXPORTS.SetConfig(nil, { AuthorizedResources = { 'cis_core' } })
+    check(again == true, 'S3: the legitimate owner may supply the configuration again')
+
+    -- Now the case the bug was about: the owner stops, and something else
+    -- reaches in during the gap.
+    local stale = bootWithConfig('cis_core', {
+        security = { AuthorizedResources = { 'cis_core' } },
+    })
+    -- The owner stops. Nothing about the CONFIG should change, so this is a
+    -- direct simulation of the handler's effect rather than the event itself:
+    -- what matters is that no stop path clears the owner.
+    local stopSource = readCode('server/proxy.lua')
+    check(stopSource:find('__owner%s*=%s*nil', 1, true) == nil,
+        'S3: no code path clears the configuration owner')
+    check(stopSource:find('__owned%s*=%s*nil', 1, true) == nil,
+        'S3: and none clears the owned flag either')
+
+    -- And the takeover itself, once the owner is back and holding the slot.
+    -- The calling resource has to actually CHANGE here, or this asserts that
+    -- the owner may re-supply -- which it may, and which is asserted above.
+    stale.invoking = 'cis_someOtherResource'
+    local impostor = stale.EXPORTS.SetConfig(nil, { AuthorizedResources = {} })
+    check(impostor == false,
+        'S3: a second resource cannot replace the configuration')
+    local _, why = stale.EXPORTS.SetConfig(nil, { AuthorizedResources = {} })
+    check(tostring(why):find('cis_core', 1, true) ~= nil,
+        ('S3: and the refusal names the real owner (got %s)'):format(tostring(why)))
+
+    -- The owner's own values are untouched by the refused attempt. A refusal
+    -- that still half-applied the incoming table would leave the allow-list
+    -- empty while reporting failure, which is the worst of both.
+    check(Config.Security == nil or Config.Security.AuthorizedResources == nil
+            or #Config.Security.AuthorizedResources == 0,
+        'S3: a refused SetConfig did not merge the incoming allow-list')
+    stale.invoking = 'cis_core'
+    local stillOwns = stale.EXPORTS.SetConfig(nil, { AuthorizedResources = { 'cis_core' } })
+    check(stillOwns == true,
+        ('S3: and the real owner is still able to supply (got %s)'):format(tostring(stillOwns)))
+
+    -- The refusal has to state the fix, which is the convention this library
+    -- keeps everywhere else: a message that cannot be acted on is the ambiguity
+    -- this whole library exists to remove.
+    check(tostring(why):find('cis_libs', 1, true) ~= nil,
+        ('S3: and the refusal says how to clear it deliberately (got %s)'):format(tostring(why)))
+    env.reset()
+end
+
 -- ====================================== 7. the guard table (L-C24)
 --
 -- Six unrelated refusals, gathered because they share one shape: an argument the

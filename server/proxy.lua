@@ -99,7 +99,15 @@ exports('SetConfig', function(config, security, discord)
     -- configuration had been supplied. The refusal is what made it invisible.
     local supplier = GetInvokingResource() or 'cis_libs'
     if Config and Config.__owned and Config.__owner ~= 'cis_libs' and Config.__owner ~= supplier then
-        return false, ('configuration was already supplied by %s'):format(tostring(Config.__owner))
+        -- THE REFUSAL STATES THE FIX. Two ways to change the supplier, and the
+        -- caller has to be able to tell them apart: restart cis_libs, which
+        -- rebuilds Config with no owner, or have the named resource supply it
+        -- again. Anything else -- "permission denied" with no way forward -- is
+        -- the ambiguity this library refuses everywhere else.
+        return false, ('configuration was already supplied by %s; only that resource can '
+            .. 'replace it. To hand it to someone else, restart cis_libs, or stop and '
+            .. 'restart %s so it supplies the configuration again.')
+            :format(tostring(Config.__owner), tostring(Config.__owner))
     end
     if type(config) == 'table' then
         -- Merged over the built-in defaults key by key, so an operator who set
@@ -166,11 +174,35 @@ end)
 --- sending. Server realm only, and it is a secret: it holds webhook URLs, which
 --- is exactly why it is not on the client whitelist and not in the debug
 --- command's capability table.
+---
+--- A WEBHOOK URL IS A BEARER SECRET. Anyone holding one can post to the channel
+--- as this server, and the channels configured here carry anti-cheat reports
+--- naming players -- so a leak converts every ban into a support thread, which
+--- is where the roadmap puts most of the running cost.
+---
+--- This export used to read:
+---
+---     if GetInvokingResource() == 'cis_libs' then return DiscordConfig end
+---     return DiscordConfig or {}
+---
+--- and the `or {}` was not a redaction. With a config present -- the normal
+--- state on any server that logs -- BOTH branches returned the full table, so
+--- the check guarded nothing. It had the shape of a lock that opens when you
+--- look at it, which is the kind of bug that survives review because every line
+--- of it looks correct.
+---
+--- A foreign caller now gets an EMPTY table, always. Not nil: the capability
+--- this export feeds has to keep working against an absent config rather than
+--- raise on an index of nil, and an empty table and a nil are indistinguishable
+--- to it while a populated one is not.
 exports('GetDiscordConfig', function()
     if GetInvokingResource() == 'cis_libs' then
-        return DiscordConfig
+        return DiscordConfig or {}
     end
-    return DiscordConfig or {}
+    -- Nothing, and it looks exactly like nothing. Returning nil here would tell
+    -- a probing resource "this server has no Discord config", which is a fact
+    -- about the install worth not handing out alongside every other answer.
+    return {}
 end)
 
 --- Register a capability provider. The form is ALWAYS the string
@@ -224,13 +256,26 @@ AddEventHandler('onResourceStop', function(resource)
         warned = {}
         Logging.Warn(('cis_libs: capability %q released: %s stopped'):format(slot, resource))
     end
-    -- The configuration owner is released with everything else it held. cis_libs
-    -- itself restarting must not leave the next cis_core looking like a SECOND
-    -- supplier and being refused for a config it is entitled to supply.
-    if Config and Config.__owner == resource then
-        Config.__owned = nil
-        Config.__owner = nil
-    end
+    -- THE CONFIGURATION OWNER IS DELIBERATELY NOT RELEASED HERE.
+    --
+    -- It used to be cleared alongside the capability slots, and that turned
+    -- every restart of the config supplier into a window in which the security
+    -- policy had no owner. An operator restarts cis_core to pick up a fix, and
+    -- while it is down any resource that calls SetConfig is accepted as the
+    -- FIRST supplier -- free to hand over `AuthorizedResources = {}`,
+    -- `DropPlayer = false`, and its own webhook URLs, with the console then
+    -- showing it as the legitimate supplier.
+    --
+    -- Nothing legitimate is lost by leaving it. A restarted cis_libs rebuilds
+    -- its Config table from the defaults, which has no owner at all, and the
+    -- same resource may always supply the configuration again (the same-owner
+    -- path above, added for L-C6). So the owner only has to be cleared by
+    -- restarting cis_libs, which is deliberate rather than incidental.
+    --
+    -- What it costs is the ability to move the configuration to a different
+    -- resource without restarting the library, and that is the right trade: the
+    -- operator takes one action they understand, and no resource can take the
+    -- policy by racing a restart.
 end)
 
 --- The frameworks and drivers this library knows how to detect, copied out of
