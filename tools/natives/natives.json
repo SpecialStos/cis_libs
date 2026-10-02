@@ -5,7 +5,7 @@
     "gta": "https://runtime.fivem.net/doc/natives.json"
   },
   "counts": {
-    "shippedFiles": 46,
+    "shippedFiles": 47,
     "nativesUsed": 144,
     "byRealm": {
       "client": 82,
@@ -541,6 +541,8 @@
         "init.lua",
         "server/callback.lua",
         "server/security.lua",
+        "server/selfcheck.lua",
+        "shared/diagnostics.lua",
         "shared/ready.lua",
         "shared/registry.lua"
       ]

@@ -146,6 +146,12 @@ function buildTestConfig() {
   // here rather than discovered: build-libglobals.js reads cis_libs' manifest,
   // and the harness is a separate resource that is never shipped.
   writable.add('CisTestRing')
+  // The live harness's own globals (test/live/cis_test). Same reasoning: separate
+  // resources that never ship, discovered by hand rather than from cis_libs'
+  // manifest, because the manifest does not list them.
+  for (const n of ['CisTestRunner', 'CisTestJson', 'CisTestReport', 'CisTestClientCase']) {
+    writable.add(n)
+  }
   // Natives the fake VM implements that the shipped code never calls, so they
   // are in neither natives.json nor the runtime list. A stub the code under
   // test does not exercise is still a stub, and still an assignment.
