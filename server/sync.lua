@@ -59,6 +59,26 @@ end
 
 -- One pass over connected players, reused across every record in a broadcast
 -- tick. Reading coords per (player, record) pair was the dominant cost.
+--
+-- The routing bucket is read HERE, once per player, for the same reason the
+-- coordinates are: it is a per-player property the answer depends on, and
+-- asking a native per (player, record) pair would be the cost this function
+-- exists to avoid.
+--
+-- Defaulted to 0 rather than nil. A player with no bucket set is in the main
+-- one, and a record with no `bucket` belongs to the main one too -- so this
+-- changes nothing for a server that does not use buckets at all.
+local function playerBucket(src)
+    if type(GetPlayerRoutingBucket) ~= 'function' then
+        return 0
+    end
+    local ok, bucket = pcall(GetPlayerRoutingBucket, src)
+    if not ok then
+        return 0
+    end
+    return tonumber(bucket) or 0
+end
+
 local function playerPositions()
     local out = {}
     for _, id in ipairs(GetPlayers()) do
@@ -66,7 +86,10 @@ local function playerPositions()
         local ped = GetPlayerPed(src)
         if ped and ped ~= 0 then
             local pos = GetEntityCoords(ped)
-            out[#out + 1] = { src = src, x = pos.x, y = pos.y, z = pos.z }
+            out[#out + 1] = {
+                src = src, x = pos.x, y = pos.y, z = pos.z,
+                bucket = playerBucket(src),
+            }
         end
     end
     return out
@@ -90,9 +113,33 @@ local MODEL_TIMEOUT_MS = 5000
 -- The only distance question this file asks. Squared rather than `sqrt`, because
 -- every pair is tested once per pass and the square root buys nothing: the
 -- comparison is exact either way.
-local function isNear(p, coords, radius)
+local function nearByDistance(p, coords, radius)
     local dx, dy, dz = p.x - coords.x, p.y - coords.y, p.z - coords.z
     return dx * dx + dy * dy + dz * dz <= (radius or DEFAULT_SCOPE) ^ 2
+end
+
+-- SHOULD THIS PLAYER BE TOLD ABOUT THIS RECORD AT ALL (C3).
+--
+-- Two questions, and the first one used to be missing. "Are these close" is not
+-- enough: a routing bucket is a separate world, and two players standing at the
+-- same coordinates in different buckets are indistinguishable to a distance
+-- test. So an entity synced for one instance appeared in another -- a door in a
+-- racing world, a staged set in the main world -- and it could not be despawned
+-- on request, because the server genuinely believed the player should see it.
+--
+-- `GetPlayerRoutingBucket` is a server native (ext/native-decls, `ns: CFX,
+-- apiset: server`); the default is 0, which is both the main bucket and what a
+-- player with no bucket set is in.
+--
+-- Bucket and distance are checked together on purpose. A player who moves
+-- between buckets has left every record of the one they were in, and the
+-- streaming pass has to treat that exactly as it treats walking out of range --
+-- or the entity stays in the world they just left, client-local and permanent.
+local function isNear(p, record)
+    if p.bucket ~= (record.bucket or 0) then
+        return false
+    end
+    return nearByDistance(p, record.coords, record.scope or DEFAULT_SCOPE)
 end
 
 -- Revision covers the whole record (minus our own bookkeeping fields) so a
@@ -190,7 +237,13 @@ end
 local function payload(record)
     local out = {}
     for k, v in pairs(record) do
-        if k ~= 'print' and k ~= 'rev' and k ~= 'dynamic' and k ~= 'scope' then
+        -- `bucket` is excluded for the same reason `scope` and `dynamic` are:
+        -- it is a question the SERVER asks, once, to decide whether to send at
+        -- all. The client never filters on it -- it has already been told it
+        -- belongs in this world -- and shipping it on every upsert would put a
+        -- field nobody reads on the wire forever.
+        if k ~= 'print' and k ~= 'rev' and k ~= 'dynamic' and k ~= 'scope'
+            and k ~= 'bucket' then
             out[k] = v
         end
     end
@@ -278,6 +331,25 @@ local function upsert(kind, data)
     -- range-filtered sync wants: the server decides who may see what.
     data.networked = data.networked == true
     data.dynamic = data.dynamic and true or false
+    -- WHICH WORLD. A routing bucket is a separate instance of the map, so a
+    -- record is only ever streamed to players standing in the same one. The
+    -- decision itself is in `isNear`; this is where the field is normalised.
+    --
+    -- NORMALISED, and a non-number is REFUSED rather than quietly filed under
+    -- bucket 0: that would put the record in the main world of every instance
+    -- server rather than in none of them, and a misplaced door is a support
+    -- ticket. A refusal is visible.
+    if data.bucket ~= nil then
+        local bucket = tonumber(data.bucket)
+        if not bucket or bucket < 0 or bucket % 1 ~= 0 then
+            Logging.Error(('Cis.sync.%s rejected: bucket must be a non-negative whole number, got %s')
+                :format(tostring(kind), tostring(data.bucket)))
+            return nil
+        end
+        data.bucket = bucket
+    else
+        data.bucket = 0
+    end
     -- L-C7: the owning resource, so a consumer that stops takes its records with
     -- it. cis_libs owns no table and never creates an entity a caller did not
     -- ask for, but it is the one place that knows which resource asked.
@@ -354,7 +426,7 @@ local function upsert(kind, data)
     local positions = playerPositions()
     for i = 1, #positions do
         local p = positions[i]
-        if isNear(p, stored.coords, stored.scope or DEFAULT_SCOPE) then
+        if isNear(p, stored) then
             local set = has[p.src]
             if not set then
                 set = {}
@@ -468,7 +540,7 @@ local function streamPass()
         local stale = nil
         for id in pairs(set) do
             local record = records[id]
-            if not record or not isNear(p, record.coords, record.scope or DEFAULT_SCOPE) then
+            if not record or not isNear(p, record) then
                 stale = stale or {}
                 stale[#stale + 1] = id
             end
@@ -482,7 +554,7 @@ local function streamPass()
         end
 
         for id, record in pairs(records) do
-            local near = isNear(p, record.coords, record.scope or DEFAULT_SCOPE)
+            local near = isNear(p, record)
             if near and not set[id] then
                 set[id] = true
                 TriggerClientEvent('cis_libs:client:syncUpsert', p.src, payload(record))

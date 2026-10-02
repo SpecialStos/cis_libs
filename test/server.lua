@@ -143,6 +143,18 @@ local function newEnv(opts)
     -- decision asks: is THIS player near that record. A single shared point
     -- would make the range tests meaningless.
     function GetPlayerPed(src) return (src or 0) + 1000 end
+    -- ROUTING BUCKETS. A server native (ext/native-decls
+    -- GetPlayerRoutingBucket.md, `ns: CFX, apiset: server`) returning the
+    -- player's bucket id. Per-SRC like the coordinates, because "is this player
+    -- in this bucket" is the question the streaming pass now asks.
+    --
+    -- The DEFAULT is 0, which is what a player with no bucket set is in, so a
+    -- test that sets nothing behaves exactly as it did before this existed.
+    function GetPlayerRoutingBucket(src)
+        local p = env.players[src]
+        local bucket = type(p) == 'table' and p.bucket or nil
+        return tonumber(bucket) or 0
+    end
     function GetEntityCoords(ped)
         local src = (ped or 0) - 1000
         local p = env.players[src]
@@ -312,6 +324,20 @@ local function newEnv(opts)
         for i = 1, #env.sent do
             local e = env.sent[i]
             if e.name == 'cis_libs:client:syncRemove' and e.args[1] == id then
+                n = n + 1
+            end
+        end
+        return n
+    end
+
+    -- The same question as `upsertsTo`, scoped to one src: how many times was
+    -- THIS player told to drop that record. A remove broadcast to -1 is not a
+    -- remove to anybody in particular, and counting those together would let a
+    -- broken sweep read as a working one.
+    function env.removesTo(src, id)
+        local n = 0
+        for _, e in ipairs(env.sentTo(src, 'cis_libs:client:syncRemove')) do
+            if e.args[1] == id then
                 n = n + 1
             end
         end
@@ -492,6 +518,84 @@ do
     })
     env.tick()
     check(env.upsertsTo(1, id) == 1, 'scope widens the streaming radius for that record')
+    env.reset()
+end
+
+-- ====================================== 1b. routing buckets (C3)
+--
+-- The streaming pass asked ONE question per (player, record) pair: are these
+-- close? It never asked which BUCKET either was in, and the whole file
+-- contained no reference to `GetPlayerRoutingBucket` at all.
+--
+-- That is invisible on a server that does not use buckets, which is why it
+-- survived: a player in bucket 0 and a player in bucket 2 standing at the same
+-- coordinates are indistinguishable to a pure distance test. So the entity
+-- synced for one instance appears in the other -- a door in a separate world, a
+-- shop prop duplicated into a racing track, a staged set leaking into the main
+-- world. And it is not a ghost that can be despawned on request, because the
+-- server genuinely believes the player should see it.
+--
+-- Two records at the same coordinates in different buckets is the shape that
+-- proves it: a distance-only filter cannot tell them apart.
+do
+    local env = newEnv({
+        players = {
+            [1] = { coords = { x = 5.0, y = 0.0, z = 0.0 }, bucket = 0 },
+            [2] = { coords = { x = 5.0, y = 0.0, z = 0.0 }, bucket = 2 },
+        },
+    })
+    loadSync(env)
+
+    -- Two entities at the SAME coordinates, in different worlds.
+    local main = env.EXPORTS.SyncCreate('prop', {
+        model = 'prop_barrier_05a',
+        coords = { x = 0.0, y = 0.0, z = 0.0 },
+    })
+    local instanced = env.EXPORTS.SyncCreate('prop', {
+        model = 'prop_barrier_05a',
+        coords = { x = 0.0, y = 0.0, z = 0.0 },
+        bucket = 2,
+    })
+    env.tick()
+
+    check(env.upsertsTo(1, main) == 1, 'C3: a bucket-0 player is sent the bucket-0 record')
+    check(env.upsertsTo(1, instanced) == 0,
+        ('C3: and NOT the record from another bucket (got %d)')
+            :format(env.upsertsTo(1, instanced)))
+    check(env.upsertsTo(2, instanced) == 1,
+        'C3: the bucket-2 player IS sent the bucket-2 record')
+    check(env.upsertsTo(2, main) == 0,
+        ('C3: and not the bucket-0 one (got %d)'):format(env.upsertsTo(2, main)))
+
+    -- A player who is MOVED between buckets loses what they were told, without
+    -- walking a metre. Their set has to be swept on the bucket change exactly as
+    -- it is on the distance change, or the entity stays in the world they just
+    -- left.
+    local beforeMove = env.upsertsTo(1, instanced)
+    env.players[1].bucket = 2
+    env.tick()
+    check(env.removesTo(1, main) == 1,
+        ('C3: moving to another bucket removes what that bucket did not hold (got %d)')
+            :format(env.removesTo(1, main)))
+    check(env.upsertsTo(1, instanced) == beforeMove + 1,
+        ('C3: and brings in what its new bucket does hold (before=%d after=%d)')
+            :format(beforeMove, env.upsertsTo(1, instanced)))
+
+    env.reset()
+end
+
+-- The default has to stay 0, or every record created before this existed would
+-- be invisible on a server whose players sit in the main bucket.
+do
+    local env = newEnv({ players = { [1] = { coords = { x = 5.0, y = 0.0, z = 0.0 } } } })
+    loadSync(env)
+    local id = env.EXPORTS.SyncCreate('prop', {
+        model = 'prop_barrier_05a',
+        coords = { x = 0.0, y = 0.0, z = 0.0 },
+    })
+    env.tick()
+    check(env.upsertsTo(1, id) == 1,
+        'C3: a record with no bucket belongs to bucket 0, and streams as it always did')
     env.reset()
 end
 
