@@ -149,7 +149,8 @@ function buildTestConfig() {
   // The live harness's own globals (test/live/cis_test). Same reasoning: separate
   // resources that never ship, discovered by hand rather than from cis_libs'
   // manifest, because the manifest does not list them.
-  for (const n of ['CisTestRunner', 'CisTestJson', 'CisTestReport', 'CisTestClientCase']) {
+  for (const n of ['CisTestRunner', 'CisTestJson', 'CisTestReport', 'CisTestClientCase',
+    'CisTestB', 'CisTestBClient', 'CisTestBadMeta']) {
     writable.add(n)
   }
   // Natives the fake VM implements that the shipped code never calls, so they

@@ -33,9 +33,22 @@ local function makeRunId()
     return ('run-%s-%s'):format(os.date('!%Y%m%d'), os.date('!%H%M%S'))
 end
 
+-- The 'selftest' tier is EXCLUDED from 'all' on purpose. Its cases are
+-- written to fail, because a harness that has only ever been seen to pass has
+-- not been tested. Leaving it in would mean `cis_test run all` could never be
+-- green, and a permanently red command is one everybody stops reading. Run it
+-- on its own with `cis_test run selftest`, where a FAIL is the correct answer.
+local SELFTEST_TIER = 'selftest'
+
 local function selectedSuites(spec)
     local suites = CisTestRunner.Suites()
-    if not spec or spec == 'all' then return suites end
+    if not spec or spec == 'all' then
+        local out = {}
+        for _, s in ipairs(suites) do
+            if s.tier ~= SELFTEST_TIER then out[#out + 1] = s end
+        end
+        return out
+    end
 
     local wanted = {}
     for part in tostring(spec):gmatch('[^,]+') do

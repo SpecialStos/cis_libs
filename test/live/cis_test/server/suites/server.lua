@@ -13,16 +13,25 @@ CisTestRunner.Suite('registry', { tier = 'server', realm = 'server' }, function(
     t.case('every slot resolves against the fakes', function()
         local caps = exports['cis_libs']:GetCapabilities()
         local unresolved, empty = {}, {}
+        -- doorsClient is DELIBERATELY excluded. It is registered by the client
+        -- fakes in the client's own Lua state, so the SERVER's table lists it
+        -- with no owner for the life of the process. Asserting it here failed a
+        -- correct install, which is the same mistake the preflight made and the
+        -- reason this comment exists: a realm-only slot has no server owner and
+        -- that is not a fault.
+        local SERVER_OWNED = { doorsClient = true }
         for slot, entry in pairs(caps) do
-            if not entry.owner then
-                empty[#empty + 1] = slot
-            elseif not entry.resolved then
-                unresolved[#unresolved + 1] = slot
+            if not SERVER_OWNED[slot] then
+                if not entry.owner then
+                    empty[#empty + 1] = slot
+                elseif not entry.resolved then
+                    unresolved[#unresolved + 1] = slot
+                end
             end
         end
         table.sort(empty)
         table.sort(unresolved)
-        t.eq(#empty, 0, 'every declared slot has a provider installed' ..
+        t.eq(#empty, 0, 'every server-owned slot has a provider installed' ..
             (#empty > 0 and (': ' .. table.concat(empty, ', ')) or ''))
         t.eq(#unresolved, 0, 'every provider answers its whole contract' ..
             (#unresolved > 0 and (': ' .. table.concat(unresolved, ', ')) or ''))
@@ -70,8 +79,21 @@ CisTestRunner.Suite('registry', { tier = 'server', realm = 'server' }, function(
         t.ok(released == true, 'the slot was released')
 
         local rows, why = exports['cis_libs']:DbQuery('SELECT 1')
-        t.eq(rows, false, 'a call with no provider is refused, not answered')
-        t.ok(type(why) == 'string' and #why > 0, 'with a reason that says something')
+        -- nil, not false: forward() hands back the provider's refusal reason so
+        -- the caller can report it, and an answer of `false` would be
+        -- indistinguishable from a provider that legitimately returned false.
+        t.eq(rows, nil, 'a call with no provider answers nothing at all')
+        -- FAILS AT THE BASELINE, ON PURPOSE. `forward()` does compute the reason
+        -- and does return it -- as its second value -- and it still arrives nil.
+        -- Everything that answer goes through an EXPORT, and a second return
+        -- value is exactly what this library's own comments say does not
+        -- survive a crossing. So the refusal a caller sees has no explanation in
+        -- it, which is the same defect as the notify one below and for the same
+        -- reason: the code standard says every refusal answers with a reason, and
+        -- the boundary is where the reason goes.
+        t.ok(type(why) == 'string' and #why > 0,
+            'and hands back a reason that says something (the reason is lost across the export: ' ..
+            tostring(why) .. ')')
     end)
 
     t.case('a provider that raises never escapes into the consumer', function()
@@ -91,17 +113,32 @@ end)
 
 CisTestRunner.Suite('notify', { tier = 'server', realm = 'server' }, function(t)
     -- Appendix A: refused sources, oversize, burst.
-    t.case('a refused source is refused with a reason', function()
+    -- THE TWO CASES BELOW FAIL AGAINST THE CURRENT BUILD, ON PURPOSE. They
+    -- were written before the fix and they found it:
+    --
+    --   * NotifyClient refuses src 0 and -1 with a BARE `false` and no reason,
+    --     while the rate limit one line below refuses with a reason. Every other
+    --     refusal in this library answers `false, reason`, and the code
+    --     standard says so. A refusal with nothing in it gives the caller
+    --     nothing to log or show.
+    --   * NotifyClient to a src that is not CONNECTED returns true and fires the
+    --     event at a player who is not there. The guard checks the number's
+    --     shape, not whether the player exists.
+    --
+    -- Task 3.7 owns both. They stay here, red, until it does: a fixed defect
+    -- whose test was deleted is a defect that comes back.
+    t.case('a refused source is refused WITH a reason', function()
         for _, bad in ipairs({ 0, -1 }) do
             local ok, why = exports['cis_libs']:NotifyClient(bad, 'harness', 'x')
             t.eq(ok, false, ('src %s is refused'):format(tostring(bad)))
-            t.ok(type(why) == 'string' and #why > 0, ('src %s names the reason'):format(tostring(bad)))
+            t.ok(type(why) == 'string' and #why > 0,
+                ('src %s names the reason (currently bare false)'):format(tostring(bad)))
         end
     end)
 
     t.case('a disconnected src is refused', function()
         local ok, why = exports['cis_libs']:NotifyClient(9999, 'harness', 'x')
-        t.eq(ok, false, 'a src that is not connected is refused')
+        t.eq(ok, false, 'a src that is not connected is refused (currently it fires)')
         t.ok(type(why) == 'string' and #why > 0, 'with a reason')
     end)
 end)
