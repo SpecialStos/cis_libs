@@ -138,6 +138,10 @@ function buildTestConfig() {
   }
   for (const n of Object.keys(libDoc.globals)) writable.add(n)
   for (const n of ['TEST_CASES', 'CIS_TEST_FILES', 'CIS_API_REAL', 'SUITE_NAMES', 'CIS_DUMP_TARGET', 'CIS_LIVE_ENV']) writable.add(n)
+  // Set by test/suite-runner.js so a suite can tell "driven by the JS runner"
+  // from "driven by the stock-Lua entry point", which is the only thing that
+  // distinguishes the two modes of test/run.lua.
+  writable.add('CIS_SUITE_MODE')
   // Natives the fake VM implements that the shipped code never calls, so they
   // are in neither natives.json nor the runtime list. A stub the code under
   // test does not exercise is still a stub, and still an assignment.

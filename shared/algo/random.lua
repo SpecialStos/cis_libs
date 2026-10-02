@@ -49,6 +49,12 @@ CisRandom = {}
 
 local MOD = 2147483647
 local MULT = 48271
+-- The other multiplier from the same Park-Miller family, applied to the
+-- magnitude of a NEGATIVE seed. It has to be a different one: the sign used to
+-- be folded in with `(h + MOD) % MOD`, which is a no-op, because h is already in
+-- [0, MOD-1] so adding MOD and reducing hands h straight back. That made
+-- newGenerator(1) and newGenerator(-1) the same generator.
+local MULT_NEG = 16807
 
 -- The largest integer a double holds EXACTLY, and therefore the widest uniform
 -- range anything in this file can draw from without the modulo starting to
@@ -275,15 +281,14 @@ local function hashSeed(seed)
     -- 32 bits of the fraction. Without this the floor above is all that
     -- survives and 1 and 1.7 are the same seed again.
     local frac = math.floor((a - whole) * TWO32)
-    -- The sign goes in as its own additive term rather than being abs'd away,
-    -- which is what made -1 and 1 the same generator.
+    -- The sign goes in by selecting the multiplier, not by being abs'd away and
+    -- not by an additive term that folds back to itself. A POSITIVE seed takes
+    -- exactly the path it always took, so its stream is unchanged; only the
+    -- negative half moves, and it was identical to the positive half before.
     local h = whole % (MOD - 1)
     h = (h * MULT) % MOD
     h = (h + frac * MULT) % MOD
-    if negative then
-        h = (h + MOD) % MOD
-    end
-    h = (h * MULT) % MOD
+    h = (h * (negative and MULT_NEG or MULT)) % MOD
     if h == 0 then
         h = 1
     end

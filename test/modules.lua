@@ -22,6 +22,13 @@
 
 local passed, failed = 0, 0
 
+-- Recorded as well as printed. The stock-Lua 5.4 driver runs every suite in
+-- this process and has no pipe on its own stdout, so it cannot read the FAIL
+-- lines; it reads TEST_CASES instead. Without this the driver counted a suite
+-- that had failed and exited as PASSED, which is the one failure shape this
+-- repository has already been bitten by once.
+TEST_CASES = {}
+
 local function expect(cond, msg)
     if cond then
         passed = passed + 1
@@ -29,6 +36,7 @@ local function expect(cond, msg)
         failed = failed + 1
         io.stderr:write('FAIL: ' .. msg .. '\n')
     end
+    TEST_CASES[#TEST_CASES + 1] = { name = msg, status = cond and 'passed' or 'failed' }
 end
 
 local function near(a, b, tol, msg)

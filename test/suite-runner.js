@@ -39,6 +39,15 @@ function manifestScripts() {
   return [...found]
 }
 function injectFiles() {
+  // Tell the suite it is being driven from here. test/run.lua is BOTH a suite
+  // and the entry point for a real Lua 5.4 run, and the two modes have to be
+  // distinguishable: from here it runs its own assertions and reports, and when
+  // launched as `lua5.4 test/run.lua` it drives every suite instead. Without an
+  // explicit flag the only difference is which interpreter happens to be
+  // running, which is not a distinction worth encoding.
+  lua.lua_pushboolean(L, 1)
+  lua.lua_setglobal(L, toLua('CIS_SUITE_MODE'))
+
   lua.lua_createtable(L)
   for (const rel of manifestScripts()) {
     lua.lua_pushstring(L, toLua(fs.readFileSync(path.join(root, rel), 'utf8')))

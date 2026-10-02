@@ -1,14 +1,170 @@
--- Pure-module tests. Run with: node test/run.js  or  lua test/run.lua
--- Covers shared/ only. Anything needing a FiveM native is exercised by the
--- client/server integration path, not here.
+-- Pure-module tests, AND the entry point for a real Lua 5.4 run.
+--
+--   node test/run.js     every suite, under fengari
+--   lua5.4 test/run.lua  every suite, under a real Lua 5.4
+--
+-- fengari is Lua 5.3 semantics compiled to JavaScript, which is close enough
+-- to be dangerous in both directions: a change can use a 5.4 construct, pass
+-- here and fail on a server, or fail here for a reason no server cares about.
+-- Running the same suites under a real interpreter is the only check that
+-- covers both, so both report the same assertion count and a divergence is a
+-- finding rather than an inconvenience.
+--
+-- CIS_SUITE_MODE is set by test/suite-runner.js. Set, this file is just another
+-- suite and the JavaScript driver owns the reporting; unset, it is the driver.
+
+local ROOT = '.'
+local function readDisk(rel)
+    local fh = io.open(ROOT .. '/' .. rel, 'rb')
+    if not fh then
+        return nil, ('cannot open %s'):format(rel)
+    end
+    local body = fh:read('a')
+    fh:close()
+    return body
+end
+
+-- The suites read shipped source out of CIS_TEST_FILES rather than off disk, so
+-- the boundary contracts check the same bytes the manifest names. Under
+-- fengari the JavaScript runner fills it in; here it is built from the manifest.
+if not CIS_TEST_FILES then
+    local manifest = assert(readDisk('fxmanifest.lua'))
+    CIS_TEST_FILES = {}
+    local injected = { ['init.lua'] = true, ['fxmanifest.lua'] = true }
+    for entry in manifest:gmatch("'([^']+%.lua)'") do
+        if not injected[entry] then
+            injected[entry] = true
+            CIS_TEST_FILES[entry] = assert(readDisk(entry))
+        end
+    end
+    CIS_TEST_FILES['init.lua'] = assert(readDisk('init.lua'))
+    CIS_TEST_FILES['fxmanifest.lua'] = manifest
+end
+
+if not CIS_SUITE_MODE then
+    -- Drive every suite in its own environment. Stock Lua has one global state
+    -- per process, so isolation has to come from an environment table: each
+    -- suite writes globals (TEST_CASES) and reads the standard library, and
+    -- __index into _G gives it both without one suite seeing another's globals.
+    --
+    -- os.exit is replaced with a raise for the same reason. A suite that calls
+    -- it to report failure would otherwise take the whole run down on the first
+    -- red one, which is how four good suites get reported as four crashes.
+    -- The same preload lists test/suite-runner.js uses, in the same order. They
+    -- are duplicated rather than derived because the two run in different
+    -- languages and a shared file would be a file both have to parse; what
+    -- matters is that they agree, and the suite each one feeds proves it.
+    --
+    -- run.lua and binding.lua deliberately see SHARED only, because that is
+    -- what they saw before the suites were isolated. Preserving that is the
+    -- point: a driver that gave every suite everything would be testing a
+    -- configuration that never existed.
+    local SHARED = {
+        'shared/defaults.lua', 'shared/registry.lua', 'shared/grid.lua',
+        'shared/pending.lua', 'shared/owned.lua', 'shared/config.lua',
+        'shared/ready.lua', 'shared/histogram.lua', 'shared/detect.lua',
+    }
+    local ALGO_UTIL = {
+        'shared/algo/curve.lua', 'shared/algo/heap.lua', 'shared/algo/interp.lua',
+        'shared/algo/lru.lua', 'shared/algo/random.lua', 'shared/algo/rate.lua',
+        'shared/algo/sparse.lua', 'shared/algo/window.lua',
+        'shared/util/id.lua', 'shared/util/json.lua', 'shared/util/semver.lua',
+        'shared/util/string.lua', 'shared/util/table.lua', 'shared/util/time.lua',
+        'shared/util/validate.lua',
+    }
+    local BOTH = {}
+    for _, v in ipairs(SHARED) do BOTH[#BOTH + 1] = v end
+    for _, v in ipairs(ALGO_UTIL) do BOTH[#BOTH + 1] = v end
+    local SUITES = {
+        'test/run.lua', 'test/binding.lua', 'test/contracts.lua',
+        'test/modules.lua', 'test/client.lua', 'test/server.lua',
+    }
+    local PRELOAD = {
+        ['test/run.lua'] = SHARED,
+        ['test/binding.lua'] = SHARED,
+        ['test/contracts.lua'] = BOTH,
+        ['test/modules.lua'] = BOTH,
+        ['test/client.lua'] = BOTH,
+        ['test/server.lua'] = BOTH,
+    }
+
+    local crashed, failedAssertions = 0, 0
+    for _, rel in ipairs(SUITES) do
+        local env = setmetatable({}, { __index = _G })
+        env.arg = { [0] = rel }
+        env.CIS_SUITE_MODE = true
+        env.CIS_TEST_FILES = CIS_TEST_FILES
+        -- FiveM provides this as a global; stock Lua does not, and several
+        -- shipped files call it at load time.
+        env.exports = {}
+        -- The suites load shipped modules with `loadfile('./' .. rel)`. Under
+        -- fengari there is exactly one state, so a chunk loaded that way lands
+        -- in the same globals the suite is writing to and everything connects.
+        -- With a per-suite environment it does not: `loadfile` compiles against
+        -- _G, so the module's globals went somewhere the suite could not see and
+        -- every failure looked like a missing native. These two make `loadfile`
+        -- compile into THIS environment, which is what the suite meant.
+        env.loadfile = function(p)
+            if p:sub(1, 2) == './' then p = p:sub(3) end
+            local fh = io.open(ROOT .. '/' .. p, 'rb')
+            if not fh then return nil, ('cannot open %s'):format(p) end
+            local src = fh:read('a')
+            fh:close()
+            return load(src, '@' .. p, 't', env)
+        end
+        env.load = function(chunk, chunkname, mode, chunkEnv)
+            return load(chunk, chunkname, mode, chunkEnv or env)
+        end
+        env.os = setmetatable({ exit = function(code)
+            error({ __suite_exit = code or 0 }, 0)
+        end }, { __index = _G.os })
+
+        local function exec(rel_)
+            local src = assert(readDisk(rel_))
+            local chunk, err = load(src, '@' .. rel_, 't', env)
+            if not chunk then error(err, 0) end
+            chunk()
+        end
+
+        local EXITED = {}
+        local ok, e = xpcall(function()
+            for _, p in ipairs(PRELOAD[rel]) do exec(p) end
+            exec(rel)
+        end, function(m)
+            -- A suite that fails its assertions calls os.exit(1) rather than
+            -- raising. That is a FAILED SUITE, not a crash, and it must not be
+            -- reported as "crashed: nil" -- which is what returning nil from
+            -- here produced, because xpcall turns a nil handler result into
+            -- `false, nil` and the driver then had nothing to print.
+            if type(m) == 'table' and m.__suite_exit then return EXITED end
+            return debug.traceback(tostring(m), 2)
+        end)
+        if not ok and e ~= EXITED then
+            io.stderr:write('FAIL(' .. rel .. '): crashed: ' .. tostring(e) .. '\n')
+            crashed = crashed + 1
+        else
+            -- Every suite records each case in TEST_CASES, so failures are
+            -- counted and NAMED here rather than inferred from a summary line
+            -- this driver cannot see -- it has no pipe on its own stdout.
+            local bad = 0
+            for _, c in ipairs(env.TEST_CASES or {}) do
+                if c.status == 'failed' then
+                    io.stderr:write('FAIL(' .. rel .. '): ' .. tostring(c.name) .. '\n')
+                    bad = bad + 1
+                end
+            end
+            failedAssertions = failedAssertions + bad
+        end
+    end
+
+    io.write(('lua54: %d suites, %d failed assertion(s), %d crashed\n'):format(#SUITES, failedAssertions, crashed))
+    if failedAssertions > 0 or crashed > 0 then os.exit(1) end
+    return
+end
 
 if not CisGrid then
-    local root = (arg and arg[0] or '.'):gsub('[/\\]test[/\\]run%.lua$', '')
-    if root == (arg and arg[0] or '.') then
-        root = '.'
-    end
     local function loadfile_rel(path_)
-        local chunk, err = loadfile(root .. '/' .. path_)
+        local chunk, err = loadfile(ROOT .. '/' .. path_)
         if not chunk then
             error(err)
         end
@@ -18,7 +174,6 @@ if not CisGrid then
     loadfile_rel('shared/pending.lua')
     loadfile_rel('shared/config.lua')
     loadfile_rel('shared/histogram.lua')
-    loadfile_rel('cis_libstest/shared/report.lua')
 end
 
 local failed = 0
