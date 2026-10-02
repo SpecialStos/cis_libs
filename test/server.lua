@@ -55,6 +55,7 @@ local function newEnv(opts)
         'NetworkGetEntityFromNetworkId', 'Entity', 'DoesEntityExist',
         'DeleteEntity', 'SetEntityCoords', 'SetEntityHeading',
         'SetNetworkedEntityLocallyVisible', 'SetNetworkedEntityLocallyInvisible',
+        'promise', 'Citizen',
     }) do
         env.saved[#env.saved + 1] = { name = name, value = rawget(_G, name) }
     end
@@ -188,6 +189,64 @@ local function newEnv(opts)
         for i = 1, n do args[i] = select(i, ...) end
         env.sent[#env.sent + 1] = { name = name, target = target, args = args }
     end
+
+    -- T1 · THE PROMISES AND `Citizen.Await`, MATCHING THE REAL NATIVE.
+    --
+    -- There was no promise stub in this suite at all, so `AwaitCallbackClient`
+    -- -- the server's only way to ask a client for a RETURN value -- was never
+    -- executed by a single test. Everything about it was believed rather than
+    -- known.
+    --
+    -- The real `Citizen.Await`, verified against citizenfx/fivem
+    -- `data/shared/citizen/scripting/lua/scheduler.lua`:
+    --
+    --     function Citizen.Await(promise)
+    --         ...
+    --         if promise.state == 2 or promise.state == 4 then
+    --             error(promise.value, 2)   -- a rejection THROWS
+    --         end
+    --         return promise.value           -- a fulfilment returns ONE value
+    --     end
+    --
+    -- ONE value, and a rejection is a RAISE. `deferred:resolve(value)` also
+    -- takes a single value and stores it in one slot with no `n`, so resolving
+    -- with several arguments silently drops all but the first.
+    env.promises = {}
+    promise = {
+        new = function()
+            local p = { done = false, value = nil, rejected = false }
+            p.resolve = function(self, v) self.done, self.value = true, v end
+            p.reject = function(self, v)
+                self.done, self.value, self.rejected = true, v, true
+            end
+            env.promises[#env.promises + 1] = p
+            return p
+        end,
+    }
+    Citizen = {
+        Await = function(p)
+            if not p.done then
+                -- THE CALLER IS PARKED HERE; the real scheduler yields and is
+                -- resumed when the promise settles. `awaitHook` is how a test
+                -- injects the reply DURING the await, which is the order
+                -- production has -- answering afterwards would exercise a
+                -- different code path and prove nothing.
+                if type(env.awaitHook) == 'function' then
+                    env.awaitHook(p)
+                end
+            end
+            if not p.done then
+                -- Nothing drove this thread. Settling with nil keeps the suite
+                -- honest rather than hanging: the caller sees no answer, which
+                -- is what would really have happened.
+                p.done, p.value = true, nil
+            end
+            if p.rejected then
+                error(p.value, 2)
+            end
+            return p.value
+        end,
+    }
 
     -- Everything a server file calls that this harness was not told about
     -- answers nil. The prefix guard keeps a typo in a global name raising, so a
@@ -1382,6 +1441,159 @@ do
     for _ = 1, 10 do env.emit('cis_libs:cb', 1, 'real:1') end
     check(CisRateBucketCount(1) == before,
         'L-C13: reusing an existing name adds no bucket')
+    env.reset()
+end
+
+-- ================== 14. AwaitCallbackClient, against the REAL native (C1)
+--
+-- The server's only way to ask a CLIENT for a return value. It read:
+--
+--     local settled, results = Citizen.Await(p)
+--     if not settled then ... end
+--     if type(results) == 'table' and results.n then ... end
+--     return true, results
+--
+-- and `Citizen.Await` returns ONE value. So `settled` was the reply table -- and
+-- a table is truthy, so the refusal branch never ran -- and `results` was nil,
+-- so the branch that unpacked the pack never ran either.
+--
+-- Every `awaitClient` call therefore answered `true, nil`, whatever the client
+-- said, including when the client refused. The server could not tell "this
+-- client answered nil" from "this client refused" from "this client never
+-- answered at all", and a timeout arrived as a successful empty result rather
+-- than as the timeout it was.
+--
+-- Verified against citizenfx/fivem
+-- `data/shared/citizen/scripting/lua/scheduler.lua`; the promise stub at the top
+-- of this file models it exactly.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+    loadModule('server/callback.lua')
+
+    -- The reply a client sends back: `cis_libs:cb:serverRes` reaches the server
+    -- through CisNetOn, so it is delivered with env.emit and `source` set to the
+    -- answering client.
+    --
+    -- THE KEY IS READ FROM THE REQUEST rather than hardcoded. `CisPending` hands
+    -- out sequential ids, so the first call in this env is 1 and every later one
+    -- is not -- and a reply carrying the wrong key is simply dropped, which
+    -- looks exactly like a broken await.
+    local function lastRequest()
+        for i = #env.sent, 1, -1 do
+            if env.sent[i].name == 'cis_libs:cb' then
+                return env.sent[i]
+            end
+        end
+        return nil
+    end
+
+    local function replyFrom(src, ok, ...)
+        local packed = table.pack(...)
+        env.awaitHook = function()
+            local req = lastRequest()
+            env.emit('cis_libs:cb:serverRes', src, req.args[2], ok,
+                table.unpack(packed, 1, packed.n))
+        end
+    end
+
+    -- The happy path: the client answers with two values.
+    do
+        env.sent = {}
+        replyFrom(7, true, { id = 7 }, 'second')
+        local ok, a, b = env.EXPORTS.AwaitCallbackClient('ask', 7)
+        local req = lastRequest()
+        check(ok == true,
+            ('C1: awaitClient reports success on a fulfilled reply (got %s)'):format(tostring(ok)))
+        check(type(a) == 'table' and a.id == 7,
+            ('C1: and returns the first value (got %s)'):format(tostring(a)))
+        check(b == 'second',
+            ('C1: and the SECOND value too, which Await used to drop (got %s)'):format(tostring(b)))
+        check(req and req.target == 7 and req.args[1] == 'ask',
+            'C1: and the request went to the client that was asked, naming the callback')
+    end
+
+    -- A nil first value with the reason behind it -- the shape "no such row"
+    -- takes everywhere in this platform.
+    do
+        env.sent = {}
+        replyFrom(7, true, nil, 'not found')
+        local ok, a, b = env.EXPORTS.AwaitCallbackClient('holed', 7)
+        check(ok == true, 'C1: a nil first value is a success, not a refusal')
+        check(a == nil, ('C1: and the first value really is nil (got %s)'):format(tostring(a)))
+        check(b == 'not found',
+            ('C1: and the reason BEHIND the nil survives (got %s)'):format(tostring(b)))
+    end
+
+    -- A REFUSAL. `Citizen.Await` signals a rejection by RAISING, so the await
+    -- has to catch it. Reading a second return value instead meant a refusal
+    -- was reported to the caller as `true, nil` -- a success.
+    do
+        env.sent = {}
+        replyFrom(7, false, 'unknown')
+        local ok, reason = env.EXPORTS.AwaitCallbackClient('nope', 7)
+        check(ok == false,
+            ('C1: a client refusal is reported as false, not success-with-nil (got %s)')
+                :format(tostring(ok)))
+        check(tostring(reason):find('unknown', 1, true) ~= nil,
+            ('C1: and carries the client\'s reason (got %s)'):format(tostring(reason)))
+    end
+
+    -- A client that never answers must still be bounded, and must say so. This
+    -- is the timeout the sweep produces, and it is the case that used to look
+    -- most like success: an empty result indistinguishable from a real one.
+    do
+        env.sent = {}
+        replyFrom(7, false, 'timeout')
+        local ok, reason = env.EXPORTS.AwaitCallbackClient('silent', 7)
+        check(ok == false,
+            ('C1: a timeout is a refusal, not an empty success (got %s)'):format(tostring(ok)))
+        check(tostring(reason):find('timeout', 1, true) ~= nil,
+            ('C1: and says "timeout" rather than answering nil (got %s)'):format(tostring(reason)))
+    end
+
+    -- The reason has to NAME the callback. In a resource with a dozen in
+    -- flight, "timeout" alone is not an actionable message.
+    do
+        env.sent = {}
+        replyFrom(7, false, 'timeout')
+        local ok, reason = env.EXPORTS.AwaitCallbackClient('shop:stock', 7)
+        check(ok == false and tostring(reason):find('shop:stock', 1, true) ~= nil,
+            ('C1: a timeout names the callback that timed out (got %s)'):format(tostring(reason)))
+    end
+
+    -- A reply from a DIFFERENT client must not resolve this one. Ownership is
+    -- checked before the entry is consumed (L-C10), and the await has to stay
+    -- that way: one client hanging another's request is the failure the
+    -- peek-before-take was added to stop. The honest answer is that the wrong
+    -- client was ignored and the RIGHT one still settles the call, so the hook
+    -- fires twice.
+    do
+        env.sent = {}
+        env.awaitHook = function()
+            local req = lastRequest()
+            env.emit('cis_libs:cb:serverRes', 99, req.args[2], true, 'stolen')
+            env.emit('cis_libs:cb:serverRes', 7, req.args[2], true, 'mine')
+        end
+        local ok, a = env.EXPORTS.AwaitCallbackClient('mine', 7)
+        check(ok == true and a == 'mine',
+            ('C1: a reply addressed to another client is ignored (got %s, %s)')
+                :format(tostring(ok), tostring(a)))
+    end
+
+    -- A bad target is still refused before anything is allocated (L-C24), and
+    -- that must survive a fix to the await path.
+    do
+        local ok, reason = env.EXPORTS.AwaitCallbackClient('x', 'not a src')
+        check(ok == false and tostring(reason):find('target', 1, true) ~= nil,
+            ('C1: a non-numeric target is still refused (got %s, %s)')
+                :format(tostring(ok), tostring(reason)))
+    end
+
+    env.awaitHook = nil
     env.reset()
 end
 

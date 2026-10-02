@@ -235,12 +235,25 @@ CisNetOn('cis_libs:cb:serverRes', function(src, key, ok, ...)
     if payload.cb then
         payload.cb(ok, table.unpack(packed, 1, packed.n))
     elseif payload.promise then
+        -- BUILT BY ASSIGNMENT, not `{ table.unpack(...) }`. A table constructor
+        -- truncates at the first nil exactly like unpack does -- which is why
+        -- `invoke` above builds its pack the long way -- and this line did it
+        -- anyway, so a reply of `true, nil, 'not found'` was resolved as a table
+        -- holding only `true` and the reason was gone before the promise was
+        -- touched.
+        local out = { n = packed.n }
+        for i = 1, packed.n do
+            out[i] = packed[i]
+        end
         if ok then
-            payload.promise:resolve({ table.unpack(packed, 1, packed.n) })
+            payload.promise:resolve(out)
         else
-            -- The rejection carries the REASON, packed the same way, so a
-            -- refusal names itself even when the reason sits behind a nil.
-            payload.promise:reject(table.unpack(packed, 1, packed.n))
+            -- The rejection carries the REASON, not the pack. A client refuses
+            -- with one value ('rate', 'unknown', 'error', 'timeout'), and
+            -- `Citizen.Await` signals a rejection by raising that single value
+            -- -- so a pack would reach the caller as "table: 0x...", which is
+            -- not something anyone can log.
+            payload.promise:reject(out[1])
         end
     end
 end, { maxHits = 40 })
@@ -387,13 +400,42 @@ exports('AwaitCallbackClient', function(name, target, ...)
     local p = promise.new()
     local key = CisPending.alloc(pending, { promise = p, target = target }, GetGameTimer() + timeoutMs())
     TriggerClientEvent('cis_libs:cb', target, name, key, ...)
+    -- C1 · CITIZEN.AWAIT RETURNS ONE VALUE, AND A REJECTION THROWS.
+    --
+    -- Verified against citizenfx/fivem
+    -- `data/shared/citizen/scripting/lua/scheduler.lua`:
+    --
+    --     function Citizen.Await(promise)
+    --         ...
+    --         if promise.state == 2 or promise.state == 4 then
+    --             error(promise.value, 2)
+    --         end
+    --         return promise.value
+    --     end
+    --
+    -- This used to read `local settled, results = Citizen.Await(p)`, so `settled`
+    -- was the PACKED reply -- a table -- and `results` was nil. A table is
+    -- truthy, so the refusal branch could never run, and the branch that
+    -- unpacked the pack could never run either. Every awaitClient call answered
+    -- `true, nil`.
+    --
+    -- That is the whole of the damage, and it is worse than losing a value: the
+    -- server could not tell "the client answered nil" from "the client REFUSED"
+    -- from "the client never answered at all". A timeout came back as a
+    -- successful empty result -- a caller with a full timeout ahead of it,
+    -- holding an empty table, treating it as real.
+    --
+    -- So the pack comes back as ONE value, and the rejection is CAUGHT rather
+    -- than read, because `Await` signals it by RAISING. `deferred:reject` is
+    -- handed the reason string below, so the error object is that string and
+    -- the refusal reaches the caller as `false, '<name>: <reason>'`.
+    local okCall, results = pcall(Citizen.Await, p)
+    if not okCall then
+        return false, ('callback %q: %s'):format(tostring(name), tostring(results))
+    end
     -- The reply arrives PACKED, so a nil in the middle of it survives. Unpacked
     -- with the count for the same reason `invoke` returns a pack: `return ...`
     -- through a vararg truncates at the first nil.
-    local settled, results = Citizen.Await(p)
-    if not settled then
-        return false, ('callback %q: %s'):format(tostring(name), tostring(results))
-    end
     if type(results) == 'table' and results.n then
         return true, table.unpack(results, 1, results.n)
     end

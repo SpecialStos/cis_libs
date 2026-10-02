@@ -97,14 +97,32 @@ RegisterNetEvent('cis_libs:cb:res', function(key, ok, ...)
     if payload.cb then
         payload.cb(ok, table.unpack(packed, 1, packed.n))
     elseif payload.promise then
+        -- BUILT BY ASSIGNMENT, not `{ table.unpack(...) }`.
+        --
+        -- The constructor truncates at the first nil exactly like unpack does,
+        -- which is the whole reason `invoke` on the server side builds its pack
+        -- the long way -- and this line did it anyway, so a reply of
+        -- `true, nil, 'not found'` was resolved as a table holding only `true`.
+        -- The reason, which is the answer, was already gone before the promise
+        -- was touched.
+        local out = { n = packed.n }
+        for i = 1, packed.n do
+            out[i] = packed[i]
+        end
         if ok then
-            payload.promise:resolve({ table.unpack(packed, 1, packed.n) })
+            payload.promise:resolve(out)
         else
             -- A refusal rejects with its REASON, not a bare 'timeout'. A caller
             -- that catches this used to receive the string "timeout" with no
             -- indication of WHICH callback timed out, which in a resource with
             -- a dozen in flight is not an actionable error message.
-            payload.promise:reject(table.unpack(packed, 1, packed.n))
+            --
+            -- THE FIRST SLOT ONLY, and it is a value rather than the pack. The
+            -- server sends one reason on a refusal ('rate', 'unknown', 'error',
+            -- 'timeout'), and `Citizen.Await` signals a rejection by RAISING
+            -- that single value -- so the pack would surface as
+            -- "table: 0x...", which is not a reason a caller can log.
+            payload.promise:reject(out[1])
         end
     end
 end)
@@ -207,13 +225,46 @@ local function awaitLocal(name, ...)
     local p = promise.new()
     local key = CisPending.alloc(pending, { promise = p }, GetGameTimer() + timeoutMs())
     TriggerServerEvent('cis_libs:cb', name, key, ...)
-    local settled, value = Citizen.Await(p)
-    if settled == false then
+    -- C1 · CITIZEN.AWAIT RETURNS ONE VALUE, AND A REJECTION THROWS.
+    --
+    -- Verified against citizenfx/fivem
+    -- `data/shared/citizen/scripting/lua/scheduler.lua`:
+    --
+    --     function Citizen.Await(promise)
+    --         ...
+    --         if promise.state == 2 or promise.state == 4 then
+    --             error(promise.value, 2)
+    --         end
+    --         return promise.value
+    --     end
+    --
+    -- This used to read `local settled, value = Citizen.Await(p)` and test
+    -- `settled == false`. Against the real native `settled` was the PACKED
+    -- reply -- a table -- so that test could never be true, and the second
+    -- return value was nil.
+    --
+    -- Two failures fell out of that one line. Every value in the pack was
+    -- dropped, because `value` was nil and the fallback returned it: a
+    -- `true, nil, 'not found'` reply arrived as `true, nil`. And every
+    -- REFUSAL was reported to the caller as a SUCCESS carrying nil, because
+    -- there was no code path that could recognise one -- 'timeout', 'rate' and
+    -- 'unknown' all came back looking like a handler that answered nothing.
+    --
+    -- So the pack comes back as ONE value, and the rejection is caught rather
+    -- than read, because `Await` signals it by RAISING. That raise is why
+    -- `AwaitCallback` never raised on a timeout either: the exception was
+    -- happening inside `Await`, and this function had no idea.
+    local okCall, value = pcall(Citizen.Await, p)
+    if not okCall then
         -- A REFUSAL, and the reason is what the server sent -- 'rate',
         -- 'unknown' or 'error'. L-C10: it used to arrive as a bare 'timeout',
         -- with no indication of WHICH callback gave up, which in a resource
         -- with a dozen in flight is not an actionable message.
-        return false, value
+        --
+        -- `tostring` because `reject` is given a PACK here, and a table is not
+        -- something a caller can put in an error message. A caller that wants
+        -- the structured form uses the callback form, which still has it.
+        return false, tostring(value)
     end
     -- The promise carries a PACKED list, so a nil in the middle of a reply
     -- survives: `true, nil, 'not found'` is a real and common answer.

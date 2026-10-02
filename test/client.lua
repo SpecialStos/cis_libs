@@ -174,19 +174,64 @@ local function newEnv(opts)
         env.logged[#env.logged + 1] = { level, message }
     end
 
+    -- T1 · THESE FAKES NOW MATCH THE REAL NATIVE, AND THAT IS THE POINT.
+    --
+    -- `Citizen.Await` returned `p.done, p.value` -- TWO values. The real one
+    -- returns exactly ONE, verified against citizenfx/fivem
+    -- `data/shared/citizen/scripting/lua/scheduler.lua`:
+    --
+    --     function Citizen.Await(promise)
+    --         ...
+    --         if promise.state == 2 or promise.state == 4 then
+    --             error(promise.value, 2)   -- a rejection THROWS
+    --         end
+    --         return promise.value           -- a fulfilment returns ONE value
+    --     end
+    --
+    -- A fake that returns two values is a fake that AGREES WITH THE BUG: it
+    -- made `local settled, value = Citizen.Await(p)` look correct, and that line
+    -- is wrong on a live server in a way nothing here could see. Each property
+    -- below is verified against that source rather than assumed.
     env.promises = {}
     promise = {
         new = function()
-            local p = { done = false, value = nil }
+            local p = { done = false, value = nil, rejected = false }
             p.resolve = function(self, v) self.done, self.value = true, v end
-            p.reject = function(self, v) self.done, self.value = true, v end
+            -- Recorded separately, because the real `Await` branches on a
+            -- rejection and is otherwise indistinguishable from a fulfilment.
+            p.reject = function(self, v)
+                self.done, self.value, self.rejected = true, v, true
+            end
             env.promises[#env.promises + 1] = p
             return p
         end,
     }
     Citizen = {
         Await = function(p)
-            return p.done, p.value
+            if not p.done then
+                -- THE CALLER IS PARKED HERE. The real scheduler yields and
+                -- resumes when the promise settles, so a reply arrives DURING
+                -- the await. `awaitHook` is how a test injects that arrival --
+                -- without it, the only way to settle a promise is after Await
+                -- has returned, which is a different order than production and
+                -- would make an await test meaningless.
+                if type(env.awaitHook) == 'function' then
+                    env.awaitHook(p)
+                end
+            end
+            if not p.done then
+                -- Nothing drove this thread. The real scheduler would park it
+                -- forever; settling with nil keeps the suite honest -- the
+                -- caller sees no answer, which is what would really happen --
+                -- without hanging the run.
+                p.done, p.value = true, nil
+            end
+            -- `error(value, 2)`: the rejection reason becomes the error object,
+            -- so `pcall` yields exactly what was passed to `reject`.
+            if p.rejected then
+                error(p.value, 2)
+            end
+            return p.value
         end,
     }
 
@@ -683,6 +728,138 @@ do
     local z = lastReply()
     check(z and z.args[2] == true,
         "L-C7: res_b's client callback SURVIVES another resource's stop")
+    env.reset()
+end
+
+-- ============================ C1: the await path, against the REAL native
+--
+-- Every await path here read the result of `Citizen.Await` as TWO values:
+--
+--     local settled, value = Citizen.Await(p)
+--
+-- and the native returns ONE. So `settled` received the reply -- a table -- and
+-- `value` received nil, and the branch meant to recognise a refusal compared a
+-- TABLE against false. It could never be true. Two failures fell out of that one
+-- line: every value in the pack was dropped, and every REFUSAL was reported to
+-- the caller as a SUCCESS carrying nil.
+--
+-- `await` is the client's main way to ask the server something, so this was not
+-- an edge case -- it was the whole await surface, on both AwaitCallback and
+-- TryAwaitCallback. And the fake returned two values, so the suite was green.
+do
+    local env = newEnv({})
+    loadModule('client/callback.lua')
+
+    env.EXPORTS.RegisterCallback('ask', function()
+        return { id = 7 }, 'second'
+    end)
+    env.EXPORTS.RegisterCallback('holed', function()
+        return nil, 'not found'
+    end)
+
+    -- Answers the parked promise the way the server's reply handler does, with
+    -- the reply arriving DURING the await -- which is the order production has.
+    --
+    -- NOTE THE LEADING 0. `env.net(name, src, ...)` sets the `source` global and
+    -- forwards only the varargs, so the key has to be an explicit argument. Left
+    -- out, the key would land in `src`, every reply would arrive for the wrong
+    -- entry, and every assertion here would fail for a reason that has nothing
+    -- to do with the code under test.
+    local function replyWith(ok, ...)
+        local packed = table.pack(...)
+        env.awaitHook = function()
+            local req = env.serverEvents[#env.serverEvents]
+            env.net('cis_libs:cb:res', 0, req.args[2], ok, table.unpack(packed, 1, packed.n))
+        end
+    end
+
+    -- A fulfilled promise carries the PACK, and the await must hand back every
+    -- value in it.
+    do
+        env.serverEvents = {}
+        replyWith(true, { id = 7 }, 'second')
+        local ok, a, b = env.EXPORTS.TryAwaitCallback('ask')
+        check(ok == true,
+            ('C1: tryAwait reports success on a fulfilled promise (got %s)'):format(tostring(ok)))
+        check(type(a) == 'table' and a.id == 7,
+            ('C1: and returns the first value (got %s)'):format(tostring(a)))
+        check(b == 'second',
+            ('C1: and the SECOND value too, which Await used to drop (got %s)'):format(tostring(b)))
+    end
+
+    -- The nil-in-the-middle case, which is the one this platform hits most:
+    -- "no such row" is normally reported as `nil, 'not found'`.
+    do
+        env.serverEvents = {}
+        replyWith(true, nil, 'not found')
+        local ok, a, b = env.EXPORTS.TryAwaitCallback('holed')
+        check(ok == true, 'C1: a nil first value is a success, not an error')
+        check(a == nil,
+            ('C1: and the first value really is nil (got %s)'):format(tostring(a)))
+        check(b == 'not found',
+            ('C1: and the reason BEHIND the nil survives it (got %s)'):format(tostring(b)))
+    end
+
+    -- A REFUSAL. `Citizen.Await` raises on a rejected promise, so the await has
+    -- to catch that and turn it into `false, reason`.
+    do
+        env.serverEvents = {}
+        replyWith(false, 'rate')
+        local ok, reason = env.EXPORTS.TryAwaitCallback('ask')
+        check(ok == false,
+            ('C1: a refusal is reported as false, not success-with-nil (got %s)')
+                :format(tostring(ok)))
+        check(tostring(reason):find('rate', 1, true) ~= nil,
+            ('C1: and carries the reason the server sent (got %s)'):format(tostring(reason)))
+    end
+
+    -- An unknown name is refused by the server. That refusal has to come back as
+    -- a refusal -- it used to be indistinguishable from a handler that answered
+    -- nothing at all.
+    do
+        env.serverEvents = {}
+        replyWith(false, 'unknown')
+        local ok, reason = env.EXPORTS.TryAwaitCallback('no_such_callback')
+        check(ok == false,
+            ('C1: an unknown name is a refusal, not an empty success (got %s)')
+                :format(tostring(ok)))
+        check(tostring(reason):find('unknown', 1, true) ~= nil,
+            ('C1: with "unknown" as the reason: %s'):format(tostring(reason)))
+    end
+
+    -- `AwaitCallback` is the raising twin: it turns that same refusal into an
+    -- error that NAMES the callback. Against the old two-value read it did not
+    -- raise at all, so a timeout reached the caller as a nil answer.
+    do
+        env.serverEvents = {}
+        replyWith(false, 'timeout')
+        local okCall, errCall = pcall(env.EXPORTS.AwaitCallback, 'ask')
+        check(not okCall,
+            'C1: AwaitCallback raises on a refusal rather than returning nil')
+        check(tostring(errCall):find('ask', 1, true) ~= nil,
+            ('C1: and the error names the callback: %s'):format(tostring(errCall)))
+        check(tostring(errCall):find('timeout', 1, true) ~= nil,
+            ("C1: carrying the server's reason: %s"):format(tostring(errCall)))
+    end
+
+    -- The callback form is untouched by all of this, and is asserted anyway: it
+    -- is the form a consumer uses when it does not want a promise, and a fix
+    -- to the await path must not change what it delivers.
+    do
+        env.serverEvents = {}
+        local got, n
+        env.EXPORTS.CallCallback('ask', function(...)
+            n = select('#', ...)
+            got = table.pack(...)
+        end)
+        local req = env.serverEvents[#env.serverEvents]
+        env.net('cis_libs:cb:res', 0, req.args[2], true, { id = 7 }, 'second')
+        check(n == 3 and got[1] == true,
+            ('C1: the callback form still delivers the flag and both values (n=%d)')
+                :format(tostring(n)))
+    end
+
+    env.awaitHook = nil
     env.reset()
 end
 
