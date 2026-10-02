@@ -86,9 +86,15 @@ CisTestRunner.Suite('player', { tier = 'player', realm = 'client', needsPlayer =
             end
 
             for _, c in ipairs(payload.results or {}) do
-                t.eq(c.ok, true, ('%s / %s'):format(suiteName, tostring(c.name)))
-                if not c.ok then
-                    t.fail(('%s / %s'):format(suiteName, tostring(c.name)), tostring(c.msg))
+                local label = ('%s / %s'):format(suiteName, tostring(c.name))
+                -- Failures are reported through t.fail with the CLIENT's own
+                -- message as the detail. Asserting through t.eq instead loses it:
+                -- eq's detail is "expected true, got false", which is the same
+                -- for every client case and says nothing about which one or why.
+                if c.ok then
+                    t.eq(true, true, label)
+                else
+                    t.fail(label, tostring(c.msg))
                 end
             end
 

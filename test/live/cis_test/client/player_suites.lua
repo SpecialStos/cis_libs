@@ -42,9 +42,20 @@ P.RegisterSuite('zones', {
             -- harness that waits forever cannot tell a slow library from a hung
             -- one.
             local fired = P.WaitFor(function() return #P.EnterLog() > 0 end, 1000)
+
+            -- WHAT THE LIBRARY THINKS, not just whether the event arrived. An
+            -- empty log is the same whether the zone was never FOUND by the
+            -- candidate pass or was found and the callback never ran, and those
+            -- are different bugs with different fixes.
+            local dbg = exports['cis_libs']:GetZoneDebug()
+            local insideCount = dbg and dbg.insideCount or -1
+            local insideNames = dbg and table.concat(dbg.insideNames or {}, ',') or 'n/a'
+
             exports['cis_libs']:RemoveZone('z_standing')
             return fired,
-                ('onEnter fired for a STANDING player within 1000 ms: %s'):format(tostring(fired))
+                ('onEnter for a STANDING player: fired=%s insideCount=%s inside=[%s] passMs=%s')
+                    :format(tostring(fired), tostring(insideCount), tostring(insideNames),
+                            tostring(dbg and dbg.lastPassMs))
         end,
     },
     {

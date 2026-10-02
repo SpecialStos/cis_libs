@@ -447,6 +447,17 @@ CreateThread(function()
                     end
                 end
             end
+            -- WHICH zones the library currently believes the player is inside.
+            -- Without this a harness can only see whether onEnter fired, which
+            -- is indistinguishable from "the zone was never found": both look
+            -- like an empty log. This is the one thing that separates them.
+            debugStats.insideCount = 0
+            debugStats.insideNames = {}
+            for id in pairs(inside) do
+                debugStats.insideCount = debugStats.insideCount + 1
+                debugStats.insideNames[#debugStats.insideNames + 1] = id
+            end
+            table.sort(debugStats.insideNames)
             debugStats.lastPassMs = GetGameTimer() - started
             debugStats.lastPassAt = GetGameTimer()
             Wait(waitMs)
