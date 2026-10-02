@@ -822,6 +822,7 @@ function CisTable.deepMerge(base, overlay, policy, opts)
         elseif resolved == CisTable.POLICY.ERROR then
             return nil, ('key %q is present on both sides (%s and %s)'):format(
                 tostring(k), tostring(bv), tostring(ov))
+        -- luacheck: ignore 542
         elseif resolved == CisTable.POLICY.KEEP then
             -- bv is already base's deep copy and stays untouched.
         else

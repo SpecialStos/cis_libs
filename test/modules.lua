@@ -690,8 +690,8 @@ do
     do
         -- A wrapper, because `pcall(CisRandom.integer, a, b, nil)` is a parse
         -- error in fengari: the call cannot end on a bare nil.
-        local function tryInteger(a, b, rng)
-            return pcall(CisRandom.integer, a, b, rng)
+        local function tryInteger(lo, hi, generator)
+            return pcall(CisRandom.integer, lo, hi, generator)
         end
 
         local withGen = CisRandom.integer(1.5, 3.5, CisRandom.newGenerator(9))
@@ -773,8 +773,8 @@ do
         expect(firstDraw(12345) == firstDraw(12345), 'hashing the seed keeps it deterministic')
         expect(firstDraw('nope') == firstDraw('nope'),
             'a nonsense seed still gives a usable, repeatable generator')
-        local a, b = CisRandom.newGenerator(12345), CisRandom.newGenerator(12345)
-        expect(a.state == b.state and a.state ~= nil and a.state >= 1 and a.state <= 2147483646,
+        local g1, g2 = CisRandom.newGenerator(12345), CisRandom.newGenerator(12345)
+        expect(g1.state == g2.state and g1.state ~= nil and g1.state >= 1 and g1.state <= 2147483646,
             'the hashed state still lands inside the generator period')
     end
 end
@@ -792,7 +792,7 @@ do
     expect(CisCurve.length(path) > 20, 'the curve bows out beyond the straight polyline')
     -- pointAtXYZ returns x, y, z AND an ok flag -- four numbers, not a point
     -- table. pointAt(path, distance, out) is the one that fills a table.
-    local x, y, z, ok = CisCurve.pointAtXYZ(path, 0)
+    local x, y, _, ok = CisCurve.pointAtXYZ(path, 0)
     expect(ok == true, 'a distance inside the path is reported as on-path')
     near(x, 0, 1e-6, 'the path starts at its first waypoint on x')
     near(y, 0, 1e-6, 'the path starts at its first waypoint on y')
@@ -1656,7 +1656,7 @@ do
         expect(pcall(function() return J.decode(hostile, '{}') end),
             'decode survives a codec that raises')
 
-        local good, whyBad = J.checkEncodable({ a = 1, b = { c = 2 } })
+        local good = J.checkEncodable({ a = 1, b = { c = 2 } })
         expect(good == true, 'a plain structure is encodable')
         local bad, badWhy = J.checkEncodable({ fn = function() end })
         expect(bad == false and type(badWhy) == 'string',

@@ -31,10 +31,6 @@ local warnedMissing = false
 -- through the provider instead of leaving them in the world. See shared/owned.lua.
 local owned = CisOwned.new()
 
-local function targetType()
-    return Config and Config.Framework and Config.Framework.Target and Config.Framework.Target.Type or 'ox_target'
-end
-
 local function targetEnabled()
     return not (Config and Config.Framework and Config.Framework.Target and Config.Framework.Target.Enabled == false)
 end

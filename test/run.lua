@@ -183,8 +183,8 @@ expect(not CisGrid.pointInPolygon(15, 5, rev), 'reversed polygon rejects outside
 -- configured with no points got registered at (0,0) and fired onEnter for a
 -- player standing there. A flipped pin is exactly what a reviewer should
 -- question, so the change is called out rather than made quietly.
-local emptyBox, emptyWhy = CisGrid.aabbFromPoints({}, 0, 1, 0)
-expect(emptyBox == nil and type(emptyWhy) == 'string',
+local emptyBox, gridEmptyWhy = CisGrid.aabbFromPoints({}, 0, 1, 0)
+expect(emptyBox == nil and type(gridEmptyWhy) == 'string',
     'empty point list is refused rather than answered with the origin')
 -- A real list still produces the same box it always did.
 local realBox = CisGrid.aabbFromPoints({ vec(0, 0), vec(10, 10) }, 0, 1, 0)
@@ -400,8 +400,8 @@ withFakeExports(function()
         -- restarted, which is the failure mode this pairing exists to remove.
         local seen = {}
         local realTrigger = TriggerEvent
-        TriggerEvent = function(name, payload)
-            if name == 'cis_libs:capabilityChanged' then seen[#seen + 1] = payload end
+        TriggerEvent = function(name, data)
+            if name == 'cis_libs:capabilityChanged' then seen[#seen + 1] = data end
         end
         CisRegistry.register('database', 'cis_bridge:CisBridgeDatabase')
         expect(#seen == 1, 'T9: registering fires cis_libs:capabilityChanged')
@@ -469,9 +469,9 @@ withFakeExports(function()
 
     -- A method the provider does not implement is a refusal naming the method,
     -- not a nil call and not the provider's whole table handed back.
-    local missing, why = CisRegistry.call('database', 'transaction', {}, {})
+    local missing, callWhy = CisRegistry.call('database', 'transaction', {}, {})
     expect(missing == false, 'a method the provider does not implement is refused')
-    expect(tostring(why):find('transaction') ~= nil, 'the refusal names the method that is missing')
+    expect(tostring(callWhy):find('transaction') ~= nil, 'the refusal names the method that is missing')
     expect(seen.sql == 'SELECT 1', 'a refused method does not fall through to another one')
 
     -- A provider that raises is contained: the caller gets a reason, not a
@@ -729,8 +729,8 @@ withFakeExports(function()
     exports.cis_core = {
         CisCoreInventory = function(self)
             return {
-                Count = function(src, item) got.count = { src, item }; return 4 end,
-                Has = function(src, item, amount) return amount <= 4 end,
+                Count = function(countSrc, countItem) got.count = { countSrc, countItem }; return 4 end,
+                Has = function(src, hasItem, amount) return amount <= 4 end,
                 Add = function() return true end,
             }
         end,
@@ -797,20 +797,20 @@ expect(declared == described, 'the snapshot describes every declared slot')
 
 -- ------------------------------------------------------------------ defaults
 -- A library with no config file has to have defaults, and they have to be right.
-local d = CisDefaults.config()
-expect(d.CallbackTimeout == 10000, 'callback timeout default')
-expect(d.CheckVersion == false, 'the version check is OFF by default')
-expect(d.UpdateInterval.Player == 1000, 'player interval default')
-expect(d.Framework.Type == 'AUTO', 'framework defaults to AUTO, not a guess')
-expect(d.Framework.Database.Type == 'AUTO', 'database defaults to AUTO')
-expect(d.Sync.Enabled == true, 'sync defaults on')
-expect(d.Printing.UseDiscordLogs == false, 'outbound logging defaults OFF')
-local s = CisDefaults.security()
-expect(s.EventPrefix == 'cis_libs', 'event prefix default')
-expect(type(s.AuthorizedResources) == 'table' and #s.AuthorizedResources == 0,
+local cfg = CisDefaults.config()
+expect(cfg.CallbackTimeout == 10000, 'callback timeout default')
+expect(cfg.CheckVersion == false, 'the version check is OFF by default')
+expect(cfg.UpdateInterval.Player == 1000, 'player interval default')
+expect(cfg.Framework.Type == 'AUTO', 'framework defaults to AUTO, not a guess')
+expect(cfg.Framework.Database.Type == 'AUTO', 'database defaults to AUTO')
+expect(cfg.Sync.Enabled == true, 'sync defaults on')
+expect(cfg.Printing.UseDiscordLogs == false, 'outbound logging defaults OFF')
+local sec = CisDefaults.security()
+expect(sec.EventPrefix == 'cis_libs', 'event prefix default')
+expect(type(sec.AuthorizedResources) == 'table' and #sec.AuthorizedResources == 0,
     'the allow-list is empty, and empty means nobody')
-expect(s.DropPlayer == true, 'a player IS dropped by default')
-expect(type(s.DropPlayer) ~= 'function',
+expect(sec.DropPlayer == true, 'a player IS dropped by default')
+expect(type(sec.DropPlayer) ~= 'function',
     'DropPlayer is a boolean, because a function cannot cross the boundary')
 
 -- Fresh every call. A consumer that mutates the table it was handed must not be
@@ -980,7 +980,7 @@ expect(CisDetect.versionAtLeast('1.9.0-beta3', '1.9.0'), 'a non-numeric tail doe
 expect(not CisDetect.versionAtLeast(nil, '1.0.0'), 'a missing version never satisfies a bound')
 
 -- Database detection, same contract.
-s, v, p = server({ oxmysql = true }, true, { oxmysql = '2.6.0' })
+s, v = server({ oxmysql = true }, true, { oxmysql = '2.6.0' })
 local d = CisDetect.database('AUTO', s, v)
 expect(d.name == 'oxmysql' and d.version == '2.6.0', 'AUTO detects oxmysql and its version')
 s, v = server({ ['mysql-async'] = true }), function(name) return name == 'mysql-async' and '0.6.2' or nil end

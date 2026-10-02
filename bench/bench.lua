@@ -29,7 +29,7 @@ local function say(...)
   out[#out + 1] = table.concat(t, ' ')
 end
 
-local function bench(name, setup, work, iterations, note)
+local function bench(name, _setup, work, iterations, note)
   -- Warm first. A cold JIT or a cold cache is a one-off, and averaging a
   -- one-off into the result is how a benchmark ends up measuring start-up.
   for _ = 1, math.max(1, math.floor(iterations / 10)) do work() end

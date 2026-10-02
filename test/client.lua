@@ -129,7 +129,6 @@ local function newEnv(opts)
     end
     -- `cis_libs:cb` is registered through RegisterNetEvent, so it is delivered
     -- through env.net rather than env.fire.
-    local fire = env.fire
     -- Net events are RECORDED, so a test can deliver the same event the server
     -- would. The server's `source` global is set around the dispatch rather than
     -- passed as an argument, exactly as FiveM does.
@@ -1331,9 +1330,9 @@ do
     -- ...and the refusal is still returned EVERY time, not just the first.
     local stillRefused = true
     for _ = 1, 10 do
-        local again = exports.CreateZone('box', 'shop',
+        local retry = exports.CreateZone('box', 'shop',
             { x = 0.0, y = 0.0, z = 0.0 }, { x = 20.0, y = 20.0, z = 20.0 }, {})
-        if again ~= false then stillRefused = false end
+        if retry ~= false then stillRefused = false end
     end
     check(stillRefused == true,
         'H5: but every retry is STILL refused -- a latched return would let the '
@@ -1455,8 +1454,9 @@ end
 do
     local env = zoneEnv()
 
-    local ok, why = exports.CreateZone('box', 'shop',
+    local ok = exports.CreateZone('box', 'shop',
         { x = 10.0, y = 10.0, z = 0.0 }, { x = 4.0, y = 4.0, z = 4.0 }, {})
+    local why
     check(ok == true, 'L-S17: an ordinary box zone is created')
     check(exports.ZoneContains('shop', { x = 10.0, y = 10.0, z = 0.0 }) == true,
         'L-S17: and it contains its own centre')

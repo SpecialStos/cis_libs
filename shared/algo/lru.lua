@@ -95,7 +95,7 @@ function CisLRU.new(capacity)
     }
 end
 
-local function unlink(lru, node)
+local function unlink(_, node)
     node.prev.next = node.next
     node.next.prev = node.prev
     node.prev, node.next = nil, nil

@@ -178,7 +178,7 @@ end
 -- which is wider than one call and has to be built a piece at a time. Every
 -- intermediate product stays under 2^53, which is what keeps the assembly
 -- exact rather than merely plausible.
-local function randWide(rng, span)
+local function randWide(rng, _)
     local acc, produced = 0, 0
     local take = 32
     while produced < 53 do

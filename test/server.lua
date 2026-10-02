@@ -635,7 +635,7 @@ do
         netOk = true,
     })
     loadSync(env)
-    local id = env.EXPORTS.SyncCreate('prop', {
+    env.EXPORTS.SyncCreate('prop', {
         model = 'prop_barrier_05a',
         coords = { x = 0.0, y = 0.0, z = 0.0 },
         networked = true,
@@ -775,7 +775,6 @@ do
 
     -- Register a framework the way a product does: one export that returns the
     -- method table.
-    local EXPORTS = env.EXPORTS
     env.EXPORTS.cis_core = {
         CisCoreFramework = function()
             return {

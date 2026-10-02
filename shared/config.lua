@@ -14,22 +14,6 @@
 
 CisConfigUtil = {}
 
--- Drops functions, recursively. A function cannot cross the exports boundary,
--- so one left in here would arrive as nil and would have looked like a config
--- bug on the client rather than a stripping rule here.
-local function copyPublic(value)
-    if type(value) ~= 'table' then
-        return value
-    end
-    local out = {}
-    for k, v in pairs(value) do
-        if type(v) ~= 'function' then
-            out[k] = copyPublic(v)
-        end
-    end
-    return out
-end
-
 -- THE CLIENT FALLBACKS COME FROM CisDefaults, NOT FROM A SECOND COPY.
 --
 -- They used to be literals written out here, and they had already drifted from

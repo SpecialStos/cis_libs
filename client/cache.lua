@@ -273,9 +273,12 @@ CreateThread(function()
         return
     end
 
-    local intervals = (Config and Config.UpdateInterval) or {}
-    local playerMs = math.max(100, intervals.Player or 1000)
-    local weaponMs = math.max(100, intervals.Weapon or playerMs)
+    -- Declared here and assigned inside the loop, which re-reads the config on
+    -- every pass so an operator's change lands without a restart. Giving any of
+    -- them a default here would be overwritten before anything read it.
+    local intervals
+    local playerMs
+    local weaponMs
 
     refreshPed()
     refreshVehicle(CisCache.ped)
@@ -337,7 +340,7 @@ CreateThread(function()
             if moved or (now - lastCheck) >= 500 then
                 lastCoords = coords
                 lastCheck = now
-                for id, watcher in pairs(nearWatchers) do
+                for _, watcher in pairs(nearWatchers) do
                     local dist = #(coords - watcher.coords)
                     local inside = dist <= watcher.distance
                     if inside and not watcher.inside then

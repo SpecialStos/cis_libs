@@ -238,7 +238,7 @@ function CisTime.parseDuration(text)
     local matched = false
     -- A number, then optional whitespace, then letters. `.-` is lazy so '2h30m'
     -- does not swallow the whole rest of the string as one unit name.
-    for num, gap, unit in s:gmatch('([%d%.]+)(%s*)([%a]+)') do
+    for num, _, unit in s:gmatch('([%d%.]+)(%s*)([%a]+)') do
         local value = tonumber(num)
         if value == nil then
             return nil, ('%q is not a number'):format(num)

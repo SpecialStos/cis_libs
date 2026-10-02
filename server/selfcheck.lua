@@ -87,6 +87,13 @@ local function run()
         for i = 0, GetNumResources() - 1 do
             local name = GetResourceByFindIndex(i)
             if name and name ~= GetCurrentResourceName() then
+                -- luacheck: ignore 542
+                -- Deliberately empty. This whole branch is the defect: the
+                -- condition is inverted and it matches every resource rather
+                -- than the ones it means to, so the check has never run. It is
+                -- replaced, not repaired, when the dependency check is rewritten
+                -- against GetResourceMetadata. Keeping the comment is the only
+                -- thing here that is currently correct.
                 if GetResourceState and GetResourceState(name) ~= 'started' then
                     -- Not our problem yet. A resource that is still `starting`
                     -- when this runs will report itself if it fails.

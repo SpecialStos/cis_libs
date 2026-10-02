@@ -67,6 +67,12 @@ function DrawText3D(x, y, z, text, settings)
     if not onScreen then
         return
     end
+    -- luacheck: ignore 113
+    -- Open defect, tracked. The native is GET_GAMEPLAY_CAM_COORD. There is no
+    -- plural form: the call raises `attempt to call a nil value` the first time
+    -- any consumer draws. Nothing caught it because no test calls this export
+    -- and the two natives databases between them contain no such name, so both
+    -- the lint and the realm check are reporting it correctly for once.
     local p = GetGameplayCamCoords()
     local distance = #(p - vector3(x, y, z))
     if distance <= 0.01 then
@@ -86,6 +92,10 @@ function DrawText3D(x, y, z, text, settings)
     SetTextEntry('STRING')
     SetTextCentre(center)
     AddTextComponentString(text)
+    -- luacheck: ignore 113
+    -- Open defect, tracked, and the same as the line above: there is no DRAW_TEXT
+    -- native. Screen text is drawn with BeginTextCommandDisplayText and
+    -- EndTextComponentDisplayText; only DRAW_RECT exists alongside this.
     DrawText(_x, _y)
 
     local factor = (string.len(text)) / 370

@@ -677,7 +677,7 @@ function CisSecurityReport(src, reason)
     -- the capability is consulted first: an operator who wrote a handler meant
     -- it, and silently preferring the generic kick would make their handler
     -- look broken rather than absent.
-    local ok, custom = CisRegistry.call('security', 'drop', src, reason)
+    local ok = CisRegistry.call('security', 'drop', src, reason)
     if ok then
         return true
     end

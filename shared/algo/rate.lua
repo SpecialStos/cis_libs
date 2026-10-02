@@ -327,7 +327,7 @@ local function slidingCount(r, entry, now)
 end
 
 -- Spend into the current slice.
-local function slidingSpend(r, entry, cost)
+local function slidingSpend(_, entry, cost)
     entry.idx = entry.idx or 0
     entry.counts[entry.idx] = (entry.counts[entry.idx] or 0) + cost
 end
@@ -473,7 +473,7 @@ function CisRate.peek(r, key, now)
     end
 
     if r.kind == 'fixed' then
-        local start, finish = fixedWindow(r, e, now)
+        local _, finish = fixedWindow(r, e, now)
         local remaining = r.limit - e.used
         if remaining < 0 then remaining = 0 end
         return {
