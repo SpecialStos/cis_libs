@@ -28,6 +28,7 @@
     "GetResourceMetadata",
     "GetResourceState",
     "IsDuplicityVersion",
+    "IsPrincipalAceAllowed",
     "Load",
     "LoadResourceFile",
     "LoadResourceFileAsync",

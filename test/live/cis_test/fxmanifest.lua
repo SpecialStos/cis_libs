@@ -32,9 +32,11 @@ dependencies {
 server_scripts {
     'server/json.lua',
     'server/runner.lua',
+    'server/control.lua',
     'server/report.lua',
     'server/suites/server.lua',
     'server/suites/player.lua',
+    'server/suites/lifecycle.lua',
     'server/commands.lua',
 }
 
