@@ -113,7 +113,34 @@ exports('SetConfig', function(config, security, discord)
         -- Merged over the built-in defaults key by key, so an operator who set
         -- one leaf of Framework.Target keeps the rest of that table rather than
         -- inheriting a table with a single key in it.
-        Config = CisDefaults.merge(CisDefaults.config(), CisDefaults.sanitize(config))
+        --
+        -- MERGED AND THEN VALIDATED, in that order, and nothing is assigned
+        -- until it passes. The config arrives across the exports boundary from
+        -- another resource and none of its values were checked, so the failure
+        -- modes were all silent: `CallbackTimeout = -1` makes every callback
+        -- wait forever and then report a timeout that never came from a timeout;
+        -- `UpdateInterval.Player = 0` is a client loop at the frame rate; a
+        -- misspelled `AimingCheckType` falls through to the default, so aiming
+        -- reads false almost always and looks like a game bug rather than a
+        -- typo. None of them raises where the mistake was made.
+        --
+        -- VALIDATED ON A COPY. Half-applying a policy is worse than rejecting
+        -- one: the operator cannot tell which half took effect, and the console
+        -- goes on saying the configuration was supplied.
+        local merged = CisDefaults.merge(CisDefaults.config(), CisDefaults.sanitize(config))
+        local ok, problems = CisDefaults.validate(merged)
+        if not ok then
+            Logging.Error(('cis_libs: configuration from %s refused. %d problem(s):')
+                :format(tostring(supplier), #problems))
+            for i = 1, #problems do
+                Logging.Error('  ' .. problems[i])
+            end
+            Logging.Error('  Nothing was applied. Fix the config in the file your '
+                .. 'product ships and restart that resource.')
+            return false, ('configuration from %s refused: %s')
+                :format(tostring(supplier), table.concat(problems, '; '))
+        end
+        Config = merged
     end
     if type(security) == 'table' then
         -- Deliberately NOT merged with the default Security. An operator who

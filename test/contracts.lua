@@ -1494,6 +1494,96 @@ do
     -- this whole library exists to remove.
     check(tostring(why):find('cis_libs', 1, true) ~= nil,
         ('S3: and the refusal says how to clear it deliberately (got %s)'):format(tostring(why)))
+
+    -- ---------------------------------------------------------------- H1
+    -- A config arrives from another resource across the exports boundary, and
+    -- nothing about its VALUES was checked. The failure modes are all silent:
+    -- a negative CallbackTimeout means every callback waits forever and then
+    -- reports a timeout that never came from a timeout; UpdateInterval of 0 is
+    -- a client loop at the frame rate; a misspelled AimingCheckType falls
+    -- through to the default, so aiming reads false almost always and looks
+    -- like a game bug rather than a typo.
+    --
+    -- None of them raises at the point of the mistake. That is the whole reason
+    -- to check here rather than let it surface.
+    do
+        local function supply(config)
+            local venv = newEnv({ invoking = 'cis_core' })
+            clearRegistry()
+            Config = CisDefaults.config()
+            Security = CisDefaults.security()
+            loadModule('server/security.lua')
+            loadModule('server/proxy.lua')
+            return venv, venv.EXPORTS.SetConfig(config)
+        end
+
+        -- A config with nothing wrong is accepted. A validator that refuses
+        -- ordinary settings is worse than no validator, because operators stop
+        -- reading the console.
+        local good = newEnv({ invoking = 'cis_core' })
+        clearRegistry()
+        Config = CisDefaults.config()
+        Security = CisDefaults.security()
+        loadModule('server/security.lua')
+        loadModule('server/proxy.lua')
+        check(good.EXPORTS.SetConfig({ CallbackTimeout = 5000, AimingCheckType = 'configFlag' }) == true,
+            'H1: a valid config is accepted')
+        good.reset()
+
+        -- Every value in one table, so the refusal reports ALL of them: an
+        -- operator who fixes one line a boot at a time has to restart the server
+        -- once per line, and most people give up before the third.
+        local bad = newEnv({ invoking = 'cis_core' })
+        clearRegistry()
+        Config = CisDefaults.config()
+        Security = CisDefaults.security()
+        loadModule('server/security.lua')
+        loadModule('server/proxy.lua')
+        local accepted, reason = bad.EXPORTS.SetConfig({
+            CallbackTimeout = -1,
+            UpdateInterval = { Player = 0, Weapon = 'fast' },
+            AimingCheckType = 'cfgFlag',
+        })
+        check(accepted == false,
+            ('H1: a config with illegal values is refused (got %s)'):format(tostring(accepted)))
+        local joined = tostring(reason)
+        check(joined:find('CallbackTimeout', 1, true) ~= nil,
+            'H1: and the refusal names CallbackTimeout: ' .. joined)
+        check(joined:find('UpdateInterval.Player', 1, true) ~= nil
+            and joined:find('UpdateInterval.Weapon', 1, true) ~= nil,
+            'H1: and EVERY bad interval, not just the first: ' .. joined)
+        check(joined:find('AimingCheckType', 1, true) ~= nil
+            and joined:find('configFlag', 1, true) ~= nil,
+            'H1: and an unknown enum names the values that would be accepted: ' .. joined)
+        check(joined:find('cis_core', 1, true) ~= nil,
+            'H1: and says which resource supplied the config, so an operator knows '
+                .. 'whose file to edit: ' .. joined)
+
+        -- THE IMPORTANT ONE: a refused config must not be half-applied. A
+        -- partially applied policy is worse than a rejected one, because the
+        -- operator cannot tell which half took effect and the console says the
+        -- config was supplied.
+        check(Config.CallbackTimeout == 10000,
+            ('H1: a refused config left the default in place, not -1 (got %s)')
+                :format(tostring(Config.CallbackTimeout)))
+        check(Config.UpdateInterval.Player == 1000,
+            ('H1: and the intervals untouched too (got %s)')
+                :format(tostring(Config.UpdateInterval and Config.UpdateInterval.Player)))
+        bad.reset()
+
+        -- NaN is not a number that happens to be odd; it is a value that
+        -- poisons every comparison it reaches.
+        local nan = newEnv({ invoking = 'cis_core' })
+        clearRegistry()
+        Config = CisDefaults.config()
+        Security = CisDefaults.security()
+        loadModule('server/security.lua')
+        loadModule('server/proxy.lua')
+        local nanOk = nan.EXPORTS.SetConfig({ CallbackTimeout = 0 / 0 })
+        check(nanOk == false, 'H1: NaN is refused rather than accepted as a number')
+        nan.reset()
+    end
+
     env.reset()
 end
 

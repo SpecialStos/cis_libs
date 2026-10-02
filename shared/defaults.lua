@@ -190,3 +190,103 @@ function CisDefaults.merge(base, override)
     end
     return base
 end
+
+-- What a value has to satisfy to be accepted. One table so that "why was my
+-- config refused" and "what values are legal" are the same lookup, and so a
+-- new field cannot be added to the defaults without someone deciding whether it
+-- is validated.
+--
+-- `CisDefaults.validate` is deliberately NOT exhaustive: it checks the values
+-- whose failure mode is SILENT. A bad `CallbackTimeout` does not raise -- it
+-- makes every callback wait forever, or never wait, and the caller sees a nil
+-- that reads like "no such row". A bad `AimingCheckType` does not raise either;
+-- it falls through to the default and the server reports aiming as false
+-- almost always, which looks like a game bug rather than a typo.
+local function between(lo, hi)
+    return function(v)
+        if type(v) ~= 'number' then
+            return ('must be a number, got %s'):format(type(v))
+        end
+        if v ~= v then
+            return 'must be a number, got NaN'
+        end
+        if v < lo or v > hi then
+            return ('must be between %d and %d, got %s'):format(lo, hi, tostring(v))
+        end
+        return nil
+    end
+end
+
+local function oneOf(choices)
+    return function(v)
+        for _, c in ipairs(choices) do
+            if v == c then
+                return nil
+            end
+        end
+        return ("must be one of %s, got %s"):format(table.concat(choices, ', '), tostring(v))
+    end
+end
+
+-- `{ name = check, path = <dotted path into Config>, ok = <check>}`. The path is
+-- written out rather than derived so a message can name the exact key an
+-- operator has to edit, which is the whole value of a refusal.
+local CONFIG_RULES = {
+    { path = 'CallbackTimeout', ok = between(1000, 60000) },
+    { path = 'UpdateInterval.Player', ok = between(100, 10000) },
+    { path = 'UpdateInterval.Weapon', ok = between(100, 10000) },
+    { path = 'UpdateInterval.Vehicle', ok = between(100, 10000) },
+    { path = 'UpdateInterval.VehicleProperties', ok = between(100, 60000) },
+    { path = 'AimingCheckType', ok = oneOf({ 'default', 'configFlag' }) },
+    { path = 'Framework.Database.Timeout', ok = between(1000, 120000) },
+}
+
+--- Check a config, and report EVERY problem rather than the first.
+---
+--- `SetConfig` merges a table that arrived across the exports boundary from
+--- another resource, and nothing about the values was checked. A negative
+--- `CallbackTimeout` or an `UpdateInterval` of zero does not fail loudly at the
+--- point of the mistake -- it produces a callback that never times out, or a
+--- client loop that spins at the frame rate, hours later, somewhere else.
+---
+--- This is a REFUSAL with a reason rather than a raise, and it refuses the whole
+--- config rather than half-applying it: a partially applied security policy is
+--- worse than a rejected one, because the operator cannot tell which half took
+--- effect.
+---
+--- Returns `true`, or `false` plus a list of messages. Each message names the
+--- key, what is wrong with it, and what would be acceptable -- the three things
+--- somebody needs in order to fix a line in their config without opening a
+--- support thread.
+---
+--- @param config table  the RESOLVED config (post-merge), not the override
+--- @return boolean ok
+--- @return table|nil problems  an array of strings, empty when ok
+function CisDefaults.validate(config)
+    local problems = {}
+    if type(config) ~= 'table' then
+        return false, { ('config must be a table, got %s'):format(type(config)) }
+    end
+    for _, rule in ipairs(CONFIG_RULES) do
+        -- Walked explicitly rather than with a lookup table, because `nil` is a
+        -- legitimate stored value for a path that does not exist and a missing
+        -- key is not a validation failure -- it just means the defaults apply.
+        local node = config
+        for segment in rule.path:gmatch('[^.]+') do
+            node = type(node) == 'table' and node[segment] or nil
+            if node == nil then
+                break
+            end
+        end
+        if node ~= nil then
+            local why = rule.ok(node)
+            if why then
+                problems[#problems + 1] = ('Config.%s %s'):format(rule.path, why)
+            end
+        end
+    end
+    if #problems > 0 then
+        return false, problems
+    end
+    return true
+end
