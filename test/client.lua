@@ -435,13 +435,27 @@ do
         'SetVehicleExtra receives the vehicle and the numeric extra id')
     -- 0 in the table means "the extra was ON", so the native must be told to
     -- NOT disable it.
-    check(env.natives[1] and env.natives[1].disable == false,
-        'an extra stored as 0 (it was ON) is passed as disable=false, not true')
+    --
+    -- C5 · AS AN INTEGER, NOT A BOOLEAN. The native declares its third
+    -- parameter `BOOL disable`, but its own declaration carries the note
+    -- "Confirmed p2 does not work as a bool. Changed to int. [0=on, 1=off]"
+    -- (citizenfx/natives, SET_VEHICLE_EXTRA.md). Passing Lua `true` is relying
+    -- on the marshaller doing the right thing with a value the native's own
+    -- documentation says it does not accept, so the flag goes across as 1/0.
+    --
+    -- This assertion used to pin `== false`, which is what the bug looked like
+    -- from the outside: both readings are "the value the setter chose", so a
+    -- test written against the implementation rather than the native cannot
+    -- tell the difference between correct and nearly-correct.
+    check(env.natives[1] and env.natives[1].disable == 0,
+        ('an extra stored as 0 (it was ON) is passed as the integer 0 (got %s)')
+            :format(tostring(env.natives[1] and env.natives[1].disable)))
 
     env.natives = {}
     SetVehicleProperties(7, { extras = { [1] = 1 } })
-    check(env.natives[1] and env.natives[1].disable == true,
-        'an extra stored as 1 (it was OFF) is passed as disable=true, not false')
+    check(env.natives[1] and env.natives[1].disable == 1,
+        ('an extra stored as 1 (it was OFF) is passed as the integer 1 (got %s)')
+            :format(tostring(env.natives[1] and env.natives[1].disable)))
 
     -- And the round trip: what the getter wrote, the setter must reproduce.
     -- This is the property that actually matters -- a value read back out of
@@ -458,8 +472,9 @@ do
         ('the getter stores 1 for an extra that is off (extras=%s)')
             :format(tostring(props and props.extras and props.extras[1])))
     SetVehicleProperties(7, { extras = props.extras })
-    check(env.natives[1] and env.natives[1].disable == true,
-        'getter output fed straight back to the setter disables the same extra')
+    check(env.natives[1] and env.natives[1].disable == 1,
+        ('getter output fed straight back to the setter disables the same extra (got %s)')
+            :format(tostring(env.natives[1] and env.natives[1].disable)))
 
     env.reset()
 end

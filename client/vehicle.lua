@@ -59,6 +59,10 @@ function GetVehicleProperties(vehicle)
         colorSecondary = { GetVehicleCustomSecondaryColour(vehicle) }
     end
 
+    -- Extras are stored as the native's `disable` flag, not as a boolean: 0 is an
+    -- extra that was ON, 1 is one that was OFF. `IsVehicleExtraTurnedOn` is the
+    -- getter here -- there is no `GetVehicleExtra` native, and a call to one
+    -- raises "attempt to call a nil value" rather than failing quietly.
     local extras = {}
     for i = 1, 15 do
         if DoesExtraExist(vehicle, i) then
@@ -302,12 +306,19 @@ function SetVehicleProperties(vehicle, props, fixVehicle)
     end
 
     if changed('extras') then
-        -- The native's third parameter is `disable`, and the getter above stores
+        -- THE NATIVE'S THIRD PARAMETER IS `disable`, and the getter above stores
         -- 0 for an extra that was ON and 1 for one that was OFF, so the stored
-        -- value IS that flag and is passed through unchanged. Comparing it the
-        -- other way round inverts every restored extra.
+        -- value IS that flag. Comparing it the other way round inverts every
+        -- restored extra.
+        --
+        -- SENT AS AN INTEGER. The declaration types it `BOOL disable`, but
+        -- carries the note "Confirmed p2 does not work as a bool. Changed to
+        -- int. [0=on, 1=off]" (citizenfx/natives, SET_VEHICLE_EXTRA.md), so a
+        -- Lua `true` is a value the native's own documentation says it does not
+        -- accept. `disable == 1 and 1 or 0` produces the documented 1/0 rather
+        -- than relying on the marshaller's handling of a boolean.
         for id, disable in pairs(props.extras) do
-            SetVehicleExtra(vehicle, tonumber(id), disable == 1)
+            SetVehicleExtra(vehicle, tonumber(id), disable == 1 and 1 or 0)
         end
     end
 

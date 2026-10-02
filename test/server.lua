@@ -1444,6 +1444,65 @@ do
     env.reset()
 end
 
+-- ================= 13b. a dropping player takes the bucket COUNT too (C2)
+--
+-- `playerDropped` cleared `rates[src]` and the per-player warning state but not
+-- `rateCounts[src]` -- the tally of how many buckets that player holds.
+--
+-- Both halves are asserted because they fail differently. It is a leak first:
+-- one number per connecting player, for the life of the process. It is a
+-- correctness bug second: the count is the budget behind the per-src cap, and a
+-- server id is reused, so a returning player inherits a count for buckets that
+-- no longer exist and can hit the cap against a budget they never spent.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+    loadModule('server/callback.lua')
+
+    for i = 1, 5 do
+        env.EXPORTS.RegisterCallback(('live:%d'):format(i), function() return 1 end)
+        env.emit('cis_libs:cb', 3, ('live:%d'):format(i))
+    end
+    check(CisRateBucketCount(3) == 5,
+        ('C2: five distinct names leave five buckets (got %d)'):format(CisRateBucketCount(3)))
+
+    -- A second player, so the assertion below is about the count and not about
+    -- the drop handler clearing everything it can reach.
+    env.EXPORTS.RegisterCallback('other:1', function() return 1 end)
+    env.emit('cis_libs:cb', 4, 'other:1')
+    check(CisRateBucketCount(4) == 1, 'C2: a second player has their own bucket count')
+
+    -- `playerDropped` is registered with AddEventHandler, not RegisterNetEvent,
+    -- and the handler reads the `source` GLOBAL. `env.emit` delivers net events
+    -- and would reach nothing at all here, so `source` is set by hand and the
+    -- AddEventHandler list is fired -- which is exactly how the server does it.
+    local savedSource = rawget(_G, 'source')
+    source = 3
+    env.fire('playerDropped')
+    _G.source = savedSource
+
+    check(CisRateBucketCount(3) == 0,
+        ('C2: a dropping player leaves NO bucket count behind (got %d)')
+            :format(CisRateBucketCount(3)))
+    check(CisRateBucketCount(4) == 1,
+        "C2: another player's buckets survive the drop")
+
+    -- The id is reused: a returning player starts from nothing rather than
+    -- inheriting the previous occupant's budget.
+    for i = 1, 3 do
+        env.EXPORTS.RegisterCallback(('again:%d'):format(i), function() return 1 end)
+        env.emit('cis_libs:cb', 3, ('again:%d'):format(i))
+    end
+    check(CisRateBucketCount(3) == 3,
+        ('C2: a player returning on a reused id starts from a clean count (got %d)')
+            :format(CisRateBucketCount(3)))
+
+    env.reset()
+end
+
 -- ================== 14. AwaitCallbackClient, against the REAL native (C1)
 --
 -- The server's only way to ask a CLIENT for a return value. It read:

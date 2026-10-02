@@ -438,12 +438,21 @@ local function warnRateLimited(src, name)
     rateWarned[key] = { count = 1, windowStarted = now, escalated = false }
 end
 
--- A player who drops takes their rate buckets AND their warning state. Server
--- ids are reused, so a returning player would otherwise inherit a throttle
--- budget spent by the previous occupant of their id, and an operator would see
--- the previous occupant's flood re-reported against their own name.
+-- A player who drops takes their rate buckets, their bucket COUNT and their
+-- warning state. Server ids are reused, so a returning player would otherwise
+-- inherit a throttle budget spent by the previous occupant of their id, and an
+-- operator would see the previous occupant's flood re-reported against their own
+-- name.
+--
+-- `rateCounts` is the tally behind that budget, and it has to go with the
+-- buckets. It is the one entry that was missed, and it is a leak rather than a
+-- correctness bug: each connecting player leaves one more number behind for the
+-- life of the process, so a busy server accrues roughly 40kB a day at 10k
+-- connects. Small, unbounded, and exactly the sort of thing that is invisible
+-- until someone reads the memory profile a year later.
 AddEventHandler('playerDropped', function()
     rates[source] = nil
+    rateCounts[source] = nil
     local prefix = tostring(source) .. '\29'
     for k in pairs(rateWarned) do
         if k:sub(1, #prefix) == prefix then
