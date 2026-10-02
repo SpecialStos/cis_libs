@@ -465,3 +465,77 @@ Still unverified, exactly as in Run 1:
   in Run 1; hit again here. **Confirm every command from the output, never from
   the absence of an error** — a command that did not run looks exactly like one
   that ran and printed nothing.
+
+---
+
+# Run 3 — 2026-10-02, the operator-facing surface, verified live
+
+**Run date:** 2026-10-02, 17:03 local
+**Server:** as Run 2 — `Vanilla`, txAdmin v8.1.1, FXServer **b35245**/Win
+**Deployed from:** working tree @ `9a91d0e`
+**Probe resources:** `cisprobe` (14/14) and `cisprobebad` (6/6)
+**Archived output:** `test/live-probe-2026-10-02.txt`,
+`test/live-probe-contract-2026-10-02.txt`
+
+## What this run added to the record
+
+The second batch — audit log, revoke command, contract versioning, publishing
+gates, payload limits — was verified against the real server rather than only in
+fengari, because one of them contains a trap that no fake would have caught.
+
+### The trap: `SaveResourceFile` has no append mode
+
+The audit log's first implementation wrote one line per call and passed
+`SaveResourceFile(resource, 'audit.log', line, -1)`. That looks like an append
+and is not: the **fourth argument is the INDENT**, and `-1` means "no indent" and
+overwrites. There is no append mode at all — the caller reads the file, adds to
+it, and writes the lot.
+
+An audit log written that way holds exactly one line, which is the single thing
+an audit log must never be, and no test that only checked "the file exists and
+mentions the event" would have noticed.
+
+The implementation now accumulates in memory and rewrites the file, which is
+cheap at this volume and genuinely appends. Q13 asserts the file holds *more than
+one* line, which is the assertion that pins the trap.
+
+### The audit log, from the live server
+
+```
+2026-10-02T17:03:45 cis_libs capability-refused slot=doors caller=cisprobebad reason=contract-mismatch
+2026-10-02T17:03:46 cis_libs capability-registered slot=discord owner=cisprobe provider=cisprobe:Evil
+2026-10-02T17:03:46 cis_libs capability-registered slot=migration owner=cisprobe provider=cis_core:FakeMigrate
+2026-10-02T17:03:46 cis_libs capability-released slot=discord owner=cisprobe
+2026-10-02T17:03:46 cis_libs capability-released slot=migration owner=cisprobe
+```
+
+Seven lines, refusals included, each naming the resource that did it.
+
+### A1 needed a second resource, and that is the interesting part
+
+`cisprobebad` exists solely because **one resource cannot test both the accept
+path and the refuse path for a contract check**: a manifest is fixed per
+resource, and first-registration-wins means the same resource re-registering is
+allowed (that is the restart path). It was declared `cis_libs_contract '99'`
+against a library implementing 1.x.
+
+```
+PASS  B1 a provider declaring a different contract MAJOR is refused
+PASS  B2 and the reason names the field that has to change
+PASS  B3 and names WHICH resource to update
+PASS  B4 and nothing was registered -- the refusal happens first
+PASS  B5 and the refusal is in the audit log
+PASS  B6 recording WHICH kind of refusal it was
+RESULT: 6 passed, 0 failed
+```
+
+B4 matters: the refusal happens BEFORE the slot is touched, so the slot is never
+briefly held by a provider cis_libs does not speak the language of.
+
+## Still unverified after this run
+
+Unchanged from Run 1 and stated rather than implied: everything needing a
+connected client — entity sync end to end, vehicle extras, zones, and the client
+half of callbacks. The revoke command's *behaviour* is covered by the suite,
+which invokes the registered handler directly; there is no Lua API for listing
+console commands, so its presence on a live server is not asserted here.

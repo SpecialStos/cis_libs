@@ -37,6 +37,19 @@ GetDiscordConfig() from cisprobe -> 0 key(s)
 PASS  Q10 a foreign caller gets an EMPTY webhook table (S2)   0 keys
 SetConfig from cisprobe -> false
 PASS  Q11 a bad config is refused by the validator (H1)   got false -- note: as the first supplier this one is allowed to supply, so a false here means the value check fired
+--- audit.log ---
+  readable=true lines=7
+PASS  Q12 the audit log is written where an operator can read it   
+PASS  Q13 and it HOLDS EVERY LINE, not just the last (lines=7) -- SaveResourceFile has no append mode, so this is the whole trap   
+PASS  Q14 and it records the registrations   
+--- audit.log contents ---
+  2026-10-02T17:03:45 cis_libs capability-refused slot=doors caller=cisprobebad reason=contract-mismatch
+  2026-10-02T17:03:46 cis_libs capability-registered slot=discord owner=cisprobe provider=cisprobe:Evil
+  2026-10-02T17:03:46 cis_libs capability-registered slot=migration owner=cisprobe provider=cis_core:FakeMigrate
+  2026-10-02T17:03:46 cis_libs capability-released slot=discord owner=cisprobe
+  2026-10-02T17:03:46 cis_libs capability-released slot=migration owner=cisprobe
+  2026-10-02T17:03:46 cis_libs capability-registered slot=discord owner=cisprobe provider=cisprobe:Evil
+  2026-10-02T17:03:46 cis_libs capability-released slot=discord owner=cisprobe
 =============================================================
-RESULT: 11 passed, 0 failed
+RESULT: 14 passed, 0 failed
 =============================================================
