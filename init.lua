@@ -461,18 +461,35 @@ end
 function Cis.callback.call(name, cb, ...)
     local args = table.pack(...)
     CreateThread(function()
-        local ok, reason = pcall(awaitInside, name, table.unpack(args, 1, args.n))
+        local results = table.pack(pcall(awaitInside, name, table.unpack(args, 1, args.n)))
         if not cb then
             return
         end
-        if not ok then
+        if not results[1] then
             -- The refusal is reported the same way the server export reports a
             -- failed call -- `false, reason` -- so a consumer moving between
             -- `call` and `tryAwait` does not have to relearn the convention.
-            cb(false, tostring(reason))
+            cb(false, tostring(results[2]))
             return
         end
-        cb(true, reason)
+        -- EVERY VALUE, UNPACKED WITH ITS COUNT.
+        --
+        -- This used to be `cb(true, reason)`, taking the single second slot of
+        -- the pcall -- so a handler answering `1, 2, 3` reached the caller as
+        -- `true, 1`, and one answering `nil, 'not found'` reached it as
+        -- `true, nil`: a success flag, no result and no reason.
+        --
+        -- The nil case is the one that costs. "No such row" is normally
+        -- reported exactly that way in this platform, and the reason sits
+        -- BEHIND the nil, so taking the first value silently discarded the only
+        -- part of the answer that said anything. The callback had less in it
+        -- than the handler produced, and nothing raised to indicate it.
+        --
+        -- `table.unpack(t, 1, t.n)`: slot 1 IS the ok flag, so the reply starts
+        -- at slot 2 and the whole pack is what the callback receives. Starting
+        -- at 2 would drop the flag and leave the caller with the reply's own
+        -- values and no way to tell success from failure.
+        cb(table.unpack(results, 1, results.n))
     end)
 end
 

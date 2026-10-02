@@ -1091,6 +1091,63 @@ do
     routesTo(function() Cis.callback.tryAwait('x') end, 'TryAwaitCallback', 'callback.tryAwait')
     routesTo(function() Cis.callback.callClient(1, 'x', nil) end, 'CallCallbackClient', 'callback.callClient')
     routesTo(function() Cis.callback.awaitClient(1, 'x') end, 'AwaitCallbackClient', 'callback.awaitClient')
+
+    -- C6: `callback.call` hands the callback ONE value. `await` can return six,
+    -- and a handler that answers `nil, 'not found'` -- the single most common
+    -- shape in the platform, because "no such row" is normally reported exactly
+    -- that way -- lost everything after the first nil and the caller received
+    -- `true, nil`: a success flag, no result, and no reason. Nothing raised; the
+    -- callback simply had less in it than the handler produced.
+    --
+    -- Asserted on the VALUES, not the routing, because routing already passed:
+    -- this is the defect that a routing-only test reads as coverage.
+    do
+        local function deliver(name, reply)
+            local got = {}
+            -- Overrides ONE field rather than replacing the table: EXPORTS has
+            -- an __index that manufactures a recorder for any missing name, so
+            -- an own key here wins and setting it back to nil restores the
+            -- recorder for every later test in this block.
+            EXPORTS.AwaitCallback = function(_, ...) return reply(...) end
+            captureThreads(function()
+                Cis.callback.call(name, function(...)
+                    local n = select('#', ...)
+                    for i = 1, n do got[i] = select(i, ...) end
+                    got.n = n
+                end)
+            end)
+            stepCaptured()
+            EXPORTS.AwaitCallback = nil
+            return got
+        end
+
+        local wide = deliver('wide', function() return 1, 2, 3 end)
+        -- FOUR, not three: the ok flag is slot 1 and the three reply values
+        -- follow it. Asserting the count as well as the values is what catches
+        -- an off-by-one that unpacks from the wrong slot.
+        check(wide.n == 4 and wide[1] == true and wide[2] == 1 and wide[3] == 2 and wide[4] == 3,
+            ('C6: callback.call passes the ok flag AND every reply value (n=%d)')
+                :format(wide.n))
+
+        -- The case the bug was about: a nil FIRST value is a real answer, and
+        -- the reason behind it has to survive it.
+        local holed = deliver('holed', function() return nil, 'not found', 'extra' end)
+        check(holed.n == 4,
+            ('C6: a nil first value does not truncate the reply (n=%d)'):format(holed.n))
+        check(holed[2] == nil,
+            ('C6: and the first value really is nil (got %s)'):format(tostring(holed[2])))
+        check(holed[3] == 'not found',
+            ('C6: and the reason BEHIND the nil survives -- this is the whole point: %s')
+                :format(tostring(holed[3])))
+        check(holed[4] == 'extra', 'C6: as does a third value past it')
+
+        -- The refusal path is unchanged, because it has only ever had one value.
+        local failed = deliver('boom', function() error('handler exploded') end)
+        check(failed.n == 2 and failed[1] == false,
+            ('C6: a refusal still answers false first (n=%d)'):format(failed.n))
+        check(tostring(failed[2]):find('handler exploded', 1, true) ~= nil,
+            ('C6: with the error text: %s'):format(tostring(failed[2])))
+    end
     routesTo(function() Cis.doors.add({ id = 'a' }) end, 'AddDoorToSystem', 'doors.add')
     routesTo(function() Cis.doors.get('a') end, 'GetDoorState', 'doors.get')
     routesTo(function() Cis.doors.setState('a', true) end, 'LockDoors', 'doors.setState (lock)')
