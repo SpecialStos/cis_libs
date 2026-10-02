@@ -1,0 +1,61 @@
+{
+  "$comment": "Each row is one deliberate defect. tools/mutate.js applies it to a throwaway copy of the repository and runs the full suite. A mutation that still passes is a SURVIVOR and fails the build; a `find` that no longer matches exactly once is STALE and also fails, because it means the code moved and the row stopped describing anything.",
+  "mutations": [
+    {
+      "id": "M01",
+      "file": "server/security.lua",
+      "find": "        local src = source\n        if type(src) ~= 'number' or src <= 0 then\n            return\n        end\n",
+      "replace": "        local src = source\n        if type(src) ~= 'number' then\n            return\n        end\n",
+      "why": "Drop the `src <= 0` half of the guard. `source` is 0 for a server-side trigger and -1 for a scheduled one, so a net handler that accepts them can be invoked by anything that can raise the event locally, with no player behind it."
+    },
+    {
+      "id": "M02",
+      "file": "server/security.lua",
+      "find": "    maxHits = maxHits or 8\n",
+      "replace": "    maxHits = maxHits or 8000\n",
+      "why": "Make the default rate limit effectively unlimited. The limiter still exists and still works; it simply never refuses, which is the failure mode a limit that defaults to permissive always produces."
+    },
+    {
+      "id": "M03",
+      "file": "shared/grid.lua",
+      "find": "local CELL = CisGrid.CELL\nlocal STRIDE = CisGrid.STRIDE",
+      "replace": "local _MIGRATION = 'CREATE TABLE cis_libs_x (id INT)'\n\nlocal CELL = CisGrid.CELL\nlocal STRIDE = CisGrid.STRIDE",
+      "why": "A shipped file that creates a table. The whole zero-tables promise, and the thing that makes a free library safe to install. A string literal is the realistic form: this is what a convenience helper looks like after someone pastes in a schema."
+    },
+    {
+      "id": "M04",
+      "file": "client/utils.lua",
+      "find": "function DrawText3D(",
+      "replace": "local _SINK = exports.ox_lib:notify({})\n\nfunction DrawText3D(",
+      "why": "A shipped file calling a third-party resource by name. cis_libs reaches other resources only through the capability registry; a literal export call is the boundary being broken by a different route."
+    },
+    {
+      "id": "M05",
+      "file": "server/security.lua",
+      "find": "local RATE_BUCKET_CAP = 256",
+      "replace": "local _MARK = SaveResourceFile(GetCurrentResourceName(), 'marker.txt', 'x', -1)\n\nlocal RATE_BUCKET_CAP = 256",
+      "why": "A shipped file writing to disk outside the reviewed allow-list. Already allow-listed at two sites, so this also proves the allow-list is a list and not a blanket."
+    },
+    {
+      "id": "M07",
+      "file": "server/callback.lua",
+      "find": "    if peeked.payload.target ~= src then\n        return\n    end\n",
+      "replace": "",
+      "why": "Take the pending callback entry without the ownership check. Keys are sequential integers, so a client can name any of them; without this the caller destroys someone else's pending request."
+    },
+    {
+      "id": "M08",
+      "file": "shared/registry.lua",
+      "find": "    local owner = invokingResource()\n        or (type(provider) == 'table' and provider.resource)\n        or 'cis_libs'",
+      "replace": "    local owner = (type(provider) == 'table' and provider.resource)\n        or (type(provider) == 'string' and provider)\n        or 'cis_libs'",
+      "why": "Take the capability owner from an argument instead of the invoker, which lets a resource claim ownership of a slot it did not register."
+    },
+    {
+      "id": "M09",
+      "file": "server/proxy.lua",
+      "find": "    if type(message) == 'string' and #message > MAX_NOTIFY_LENGTH then\n",
+      "replace": "    if false then\n",
+      "why": "Remove the length cap on a client notification. An unbounded string crossing to every client is the cheapest way to make every player pay for one caller's mistake."
+    }
+  ]
+}

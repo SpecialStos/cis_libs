@@ -1863,6 +1863,142 @@ end
 for i = 1, #failures do
     io.stderr:write('FAIL(server): ' .. failures[i] .. '\n')
 end
+-- ===================== the net guard and the limiter, tested for their defaults
+--
+-- These exist because two mutations survived the whole suite at the baseline:
+-- deleting the `src <= 0` half of the guard in CisNetOn, and raising the default
+-- rate limit from 8 to 8000. Neither broke a single assertion, which means the
+-- suite had no test for either behaviour and both had been load-bearing without
+-- anyone knowing.
+--
+-- The rule from here on: a security check is not DONE until its mutation is in
+-- test/mutations.json and killed. These three rows are that proof.
+do
+    -- ---- 1. a net handler is never reached without a real player -------
+    -- `source` is 0 when the event was raised server-side and -1 when it came
+    -- from a scheduled context. Neither is a player. A handler that accepts them
+    -- can be driven by anything able to raise the event locally, with no player
+    -- behind it and therefore nothing to rate-limit, attribute or attribute it
+    -- TO. The string '1' is the other shape worth naming: FiveM hands `source`
+    -- through as a number, so a string can only come from a forged or mangled
+    -- call, and type(src) ~= 'number' is what stops it.
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+
+    local reached = 0
+    env.exported = {}
+    exports.cis_guard = env.exported
+    env.exported.OnBuy = function(_, src)
+        reached = reached + 1
+    end
+
+    loadModule('server/security.lua')
+    check(CisNetOn('cis_guard:buy', 'cis_guard:OnBuy') == true,
+        'G1: the guarded handler registers')
+
+    local refused = { 0, -1, '1', 'conn', {} }
+    local names = { 'server-side (0)', 'scheduled (-1)', 'string "1"', 'string "conn"', 'table' }
+    for i, badSrc in ipairs(refused) do
+        reached = 0
+        env.emit('cis_guard:buy', badSrc, 1)
+        check(reached == 0,
+            ('G1: src %s never reaches the handler'):format(names[i]))
+    end
+
+    -- And the positive case still works, so the guard is a filter and not a
+    -- wall: a real player id passes.
+    reached = 0
+    env.emit('cis_guard:buy', 7, 1)
+    check(reached == 1,
+        ('G1: a real player id DOES reach the handler (reached=%d)'):format(reached))
+    env.reset()
+end
+
+-- ============================ the default limiter is 8 per 1000 ms, and is 8
+--
+-- Not "there is a limiter" -- there has always been a limiter, and a limiter
+-- that defaults to permissive is the same as no limiter. The numbers are what
+-- every doc page promises, so the numbers are what is asserted.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+
+    -- One src, one event, one window, no explicit limits: every default.
+    local allowed = 0
+    for _ = 1, 20 do
+        if CisRateOk(11, 'cis_rate:probe') then allowed = allowed + 1 end
+    end
+    check(allowed == 8,
+        ('G2: the default limiter allows exactly 8 hits in the window, then refuses (allowed=%d)'):format(allowed))
+
+    -- A different src is a different bucket. Sharing one counter across players
+    -- would let one player exhaust everyone else's budget.
+    check(CisRateOk(12, 'cis_rate:probe') == true,
+        'G2: a different src has its own budget')
+    -- A different event is a different bucket too.
+    check(CisRateOk(11, 'cis_rate:other') == true,
+        'G2: a different event has its own budget')
+
+    -- The window closes: past 1000 ms the bucket refills. Without this the test
+    -- above would also pass against a limiter that simply stopped forever.
+    env.clock = 1001
+    check(CisRateOk(11, 'cis_rate:probe') == true,
+        'G2: after the window closes the bucket refills')
+    env.clock = 2002
+    local allowed2 = 0
+    for _ = 1, 20 do
+        if CisRateOk(11, 'cis_rate:probe') then allowed2 = allowed2 + 1 end
+    end
+    check(allowed2 == 8,
+        ('G2: the refilled bucket allows 8 again, not more (allowed=%d)'):format(allowed2))
+    env.reset()
+end
+
+-- ================================ the capability owner is the invoker, always
+--
+-- Third mutation to survive at the baseline. The registry records who owns a
+-- slot, and that record is what every downstream decision rests on: `unregister`
+-- may only be called by the owner, the audit log names it, and a resource that
+-- restarts has to find its own slot again. Taking the owner from an argument
+-- instead of from `invokingResource()` lets any caller claim a slot it did not
+-- register, and every check built on the owner then passes for the wrong
+-- resource.
+do
+    local env = newEnv({ invoking = 'cis_alpha' })
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('shared/registry.lua')
+
+    check(CisRegistry.register('database', 'cis_alpha:CisAlphaDatabase') == true,
+        'G3: a resource registers a capability')
+    check(CisRegistry.owner('database') == 'cis_alpha',
+        ('G3: the owner is the INVOKING resource, not the slot name (owner=%s)')
+            :format(tostring(CisRegistry.owner('database'))))
+
+    -- The decisive one: a resource that did not register the slot cannot
+    -- release it. `unregister(slot, resource)` is the owning form -- it asserts
+    -- ownership rather than trusting the caller -- and it is what a consumer
+    -- calls when it tears itself down.
+    check(CisRegistry.unregister('database', 'cis_beta') == false,
+        'G3: a resource that did not register the slot cannot release it')
+    check(CisRegistry.owner('database') == 'cis_alpha',
+        'G3: and the slot still belongs to the resource that registered it')
+
+    check(CisRegistry.unregister('database', 'cis_alpha') == true,
+        'G3: the owner can release its own slot')
+    env.reset()
+end
+
+-- ==================================================================== report
+-- Named, not just counted. A suite that reports "failed=3" and exits tells you
+-- something broke and nothing about what, and the fix is to re-run with a print
+-- statement added -- which is how a red suite ends up being ignored.
+for i = 1, #failures do
+    io.stderr:write('FAIL(server): ' .. failures[i] .. '\n')
+end
 io.write(('server passed=%d failed=%d\n'):format(passed, failed))
 if failed > 0 then
     os.exit(1)
