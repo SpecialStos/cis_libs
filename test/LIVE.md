@@ -349,3 +349,119 @@ stays. The value must be filled, the input **clicked**, and only then `Enter`
 pressed. A command that "did not run" here is indistinguishable from one that ran
 and printed nothing, so the log file is the only trustworthy check that a console
 command actually executed.
+---
+
+# Run 2 — 2026-10-02, native-semantics probe
+
+**Run date:** 2026-10-02, 13:05 local
+**Server:** `Vanilla` (`[FiveM Basic Server] Vanilla`), txAdmin v8.1.1, FXServer **b35245**/Win
+**Deployed from:** working tree @ `939d2ba` (+ the `resolve` fix committed after it)
+**Player count:** 0 — see "What this run did NOT cover"
+**Probe resource:** `resources/[standalone]/cisprobe` (kept; writes `probe-results.txt`)
+
+## Why this run exists
+
+The fengari suite can only test this library against **fakes**. Three of the
+fixes in this batch depend on how a real CitizenFX runtime actually behaves, and
+every one of them was previously "verified" against a stub that agreed with the
+bug:
+
+* `Citizen.Await` returning ONE value rather than two, and a rejection raising
+  rather than returning a second value — which is why every `await`/`awaitClient`
+  dropped its results and reported refusals as successes;
+* `GetInvokingResource()` being nil for an in-VM call, which is what makes the
+  S1 owner fallback safe rather than a hole;
+* `exports[res][name]` **raising** rather than answering nil for a missing
+  export.
+
+So a probe resource was deployed and asked directly. It writes its verdict to
+`probe-results.txt` as well as the console, because the txAdmin console is a
+rendered terminal widget and reading it back programmatically is unreliable —
+the file is the copy that can be diffed.
+
+**Result: 11 passed, 0 failed.**
+
+## Verbatim results
+
+```
+Await(resolve(a,b,c)) -> n=1  [1]=first [2]=nil [3]=nil
+PASS  Q1 Await returns exactly ONE value (the first resolve arg)   n=1
+Await(rejected) -> pcall ok=false err=refused
+PASS  Q2 a rejection RAISES, carrying the reason (pcall catches it)   ok=false err=refused
+GetInvokingResource() called internally -> nil
+PASS  Q3 GetInvokingResource is nil for an in-VM call   got nil
+GetPlayerRoutingBucket exists = true
+PASS  Q4 GetPlayerRoutingBucket is a callable server native
+GetPlayerRoutingBucket(1) with nobody online -> ok=true value=0
+PASS  Q5 invalid-src behaviour recorded (not asserted)   ok=true value=0
+PASS  Q6 cis_libs is started   started
+PASS  Q7 a cis_libs export is callable from another resource   ok=true type=table
+RegisterCapability("discord","cisprobe:Evil") -> ok=true why=nil
+recorded owner of slot "discord" = cisprobe
+PASS  Q8 the slot owner is the CALLING resource, not the provider string
+RegisterCapability("migration","cis_core:FakeMigrate") -> ok=true
+recorded owner of slot "migration" = cisprobe  (the string CLAIMED cis_core)
+PASS  Q9 a forged provider string does NOT become the owner   recorded cisprobe
+GetDiscordConfig() from cisprobe -> 0 key(s)
+PASS  Q10 a foreign caller gets an EMPTY webhook table (S2)   0 keys
+SetConfig from cisprobe -> false
+PASS  Q11 a bad config is refused by the validator (H1)   got false
+```
+
+## The two that matter most
+
+**S1, end to end, across a real exports boundary.** `cisprobe` registered the
+`migration` slot with the provider string `cis_core:FakeMigrate` — naming a
+resource it does not own — and the slot was recorded as owned by **`cisprobe`**.
+Before the fix the recorded owner was the CLAIM, so the row read `cis_core` and
+the conflict check compared a claim against a claim. The console line agrees:
+
+```
+[cis_libs] [INFO] cis_libs: capability "migration" <- cisprobe
+```
+
+**The probe found a bug nothing else had.** Q8/Q9 initially read `false` for the
+owner instead of a string. That was the probe's own `pcall` masking a RAISE:
+`GetCapabilities` was throwing `No such export FakeMigrate in resource cis_core`,
+because `resolve` read `exports[res][name]` unguarded and `snapshot()` resolves
+every slot to fill in `resolved`. One dead provider therefore broke the one
+command whose entire job is to report which capability is missing. Fixed in
+`0d5fad6`; the raw snapshot dump below is the after state, and note it answers
+rather than raising, with `resolved=false` and the owner still reported:
+
+```
+--- raw GetCapabilities() ---
+  ok=true type=table
+  [discord] type=table owner=cisprobe resolved=false
+  [migration] type=table owner=nil resolved=false
+  ...
+```
+
+## Confirmed-not-changed
+
+`AimingCheckType`, `UpdateInterval` and the rest of H1 were exercised only on the
+server side (Q11). `SetVehicleExtra`'s `disable` semantics (C5) and the routing
+bucket default (Q5) are client-side or need a connected player, so those remain
+verified against the native declarations, not against a running client.
+
+## What this run did NOT cover
+
+Still unverified, exactly as in Run 1:
+
+* Anything needing a connected client — entity sync end to end, vehicle extras,
+  zones, and the client half of callbacks. `players.json` reports the server-list
+  placeholder, not a player.
+* The six-slot `cis_debug` table with products installed. A vanilla server has no
+  cis_core/cis_bridge, so every slot is correctly `resolved=false`; the *shape*
+  is verified (the snapshot dump above), not the conformance of real providers.
+
+## Operational notes (txAdmin, repeated because they cost time again)
+
+* A resource added to disk after boot is invisible until `refresh` is issued.
+  Without it the console answers "Couldn't find resource cis_libs" for a resource
+  that is sitting in the right folder.
+* The console input must be **clicked** after filling before `Enter` is pressed;
+  `fill()` + `press("Enter")` leaves the text sitting in the box. Already noted
+  in Run 1; hit again here. **Confirm every command from the output, never from
+  the absence of an error** — a command that did not run looks exactly like one
+  that ran and printed nothing.
