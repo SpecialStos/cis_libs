@@ -532,6 +532,137 @@ withFakeExports(function()
     expect(CisRegistry.has('database') == false, 'the slot is empty after the owner releases it')
 end)
 
+-- =============================================== S1: WHO OWNS A SLOT, AND WHY
+--
+-- The owner of a slot decides two things: who is refused a second registration,
+-- and whose stop releases it. Both are trust decisions, so the owner has to be
+-- the resource that CALLED -- not a name the caller supplied inside the provider
+-- string it passed in.
+--
+-- Those are two different things, and treating them as one let any resource take
+-- any slot:
+--
+--     exports['cis_libs']:RegisterCapability('database', 'cis_core:CisCoreDatabase')
+--
+-- reads as "owned by cis_core", so the conflict check compared a CLAIM against a
+-- CLAIM. An attacker naming the resource it is impersonating was recorded as
+-- that resource, and every SQL statement from every product then flowed through
+-- an export the attacker controls. The same holds for `framework` (Notify,
+-- GetPlayer, permission checks) and `security.drop` (the function that actually
+-- kicks a cheater).
+--
+-- The dispatch target and the owner genuinely can differ -- cis_core can hold
+-- the `doors` slot while cis_keys exports the implementation -- so the provider
+-- string still names where the CODE lives and `ref.resource` keeps doing that
+-- job. Only the identity that decides trust moves.
+withFakeExports(function()
+    local savedInvoke = rawget(_G, 'GetInvokingResource')
+    local invoking = nil
+    GetInvokingResource = function() return invoking end
+
+    -- Runs `body` as though `resource` were the caller on the exports boundary,
+    -- which is the only place `GetInvokingResource()` means anything.
+    local function as(resource, body)
+        local previous = invoking
+        invoking = resource
+        local ok, err = pcall(body)
+        invoking = previous
+        if not ok then
+            error(err, 0)
+        end
+    end
+
+    exports.cis_core = {
+        CisCoreDatabase = function(self)
+            return { query = function() return { { id = 1 } } end }
+        end,
+    }
+
+    -- The honest case: cis_core registers cis_core's own export.
+    as('cis_core', function()
+        expect(CisRegistry.register('database', 'cis_core:CisCoreDatabase'),
+            'S1: the genuine provider registers')
+    end)
+    expect(CisRegistry.owner('database') == 'cis_core',
+        'S1: the owner is the resource that called')
+
+    -- THE EXPLOIT. A forged provider string naming the holder of a held slot.
+    local forged, forgedWhy
+    as('cis_evil', function()
+        forged, forgedWhy = CisRegistry.register('database', 'cis_core:CisCoreDatabase')
+    end)
+    expect(forged == false,
+        ('S1: a forged provider name cannot take a held slot (got %s)')
+            :format(tostring(forged)))
+    expect(tostring(forgedWhy):find('cis_core', 1, true) ~= nil,
+        ('S1: and the refusal names the REAL holder (got %s)'):format(tostring(forgedWhy)))
+    expect(CisRegistry.owner('database') == 'cis_core',
+        'S1: the recorded owner is untouched by the attempt')
+    expect(CisRegistry.call('database', 'query', 'SELECT 1', {}) ~= false,
+        'S1: and the slot still dispatches to the real provider')
+
+    -- The reverse order: the attacker arrives FIRST, claiming to be cis_core.
+    -- First-registration-wins still holds -- it is the documented policy and the
+    -- one that stops two honest products racing -- but the winner is recorded
+    -- under the name that actually ran, so `cis_debug`, the refusal message and
+    -- `releaseOwner` all point at the attacker instead of at its victim.
+    as('cis_evil', function()
+        expect(CisRegistry.register('target', 'cis_core:CisCoreTarget'),
+            'S1: a first registration still wins, whoever makes it')
+    end)
+    expect(CisRegistry.owner('target') == 'cis_evil',
+        ('S1: and it is recorded as the CALLER, not the claimed name (got %s)')
+            :format(tostring(CisRegistry.owner('target'))))
+
+    as('cis_core', function()
+        local taken, takenWhy = CisRegistry.register('target', 'cis_core:CisCoreTarget')
+        expect(taken == false, 'S1: the impersonated resource cannot displace the first registrant')
+        expect(tostring(takenWhy):find('cis_evil', 1, true) ~= nil,
+            ('S1: and the refusal names the real holder, not the claimed one (got %s)')
+                :format(tostring(takenWhy)))
+    end)
+
+    -- Releasing is a trust decision too, so it follows the same identity.
+    local releasedForEvil = CisRegistry.releaseOwner('cis_evil')
+    expect(#releasedForEvil == 1 and releasedForEvil[1] == 'target',
+        'S1: releaseOwner frees what the CALLER registered')
+    expect(not CisRegistry.has('target'), 'S1: and only that')
+    expect(CisRegistry.has('database'), "S1: the impersonated resource's own slot survives")
+
+    -- A provider whose CODE lives in another resource still releases when THAT
+    -- resource stops. Separating owner from dispatch target would otherwise open
+    -- this: the registrar is alive, the export is gone, and the slot keeps
+    -- answering with a reference to a dead export for the life of the server.
+    exports.cis_keys = {
+        CisKeysDoors = function(self) return { persisted = function() return true end } end,
+    }
+    as('cis_core', function()
+        expect(CisRegistry.register('doors', 'cis_keys:CisKeysDoors'),
+            "S1: a registrar may point at another resource's export")
+    end)
+    expect(CisRegistry.owner('doors') == 'cis_core', 'S1: the owner is the registrar')
+    CisRegistry.releaseOwner('cis_keys')
+    expect(not CisRegistry.has('doors'),
+        'S1: and the slot is freed when the resource hosting the export stops')
+
+    -- With no caller at all -- cis_libs registering its own capability from
+    -- inside its own Lua state -- the owner falls back to the provider string,
+    -- which is trustworthy precisely because it did not cross the boundary.
+    CisRegistry.unregister('database')
+    expect(CisRegistry.register('database', 'cis_core:CisCoreDatabase'),
+        'S1: an in-VM registration still works without an invoking resource')
+    expect(CisRegistry.owner('database') == 'cis_core',
+        'S1: and falls back to the provider resource')
+
+    CisRegistry.unregister('database')
+    expect(CisRegistry.register('security', function() return {} end),
+        'S1: a bare callable cis_libs registers for itself')
+    expect(CisRegistry.owner('security') == 'cis_libs',
+        'S1: and is owned by cis_libs, never by a name the caller chose')
+
+    GetInvokingResource = savedInvoke
+end)
+
 -- Method resolution against the shapes the platform's providers really export.
 -- cis_core answers `Count`, cis_keys `lock`, cis_bridge's targets `name` for a
 -- slot method called `named`. Each fake below is that shape, so a slot whose

@@ -151,6 +151,23 @@ local function declaredName(slot, method)
     return type(spec) == 'string' and spec:match('^([%a_][%w_]*)') or nil
 end
 
+-- WHO CALLED, as the server itself reports it.
+--
+-- `GetInvokingResource()` is the only identity on this side of the exports
+-- boundary that a caller cannot choose. It is nil only when nothing crossed the
+-- boundary, i.e. cis_libs is calling into itself from its own Lua state -- which
+-- is exactly the case where the provider string is not an untrusted claim.
+local function invokingResource()
+    if type(GetInvokingResource) ~= 'function' then
+        return nil
+    end
+    local ok, name = pcall(GetInvokingResource)
+    if not ok then
+        return nil
+    end
+    return type(name) == 'string' and name ~= '' and name or nil
+end
+
 -- The realm a declared method is limited to, read off its contract string.
 local function declaredRealm(spec)
     if spec:find('Server only', 1, true) then return 'server' end
@@ -254,7 +271,35 @@ function CisRegistry.register(slot, provider)
     -- owned by cis_libs. Reading `provider.resource` off a function would give
     -- nil, and a nil owner would defeat the conflict check below entirely --
     -- every second registration would look like a first one.
-    local owner = type(provider) == 'table' and provider.resource or 'cis_libs'
+    --
+    -- THE OWNER IS THE CALLER, NOT THE CLAIM (S1).
+    --
+    -- This used to read `provider.resource`, and that is a name the CALLER
+    -- CHOSE:
+    --
+    --     exports['cis_libs']:RegisterCapability('database', 'cis_core:CisCoreDatabase')
+    --
+    -- recorded the slot as owned by `cis_core` no matter who actually called, so
+    -- the conflict check below compared a claim against a claim. Any resource
+    -- could name the resource it was impersonating, be recorded as that
+    -- resource, and either displace the real provider or -- arriving second --
+    -- pass a check that was supposed to refuse it. Everything downstream flows
+    -- through the slot: `database` carries every SQL statement the platform
+    -- issues, `framework` carries Notify and permission checks, and
+    -- `security.drop` is the function that kicks a cheater.
+    --
+    -- The two identities are genuinely different and both are still needed. The
+    -- provider string names where the CODE lives -- cis_core may well register
+    -- the `doors` slot against an export in cis_keys -- and that stays on `ref`
+    -- for dispatch and for the stop sweep in `releaseOwner`. Only the identity
+    -- that decides TRUST comes from the server.
+    --
+    -- With no invoking resource nothing crossed the boundary, so the caller is
+    -- cis_libs itself and the provider string is not an untrusted claim: that is
+    -- the fallback, and it is the reason this is safe rather than theatre.
+    local owner = invokingResource()
+        or (type(provider) == 'table' and provider.resource)
+        or 'cis_libs'
     local held = slots[slot]
     if held and held.owner ~= owner then
         return false, ('capability %q is already registered by %s'):format(slot, held.owner)
@@ -384,10 +429,18 @@ end
 --- exports are gone, so a held reference would answer every call with an error
 --- about a missing export instead of the honest "no provider registered", and
 --- `has` would keep telling callers the capability is installed.
+---
+--- Also releases a slot whose PROVIDER lives in the stopping resource, whoever
+--- registered it. Separating the owner from the dispatch target (S1) made those
+--- two different resources, and without this the registrar would be left holding
+--- a slot pointing at an export that no longer exists -- `has` still true, every
+--- call an error, for the life of the server.
 function CisRegistry.releaseOwner(resource)
     local released = {}
     for slot, held in pairs(slots) do
-        if held.owner == resource then
+        local ref = held.ref
+        local hostsIt = type(ref) == 'table' and ref.resource == resource
+        if held.owner == resource or hostsIt then
             slots[slot] = nil
             released[#released + 1] = slot
             -- T9: announced per slot, inside the loop, because a consumer is
