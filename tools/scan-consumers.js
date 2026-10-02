@@ -32,6 +32,20 @@ const SCAN_ROOT = process.env.CIS_SCAN_ROOT || 'C:\\Users\\CB\\Desktop\\ZCode'
 const OUT = path.join(__dirname, '..', 'test', 'fixtures', 'consumers.json')
 const SELF = 'cis_libs'
 
+// The harness is NOT a consumer.
+//
+// test/live/cis_test_providers declares `dependency 'cis_libs'` and calls the
+// exports, so the first version of this scanner counted it: consumers went from
+// 28 to 29 and the export list from 61 to 62. That is worse than a wrong number,
+// because the fixture is the input to the compatibility test -- so the rig's own
+// API usage would have been guarded alongside real consumers' usage, and every
+// change to the harness would have looked like a breaking change to the library.
+// A test rig that holds the library to its own rules has stopped testing it.
+const NOT_CONSUMERS = [
+  { rel: /^cis_libs[\\/]/, why: 'the library itself' },
+  { rel: /(^|[\\/])test[\\/]live[\\/]/, why: 'the live harness, which tests the library rather than consuming it' },
+]
+
 // Sentinel used while rewriting a manifest glob into a regular expression.
 // `**/` and `**` have to be replaced before the single `*` pass, so they are
 // parked under names that cannot occur in a path.
@@ -350,11 +364,13 @@ function main() {
   }
   const manifests = findManifests(SCAN_ROOT)
   const resources = []
+  let skipped = 0
   for (const m of manifests) {
     const resDir = path.dirname(m)
-    if (path.basename(resDir) === SELF) continue
-    const manifest = parseManifest(m)
     const rel = path.relative(SCAN_ROOT, m)
+    if (path.basename(resDir) === SELF) continue
+    if (NOT_CONSUMERS.some(x => x.rel.test(rel))) { skipped++; continue }
+    const manifest = parseManifest(m)
     if (!/@cis_libs\//.test(manifest.raw) && !manifest.dependencies.some(d => String(d).trim() === SELF)) continue
     resources.push(scanResource(resDir, manifest, rel))
   }
@@ -392,7 +408,8 @@ function main() {
   fs.writeFileSync(OUT, JSON.stringify(doc, null, 2) + '\n', 'utf8')
 
   console.log('scan root: ' + SCAN_ROOT)
-  console.log('manifests scanned: ' + manifests.length + ', consumers: ' + resources.length)
+  console.log('manifests scanned: ' + manifests.length + ', consumers: ' + resources.length +
+              (skipped ? ' (' + skipped + ' manifest(s) excluded: the library itself and the live harness)' : ''))
   console.log('include @cis_libs/: ' + doc.summary.resourcesIncludingInit.length +
               ', declare dependency: ' + doc.summary.resourcesDeclaringDependency.length)
   console.log('distinct Cis.<ns>.<fn>: ' + doc.summary.cisCalls.length +

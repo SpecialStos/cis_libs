@@ -60,7 +60,7 @@ function findLuacheck() {
 //                   forty-seven findings, none of which says anything about the
 //                   code. Its correctness is checked by `npm run gen-types:check`.
 const EXCLUDED = [
-  { match: /^fxmanifest\.lua$/, why: 'FiveM manifest DSL, not Lua' },
+  { match: /(?:^|\/)fxmanifest\.lua$/, why: 'FiveM manifest DSL, not Lua' },
   { match: /^types\//, why: 'generated LuaLS annotation stub (npm run gen-types:check covers it)' },
 ]
 

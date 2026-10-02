@@ -142,6 +142,10 @@ function buildTestConfig() {
   // from "driven by the stock-Lua entry point", which is the only thing that
   // distinguishes the two modes of test/run.lua.
   writable.add('CIS_SUITE_MODE')
+  // The live harness's own shared table (test/live/cis_test_providers). Declared
+  // here rather than discovered: build-libglobals.js reads cis_libs' manifest,
+  // and the harness is a separate resource that is never shipped.
+  writable.add('CisTestRing')
   // Natives the fake VM implements that the shipped code never calls, so they
   // are in neither natives.json nor the runtime list. A stub the code under
   // test does not exercise is still a stub, and still an assignment.
