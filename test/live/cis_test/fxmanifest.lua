@@ -34,9 +34,12 @@ server_scripts {
     'server/runner.lua',
     'server/report.lua',
     'server/suites/server.lua',
+    'server/suites/player.lua',
     'server/commands.lua',
 }
 
 client_scripts {
+    'client/player.lua',
+    'client/player_suites.lua',
     'client/bridge.lua',
 }

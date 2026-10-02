@@ -68,3 +68,37 @@ exports('RunCase', function(caseName)
     local ok, result = xpcall(fn, function(m) return debug.traceback(tostring(m), 2) end)
     return ok, result
 end)
+-- The server drives a client SUITE, not a client CASE.
+--
+-- A suite is atomic on this side on purpose: snapshot, freeze, run every case,
+-- restore, verify. Splitting those across several server round trips would
+-- leave a window where the harness is holding a snapshot of a player it is not
+-- currently looking after, and a client that drops mid-suite would strand it.
+RegisterNetEvent('cis_test:client_suite', function(suiteName)
+    local ok, result = xpcall(function()
+        return CisTestPlayer.RunSuite(suiteName)
+    end, function(m) return debug.traceback(tostring(m), 2) end)
+
+    if not ok then
+        print(('[cis_test:client] suite %s raised: %s'):format(tostring(suiteName), tostring(result)))
+        send('<suite:' .. tostring(suiteName) .. '>', {
+            ok = false,
+            error = 'the client suite raised: ' .. tostring(result),
+        })
+        return
+    end
+
+    -- One line per case before the envelope, so a run is readable from the
+    -- console while it is happening and complete afterwards from the file.
+    for _, r in ipairs(result.results or {}) do
+        print(('[cis_test:client] %s %s: %s'):format(
+            r.ok and 'PASS' or 'FAIL', r.name, tostring(r.msg or '')))
+    end
+    -- The restore verdict is printed separately and loudly: a run whose cases
+    -- all passed but which left the player somewhere else is a FAILED run, and
+    -- the operator has to be told before they go looking at why.
+    print(('[cis_test:client] restore %s suite %s%s'):format(
+        result.restored and 'verified' or 'FAILED', tostring(suiteName),
+        result.restoreWhy and (': ' .. tostring(result.restoreWhy)) or ''))
+    send('<suite:' .. tostring(suiteName) .. '>', result)
+end)

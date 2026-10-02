@@ -284,6 +284,10 @@ local function runCase(suite, caseName, fn)
         ms = ms,
         checks = case.checks,
         msg = case.failures[1] and case.failures[1].msg or nil,
+        -- The detail belongs in the FILE, not only on the console. A results
+        -- file that records WHAT failed but not WHY sends whoever reads it back
+        -- to the console to find out, which is the thing the file exists to avoid.
+        detail = case.failures[1] and case.failures[1].detail or nil,
         trace = case.trace,
         skipReason = case.skipReason,
         manual = case.manualSteps and (type(case.manualSteps) == 'table'
@@ -364,6 +368,14 @@ local function runSuite(suite)
     t.skip = function(reason) return Case.skip(needCase('t.skip'), reason) end
     t.manual = function(steps) return Case.manual(needCase('t.manual'), steps) end
     t.cleanup = function(fn) return Case.cleanup(needCase('t.cleanup'), fn) end
+    -- Report a FAILURE that is an observation rather than a comparison.
+    -- A case that relays a verdict from somewhere else -- a client suite, a
+    -- restore check -- has no two values to assert about, and reaching for
+    -- `t.eq(false, false)` would record a PASS. This is how the player tier
+    -- reports a client suite that answered FAIL, and it was missing: the first
+    -- live player run crashed on exactly this, which is the correct outcome for
+    -- a harness bug and a waste of a run.
+    t.fail = function(msg, detail) return Case.record(needCase('t.fail'), false, msg, detail) end
     t.allowCounter = function(name, delta)
         return Case.allowCounter(needCase('t.allowCounter'), name, delta)
     end
