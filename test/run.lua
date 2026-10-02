@@ -663,6 +663,63 @@ withFakeExports(function()
     GetInvokingResource = savedInvoke
 end)
 
+-- ==================================== a DEAD provider must not break the DIAGNOSTIC
+--
+-- MEASURED on a live server (FXServer b35245), not inferred. `exports[res][name]`
+-- does not answer nil for a missing resource or a missing export -- it RAISES
+-- "No such export X in resource Y". `resolve` read it unguarded, and
+-- `snapshot()` calls `resolve` on EVERY slot to fill in `resolved`.
+--
+-- So one provider registered against a resource that does not exist made
+-- `GetCapabilities` raise -- and `GetCapabilities` is the first thing anybody
+-- runs when the platform is not working. The one command whose entire job is to
+-- say which capability is missing was the thing that broke, and it broke in the
+-- middle of the answer, on the slot that was broken.
+withFakeExports(function()
+    -- A resource that is not there at all, which is what FiveM raises on.
+    local realExports = exports
+    exports = setmetatable({}, {
+        __index = function(_, resource)
+            return setmetatable({}, {
+                __index = function(_, exportName)
+                    error(('No such export %s in resource %s'):format(tostring(exportName), tostring(resource)), 0)
+                end,
+            })
+        end,
+    })
+
+    expect(CisRegistry.register('database', 'not_a_real_resource:Db'),
+        'a provider naming a resource that does not exist still registers')
+    expect(CisRegistry.owner('database') == 'not_a_real_resource', 'and is owned by its registrar')
+
+    -- The DIAGNOSTIC. It has to answer, not raise.
+    local snapOk, snap = pcall(CisRegistry.snapshot)
+    expect(snapOk,
+        'snapshot() answers when a provider names a resource that does not exist')
+    expect(snapOk and type(snap) == 'table', 'and returns a table')
+    expect(snapOk and snap.database ~= nil, 'naming the broken slot')
+    expect(snapOk and snap.database.resolved == false,
+        ('...with resolved FALSE rather than raising (got %s)')
+            :format(tostring(snapOk and snap.database and snap.database.resolved)))
+    expect(snapOk and snap.database.owner == 'not_a_real_resource',
+        '...and still reporting who owns it, which is the half that is useful')
+
+    -- And a call into it is a REFUSAL with a reason, not an exception in the
+    -- caller's thread -- the same contract as any other unresolved slot.
+    local called, refused, why = pcall(CisRegistry.call, 'database', 'query', 'SELECT 1', {})
+    expect(called, 'a call into a dead provider does not throw')
+    expect(called and refused == false, 'it is refused instead')
+    expect(called and tostring(why):find('database', 1, true) ~= nil,
+        ('with a reason naming the slot (got %s)'):format(tostring(why)))
+
+    -- `has` is the cheap question, and it must not resolve anything at all --
+    -- which is what makes it safe to call from a hot path.
+    expect(CisRegistry.has('database') == true, 'has() is still true: a provider IS registered')
+
+    CisRegistry.unregister('database')
+    exports = realExports
+end)
+
 -- Method resolution against the shapes the platform's providers really export.
 -- cis_core answers `Count`, cis_keys `lock`, cis_bridge's targets `name` for a
 -- slot method called `named`. Each fake below is that shape, so a slot whose

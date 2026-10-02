@@ -380,8 +380,38 @@ function CisRegistry.resolve(slot)
     end
     local ref = held.ref
     if type(ref) == 'table' and ref.resource and not isCallable(ref) then
-        local target = exports[ref.resource]
-        local fn = target and target[ref.export]
+        -- READING THE EXPORT IS GUARDED, BOTH STEPS, because `exports[res][name]`
+        -- raises rather than answering nil for a resource or an export that is
+        -- not there. That is exactly the shape of a provider that has stopped,
+        -- been renamed, or was registered with a name that never existed -- and
+        -- the moment this library most needs to ANSWER is when somebody is
+        -- asking why the platform is not working.
+        --
+        -- Unguarded, `GetCapabilities` raised "No such export X in resource Y"
+        -- on the slot that was broken; and because `snapshot` resolves EVERY
+        -- slot to fill in `resolved`, one dead provider took the whole
+        -- diagnostic with it. The one command an operator runs to find out what
+        -- is wrong was itself the thing that broke, and it broke in the middle
+        -- of the answer. MEASURED on a live server (FXServer b35245).
+        --
+        -- The two steps are read into SEPARATE variables on purpose. Collapsing
+        -- them into one pcall loses `target`, and `target` is the exports table
+        -- the wrapper below has to pass as `self` -- so folding them together
+        -- silently passes the export FUNCTION as self instead, which is the
+        -- unbound-method trap this whole wrapper exists to avoid, introduced
+        -- from the other direction.
+        local okTarget, target = pcall(function()
+            return exports[ref.resource]
+        end)
+        local fn
+        if okTarget and target then
+            local okFn, value = pcall(function()
+                return target[ref.export]
+            end)
+            if okFn then
+                fn = value
+            end
+        end
         -- MEASURED, not inferred: `exports[res][name]` is an UNBOUND method and
         -- swallows the first real argument. The table has to be passed
         -- explicitly -- which is exactly what the colon form does. Do not
