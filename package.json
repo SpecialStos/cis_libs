@@ -8,7 +8,7 @@
     "test": "node test/run.js",
     "test:api": "node tools/validate-api.js --api api.lua --resource .",
     "test:api-selftest": "node tools/validate-api.js --selftest",
-    "test:all": "npm run test:syntax && npm run test && npm run test:api-selftest && npm run test:api && npm run gen-types:check",
+    "test:all": "npm run lint && npm run check:luacheck && npm run check-realms && npm run test:syntax && npm run test && npm run test:lua54 && npm run test:api-selftest && npm run test:api && npm run gen-types:check",
     "test:syntax": "node tools/syntax-check.js",
     "lint": "node tools/lint.js",
     "check-realms": "node tools/check-realms.js",
@@ -18,7 +18,9 @@
     "bench": "node bench/run.js",
     "gen-types": "node tools/gen-types.js",
     "gen-types:check": "node tools/gen-types.js --check",
-    "test:mutate": "node tools/mutate.js"
+    "test:mutate": "node tools/mutate.js",
+    "test:lua54": "node tools/run-lua54.js",
+    "check:luacheck": "node tools/gen-luacheck.js --check"
   },
   "devDependencies": {
     "fengari": "^0.1.5"

@@ -1,212 +1,98 @@
 name: tests
 
-# Pure-Lua suites only. They run under fengari with no FiveM server and no
-# game assets, so this is safe to run on every push.
+# Everything the repository gates on, in one script, so a local `npm run
+# test:all` and this workflow cannot drift. If a step here is not reachable
+# from that script, it is a step somebody has to remember to run.
 #
-# The integration harness (cis_libstest) needs a running fxserver and is NOT
-# run here. It is gated separately, by hand, on a test instance.
+# The mutation gate is the exception and runs in its own job, because it copies
+# the tree and runs the suite once per mutation: minutes rather than seconds,
+# which is too slow to sit in front of every push but too important to leave to
+# a nightly nobody reads.
 
 on:
   push:
     branches: ['**']
   pull_request:
+  schedule:
+    # Nightly, so a FiveM release that changes the natives cannot sit unnoticed
+    # until the next unrelated change happens to touch a native.
+    - cron: '17 4 * * *'
   workflow_dispatch:
 
-jobs:
-  unit:
-    name: unit + binding + contracts + api contract
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+# Superseded runs are cancelled rather than queued. Ten pushes to a branch
+# should cost the last one, not all ten.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
 
-      - uses: actions/setup-node@v4
+env:
+  # Pinned on purpose. `ubuntu-latest` moved under this file before and the
+  # failure mode was invisible: a different base image, different apt packages,
+  # a different Node. A workflow that reports green on two different systems is
+  # not evidence about either of them.
+  RUNNER: ubuntu-24.04
+  # luacheck 1.2.0 exactly. The lint result is part of the release gate, so a
+  # floating version means the gate means something different each month.
+  LUACHECK_VERSION: 1.2.0
+
+jobs:
+  test:
+    name: full gate (lint, realms, suites on two interpreters, api, generated files)
+    runs-on: ${{ env.RUNNER }}
+    steps:
+      # checkout v5+ and setup-node v5+ are the majors that run on Node 24;
+      # v4 still declared node20 and logs a deprecation on every run.
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '24'
           cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Run test suite
-        run: npm test
-
-      - name: Validate api.lua against the registered surface
-        # api.lua is a contract, not a comment. The validator reads what the
-        # resource actually registers -- names and parameter lists, out of the
-        # source -- and fails on the difference.
-        run: npm run test:api
-
-      - name: Prove the api.lua validator still rejects drift
-        # A validator that has only ever been seen to pass has not been tested.
-        # This asserts the real manifest is clean AND that each deliberately
-        # broken fixture in test/api/broken/ still fails with the diagnostic it
-        # was built to trigger. Delete a fixture and this step fails.
-        run: npm run test:api-selftest
-
-      - name: Fail if the exports binding regresses
-        # Guards the `self` trap documented at the top of init.lua.
-        # A bracket-form export call shifts every argument one slot left and
-        # silently corrupts the whole API. The pattern matches the CALL shape
-        # (exports[..][..]( ) rather than a specific quote style, so a
-        # regression written with double quotes is caught too. Comment lines are
-        # excluded so the documentation of the trap does not trip its own
-        # tripwire; test/binding.lua and test/contracts.lua are the real checks.
-        run: |
-          hits=$(grep -rnE 'exports\[[^]]+\]\[[^]]*\]\(' --include=*.lua . \
-                 | grep -vE ':[[:space:]]*--' || true)
-          if [ -n "$hits" ]; then
-            echo "::error::Unbound exports call found. Pass the exports table as the first argument (see the header of the file that tripped it)."
-            echo "$hits"
-            exit 1
-          fi
-          echo "No unbound exports calls found."
-
-      - name: No third-party host in the shipped source
-        # The version check used to fire an outbound GET to a personal GitHub
-        # Pages URL on every boot. The endpoint is config now, and this keeps it
-        # that way: a hardcoded host in the source is a supply-chain risk, not a
-        # feature. test/contracts.lua checks the same thing behaviourally.
-        run: |
-          hits=$(grep -rnE 'https?://[A-Za-z0-9.-]+\.(github\.io|githubusercontent\.com)' \
-                 --include=*.lua . | grep -vE ':[[:space:]]*--' || true)
-          if [ -n "$hits" ]; then
-            echo "::error::Hardcoded third-party version host found in a Lua source file."
-            echo "$hits"
-            exit 1
-          fi
-          echo "No hardcoded third-party version hosts found."
-
       - name: Install Lua 5.4
-        # ubuntu-latest does not ship luac5.4 on PATH. This workflow assumed it
-        # did for its entire history, so the syntax check "ran" against a
-        # command that did not exist and reported EVERY FILE as a syntax error.
-        # The tests passed and the syntax check failed on the whole tree at
-        # once, which is the worst possible failure shape: it looks exactly
-        # like the code being broken rather than the tool being absent.
+        # The suites run under BOTH fengari and a real interpreter. Task 1.7
+        # found a seeded-RNG defect that only exists on a real one, so this is
+        # a correctness gate rather than a belt-and-braces extra.
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq lua5.4
-          luac5.4 -v
+          lua5.4 -v
 
-      - name: Lua syntax check
-        # A MISSING TOOL MUST NOT LOOK LIKE BROKEN CODE. This guard exists so
-        # that if the install above ever fails, the step says "the check did
-        # not run" rather than reporting every file as unparseable.
-        #
-        # fengari (npm test) is a Lua 5.3 VM, so it cannot catch a 5.4-only
-        # construct. That gap is the reason this step exists at all, and it is
-        # worth keeping even though the codebase uses nothing 5.4-specific --
-        # `lua54 'yes'` in fxmanifest.lua is an opt-in, and the check is what
-        # keeps that opt-in honest.
-        # WHY THIS STEP IS NOT A ONE-LINER
-        #
-        # FiveM's backtick hash literals (`` `WEAPON_UNARMED` ``) are valid in
-        # the Cfx Lua runtime and a syntax error to stock luac, so those files
-        # have to be recognised and skipped rather than failed.
-        #
-        # It was previously written as a `case` glob:
-        #
-        #     *"unexpected symbol near `'"*) echo "skip";;
-        #
-        # which is a BASH PARSE ERROR. The glob opens a double quote, and a
-        # backtick inside double quotes is command substitution -- so bash
-        # starts looking for a closing backtick, never finds one, and dies with
-        # "unexpected EOF" and exit code 2 BEFORE IT PARSES A SINGLE FILE.
-        #
-        # That is why every run in this repository's history was red and every
-        # run died on the same step, with no output to explain it. Nothing was
-        # ever checked.
-        #
-        # The identification below uses grep with SINGLE-quoted patterns, where
-        # a backtick is literal, and it requires BOTH that luac complained about
-        # an unexpected symbol AND that the file actually contains a backtick
-        # literal. A file with a genuine syntax error does not have one, so it
-        # is still reported -- the skip is narrow on purpose.
+      - name: Install luacheck
+        # luarocks, not apt: the apt package tracks whatever Ubuntu ships, and
+        # this repository's lint result is only meaningful at a known version.
         run: |
-          if ! command -v luac5.4 >/dev/null 2>&1; then
-            echo "::error::luac5.4 is not on PATH -- the syntax check did not run"
-            echo "Do not read the absence of errors below as a pass."
-            exit 1
-          fi
-          status=0
-          while IFS= read -r f; do
-            if err=$(luac5.4 -p "$f" 2>&1); then
-              :
-            elif printf '%s' "$err" | grep -qF 'unexpected symbol near'                  && grep -qE '`[^`]+`' "$f"; then
-              echo "skip (FiveM hash literal): $f"
-            else
-              echo "SYNTAX ERROR: $f"
-              echo "$err"
-              status=1
-            fi
-          done < <(find . -name '*.lua' -not -path './node_modules/*')
-          exit $status
+          sudo apt-get install -y -qq luarocks
+          sudo luarocks install luacheck "$LUACHECK_VERSION"
+          luacheck --version | head -1
 
-  # T1 -- REAL LINT.
-  #
-  # `tools/syntax-check.js` only PARSES. It cannot see an unused variable, a
-  # shadowed local, a global written without `local`, or a misspelled native --
-  # and a misspelled native is a runtime nil-index in a different subsystem
-  # entirely, which is the class of defect that costs a day.
-  #
-  # luacheck is installed HERE and not as an npm dependency, so the library
-  # keeps its zero-runtime-dependency property.
-  luacheck:
-    name: luacheck (real lint)
-    runs-on: ubuntu-latest
+      - name: Run the full gate
+        # lint, generated-luacheck check, realm check, syntax, the suite under
+        # fengari, the same suite under Lua 5.4, the api validator and its own
+        # selftest, and the generated-file check.
+        run: npm run test:all
+
+  mutate:
+    name: mutation gate (every known defect must break the suite)
+    runs-on: ${{ env.RUNNER }}
+    # Not on every push: it copies the tree and runs the suite once per row.
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - name: Install Lua and luacheck
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq lua5.4 luarocks
-          sudo luarocks install luacheck
-
-      - name: Lint
-        # --codes so a finding is greppable and a suppression can be argued
-        # with in review, rather than a count.
-        run: luacheck . --codes
-
-  # T4 -- the pure modules under a REAL Lua 5.4.
-  #
-  # fengari is Lua 5.3 semantics in JavaScript, which is close enough to be
-  # dangerous. Two differences already bit this repository: fengari's
-  # string.format('%d', x) rejects a float outright where real Lua 5.4 accepts
-  # any float with an exact integer representation, and Lua 5.4 has features
-  # (integer division, <close>, <const>) that a change can use, that pass here,
-  # and that then fail on a server.
-  #
-  # Both directions are wrong, so this runs the shared/ modules under the
-  # interpreter a server actually uses.
-  lua54:
-    name: lua 5.4 (pure modules)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Lua 5.4
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq lua5.4
-
-      - name: Load every pure module and run the smoke check
-        run: lua5.4 test/lua54.lua
-
-  # T6 + T7 -- the generated files must match their source.
-  #
-  # The point of committing generated output is that CI fails when it drifts.
-  # A generator whose output is refreshed on demand is documentation nobody
-  # reads, because the reader cannot tell it from the file it drifted from --
-  # and the api.lua validator already reads the SOURCE, so nothing else in this
-  # workflow would notice the published stub describing an old signature.
-  generated:
-    name: generated types and docs are current
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '24'
           cache: npm
-      - run: npm ci
-      - name: Fail if the committed output is stale
-        run: npm run gen-types:check
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply every mutation and require the suite to fail
+        # A mutation that still passes is a SURVIVOR and means the check it was
+        # written for does not exist. A row whose find no longer matches is
+        # STALE and means it stopped testing anything. Both fail the build.
+        run: npm run test:mutate
