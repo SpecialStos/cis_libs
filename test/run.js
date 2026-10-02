@@ -71,8 +71,28 @@ for (const r of results) {
   console.log(`  ${verdict}  ${r.file.padEnd(20)} ${detail}`)
 }
 const failed = results.filter(r => !r.ok)
-console.log(`\n${results.length} suites, ${total} assertions, ${failed.length} failed`)
+
+// The consumer compatibility check runs HERE rather than only in `npm run
+// test:api`, because the promise is that renaming a name a sibling uses turns
+// `npm test` red. A check that lives in a script somebody has to remember to
+// run is a check that gets skipped, and this one guards 103 names across 28
+// sibling resources -- the largest single compatibility surface in the project.
+const consumers = spawnSync(
+  process.execPath,
+  [path.join(__dirname, '..', 'tools', 'check-consumers.js')],
+  { encoding: 'utf8' },
+)
+process.stdout.write(consumers.stdout || '')
+if (consumers.stderr) process.stderr.write(consumers.stderr)
+const consumersOk = consumers.status === 0
+if (consumersOk) total += 1
+
+console.log(`\n${results.length} suites, ${total} assertions, ${failed.length + (consumersOk ? 0 : 1)} failed`)
 if (failed.length) {
   for (const r of failed) console.log(`  ${r.file}: ${r.crashed ? `crashed (exit ${r.status})` : r.fails + ' failing assertions'}`)
+}
+if (!consumersOk) {
+  console.log('  consumers: a name a sibling resource uses no longer exists (see above)')
   process.exit(1)
 }
+if (failed.length) process.exit(1)
