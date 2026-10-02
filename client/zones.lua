@@ -524,3 +524,16 @@ end)
 exports('GetZoneDebug', function()
     return debugStats
 end)
+
+-- A zone that outlives the resource that made it is invisible from the server
+-- and obvious here, so this is grouped by owner for the same reason the server's
+-- sync count is: a total cannot tell "released" from "never registered".
+CisDiagnostics.Register('client', 'zones', function()
+    local out = { total = 0, byOwner = {} }
+    for _, zone in pairs(zones) do
+        local owner = zone.owner or '<none>'
+        out.byOwner[owner] = (out.byOwner[owner] or 0) + 1
+        out.total = out.total + 1
+    end
+    return out
+end)

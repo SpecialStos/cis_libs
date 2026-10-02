@@ -249,3 +249,19 @@ exports('RequestUnlockDoors', function(identifier)
     TriggerServerEvent((Security and Security.EventPrefix or 'cis_libs') .. ':doorlock:requestState',
         identifier, false)
 end)
+
+-- ============================================================ GetDiagnostics
+--
+-- The client half of the same contract. Both realms answer the same shape so
+-- one test can compare before and after on either, and so a snapshot taken on
+-- one realm and the other can be lined up.
+--
+-- The interesting client counts are the ones that must return to baseline when
+-- a consumer stops: zones by owner, spawned sync entities, targets. A zone that
+-- outlives the resource that made it is invisible from the server and obvious
+-- here.
+---
+--- @return table counts and counters, never player data
+exports('GetDiagnostics', function()
+    return CisDiagnostics.Collect('client')
+end)

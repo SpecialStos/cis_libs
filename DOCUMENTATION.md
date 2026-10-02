@@ -448,6 +448,7 @@ real registered surface ever differ.
 | `GetClosestVehicle` | client | `()` | 1.0.0 | no proxy equivalent; a 5 unit forward ray, then a 5 unit radius search |
 | `GetConfigSummary` | server | `()` | 1.0.0 | no proxy equivalent; the non-secret half of the server config |
 | `GetCurrentWeaponData` | client | `(ped)` | 1.0.0 | Cis.player.weapon() |
+| `GetDiagnostics` | both | `()` | 2.2.0 | Counts, never player data: capability slots and owners, sync records by owner, pending callbacks, net handlers, error and warning counters, memory and uptime. The harness takes one before and after every case and compares, which is the only way a cleanup claim can be checked |
 | `GetDiscordConfig` | server | `()` | 2.0.0 | The outbound/webhook configuration SetConfig was handed, for the capability that does the sending. Server realm only -- it holds webhook URLs and is deliberately not on the client payload whitelist |
 | `GetDiscordQueueDepth` | server | `()` | 1.0.0 | no proxy equivalent; queued message count and dropped count |
 | `GetDistanceBetweenCoords` | client | `(x1, y1, z1, x2, y2, z2)` | 1.0.0 | no proxy equivalent |
@@ -461,6 +462,7 @@ real registered surface ever differ.
 | `GetOnlineJobCount` | server | `(jobs)` | 1.0.0 | no proxy equivalent; the callback cis_libs:getOnlineJobCount |
 | `GetPlayerVehicleSeat` | client | `()` | 1.0.0 | Cis.player.vehicle(), second return value |
 | `GetPolyzones` | client | `()` | 1.0.0 | Cis.zones.poly / Cis.zones.remove / Cis.zones.contains **deprecated** unstable |
+| `GetSelfCheck` | server | `()` | 2.2.0 | The boot self-check as data: { ok, problems = { { code, message, fix } } }. Each problem names the change that resolves it |
 | `GetSyncedEntities` | client | `()` | 1.0.0 | no proxy equivalent; the id-to-handle table of everything this client spawned |
 | `GetTableSize` | client | `(t)` | 1.0.0 | no proxy equivalent |
 | `GetVehicleProperties` | client | `(vehicle)` | 1.0.0 | no proxy equivalent; the full property snapshot used by sync |

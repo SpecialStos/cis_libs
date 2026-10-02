@@ -70,6 +70,9 @@ function run(rel) {
 // state; everything else ran after. Preserving that split is the whole reason
 // this list is per-suite rather than "load everything, always".
 const SHARED = [
+  // First, like the manifest: the counters have to exist before the first
+  // thing that counts one.
+  'shared/diagnostics.lua',
   'shared/defaults.lua', 'shared/registry.lua', 'shared/grid.lua',
   'shared/pending.lua', 'shared/owned.lua', 'shared/config.lua',
   'shared/ready.lua', 'shared/histogram.lua', 'shared/detect.lua',

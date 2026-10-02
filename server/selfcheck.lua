@@ -72,6 +72,21 @@ local function line(...)
     print('[cis_libs] ' .. table.concat({ ... }, ' '))
 end
 
+-- Every problem, STRUCTURED, alongside the printed one. The printed block is
+-- what an operator reads; this is what GetSelfCheck hands a harness, and it is
+-- what makes the check assertable instead of merely visible. Each entry carries
+-- the fix in the same words, because a problem an operator cannot act on is a
+-- problem they will ignore.
+local PROBLEMS = {}
+
+-- When the scan last ran, so a cached answer says how old it is. A self-check
+-- from before a restart is describing an install that no longer exists.
+local CHECKED_AT = nil
+
+local function problem(code, message, fix)
+    PROBLEMS[#PROBLEMS + 1] = { code = code, message = message, fix = fix }
+end
+
 -- Forward declarations. An upvalue is resolved LEXICALLY in Lua, so a
 -- `local function` written after its caller makes the CALLER reach for a global
 -- of that name -- nil at runtime, with no syntax error anywhere to warn about
@@ -101,6 +116,9 @@ local function run()
                     for _, slot in ipairs(declaredRequirements(name)) do
                         if not CisRegistry.SLOTS[slot] then
                             problems = problems + 1
+                            problem('unknown_slot',
+                                ('%s requires capability %q, which is not a slot this library knows'):format(name, slot),
+                                ('check the spelling against CisRegistry.SLOTS. Known slots: %s'):format(table.concat(SlotNames(), ', ')))
                             line(('[x] %s requires capability %q, which is not a slot this library knows')
                                 :format(name, slot))
                             line(('    fix: check the spelling against CisRegistry.SLOTS. '
@@ -133,6 +151,9 @@ local function run()
             local missing = CisRegistry.missing(slot)
             if missing and #missing > 0 then
                 problems = problems + 1
+                problem('incomplete_provider',
+                    ('capability %q is registered by %s but is missing: %s'):format(slot, tostring(CisRegistry.owner(slot)), table.concat(missing, ', ')),
+                    'the provider is out of date. Update it, or run the contract test so this fails in CI instead of at boot.')
                 line(('[x] capability %q is registered by %s but is missing: %s')
                     :format(slot, tostring(CisRegistry.owner(slot)), table.concat(missing, ', ')))
                 line(('    fix: the provider is out of date. Update it, or run the '
@@ -145,12 +166,17 @@ local function run()
     for name in pairs(startedBeforeUs) do
         if name ~= GetCurrentResourceName() and declaresDependencyOnUs(name) then
             problems = problems + 1
+            problem('started_before_dependency',
+                ('%s started before cis_libs but declares it as a dependency'):format(name),
+                "add dependency 'cis_libs' to its fxmanifest, so FiveM starts it after. It read every capability as absent.")
             line(('[x] %s started before cis_libs but declares it as a dependency')
                 :format(name))
             line("    fix: add `dependency 'cis_libs'` to its fxmanifest, so FiveM "
                 .. 'starts it after. It read every capability as absent.')
         end
     end
+
+    CHECKED_AT = GetGameTimer()
 
     if problems == 0 then
         line('self-check: no capability problems found.')
@@ -203,3 +229,22 @@ else
     -- indistinguishable from one that found nothing.
     run()
 end
+-- ================================================================ GetSelfCheck
+--
+-- The same findings the boot block prints, as data.
+--
+-- A check that only prints is a check nothing can assert on, and this one has
+-- been dead in more than one way already: it counted problems, it never
+-- returned them, and its dependency check had an inverted condition. Returning
+-- them is what makes the next version of that check testable -- the harness
+-- starts a deliberately broken resource and asserts that THIS answers with the
+-- problem and the fix, rather than a human reading a console and noticing.
+--
+-- The result is CACHED because the answer is a property of the install at the
+-- moment it ran, and a caller polling it must not re-run a scan of every
+-- resource on the server.
+---
+--- @return table { ok = boolean, problems = { { code, message, fix } } }
+exports('GetSelfCheck', function()
+    return { ok = #PROBLEMS == 0, problems = PROBLEMS, checkedAt = CHECKED_AT }
+end)

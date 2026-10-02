@@ -83,6 +83,9 @@ dependencies {
 -- because it captures the exports table and would otherwise be able to run
 -- before the modules it forwards to exist.
 shared_scripts {
+    -- Before everything else: a counter has to exist before the first thing it
+    -- counts, and an error counted late is an error missed.
+    'shared/diagnostics.lua',
     'shared/defaults.lua',
     'shared/registry.lua',
     'shared/grid.lua',

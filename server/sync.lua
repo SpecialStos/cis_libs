@@ -631,3 +631,20 @@ end)
 exports('SyncRemove', function(id)
     return remove(id)
 end)
+-- Registered rather than counted by the diagnostics module, because the records
+-- table is local to this file and the module has no business reaching into it.
+-- Grouped BY OWNER, which is the only shape that can tell the D-03 defect
+-- apart from a clean stop: a resource stopping must take its own records and
+-- leave every other resource's alone, and a total cannot show that.
+CisDiagnostics.Register('server', 'syncRecords', function()
+    local out = { total = 0, byOwner = {}, networked = 0, clientLocal = 0 }
+    for _, record in pairs(records) do
+        local owner = record.owner or '<none>'
+        out.byOwner[owner] = (out.byOwner[owner] or 0) + 1
+        out.total = out.total + 1
+        if record.networked then out.networked = out.networked + 1
+        else out.clientLocal = out.clientLocal + 1 end
+    end
+    out.dynamic = dynamicCount
+    return out
+end)

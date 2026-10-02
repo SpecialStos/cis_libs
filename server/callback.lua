@@ -531,3 +531,10 @@ end)
 exports('CreateSafeCallback', function(name, cb)
     handlers[name] = cb
 end)
+
+-- Pending callbacks are the leak the plan's lifecycle cases exist to catch, and
+-- they leak in one direction more easily than the other: a server-to-client
+-- await whose player leaves has no owner left to expire it.
+CisDiagnostics.Register('server', 'pendingCallbacks', function()
+    return { toClient = CisPending.count(pending), total = CisPending.count(pending) }
+end)

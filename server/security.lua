@@ -363,6 +363,7 @@ local function rateOk(src, name, windowMs, maxHits)
             -- existing bucket, so a client at the cap is throttled exactly as it
             -- would be by maxHits -- which is the point: it is bounded, and
             -- loudly, rather than quietly growing a table.
+            CisDiagnostics.Inc(CisDiagnostics.NAMES.RATE_LIMITED)
             return false
         end
         perSrc[name] = { started = now, hits = 1 }
@@ -370,7 +371,15 @@ local function rateOk(src, name, windowMs, maxHits)
         return true
     end
     bucket.hits = bucket.hits + 1
-    return bucket.hits <= maxHits
+    local allowed = bucket.hits <= maxHits
+    if not allowed then
+        -- Counted HERE, at the single place a request is actually turned away,
+        -- rather than at the net handler: CisRateOk is also an export, so a
+        -- caller probing it directly would otherwise move the number without
+        -- anything having been refused.
+        CisDiagnostics.Inc(CisDiagnostics.NAMES.RATE_LIMITED)
+    end
+    return allowed
 end
 
 function CisRateOk(src, name, windowMs, maxHits)
@@ -735,4 +744,22 @@ AddEventHandler('onResourceStop', function(resource)
             netBindings[name] = nil
         end
     end
+end)
+
+-- Net handlers are registered per resource and released on its stop, so the
+-- count is the direct answer to "did that resource leave anything behind".
+CisDiagnostics.Register('server', 'netHandlers', function()
+    local out, perResource = 0, {}
+    for _, binding in pairs(netBindings) do
+        out = out + 1
+        local owner = binding.owner or '<none>'
+        perResource[owner] = (perResource[owner] or 0) + 1
+    end
+    return { total = out, byOwner = perResource }
+end)
+
+CisDiagnostics.Register('server', 'rateBuckets', function()
+    local total = 0
+    for _ in pairs(rateCounts) do total = total + 1 end
+    return { srcs = total, cap = RATE_BUCKET_CAP }
 end)

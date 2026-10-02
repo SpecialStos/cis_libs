@@ -308,3 +308,7 @@ exports('TriggerLibCallback', function(name, cb, ...)
         end
     end, ...)
 end)
+
+CisDiagnostics.Register('client', 'pendingCallbacks', function()
+    return { toServer = CisPending.count(pending), total = CisPending.count(pending) }
+end)

@@ -438,6 +438,18 @@ return {
             realm = 'server',
             signature = '(slot, timeoutMs)',
         },
+        GetDiagnostics = {
+            since = '2.2.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Counts, never player data: capability slots and owners, sync records by owner, pending callbacks, net handlers, error and warning counters, memory and uptime. The harness takes one before and after every case and compares, which is the only way a cleanup claim can be checked',
+            realm = 'both',
+            signature = '()',
+        },
+        GetSelfCheck = {
+            since = '2.2.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'The boot self-check as data: { ok, problems = { { code, message, fix } } }. Each problem names the change that resolves it',
+            realm = 'server',
+            signature = '()',
+        },
         GetCapabilities = {
             since = '2.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'The one call that answers "which of my four resources is actually running". Returns { [slot] = { owner, resolved } }',

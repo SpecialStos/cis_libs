@@ -907,3 +907,25 @@ exports('PublishInventory', function(src)
     TriggerClientEvent('cis_libs:client:inventory', src, snapshot)
     return true
 end)
+
+-- ============================================================ GetDiagnostics
+--
+-- THE LEAK DETECTOR. Every lifecycle promise this library makes is a promise
+-- that something was cleaned up when its owner stopped, and none of them can be
+-- checked by asserting that nothing threw. They can only be checked by counting
+-- before and after, which means the counts have to exist before there is
+-- anything to run.
+--
+-- COUNTS ONLY. No player names, no identifiers, no coordinates. This table gets
+-- pasted into bug reports and read by whoever is on call, so the grouping keys
+-- are resource and slot names -- both of which are already in the audit log by
+-- design -- and never anything about a person.
+--
+-- The probes are registered by the files that own the state rather than being
+-- listed here, because a count of a table this file cannot see is a count
+-- somebody has to remember to keep in step with the code that changes it.
+---
+--- @return table counts and counters, never player data
+exports('GetDiagnostics', function()
+    return CisDiagnostics.Collect('server')
+end)

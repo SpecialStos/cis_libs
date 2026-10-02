@@ -215,3 +215,19 @@ exports('GetSyncedEntities', function()
     end
     return out
 end)
+
+-- Spawned entities are counted separately from the records that asked for them,
+-- because those come apart in exactly one direction: a record whose model never
+-- loads leaves a record and no entity, and a client that deleted nothing leaves
+-- an entity and no record.
+CisDiagnostics.Register('client', 'syncEntities', function()
+    local out = { entities = 0, records = 0, spawning = 0, recordsByOwner = {} }
+    for _ in pairs(entities) do out.entities = out.entities + 1 end
+    for _, record in pairs(records) do
+        out.records = out.records + 1
+        local owner = record.owner or '<none>'
+        out.recordsByOwner[owner] = (out.recordsByOwner[owner] or 0) + 1
+    end
+    for _ in pairs(spawning) do out.spawning = out.spawning + 1 end
+    return out
+end)

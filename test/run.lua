@@ -60,6 +60,9 @@ if not CIS_SUITE_MODE then
     -- point: a driver that gave every suite everything would be testing a
     -- configuration that never existed.
     local SHARED = {
+        -- First, like the manifest: the counters have to exist before the
+        -- first thing that counts one.
+        'shared/diagnostics.lua',
         'shared/defaults.lua', 'shared/registry.lua', 'shared/grid.lua',
         'shared/pending.lua', 'shared/owned.lua', 'shared/config.lua',
         'shared/ready.lua', 'shared/histogram.lua', 'shared/detect.lua',

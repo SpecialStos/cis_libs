@@ -116,10 +116,14 @@ function Logging.Info(message, discordType)
 end
 
 function Logging.Warn(message, discordType)
+    -- Counted at the ENTRY POINT, not inside Log(), because a caller that raises
+    -- inside Log() would otherwise be an error that nothing counted.
+    CisDiagnostics.Inc(CisDiagnostics.NAMES.WARNINGS)
     Logging.Log(message, Logging.Levels.WARN, discordType)
 end
 
 function Logging.Error(message, discordType, errorInfo)
+    CisDiagnostics.Inc(CisDiagnostics.NAMES.ERRORS)
     Logging.Log(message, Logging.Levels.ERROR, discordType, errorInfo)
 end
 

@@ -227,3 +227,12 @@ exports('RemoveTarget', Target.Remove)
 exports('UpdateTarget', Target.Update)
 exports('TargetExists', Target.Exists)
 exports('TargetAvailable', Target.Available)
+
+-- CisOwned.count answers ONE number across every kind, so a per-owner
+-- breakdown has to come from the ledger itself. The ledger is local to
+-- shared/owned.lua and this file only holds the handle, so the honest shape
+-- here is the total: a target that outlives its owner moves this number and
+-- nothing else.
+CisDiagnostics.Register('client', 'targets', function()
+    return { total = CisOwned.count(owned) }
+end)

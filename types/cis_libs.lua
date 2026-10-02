@@ -184,6 +184,12 @@ function cis_libs.GetClosestVehicle() end
 ---@param ped any
 function cis_libs.GetCurrentWeaponData(ped) end
 
+---@class cis_libs.GetDiagnostics
+---@field use string Counts, never player data: capability slots and owners, sync records by owner, pending callbacks, net handlers, error and warning counters, memory and uptime. The harness takes one before and after every case and compares, which is the only way a cleanup claim can be checked
+---@field since string 2.2.0
+---@field deprecated boolean false
+function cis_libs.GetDiagnostics() end
+
 ---@class cis_libs.GetDistanceBetweenCoords
 ---@field use string no proxy equivalent
 ---@field since string 1.0.0
@@ -713,6 +719,12 @@ function cis_libs.GetCapabilities() end
 ---@field deprecated boolean false
 function cis_libs.GetConfigSummary() end
 
+---@class cis_libs.GetDiagnostics
+---@field use string Counts, never player data: capability slots and owners, sync records by owner, pending callbacks, net handlers, error and warning counters, memory and uptime. The harness takes one before and after every case and compares, which is the only way a cleanup claim can be checked
+---@field since string 2.2.0
+---@field deprecated boolean false
+function cis_libs.GetDiagnostics() end
+
 ---@class cis_libs.GetDiscordConfig
 ---@field use string The outbound/webhook configuration SetConfig was handed, for the capability that does the sending. Server realm only -- it holds webhook URLs and is deliberately not on the client payload whitelist
 ---@field since string 2.0.0
@@ -770,6 +782,12 @@ function cis_libs.GetNormalizedPlayer(src) end
 ---@field deprecated boolean false
 ---@param jobs any
 function cis_libs.GetOnlineJobCount(jobs) end
+
+---@class cis_libs.GetSelfCheck
+---@field use string The boot self-check as data: { ok, problems = { { code, message, fix } } }. Each problem names the change that resolves it
+---@field since string 2.2.0
+---@field deprecated boolean false
+function cis_libs.GetSelfCheck() end
 
 ---@class cis_libs.InventoryAdd
 ---@field use string Cis.inventory.add(src, item, amount, metadata)
@@ -1079,6 +1097,12 @@ function cis_libs.DetectFramework(configured, custom) end
 ---@field deprecated boolean false
 function cis_libs.GetCapabilities() end
 
+---@class cis_libs.GetDiagnostics
+---@field use string Counts, never player data: capability slots and owners, sync records by owner, pending callbacks, net handlers, error and warning counters, memory and uptime. The harness takes one before and after every case and compares, which is the only way a cleanup claim can be checked
+---@field since string 2.2.0
+---@field deprecated boolean false
+function cis_libs.GetDiagnostics() end
+
 ---@class cis_libs.GetDoorState
 ---@field use string Cis.doors.get(id)
 ---@field since string 1.0.0
@@ -1233,6 +1257,7 @@ cis_libs.GetClosestDoor = cis_libs.GetClosestDoor
 cis_libs.GetClosestVehicle = cis_libs.GetClosestVehicle
 cis_libs.GetConfigSummary = cis_libs.GetConfigSummary
 cis_libs.GetCurrentWeaponData = cis_libs.GetCurrentWeaponData
+cis_libs.GetDiagnostics = cis_libs.GetDiagnostics
 cis_libs.GetDiscordConfig = cis_libs.GetDiscordConfig
 cis_libs.GetDiscordQueueDepth = cis_libs.GetDiscordQueueDepth
 cis_libs.GetDistanceBetweenCoords = cis_libs.GetDistanceBetweenCoords
@@ -1246,6 +1271,7 @@ cis_libs.GetNormalizedPlayer = cis_libs.GetNormalizedPlayer
 cis_libs.GetOnlineJobCount = cis_libs.GetOnlineJobCount
 cis_libs.GetPlayerVehicleSeat = cis_libs.GetPlayerVehicleSeat
 cis_libs.GetPolyzones = cis_libs.GetPolyzones
+cis_libs.GetSelfCheck = cis_libs.GetSelfCheck
 cis_libs.GetSyncedEntities = cis_libs.GetSyncedEntities
 cis_libs.GetTableSize = cis_libs.GetTableSize
 cis_libs.GetVehicleProperties = cis_libs.GetVehicleProperties

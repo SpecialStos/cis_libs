@@ -42,10 +42,12 @@ function Logging.Info(message)
 end
 
 function Logging.Warn(message)
+    CisDiagnostics.Inc(CisDiagnostics.NAMES.WARNINGS)
     Logging.Log(message, Logging.Levels.WARN)
 end
 
 function Logging.Error(message)
+    CisDiagnostics.Inc(CisDiagnostics.NAMES.ERRORS)
     Logging.Log(message, Logging.Levels.ERROR)
 end
 
