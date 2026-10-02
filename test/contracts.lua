@@ -1279,7 +1279,7 @@ do
     exports, GetCurrentResourceName, IsDuplicityVersion = savedExports, savedGetResourceName, savedIsDup
 end
 
--- ========================================= 5. this library owns no table
+-- ========================================= 5. the boundary, enforced
 -- THE INVARIANT THE WHOLE PLATFORM IS BUILT ON.
 --
 -- "cis_libs must own zero tables. A server owner deletes libraries when they
@@ -1287,60 +1287,190 @@ end
 -- makes trying CIsoko safe, and safe trial is the single biggest driver of
 -- adoption."
 --
--- A property this load-bearing cannot be left to a review comment. It is
--- asserted here against every Lua file the manifest actually loads, so the
--- first person who adds a CREATE TABLE to a convenience helper breaks the
--- suite rather than the promise.
+-- A property this load-bearing cannot be left to a review comment, and it
+-- cannot be left to a check that cannot fail either.
+--
+-- WHAT WAS WRONG WITH THE VERSION THIS REPLACES. It read:
+--
+--     if body:find('CREATE%s+TABLE', 1, true) == nil ...
+--
+-- The third argument makes string.find a PLAIN search: it looks for those exact
+-- characters. `%s` is not a wildcard in a plain search, it is a percent sign
+-- and an s. So the pattern could never match a CREATE TABLE, the branch was
+-- always "fine", and the assertion below it could not fail. Proven by mutation
+-- at the baseline: injecting `CREATE TABLE cis_x (id int)` into a shipped file
+-- still passed every check. A boundary promise enforced by a check that
+-- accepts the boundary being broken is worse than no check, because it is read
+-- as evidence.
+--
+-- So every rule below is a real pattern against a lowercased, comment-stripped
+-- body, and each one has a killed mutation in test/mutations.json.
 do
-    local manifest = readFile('fxmanifest.lua')
-    local violations = {}
-    for line in manifest:gmatch("'([%w_/%.]+%.lua)'") do
-        local body = readCode(line)
-        -- CREATE TABLE, in any case, in any driver dialect.
-        -- luacheck: ignore 542
-        -- Vacuous until it is rewritten: every find() below passes plain=true,
-        -- so the pattern cannot match real SQL and this branch is always
-        -- "fine". The replacement drops the plain-find flag.
-        if body:find('CREATE%s+TABLE', 1, true) == nil
-            and body:find('create%s+table', 1, true) == nil
-            and body:find('createTable', 1, true) == nil
-        then
-            -- fine
-        else
-            violations[#violations + 1] = line .. ' (CREATE TABLE)'
-        end
-        -- A write to a table, whether or not it is one we own. A library that
-        -- INSERTs somewhere is a library that owns a table, whatever it calls
-        -- the table.
-        if body:find('INSERT%s+INTO', 1, true) then
-            violations[#violations + 1] = line .. ' (INSERT INTO)'
+    -- SHIPPED means every file the manifest LOADS OR LISTS. Not a directory
+    -- walk: a helper in a directory nobody loads is not shipped, and a file the
+    -- manifest names that is not in the tree is a manifest bug rather than a
+    -- silent pass. The manifest's own comments are stripped first, because it
+    -- documents the boundaries in prose and prose that quotes a banned name is
+    -- not a call to it.
+    local manifest = stripComments(readFile('fxmanifest.lua'))
+    local shipped, seen = {}, {}
+    for entry in manifest:gmatch("['\"]([^'\"]+%.lua)['\"]") do
+        if not seen[entry] and CIS_TEST_FILES[entry] then
+            seen[entry] = true
+            shipped[#shipped + 1] = entry
         end
     end
-    check(#violations == 0,
-        'no file in cis_libs creates or writes a table: ' .. table.concat(violations, ', '))
+    check(#shipped > 20,
+        ('the manifest names %d Lua files the harness loaded; the boundary is only as good as this list'):format(#shipped))
 
-    -- And the flip side, which is what actually makes the above hold: the
-    -- library has no driver to write with. A stray `exports.oxmysql:` in a
-    -- helper is the same promise broken by a different route.
-    local thirdParty = {}
-    for _, needle in ipairs({
-        'exports.oxmysql', "exports['oxmysql']", 'exports.mysql', "exports['mysql-async']",
-        'exports.ghmattimysql', 'exports.mongodb',
-        'exports.ox_target', "exports['qb-target']",
-        'exports.ox_inventory', "exports['qb-inventory']", "exports['qs-inventory']",
-        "exports['codem-inventory']",
-        'exports[\'es_extended\']', "exports['qb-core']", 'exports.qbx_core', 'exports.qb_core',
-    }) do
-        for line in manifest:gmatch("'([%w_/%.]+%.lua)'") do
-            if readCode(line):find(needle, 1, true) then
-                thirdParty[#thirdParty + 1] = ('%s -> %s'):format(line, needle)
+    local violations = {}
+    local function fail(file, why)
+        violations[#violations + 1] = file .. ': ' .. why
+    end
+
+    -- Bodies are read once. Comments go (a fix that explains itself is not the
+    -- bug); case goes (SQL is not case-sensitive and nobody remembers to
+    -- shout it).
+    local bodies = {}
+    for _, file in ipairs(shipped) do
+        bodies[file] = readCode(file):lower()
+    end
+
+    -- ---- 1. no SQL that owns a table -------------------------------
+    for _, file in ipairs(shipped) do
+        for _, pat in ipairs({ 'create%s+table', 'alter%s+table', 'insert%s+into', 'drop%s+table' }) do
+            if bodies[file]:find(pat) then
+                fail(file, 'SQL "' .. pat:gsub('%%s+', ' ') .. '"')
             end
         end
     end
-    check(#thirdParty == 0,
-        'no file in cis_libs calls a third-party resource: ' .. table.concat(thirdParty, ', '))
-end
 
+    -- ---- 2. no writes to disk --------------------------------------
+    -- cis_libs writes no files. Every SaveResourceFile in the tree is a
+    -- defect being removed, not a feature: server/proxy.lua rewrites an audit
+    -- log on every event, server/security.lua writes an install marker that a
+    -- folder-replacing update deletes. Tasks 3.8 and 3.9 empty this list, and
+    -- when they do this loop finds nothing and the empty table below is the
+    -- proof.
+    local SAVE_ALLOWED = {
+        ['server/proxy.lua'] = 'the audit log rewrite, removed in 3.9',
+        ['server/security.lua'] = 'the install marker, removed in 3.8',
+    }
+    for _, file in ipairs(shipped) do
+        if bodies[file]:find('%f[%a_]saveResourceFile') and not SAVE_ALLOWED[file] then
+            fail(file, 'SaveResourceFile outside the reviewed allow-list')
+        end
+    end
+
+    -- ---- 3. no filesystem or process access ------------------------
+    -- Found by this check, not by reading: server/selfcheck.lua opens a file
+    -- to read a sibling's fxmanifest.lua and declare whether it names us as a
+    -- dependency. It is listed here rather than quietly allowed because it is
+    -- also dead. The path it builds doubles the resource name --
+    -- ('%s/%s/fxmanifest.lua'):format(GetResourcePath(name), name), and
+    -- GetResourcePath already returns the full path -- so io.open always
+    -- answers nil, declaresDependencyOnUs always returns false, and the check
+    -- that calls it has never once reported anything.
+    --
+    -- Task 3.11 rewrites it against GetNumResourceMetadata / GetResourceMetadata,
+    -- which is the API FiveM actually provides for this and needs no file
+    -- handle. That task empties this list. Same shape as the SaveResourceFile
+    -- allow-list above: a known defect, named, with the task that removes it.
+    local FS_ALLOWED = {
+        ['server/selfcheck.lua'] = 'the dead manifest read, removed in 3.11',
+    }
+    for _, file in ipairs(shipped) do
+        for _, pat in ipairs({ 'io%.open', 'io%.write', 'io%.lines',
+                               'os%.remove', 'os%.rename', 'os%.execute' }) do
+            if bodies[file]:find(pat) and not FS_ALLOWED[file] then
+                fail(file, 'touches the filesystem or the process: ' .. pat)
+            end
+        end
+    end
+
+    -- ---- 4. no third-party host ------------------------------------
+    -- The WORD oxmysql is allowed, and has to be: shared/detect.lua exists to
+    -- recognise the driver and cannot do that without naming it. What is
+    -- banned is CALLING it, in either the LuaMySQL or the oxmysql form.
+    for _, file in ipairs(shipped) do
+        for _, pat in ipairs({ 'exports%.oxmysql', "exports%['oxmysql'%]",
+                               'exports%.mysql', "exports%['mysql%-async'%]",
+                               '%f[%a_]MySQL%.' }) do
+            if bodies[file]:find(pat) then
+                fail(file, 'calls a third-party driver: ' .. pat)
+            end
+        end
+    end
+
+    -- ---- 5. the network seam is one file ---------------------------
+    -- The version check is the only outbound call cis_libs makes, it is opt-in,
+    -- and its endpoint is configuration rather than a constant. Everything else
+    -- reaching the network would be cis_libs phoning home.
+    for _, file in ipairs(shipped) do
+        if bodies[file]:find('performHttpRequest') and file ~= 'server/version.lua' then
+            fail(file, 'PerformHttpRequest outside server/version.lua')
+        end
+    end
+
+    -- ---- 6. no dynamic code loading ---------------------------------
+    -- Empty allow-list on purpose. load() is how remote code would arrive, so
+    -- the only entry that will ever be here is the Cis.require loader, and it
+    -- is added by task 5.1 in the same commit that introduces it.
+    local LOAD_ALLOWED = {}
+    for _, file in ipairs(shipped) do
+        for _, name in ipairs({ 'load', 'loadstring' }) do
+            if bodies[file]:find('%f[%a_]' .. name .. '%s*%(') and not LOAD_ALLOWED[file] then
+                fail(file, name .. '() loads code at runtime')
+            end
+        end
+    end
+
+    -- ---- 7. cis_libs reaches other resources only by name cis_libs --
+    -- The capability registry calls out to providers; a consumer calls in to
+    -- exports. A literal `exports.something_else` is cis_libs reaching past its
+    -- own boundary, which is the thing this library does not do.
+    for _, file in ipairs(shipped) do
+        for name in bodies[file]:gmatch('exports%s*%.%s*([%a_][%w_]*)') do
+            if name ~= 'cis_libs' then
+                fail(file, 'calls exports.' .. name)
+            end
+        end
+        for name in bodies[file]:gmatch("exports%s*%[%s*['\"]([%a_][%w_]*)['\"]") do
+            if name ~= 'cis_libs' then
+                fail(file, "calls exports['" .. name .. "']")
+            end
+        end
+    end
+
+    -- ---- 8. every literal event is one of ours ---------------------
+    -- Events are the other way out. A cis_libs event is namespaced under the
+    -- configured prefix; the two documented seams are the door-state request
+    -- and the chat suggestion, both declared in the plan and both built from
+    -- Security.EventPrefix rather than written as literals.
+    local EVENT_SEAMS = {
+        ['doorlock:requestState'] = 'the door-state request, reached only when no doorsClient provider is registered',
+        ['chat:addSuggestion'] = 'the chat suggestion seam, used only while the chat resource is started',
+    }
+    for _, file in ipairs(shipped) do
+        for name in bodies[file]:gmatch('%f[%a_]trigger%s*%a*%s*event%s*%(%s*[\'"]([%w_:%.%-]+)[\'"]') do
+            if name:sub(1, 8) ~= 'cis_libs' and not EVENT_SEAMS[name] then
+                fail(file, 'fires the foreign event ' .. name)
+            end
+        end
+    end
+
+    check(#violations == 0,
+        'the boundary holds in every shipped file: ' ..
+        (#violations == 0 and 'yes' or table.concat(violations, ' | ')))
+
+    -- The allow-lists are reported rather than hidden, so a reviewer can see
+    -- what is still tolerated without having to read this file. An empty
+    -- SaveResourceFile list is the end state, reached when 3.8 and 3.9 land.
+    local saves = 0
+    for _ in pairs(SAVE_ALLOWED) do saves = saves + 1 end
+    print(('[contract] SaveResourceFile allow-list: %d entr%s; %d shipped files scanned'):format(
+        saves, saves == 1 and 'y' or 'ies', #shipped))
+end
 -- ============================================ 6. the storage probe stays quiet
 -- The legacy-detection probe used to query `cis_doors` unconditionally whenever
 -- the posture was still undecided -- including on every server that HAD an
