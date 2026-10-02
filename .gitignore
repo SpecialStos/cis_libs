@@ -17,6 +17,25 @@ TEST_MATRIX.json
 # in-game NAME of the player who ran the harness. Nothing in the test suite
 reports/
 
+# Upstream native databases, fetched by hand and never committed.
+#
+# natives_gta.json is 2.7 MB and natives_cfx.json is 535 kB of somebody else's
+# release artefact. They are inputs to `npm run gen-natives`, not outputs of it,
+# and FiveM ships a new build regularly enough that committing them would mean a
+# multi-megabyte diff in every review that touched the realm check.
+#
+# What IS committed is tools/natives/natives.json: the 144 natives this library
+# actually calls, each with the realm it is legal in. That is what CI reads, and
+# CI never needs the network.
+#
+# To refresh after a FiveM update:
+#   curl -sL -o tools/natives/natives_gta.json  https://runtime.fivem.net/doc/natives.json
+#   curl -sL -o tools/natives/natives_cfx.json https://runtime.fivem.net/doc/natives_cfx.json
+#   npm run gen-natives
+#   npm run test:all
+tools/natives/natives_gta.json
+tools/natives/natives_cfx.json
+
 # Editor/agent working state, not part of the library.
 .zcode/
 .zcodeignore
