@@ -1297,6 +1297,55 @@ do
     -- the observable: the zone B tried to create was at the origin, A's moved.
     check(exports.ZoneContains('shop', { x = 5.0, y = 0.0, z = 0.0 }) == true,
         'L-C23: and the FIRST zone is still the one registered under that name')
+
+    -- H5 · A RETRY LOOP MUST NOT FLOOD THE CONSOLE.
+    --
+    -- The refusal is correct and the victim's zone is safe either way, but a
+    -- resource that retries in a loop turns a correct refusal into a denial of
+    -- service against the operator's console -- and the log is the thing
+    -- somebody reads when they are already looking for a problem.
+    --
+    -- THE REFUSAL ITSELF IS *NOT* LATCHED, and that is the half that matters: a
+    -- retrying caller must keep being told it was refused, or it will read
+    -- persistence as success and carry on believing it owns the name.
+    local function warningsAbout(needle)
+        local n = 0
+        for _, l in ipairs(env.logged) do
+            if tostring(l[2] or ''):find(needle, 1, true) then
+                n = n + 1
+            end
+        end
+        return n
+    end
+
+    local before = warningsAbout('already registered by')
+    for _ = 1, 50 do
+        exports.CreateZone('box', 'shop',
+            { x = 0.0, y = 0.0, z = 0.0 }, { x = 20.0, y = 20.0, z = 20.0 }, {})
+    end
+    local after = warningsAbout('already registered by')
+    check(after - before <= 1,
+        ('H5: fifty retries produce at most ONE warning (got %d)')
+            :format(after - before))
+
+    -- ...and the refusal is still returned EVERY time, not just the first.
+    local stillRefused = true
+    for _ = 1, 10 do
+        local again = exports.CreateZone('box', 'shop',
+            { x = 0.0, y = 0.0, z = 0.0 }, { x = 20.0, y = 20.0, z = 20.0 }, {})
+        if again ~= false then stillRefused = false end
+    end
+    check(stillRefused == true,
+        'H5: but every retry is STILL refused -- a latched return would let the '
+            .. 'retrying resource believe it owns the name')
+
+    -- A different collision pair is a different problem and is still reported.
+    env.invoking = 'res_c'
+    exports.CreateZone('box', 'shop',
+        { x = 0.0, y = 0.0, z = 0.0 }, { x = 20.0, y = 20.0, z = 20.0 }, {})
+    check(warningsAbout('already registered by') > after,
+        'H5: and a DIFFERENT requester colliding with the same name is reported once')
+
     check(exports.RemoveZone('shop') == true, 'L-C23: remove() works on the surviving zone')
     env.reset()
 end

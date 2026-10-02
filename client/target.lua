@@ -24,6 +24,8 @@
 
 local Target = {}
 local CreatedZones = {}
+-- Which name-collisions have already been logged. See the refusal in create().
+local collisionWarned = {}
 local warnedMissing = false
 -- L-C7: who asked for which target, so a consumer's stop removes its own zones
 -- through the provider instead of leaving them in the world. See shared/owned.lua.
@@ -122,6 +124,17 @@ Target.Create = function(zoneType, name, coords, size, options)
     -- interact with.
     local holder = CreatedZones[name] and CreatedZones[name].owner
     if holder and holder ~= owner then
+        -- Warn once per (name, holder, requester). H5, and the same reasoning as
+        -- zones: a retry loop must not be able to flood the operator's console,
+        -- but the REFUSAL is still returned on every call so a retrying caller
+        -- never mistakes persistence for success.
+        local key = table.concat({ name, tostring(holder), tostring(owner) }, '\29')
+        if not collisionWarned[key] then
+            collisionWarned[key] = true
+            CisLog('warn', ('target %q is already registered by %s; %s was refused. '
+                .. 'Further refusals for this name will not be logged again.')
+                :format(name, tostring(holder), tostring(owner)))
+        end
         return false, ('target %q is already registered by %s; pick a different name')
             :format(name, tostring(holder))
     end

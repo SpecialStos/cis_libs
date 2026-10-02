@@ -25,6 +25,60 @@ local function timeoutMs()
     return (Config and Config.CallbackTimeout) or 10000
 end
 
+-- How much of a client's payload is worth walking before it is refused.
+--
+-- A handler is a function somebody wrote expecting a couple of arguments. A
+-- callback argument that is a thousand-wide table is not a payload, it is a
+-- denial of service that happens to arrive in a shape the rate limiter cannot
+-- see. These are deliberately generous: the point is to catch the absurd, not
+-- to enforce a contract on ordinary callers.
+local MAX_CALLBACK_ARGS = 32
+local MAX_TABLE_KEYS = 256
+local MAX_NESTING = 8
+
+-- Walks a packed argument list ONCE, bounded on every axis, so the guard cannot
+-- itself become the thing that hangs.
+--
+-- The budget is counted across the whole payload rather than per argument, so
+-- "thirty small arguments each holding a hundred keys" is refused too -- a limit
+-- that could be spent in slices is not a limit.
+local function withinLimits(value, budget, depth)
+    if type(value) ~= 'table' then
+        return true
+    end
+    if depth > MAX_NESTING then
+        return false
+    end
+    local seen = 0
+    for _, v in pairs(value) do
+        seen = seen + 1
+        if seen > MAX_TABLE_KEYS then
+            return false
+        end
+        budget.n = budget.n + 1
+        if budget.n > MAX_TABLE_KEYS then
+            return false
+        end
+        if not withinLimits(v, budget, depth + 1) then
+            return false
+        end
+    end
+    return true
+end
+
+local function payloadWithinLimits(packed, maxArgs)
+    if packed.n > maxArgs then
+        return false
+    end
+    local budget = { n = 0 }
+    for i = 1, packed.n do
+        if not withinLimits(packed[i], budget, 1) then
+            return false
+        end
+    end
+    return true
+end
+
 -- Measured: a function RETURNED from an export arrives as a callable reference
 -- table carrying __cfx_functionReference, not as a bare function. A
 -- type() == 'function' check therefore rejects a handler that works, so both
@@ -189,6 +243,31 @@ RegisterNetEvent('cis_libs:cb', function(name, key, ...)
         return
     end
     local args = table.pack(...)
+    -- THE PAYLOAD IS ALREADY DESERIALIZED BY THE TIME THIS RUNS, and no native
+    -- can make that otherwise.
+    --
+    -- The obvious tool is `GetEventData`, and it cannot do this job. It is
+    -- `BOOL GET_EVENT_DATA(int group, int index, int* data, int size)` -- it
+    -- reads the RAGE script event queue (`SCRIPT_EVENT_QUEUE_AI` /
+    -- `_NETWORK`, the game's internal scripted-event system), it is client-only
+    -- with no server apiset, it takes the buffer size as an INPUT rather than
+    -- reporting one, and it returns success rather than a size. It has nothing to
+    -- do with the Lua net-event path and no way to report a payload length.
+    --
+    -- So this is a REJECT-AFTER-DESERIALIZE guard, and the honest description of
+    -- what it buys is: it stops a client from spending the server's CPU in a
+    -- handler, not from spending its memory in the deserializer. Both matter,
+    -- and only the second one is outside Lua's reach -- FiveM's own limits are
+    -- the defence there.
+    --
+    -- What is left to check is depth and breadth, which are what a hostile
+    -- payload actually abuses: a deeply nested table and a very wide one are
+    -- cheap to send and expensive to walk. Measured by walking the pack ONCE,
+    -- bounded, so the guard itself cannot become the denial of service.
+    if not payloadWithinLimits(args, MAX_CALLBACK_ARGS) then
+        TriggerClientEvent('cis_libs:cb:res', src, key, false, 'too large')
+        return
+    end
     local ok, results = invoke(name, src, table.unpack(args, 1, args.n))
     if not ok then
         Logging.AutoLogError(results, name)

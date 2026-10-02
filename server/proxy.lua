@@ -31,6 +31,101 @@
 
 local warned = {}
 
+-- Notification bounds, stated once so the numbers are findable from the export
+-- and not scattered through it. A notification is a courtesy, not a channel, so
+-- both limits are generous: they exist to stop a runaway loop, not to ration.
+local MAX_NOTIFY_LENGTH = 512
+local NOTIFY_MAX_PER_SECOND = 10
+
+-- A2 · THE AUDIT LINE.
+--
+-- Three events change who is trusted with what, and all three were visible only
+-- as a console line: a capability registering or being released, and the
+-- configuration being replaced. A console line is a SNAPSHOT. The question an
+-- operator actually asks is "when did this change and WHO changed it", and a
+-- snapshot cannot answer it -- by the time anybody thinks to ask, the line has
+-- scrolled away.
+--
+-- Written to a file, one line per event, ALWAYS -- including refusals, which is
+-- the half that matters. A capability that was REFUSED is precisely the thing
+-- somebody will want to find later.
+--
+-- Best-effort by design. `SaveResourceFile` can fail (read-only data directory,
+-- permissions), and an audit trail that takes the library down when it cannot be
+-- written is worse than no audit trail: it would turn a disk problem into an
+-- outage. So a failure says so ONCE and then goes quiet.
+--
+-- DECLARED HERE, ABOVE SetConfig, because Lua binds an upvalue where the
+-- enclosing function is DEFINED: a `local audit` further down this file is nil
+-- while SetConfig is compiled, and the call raises on the first config rather
+-- than at load -- the worst possible time to discover it.
+local auditFailures = 0
+local auditText = ''
+
+local function audit(event, detail)
+    if auditFailures > 0 then
+        return
+    end
+    auditText = auditText .. ('%s cis_libs %s %s\n'):format(
+        os.date('%Y-%m-%dT%H:%M:%S'), event, detail or '')
+    -- WHOLE-FILE REWRITE, every time. There is no append mode here, and that is
+    -- worth stating rather than discovering: `SaveResourceFile`'s fourth argument
+    -- is the INDENT, not a flag -- passing `-1` means "no indent" and overwrites.
+    -- An audit log written that way keeps exactly one line, which is the one
+    -- thing an audit log must never do.
+    --
+    -- Accumulating in memory and rewriting the lot is the cheap way to get real
+    -- append semantics: the volume is a handful of lines per boot, so the write
+    -- cost is irrelevant next to the correctness of the record. Bounded by the
+    -- number of capability changes, which is small and human-scale.
+    local okWrite = pcall(function()
+        SaveResourceFile(GetCurrentResourceName(), 'audit.log', auditText, -1)
+    end)
+    if not okWrite then
+        auditFailures = 1
+        Logging.Warn('cis_libs: cannot write the audit log; capability changes will '
+            .. 'be reported to the console only')
+    end
+end
+
+-- A1 · THE CONTRACT VERSION THIS LIBRARY IMPLEMENTS, and the reader for the
+-- version a product claims.
+--
+-- api.lua states `contract = { major = 1, minor = 0 }` while the product version
+-- is 2.1.0, and those are DIFFERENT numbers answering different questions: the
+-- contract is the compatibility promise between cis_libs and the products that
+-- register capabilities, the product version is the library's own release. A
+-- provider is refused on a MAJOR contract mismatch, because that is the one
+-- that means "the shapes no longer mean the same thing".
+--
+-- Read from the CALLER's fxmanifest, which is the only place a product can
+-- declare it. `GetResourceMetadata(resource, 'field', 0)` is the standard way to
+-- read a custom manifest field in FiveM.
+local CONTRACT_MAJOR = 1
+
+local function readContractVersion()
+    local resource = GetInvokingResource()
+    if not resource or not GetResourceMetadata then
+        return nil
+    end
+    local ok, declared = pcall(function()
+        return GetResourceMetadata(resource, 'cis_libs_contract', 0)
+    end)
+    if not ok or type(declared) ~= 'string' then
+        return nil
+    end
+    return tonumber(declared:match('^(%d+)'))
+end
+
+local function sortedSlotNames()
+    local names = {}
+    for slot in pairs(CisRegistry.SLOTS) do
+        names[#names + 1] = slot
+    end
+    table.sort(names)
+    return names
+end
+
 -- One line per missing capability, then silence. A per-call warning on a hot
 -- path is a denial-of-service against the operator's console, and a server that
 -- has run for a year should not be able to drown its own log.
@@ -194,6 +289,11 @@ exports('SetConfig', function(config, security, discord)
             CisConfigUtil.clientPayload(Config, Security))
     end
     Logging.Info(('cis_libs: configuration supplied by %s'):format(tostring(Config.__owner)))
+    -- A2 · Recorded, because this is the most consequential event the library
+    -- has: the configuration IS the security policy. "Why did the allow-list
+    -- change" has to be answerable after the fact, not only by whoever happens
+    -- to still have the console scrollback.
+    audit('config-supplied', ('owner=%s'):format(tostring(Config.__owner)))
     return true
 end)
 
@@ -238,12 +338,46 @@ end)
 --- empty, which is the failure mode this signature exists to make impossible
 --- to hit by accident.
 exports('RegisterCapability', function(slot, provider)
+    -- A1 · THE CONTRACT VERSION IS CHECKED BEFORE ANYTHING ELSE HAPPENS.
+    --
+    -- A product declares `cis_libs_contract '2.1'` in its fxmanifest. A MAJOR
+    -- mismatch is refused: the contract is the promise that a slot's method
+    -- names and argument shapes mean the same thing on both sides, and a 3.x
+    -- product registering into a 2.x cis_libs is exactly the case where they do
+    -- not. Registering anyway produces a call that returns the wrong value for
+    -- the right reason -- the hardest kind of bug to diagnose and the easiest to
+    -- prevent.
+    --
+    -- MINOR mismatches are allowed, deliberately: a 2.1 product works against
+    -- 2.0 and the other way round, because a minor bump only ADDS.
+    --
+    -- A product that declares nothing is allowed too. cis_libs cannot check a
+    -- version that was never claimed, and refusing unknown would mean refusing
+    -- every third-party resource that wants to fill a slot.
+    local declared = readContractVersion()
+    if declared and declared ~= CONTRACT_MAJOR then
+        local reason = ('%s declares cis_libs_contract %s but this cis_libs is %s.x; '
+            .. 'update %s to match, or install a cis_libs that does')
+            :format(tostring(GetInvokingResource()), tostring(declared),
+                tostring(CONTRACT_MAJOR), tostring(GetInvokingResource()))
+        Logging.Warn(('cis_libs: capability %q refused: %s'):format(tostring(slot), reason))
+        audit('capability-refused', ('slot=%s caller=%s reason=contract-mismatch')
+            :format(tostring(slot), tostring(GetInvokingResource())))
+        return false, reason
+    end
+
     local ok, reason = CisRegistry.register(slot, provider)
     if not ok then
         Logging.Warn(('cis_libs: capability %q refused: %s'):format(tostring(slot), tostring(reason)))
+        audit('capability-refused', ('slot=%s caller=%s provider=%s reason=%s')
+            :format(tostring(slot), tostring(GetInvokingResource()), tostring(provider),
+                tostring(reason)))
         return false, reason
     end
-    Logging.Info(('cis_libs: capability %q <- %s'):format(tostring(slot), tostring(CisRegistry.owner(slot))))
+    local owner = CisRegistry.owner(slot)
+    Logging.Info(('cis_libs: capability %q <- %s'):format(tostring(slot), tostring(owner)))
+    audit('capability-registered', ('slot=%s owner=%s provider=%s')
+        :format(tostring(slot), tostring(owner), tostring(provider)))
     return true
 end)
 
@@ -252,10 +386,49 @@ end)
 --- blank a capability another product is still serving.
 exports('UnregisterCapability', function(slot)
     local resource = GetInvokingResource()
+    local previous = CisRegistry.owner(slot)
     if not CisRegistry.unregister(slot, resource) then
+        audit('capability-release-refused', ('slot=%s caller=%s holder=%s')
+            :format(tostring(slot), tostring(resource), tostring(previous)))
         return false
     end
+    audit('capability-released', ('slot=%s owner=%s'):format(tostring(slot), tostring(previous)))
     return true
+end)
+
+--- A4 · REVOKE A CAPABILITY WITHOUT A RESTART.
+---
+--- The only way to recover from a resource that took a slot it should not have
+--- was to restart cis_libs, which blanks every slot and therefore every
+--- capability until each product re-registers. On a live server that is every
+--- product at once, for as long as it takes them to come back.
+---
+--- DELIBERATELY A CONSOLE COMMAND AND NOT AN EXPORT. An export would put the
+--- power to strip a capability in the hands of any resource on the server, which
+--- is the exact authority S1 spent this batch removing. A console command runs
+--- with no invoking resource, so there is no caller to authorise -- which is
+--- exactly why it is safe here and would not be as an export.
+RegisterCommand('cis_force_unregister', function(_, args)
+    -- FiveM passes (source, args, argString): `args` is a TABLE of the words
+    -- after the command name. Reading it as a table rather than as varargs is
+    -- the signature that actually exists, and guessing wrong here is a syntax
+    -- error in the middle of a file that has nothing to do with commands.
+    local slot = args and args[1]
+    if type(slot) ~= 'string' or not CisRegistry.SLOTS[slot] then
+        print(('usage: cis_force_unregister <slot>. known slots: %s')
+            :format(table.concat(sortedSlotNames(), ', ')))
+        return
+    end
+    local previous = CisRegistry.owner(slot)
+    -- No owner check, deliberately: this is the override, and that is the whole
+    -- reason it exists.
+    if not CisRegistry.unregister(slot) then
+        print(('cis_libs: %q is not registered, so there is nothing to revoke'):format(slot))
+        return
+    end
+    print(('cis_libs: revoked %q (was held by %s); the provider may register it again.')
+        :format(slot, tostring(previous)))
+    audit('capability-force-released', ('slot=%s owner=%s'):format(slot, tostring(previous)))
 end)
 
 --- What is registered, what is not, and who owns what. This is the answer to
@@ -619,9 +792,28 @@ end)
 --  break it.
 -- ===========================================================================
 
+-- THE THREE PUBLISHERS ARE NOT ALL THE SAME KIND OF CALL, and gating them as if
+-- they were would break the platform to fix a nuisance.
+--
+-- Two of them MUTATE STATE somebody else owns -- a client's inventory snapshot,
+-- and the server-wide job histogram -- so they sit on the same allow-list that
+-- already gates doors and sync records. A resource that can push a fake
+-- inventory to a client can make a product's UI lie to a player, and one that
+-- can write the histogram can make `GetOnlineJobCount` report a server that does
+-- not exist.
+--
+-- `NotifyClient` is NOT gated. It shows one player one string; there is no state
+-- to corrupt, and the resources that legitimately send notifications are
+-- numerous and mostly third-party. Gating it would break them to stop a resource
+-- from being annoying, which is a trade this library should not make. It is
+-- validated and rate-limited instead.
+
 exports('PublishJobUpdate', function(job, src)
     if type(job) ~= 'table' then
         return false, 'job must be a table'
+    end
+    if not CisInvokingAllowed() then
+        return false, 'not on Security.AuthorizedResources'
     end
     -- The job histogram is a cis_libs feature and stays one: it is a pure
     -- in-memory structure, it owns no table, and `GetOnlineJobCount` is
@@ -679,6 +871,22 @@ exports('NotifyClient', function(src, message, kind)
     if type(src) ~= 'number' or src <= 0 then
         return false
     end
+    -- LENGTH-CAPPED. The message crosses the wire as text and is rendered on a
+    -- screen the server does not own, so an unbounded string is a resource
+    -- spending other people's bandwidth to say nothing. Truncated rather than
+    -- refused: a long notification is a mistake rather than an attack, and
+    -- refusing it outright would break the caller without saying what was wrong.
+    if type(message) == 'string' and #message > MAX_NOTIFY_LENGTH then
+        message = message:sub(1, MAX_NOTIFY_LENGTH)
+    end
+    -- RATE-LIMITED PER (src, caller). Unbounded, this is a resource that can
+    -- spend a server's event budget on one player at will. Keyed by caller as
+    -- well as target so one noisy resource cannot exhaust the budget that
+    -- another resource's legitimate notifications to the same player share.
+    local caller = GetInvokingResource() or 'cis_libs'
+    if not CisRateOk(src, 'notify:' .. tostring(caller), 1000, NOTIFY_MAX_PER_SECOND) then
+        return false, 'notification rate limit'
+    end
     TriggerClientEvent('cis_libs:client:showNotification', src, message, kind)
     return true
 end)
@@ -686,6 +894,11 @@ end)
 exports('PublishInventory', function(src)
     if type(src) ~= 'number' or src <= 0 then
         return false
+    end
+    -- On the allow-list, because this writes state a CLIENT acts on. See the
+    -- note above the publishers: a fake snapshot makes a product's UI lie.
+    if not CisInvokingAllowed() then
+        return false, 'not on Security.AuthorizedResources'
     end
     local ok, snapshot = CisRegistry.call('inventory', 'snapshot', src)
     if not ok then

@@ -6,6 +6,11 @@
 
 local zones = {}
 local grid = CisGrid.new()
+
+-- Which name-collisions have already been logged. See the refusal in
+-- `register`; the latch is per (name, holder, requester) so a genuine second
+-- collision between two different pairs is still reported.
+local collisionWarned = {}
 local inside = {}
 -- L-C7: who asked for which zone. ox_lib does not need this because it runs in
 -- the consumer's own VM; this library does not, so a zone outlives the resource
@@ -177,6 +182,25 @@ function CisZonesCreate(kind, name, a, b, options)
     local zoneOwner = GetInvokingResource() or 'cis_libs'
     local holder = zones[name] and zones[name].owner
     if holder and holder ~= zoneOwner then
+        -- WARN ONCE PER (name, holder, requester) -- H5.
+        --
+        -- The refusal is correct and the victim's zone is safe either way, but a
+        -- resource that retries in a loop turns a correct refusal into a denial
+        -- of service against the operator's console -- and the log is the thing
+        -- somebody reads when they are already looking for a problem.
+        --
+        -- THE REFUSAL IS STILL RETURNED EVERY TIME. Only the logging is latched:
+        -- a caller that loops is told on every single call that it was refused,
+        -- it just stops producing scrollback for the operator. A latched RETURN
+        -- would be the opposite mistake -- the retrying resource would see a
+        -- success and carry on believing it owns the name.
+        local key = table.concat({ name, tostring(holder), zoneOwner }, '\29')
+        if not collisionWarned[key] then
+            collisionWarned[key] = true
+            CisLog('warn', ('zone %q is already registered by %s; %s was refused. '
+                .. 'Further refusals for this name will not be logged again.')
+                :format(name, tostring(holder), zoneOwner))
+        end
         return false, ('zone %q is already registered by %s; pick a different name')
             :format(name, tostring(holder))
     end

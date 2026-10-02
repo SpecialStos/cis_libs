@@ -1760,6 +1760,106 @@ do
     env.reset()
 end
 
+-- ================= 15. an oversized callback payload is refused (H4)
+--
+-- `GetEventData` cannot do this job, and the reason is worth pinning because it
+-- is the obvious thing to reach for: it reads the RAGE SCRIPT event queue
+-- (`SCRIPT_EVENT_QUEUE_AI` / `_NETWORK` -- the game's internal scripted-event
+-- system), it is client-only with no server apiset, it takes the buffer size as
+-- an INPUT rather than reporting one, and it returns success rather than a size.
+-- It has nothing to do with the Lua net-event path and cannot report a payload
+-- length at all.
+--
+-- So the payload is ALREADY DESERIALIZED by the time any Lua runs, and what is
+-- left to check is breadth and depth -- which is what a hostile payload
+-- actually abuses. A very wide table is cheap to send and expensive to walk, and
+-- the rate limiter counts EVENTS rather than keys, so it cannot see it.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+    loadModule('server/callback.lua')
+
+    local reached = 0
+    env.EXPORTS.RegisterCallback('measure', function()
+        reached = reached + 1
+        return 'ok'
+    end)
+
+    -- The LAST reply, found by SEARCHING rather than by assuming the reply is
+    -- the most recent event: a handler that logs puts a different event after
+    -- its own reply, and a helper reading `env.sent[#env.sent]` then reports the
+    -- log line, so every assertion about the reply fails for a reason that has
+    -- nothing to do with the code under test.
+    local function lastReply()
+        for i = #env.sent, 1, -1 do
+            if env.sent[i].name == 'cis_libs:cb:res' then
+                return env.sent[i]
+            end
+        end
+        return nil
+    end
+
+    -- Ordinary traffic is unaffected. A guard that complains about normal
+    -- payloads is worse than none.
+    reached = 0
+    env.emit('cis_libs:cb', 1, 'measure', 1, { a = 1, b = 2, c = 3 }, 'x', 7)
+    check(reached == 1, 'H4: an ordinary payload still reaches the handler')
+    check(lastReply() and lastReply().args[2] == true,
+        ('H4: and is answered (got %s)')
+            :format(tostring(lastReply() and lastReply().args[2])))
+
+    -- WIDE. 400 keys in one table: cheap to send, and not cheap to walk.
+    reached = 0
+    local wide = {}
+    for i = 1, 400 do wide[i] = i end
+    env.emit('cis_libs:cb', 1, 'measure', 2, wide)
+    check(reached == 0,
+        ('H4: a 400-key table is refused BEFORE the handler runs (reached %d)'):format(reached))
+    check(lastReply() and lastReply().args[2] == false,
+        'H4: and the client is told the request was refused')
+    check(lastReply() and tostring(lastReply().args[3]):find('too large', 1, true) ~= nil,
+        ('H4: with a reason it can act on (got %s)')
+            :format(tostring(lastReply() and lastReply().args[3])))
+
+    -- DEEP. Nesting is the other axis, and depth is what a recursive consumer
+    -- handler would fall over on.
+    reached = 0
+    local deep = { leaf = true }
+    for _ = 1, 40 do deep = { nested = deep } end
+    env.emit('cis_libs:cb', 1, 'measure', 3, deep)
+    check(reached == 0, 'H4: a deeply nested table is refused too')
+
+    -- The budget is SHARED across the payload, not per argument -- or "nine
+    -- arguments each holding a hundred keys" walks straight past a per-argument
+    -- limit, which is the same payload split up.
+    reached = 0
+    local chunk = {}
+    for i = 1, 30 do chunk[i] = i end
+    env.emit('cis_libs:cb', 1, 'measure', 4, chunk, chunk, chunk, chunk, chunk,
+        chunk, chunk, chunk, chunk, chunk)
+    check(reached == 0,
+        'H4: the key budget is shared across the whole payload, not per argument')
+
+    -- Too many arguments at all.
+    reached = 0
+    env.emit('cis_libs:cb', 1, 'measure', 5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+        11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
+        28, 29, 30, 31, 32, 33, 34, 35, 36)
+    check(reached == 0, 'H4: and so is an absurd argument count')
+
+    -- A refused payload must still ANSWER the caller. `CisPending.take` happens
+    -- before this check, so the key is already consumed -- a caller left
+    -- unanswered here would wait out its full timeout for a request that was
+    -- refused a millisecond after it was sent.
+    check(lastReply() and lastReply().args[2] == false,
+        'H4: the refused caller is ANSWERED, so it cannot wait out its timeout')
+
+    env.reset()
+end
+
 -- ==================================================================== report
 for i = 1, #failures do
     io.stderr:write('FAIL(server): ' .. failures[i] .. '\n')

@@ -44,6 +44,32 @@ end
 
 -- Registered from both realms, so a resource that speaks to cis_libs never has
 -- to know which side it is on.
+--
+-- NOT ALLOW-LIST GATED HERE, AND THAT IS A DECISION, NOT AN OMISSION (A3).
+--
+-- The server half refuses a capability from a resource that is not on
+-- `Security.AuthorizedResources`. This half has no equivalent gate, and it is
+-- worth being precise about why, because the asymmetry reads like a bug.
+--
+-- THE SERVER'S ALLOW-LIST IS NOT SENT TO CLIENTS, on purpose.
+-- `CisConfigUtil.clientPayload` ships the event prefix and nothing else from
+-- Security -- explicitly "not the allow-list, not the kick handler". Sending it
+-- would hand every connected client the complete list of resources this server
+-- trusts, which is an inventory of the install for anything that wants one.
+--
+-- AND A CLIENT-SIDE GATE WOULD NOT BUY ANYTHING AGAINST THE THREAT ANYWAY. The
+-- threat is a cheat executor, which runs inside the client and can already call
+-- `TriggerClientEvent` with any payload this library sends, and draw whatever
+-- it likes over the top. Refusing one export to code that can skip the library
+-- entirely is a lock on a door that is not there. The server half's gate is
+-- different in kind: there the allow-list is checked before a value reaches the
+-- server, which is a boundary the client genuinely cannot cross.
+--
+-- WHAT IS ACTUALLY PROTECTED HERE IS FIRST-COMES. Two resources registering the
+-- same client slot is the realistic failure -- a bridge that registers twice on
+-- a partial restart, or two products both believing they own the inventory --
+-- and `CisRegistry.register` refuses the second and names the holder. That is
+-- the same guard the server half relies on for the non-adversarial case.
 exports('RegisterCapability', function(slot, provider)
     local ok, reason = CisRegistry.register(slot, provider)
     if not ok then

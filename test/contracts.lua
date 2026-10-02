@@ -157,6 +157,7 @@ local function newEnv(opts)
     for _, name in ipairs({
         'Config', 'Security', 'Logging', 'CisLog', 'DiscordQueue', 'DiscordConfig',
         'CisInvokingAllowed', 'CisRateOk', 'CisNetOn', 'CisSecurityReport',
+        'CisRememberJob',
         'Database', 'exports', 'print',
         'CreateThread', 'Wait', 'GetGameTimer', 'GetResourceState',
         'GetCurrentResourceName', 'GetInvokingResource', 'GetPlayerName',
@@ -231,7 +232,14 @@ local function newEnv(opts)
     function DropPlayer() end
     function AddEventHandler() end
     function RegisterNetEvent() end
-    function RegisterCommand() end
+    -- RECORDED, not discarded. A console command is a capability of its own --
+    -- `cis_force_unregister` can strip one without a restart -- so a test that
+    -- cannot see it cannot assert it exists, cannot invoke it, and would pass
+    -- happily if it were deleted.
+    env.commands = {}
+    function RegisterCommand(name, fn)
+        env.commands[name] = fn
+    end
     function GetResourceMetadata(_, field) return field == 'version' and '1.0.0' or '' end
     function PerformHttpRequest(url, cb)
         env.http[#env.http + 1] = url
@@ -240,7 +248,18 @@ local function newEnv(opts)
         end
     end
     function LoadResourceFile(_, path) return env.marker end
+    -- `SaveResourceFile(resource, file, data, index)`. NOTE THE SHAPE, because it
+    -- is a trap: `index` is the INDENT, not an append flag. Passing -1 means
+    -- "no indent" and OVERWRITES. There is no append mode at all -- the caller
+    -- reads the file, adds to it, and writes the lot.
+    --
+    -- That is exactly how the audit log is implemented, and getting it wrong
+    -- produces a file holding a single line, which is the one thing an audit log
+    -- must never be. So the stub records every write with its path, and the
+    -- audit assertions read the LAST body -- which is the whole file.
+    env.writes = {}
     function SaveResourceFile(_, path, body)
+        env.writes[#env.writes + 1] = { path = path, body = body }
         env.marker = body
         return true
     end
@@ -310,6 +329,13 @@ local function newEnv(opts)
     }
     function CisLog(level, message)
         env.print('CisLog[%s] %s', tostring(level), tostring(message))
+    end
+    -- The job histogram feeder. server/proxy.lua's PublishJobUpdate calls it,
+    -- and H3 asserts what that export is allowed to do -- so a test asserting
+    -- the policy needs the effect to land somewhere observable.
+    function CisRememberJob(src, job)
+        env.remembered = env.remembered or {}
+        env.remembered[#env.remembered + 1] = { src = src, job = job }
     end
     return env
 end
@@ -1720,6 +1746,256 @@ do
     exports, GetCurrentResourceName, IsDuplicityVersion = saved.exports,
         saved.GetCurrentResourceName, saved.IsDuplicityVersion
     _G.Cis = saved.Cis
+end
+
+-- ===================== 15. the operators' view: audit, revoke, contract (A1-A5)
+--
+-- Four things an operator needs and none of which existed: a record of who
+-- changed what, a way to take a capability back without a restart, a refusal
+-- for a product built against a different contract, and proof that the
+-- capability-changed event never crosses to clients.
+do
+    -- The audit file as it stands on disk. Every write replaces the file, so the
+    -- LAST body IS the whole trail -- which is what makes "it remembers the
+    -- earlier event" a real assertion rather than a formatting question.
+    local function auditText(env)
+        local latest = nil
+        for _, e in ipairs(env.writes or {}) do
+            if e.path == 'audit.log' then
+                latest = e.body
+            end
+        end
+        return latest or ''
+    end
+
+    local function bootAudit(invoking, contract)
+        local env = newEnv({ invoking = invoking })
+        clearRegistry()
+        Config = CisDefaults.config()
+        Security = CisDefaults.security()
+        env.contract = contract
+        -- Overrides the default stub, which answers 'version' and '' for
+        -- everything else. A product declares its contract in its fxmanifest,
+        -- which is exactly where FiveM reads a custom field from.
+        function GetResourceMetadata(resource, field)
+            if field == 'cis_libs_contract' then
+                return env.contract or ''
+            end
+            return field == 'version' and '1.0.0' or ''
+        end
+        loadModule('server/security.lua')
+        loadModule('server/proxy.lua')
+        return env
+    end
+
+    -- ---------------------------------------------------------------- A2
+    -- A console line is a snapshot. "When did the allow-list change and who
+    -- changed it" is the question, and a snapshot cannot answer it once the
+    -- line has scrolled away.
+    local env = bootAudit('cis_core')
+    env.EXPORTS.SetConfig(nil, { AuthorizedResources = { 'cis_core' } })
+    env.EXPORTS.RegisterCapability('discord', 'cis_bridge:Webhooks')
+
+    local log1 = auditText(env)
+    check(log1:find('config-supplied', 1, true) ~= nil,
+        'A2: supplying the configuration is audited (the config IS the policy)')
+    check(log1:find('capability-registered', 1, true) ~= nil,
+        'A2: registering a capability is audited')
+    check(log1:find('owner=cis_core', 1, true) ~= nil,
+        'A2: and the audit line names the resource that did it')
+    check(log1:find('cis_bridge:Webhooks', 1, true) ~= nil,
+        'A2: and the provider it registered')
+
+    -- A REFUSAL is the half that matters. A capability that was refused is
+    -- precisely what somebody will want to find later. It has to be a genuine
+    -- CONFLICT to be a refusal: the same resource re-registering its own slot
+    -- is the restart path and is allowed, so "cis_core again" would not test
+    -- anything.
+    env.invoking = 'cis_other_product'
+    env.EXPORTS.RegisterCapability('discord', 'cis_other_product:OtherWebhooks')
+    check(auditText(env):find('capability-refused', 1, true) ~= nil,
+        'A2: a REFUSED capability is audited too, not only the accepted ones')
+
+    -- Back to the owner, or the release below is itself a refusal -- which is
+    -- correct behaviour and would test nothing here.
+    env.invoking = 'cis_core'
+    env.EXPORTS.UnregisterCapability('discord')
+    check(auditText(env):find('capability-released', 1, true) ~= nil,
+        'A2: and so is a release')
+    env.reset()
+
+    -- A disk that cannot be written must not take the library down. An audit
+    -- trail that fails loudly is worse than none: it turns a disk problem into
+    -- an outage on a call every product makes at boot.
+    do
+        local envF = bootAudit('cis_core')
+        function SaveResourceFile() error('read-only file system') end
+        local survived = pcall(function() envF.EXPORTS.SetConfig(nil) end)
+        check(survived, 'A2: a failed audit write does not stop the config from being applied')
+        envF.reset()
+    end
+
+    -- ---------------------------------------------------------------- A4
+    -- The only recovery from a resource that took a slot it should not have
+    -- was restarting cis_libs, which blanks EVERY slot until each product comes
+    -- back. That is every product at once, on a live server.
+    do
+        local envR = bootAudit('cis_core')
+        envR.EXPORTS.RegisterCapability('discord', 'cis_bridge:Webhooks')
+        check(CisRegistry.has('discord') == true, 'A4: the slot is held')
+
+        local revoke = envR.commands['cis_force_unregister']
+        check(type(revoke) == 'function',
+            'A4: there is a console command to revoke a capability')
+
+        -- An unknown slot prints the usage rather than revoking something
+        -- arbitrary, and lists the real slots so the operator does not have to
+        -- know them by heart.
+        envR.lines = {}
+        revoke(0, { 'not_a_slot' })
+        check(#envR.lines > 0 and envR.lines[1]:find('usage', 1, true) ~= nil,
+            'A4: an unknown slot prints usage instead of doing something')
+        check(#envR.lines > 0 and envR.lines[1]:find('discord', 1, true) ~= nil,
+            'A4: and the usage lists the real slots')
+        check(CisRegistry.has('discord') == true,
+            'A4: and a mistyped slot name revoked nothing')
+
+        -- The real thing: no owner check, because that is the point.
+        revoke(0, { 'discord' })
+        check(CisRegistry.has('discord') == false,
+            'A4: the command revokes a slot regardless of who holds it')
+        check(auditText(envR):find('capability-force-released', 1, true) ~= nil,
+            'A4: and a forced revoke is audited -- it bypasses the owner check, '
+                .. 'so it is exactly the line somebody will want later')
+        check(#envR.lines > 0 and envR.lines[#envR.lines]:find('cis_core', 1, true) ~= nil,
+            'A4: and it tells the operator who HELD it -- the registrar, not the '
+                .. 'provider string it pointed at')
+
+        -- Revoking something that is not there is a message, not a crash.
+        local ok = pcall(revoke, 0, { 'discord' })
+        check(ok, 'A4: revoking an empty slot does not raise')
+        envR.reset()
+    end
+
+    -- ---------------------------------------------------------------- A1
+    -- The contract is the promise that a slot's method names and argument
+    -- shapes mean the same thing on both sides. A 3.x product registering into
+    -- a 2.x cis_libs produces calls that return the wrong value for the right
+    -- reason -- the hardest kind of bug to diagnose.
+    do
+        local envM = bootAudit('cis_core', '99')
+        local ok, why = envM.EXPORTS.RegisterCapability('discord', 'cis_bridge:Webhooks')
+        check(ok == false,
+            ('A1: a product declaring a different contract MAJOR is refused (got %s)')
+                :format(tostring(ok)))
+        check(tostring(why):find('cis_libs_contract', 1, true) ~= nil,
+            ('A1: and the reason names the field that has to change: %s'):format(tostring(why)))
+        check(tostring(why):find('cis_core', 1, true) ~= nil,
+            'A1: and names which resource to update')
+        check(CisRegistry.has('discord') == false,
+            'A1: and nothing was registered -- the refusal happens first')
+        envM.reset()
+
+        -- A MINOR difference is allowed on purpose: a minor bump only ADDs.
+        local envN = bootAudit('cis_core', '1.7')
+        check(envN.EXPORTS.RegisterCapability('discord', 'cis_bridge:Webhooks') == true,
+            'A1: a MINOR difference within the same major is allowed')
+        envN.reset()
+
+        -- And a product that declares nothing is allowed: cis_libs cannot check
+        -- a version that was never claimed, and refusing unknown would refuse
+        -- every third-party resource that wants to fill a slot.
+        local envU = bootAudit('cis_core', nil)
+        check(envU.EXPORTS.RegisterCapability('discord', 'cis_bridge:Webhooks') == true,
+            'A1: a product that declares no contract is still allowed')
+        envU.reset()
+    end
+
+    -- ---------------------------------------------------------------- A5
+    -- `cis_libs:capabilityChanged` is a server-local event. If it crossed to
+    -- clients, every connected client would learn the platform's shape every
+    -- time a product started -- which is not a secret, but is also not
+    -- necessary, and the whole point of the client payload being a whitelist is
+    -- that nothing crosses which has not been decided.
+    --
+    -- A source-level assertion, because the failure mode is a single
+    -- TriggerClientEvent in a file nobody re-reads.
+    do
+        local offenders = {}
+        for _, rel in ipairs({ 'server/proxy.lua', 'server/security.lua',
+            'server/callback.lua', 'server/sync.lua', 'server/initialize.lua',
+            'server/player.lua', 'server/logging.lua', 'shared/registry.lua' }) do
+            local code = readCode(rel)
+            if code:find('capabilityChanged') and code:find('TriggerClientEvent') then
+                for line in code:gmatch('[^\n]+') do
+                    if line:find('TriggerClientEvent') and line:find('capabilityChanged', 1, true) then
+                        offenders[#offenders + 1] = rel .. ': ' .. line
+                    end
+                end
+            end
+        end
+        check(#offenders == 0,
+            'A5: cis_libs:capabilityChanged never crosses to clients'
+                .. (#offenders > 0 and (' -- ' .. table.concat(offenders, ' / ')) or ''))
+
+        -- And it IS fired server-locally, which is what makes the above a real
+        -- guarantee rather than an absence of evidence.
+        check(readCode('shared/registry.lua')
+            :find("TriggerEvent('cis_libs:capabilityChanged'", 1, true) ~= nil,
+            'A5: it is fired with TriggerEvent (server-local), not TriggerClientEvent')
+    end
+
+    -- ---------------------------------------------------------------- H3
+    -- The publishers are not all the same kind of call. Two of them write state
+    -- somebody else owns and are allow-listed; the third is a courtesy and is
+    -- validated instead, because gating it would break every product that
+    -- legitimately notifies a player.
+    do
+        local envP = securityScenario({ authorized = { 'cis_core' }, invoking = 'cis_core' })
+        loadModule('server/proxy.lua')
+        envP.invoking = 'cis_core'
+        check(envP.EXPORTS.PublishJobUpdate({ name = 'police', grade = 1 }, 5) == true,
+            'H3: an allow-listed resource may publish a job update')
+
+        envP.invoking = 'cis_someOtherResource'
+        local refused, why = envP.EXPORTS.PublishJobUpdate({ name = 'police', grade = 1 }, 5)
+        check(refused == false,
+            ('H3: a resource off the allow-list cannot poison the job histogram (got %s)')
+                :format(tostring(refused)))
+        check(tostring(why):find('AuthorizedResources', 1, true) ~= nil,
+            ('H3: and the refusal says which list to join: %s'):format(tostring(why)))
+        envP.reset()
+
+        -- NotifyClient is NOT gated -- third-party products send these and would
+        -- all break -- but it is bounded, because unbounded it is a resource
+        -- spending a server's event budget on one player at will.
+        local envN = bootAudit('cis_core')
+        envN.invoking = 'some_third_party'
+        local delivered = 0
+        for _ = 1, 30 do
+            if envN.EXPORTS.NotifyClient(3, 'hi', 'info') then
+                delivered = delivered + 1
+            end
+        end
+        check(delivered > 0 and delivered < 30,
+            ('H3: NotifyClient is rate limited, not refused outright (delivered %d of 30)')
+                :format(delivered))
+
+        -- And length-capped: a message is text rendered on a screen the server
+        -- does not own.
+        envN.clientEvents = {}
+        envN.EXPORTS.NotifyClient(4, string.rep('x', 5000), 'info')
+        local longest = 0
+        for _, e in ipairs(envN.clientEvents) do
+            if e.name == 'cis_libs:client:showNotification' then
+                longest = math.max(longest, #tostring(e.args[1]))
+            end
+        end
+        check(longest > 0 and longest <= 512,
+            ('H3: and a huge message is truncated rather than relayed (longest %d)')
+                :format(longest))
+        envN.reset()
+    end
 end
 
 -- ------------------------------------------------------------------ report
