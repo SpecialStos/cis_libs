@@ -20,7 +20,8 @@
     "gen-types:check": "node tools/gen-types.js --check",
     "test:mutate": "node tools/mutate.js",
     "test:lua54": "node tools/run-lua54.js",
-    "check:luacheck": "node tools/gen-luacheck.js --check"
+    "check:luacheck": "node tools/gen-luacheck.js --check",
+    "live:deploy": "node tools/live-deploy.js"
   },
   "devDependencies": {
     "fengari": "^0.1.5"
