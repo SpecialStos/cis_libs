@@ -135,6 +135,23 @@ function CisDefaults.security()
         -- in place afterwards.
         AuthorizedResources = {},
 
+        -- THE ESCAPE HATCH, AND IT IS OFF (DEC-2).
+        --
+        -- An empty AuthorizedResources is ALWAYS restrictive, with no legacy
+        -- exception and nothing left to classify. This key is how an operator
+        -- who genuinely wants the old behaviour -- any server-side resource may
+        -- mutate doors and sync records -- says so out loud.
+        --
+        -- Off by default, because a permissive default is the exact defect this
+        -- replaces. The failure was never that the permissive behaviour was
+        -- unreachable; it was that it was what you got without asking. Setting
+        -- this is one deliberate line in the operator's own config, and every
+        -- boot says so on the console while it is on.
+        --
+        -- A NAMED AuthorizedResources still governs when both are set, so the
+        -- more careful configuration is never the weaker one.
+        AllowAnyResource = false,
+
         -- SECURITY. A custom handler is a function, and a function cannot cross
         -- the exports boundary -- so this stays `true` in cis_libs and the real
         -- handler is supplied by whoever ships the config, server-side.

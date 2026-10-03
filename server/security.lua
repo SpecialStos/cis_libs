@@ -16,16 +16,10 @@ local rates = {}
 local rateCounts = {}
 local authorized
 
--- Written once a server has actually been touched by this library. Its absence
--- is the second half of the "is this a new install?" test.
-local INSTALL_MARKER = 'configs/install.json'
-
 -- Postures for the "AuthorizedResources is empty" case.
---   permissive -- today's behaviour: any server-side caller may mutate.
---   restrictive -- nobody but cis_libs itself may mutate.
+--   permissive -- Security.AllowAnyResource is set: any caller may mutate.
+--   restrictive -- nobody but cis_libs itself may mutate. The DEFAULT.
 --   configured -- an allow-list was named, so there is no empty-list case left.
--- nil means undecided, which is treated as permissive: an install we cannot
--- classify is never the one that gets broken.
 local posture
 
 -- An empty table is treated as "not configured", the same as nil. That is what
@@ -40,146 +34,89 @@ local function configuredList()
     return list
 end
 
--- Whether anything on this server has ever persisted state through this
--- library. It used to be `Config.Doorlock.Persist`, which meant this file knew
--- the name of a config section owned by a product, and then queried a table
--- owned by another. Both of those are gone: cis_libs owns no table, and the
--- question now belongs to whichever product holds one.
+-- THE ESCAPE HATCH, AND IT IS OPT-IN AND VALIDATED.
 --
--- A server with no doors product installed has certainly never stored a door,
--- so the absent capability is a DEFINITE answer rather than an unknown one --
--- which is what lets a fresh install reach a verdict immediately instead of
--- sitting permissive for 30 seconds and then guessing.
-local function persistConfigured()
-    if not CisRegistry.has('doors') then
-        return false
-    end
-    local ok, persisted = CisRegistry.call('doors', 'persisted')
-    return ok and persisted == true
+-- DEC-2: an empty AuthorizedResources is ALWAYS restrictive. There is no longer
+-- any question of what an install "is", and therefore nothing to classify and
+-- nothing to record.
+--
+-- That deletes three things this file used to have, and each existed to answer a
+-- question the library can no longer be asked:
+--
+--   * INSTALL_MARKER, readInstallMarker, writeInstallMarker. A file written
+--     inside the resource folder to remember a security decision across a
+--     reboot. Updating cis_libs by replacing that folder -- the normal way to
+--     update -- DELETED it, and `legacyByConfig` then read the missing file as
+--     "no decision recorded" and fell through to the permissive reading. A
+--     restrictive install became permissive because it was updated. This file
+--     now writes nothing at all.
+--
+--   * legacyByConfig, and with it the entire legacy/permissive classification.
+--     A populated database meant "legacy", i.e. permissive, on every boot: a
+--     resource that merely HAD a store was granted the right to rewrite every
+--     door on the server.
+--
+--   * The deferred dataProbe thread that asked whether that store held rows. It
+--     left the posture UNDECIDED for up to 30 seconds, and undecided was
+--     permissive -- so a database that was merely slow unlocked every door.
+--
+-- `AllowAnyResource` is how an operator who genuinely wants the old behaviour
+-- gets it: named in their own config, warned about at every boot, and never
+-- reached by accident.
+local function allowAnyResource()
+    return Security and Security.AllowAnyResource == true
 end
 
--- A file left inside the resource's own configs/ directory, not in the
--- operator's server cfg. That is deliberate: it travels with the resource
--- rather than with the server, so a config that never had an allow-list but
--- does have this file is an install that already ran the decision below once.
--- Read and written under pcall because a read-only resource directory (a
--- cooked/packed deploy) must degrade to "no marker", not to a hard stop.
---
--- RETURNS THE PARSED MARKER, not a boolean, and that is the whole fix.
---
--- `hasInstallMarker()` used to be a presence test, and `legacyByConfig()` read
--- presence as "a written config already exists", which means legacy, which
--- means permissive. The marker is written only when the posture is RESTRICTIVE,
--- so its presence meant the opposite of what it was taken to mean: boot 1 ran
--- restrictive and wrote the marker, boot 2 read it as legacy and ran
--- permissive, on the same server with the same files. An operator who installed
--- fresh, saw the refusal, rebooted, and found door mutations wide open had no
--- way to get back to refusing without deleting a file they had never heard of.
---
--- The two cases are now distinct, which is what they always were:
---
---   {"restricted":true}  -- THIS library wrote it, and it decided to refuse.
---                           Boot 2 must refuse again. That is the whole point
---                           of writing it: the decision is STABLE across boots.
---   anything else, or an
---   unparsable body        -- something else wrote it, or an older version of
---                           this library did. Unknown provenance is not
---                           evidence of a decision, so it is NOT treated as
---                           legacy on the strength of existing.
-local function readInstallMarker()
-    if not LoadResourceFile then
-        return nil
-    end
-    local ok, body = pcall(LoadResourceFile, GetCurrentResourceName(), INSTALL_MARKER)
-    if not ok or type(body) ~= 'string' or body == '' then
-        return nil
-    end
-    -- Deliberately not a JSON parser. The file is one flat table of primitives
-    -- written by the function below, and a body with an embedded quote or brace
-    -- must read as "not a marker this library wrote" rather than raise -- a
-    -- syntax error while deciding a security posture is the worst possible time
-    -- to raise.
-    local restricted = body:match('"restricted"%s*:%s*true')
-    if restricted then
-        return { restricted = true }
-    end
-    return { restricted = false }
-end
-
--- Only ever called from applyPosture('restrictive'), so writing the file is
--- itself the record of the decision. The trailing -1 is SaveResourceFile's
--- indent argument, and there is deliberately no indent.
-local function writeInstallMarker()
-    if not SaveResourceFile then
-        return
-    end
-    pcall(SaveResourceFile, GetCurrentResourceName(), INSTALL_MARKER,
-        ('{"restricted":true,"eventPrefix":"%s"}'):format(tostring(
-            (Security and Security.EventPrefix) or 'cis_libs')), -1)
-end
-
--- A legacy install is one that was already running cis_libs before the
--- restrictive empty-list default existed. Two signals, either sufficient:
---
---   1. a written config this library left on disk
---   2. the cis_doors table, which only exists if Config.Doorlock.Persist was
---      on and that bootstrap has already run
---
--- Signal 2 is only conclusive when persistence is configured. With it off,
--- cis_libs never creates the table, so its absence is known immediately and
--- no database call is made. With it on, the answer needs a query, and until
--- that query returns the install stays permissive.
-local function legacyByConfig()
-    -- A marker this library wrote is a decision, and the decision is
-    -- RESTRICTIVE. Re-deciding it as legacy on the second boot is the inversion
-    -- described on readInstallMarker.
-    local marker = readInstallMarker()
-    if marker and marker.restricted then
-        return false, 'this install previously decided to refuse, and that decision is being kept'
-    end
-    if not persistConfigured() then
-        return false, 'no written config and no product that persists state is installed'
-    end
-    return nil, 'a persisting product is installed; waiting to ask it whether it holds any rows'
-end
 
 local function reportRestrictive(reason)
     print('[cis_libs] SECURITY: door and sync mutations are REFUSED for every resource except cis_libs.')
     print(('  %s'):format(reason))
-    print('  Security.AuthorizedResources is empty. On a new install that is the correct posture:')
+    print('  Security.AuthorizedResources is empty, and an empty list is always restrictive:')
     print('  an empty list used to mean "any server-side resource may add, break and rewrite doors".')
-    print('  To restore the old permissive behaviour, name the resources that mutate doors, e.g.')
+    print('  Name the resources that mutate doors, e.g.')
     print('      Security.AuthorizedResources = { "cis_storeRobberies", "cis_housing" }')
-    print('  A resource can ask first: exports["cis_libs"]:InvokingAllowed(). See COMPATIBILITY.md section 6.')
+    print('  A resource can ask first: exports["cis_libs"]:InvokingAllowed().')
+    print('  To restore the old permissive behaviour for every resource instead, set')
+    print('      Security.AllowAnyResource = true')
 end
 
--- One decision, applied once. Idempotent because the deferred probe below can
--- reach the same verdict the synchronous path already took; re-running it would
--- rewrite the marker and reprint a paragraph the operator has already read.
+-- One decision, applied once. Idempotent because SetConfig calls this again on
+-- every `onResourceStart("cis_libs")`, and re-running it would reprint a
+-- paragraph the operator has already read.
+--
+-- NO FILE IS WRITTEN ANYWHERE IN THIS FUNCTION, and that is the point. The
+-- decision is a pure function of the operator's own configuration, so it needs
+-- no record on disk to survive a reboot -- which is exactly what the old install
+-- marker was doing, and exactly what made an UPDATE (a folder replacement, which
+-- deletes the marker) silently flip a restrictive install to permissive.
 local function applyPosture(next, reason)
     if posture == next then
         return
     end
     posture = next
     if next == 'restrictive' then
-        writeInstallMarker()
         reportRestrictive(reason)
-    else
-        print(('[cis_libs] SECURITY: empty AuthorizedResources is PERMISSIVE for this install (%s).')
-            :format(reason))
+    elseif next == 'permissive' then
+        print('[cis_libs] SECURITY: Security.AllowAnyResource is TRUE -- every server-side')
+        print('  resource may mutate doors and sync records. This is the 2.2.0 escape hatch')
+        print('  and it is deliberately loud. To turn it off:')
+        print('      Security.AllowAnyResource = false')
+        print('  To allow only the resources you name instead:')
+        print('      Security.AuthorizedResources = { "cis_storeRobberies", "cis_housing" }')
     end
 end
 
--- Decides the allow-list, in this order, and each step ends the search:
+-- Decides the allow-list. Two cases, and both are DEFINITE:
 --
---   1. a list was named          -> that list, and the question is closed
---   2. classified as legacy      -> permissive, preserving old behaviour
---   3. classified as new         -> restrictive, and refuse every foreign caller
---   4. cannot be classified yet  -> permissive for now, decide when the answer
---                                   arrives
+--   1. a list was named  -> that list, and there is no empty-list case
+--   2. no list           -> restrictive, unless AllowAnyResource
 --
--- Step 4 is the only one that leaves work outstanding, and it is the only one
--- that reaches the deferred thread. Steps 1 to 3 all end with `posture` set.
+-- There is no third case and no waiting. The old step 4 ("cannot be classified
+-- yet") left the posture nil for up to 30 seconds while a database probe ran,
+-- and nil meant permissive -- so a store that was merely SLOW unlocked every
+-- door on the server for half a minute, on every boot. A security decision that
+-- depends on how fast somebody else's database answers is not a security
+-- decision.
 local function rebuildAuthorized()
     authorized = nil
     local list = configuredList()
@@ -188,32 +125,17 @@ local function rebuildAuthorized()
         for i = 1, #list do
             authorized[list[i]] = true
         end
-        -- An operator-named list is a DEFINITE answer. Nobody has to guess
-        -- whether this install is legacy and nothing is waiting on a query.
-        --
-        -- Without this line `posture` stayed nil, so the deferred legacy probe
-        -- below ran anyway and issued `SELECT id FROM cis_doors` -- a table
-        -- that only exists when Doorlock.Persist is on. Every boot of every
-        -- server with an allow-list configured therefore printed a database
-        -- error naming a table that was never supposed to be there, and the
-        -- cause was nowhere near the message.
         posture = 'configured'
         return
     end
-    local legacy, reason = legacyByConfig()
-    if legacy == nil then
-        -- Unclassified, so `authorized` stays nil, which is the permissive
-        -- reading. Do not guess the other way on a server we could not read.
-        print(('[cis_libs] SECURITY: AuthorizedResources is empty and the install is not classified yet (%s);')
-            :format(reason))
-        print('  staying permissive until it is. No door or sync mutation is refused in the meantime.')
+    -- A NAMED LIST STILL WINS over AllowAnyResource. Otherwise the escape hatch
+    -- would quietly make the list meaningless on every server that bothered to
+    -- set one, and the more careful configuration would be the weaker one.
+    if allowAnyResource() then
+        applyPosture('permissive', 'Security.AllowAnyResource is set')
         return
     end
-    if legacy then
-        applyPosture('permissive', reason)
-        return
-    end
-    applyPosture('restrictive', reason)
+    applyPosture('restrictive', 'Security.AuthorizedResources is empty')
     -- An empty, non-nil table denies every foreign caller. `nil` means
     -- allow-all, which is how the permissive path is expressed.
     authorized = {}
@@ -242,55 +164,21 @@ function CisSecurityRebuild()
     rebuildAuthorized()
 end
 
--- Resolve the deferred case: wait for whichever product persists state to
--- register its probe, then ask it whether it holds any rows. A store created
--- moments ago on a fresh install is empty, and an empty one means new.
-if posture == nil then
-    CreateThread(function()
-        -- Only meaningful when something that persists state is installed.
-        -- Asking a store that was never configured asks the driver about a
-        -- table that does not exist, and the driver answers with an error the
-        -- operator can do nothing about. This mirrors legacyByConfig(), which
-        -- already treats an absent store as a definite answer.
-        if not persistConfigured() then
-            applyPosture('restrictive', 'no written config and no product that persists state is installed')
-            authorized = {}
-            return
-        end
-        -- 2s poll, 30s ceiling, on the REGISTRY rather than on a resource name.
-        -- This library no longer knows what the table is called or which driver
-        -- holds it, so the only honest thing to wait for is the product itself
-        -- announcing that it can answer. The interval is the same as before
-        -- because the thing being waited on is measured in seconds either way:
-        -- another resource starting, which is not under this library's control,
-        -- so a tighter poll buys nothing a maintainer can observe and costs a
-        -- scheduler wakeup for the whole window.
-        local deadline = GetGameTimer() + 30000
-        while not CisRegistry.has('dataProbe') and GetGameTimer() < deadline do
-            Wait(2000)
-        end
-        if not CisRegistry.has('dataProbe') then
-            return
-        end
-        -- Asking, not guessing. `hasRows` yields on a real driver, so the call
-        -- is wrapped: a driver that never answers would otherwise park this
-        -- thread for the length of its timeout with the posture still
-        -- undecided, which is the permissive reading and the pre-existing one.
-        local ok, hasRows = CisRegistry.call('dataProbe', 'hasRows')
-        if not ok then
-            return
-        end
-        if hasRows then
-            applyPosture('permissive', 'the installed store already holds persisted rows')
-        else
-            applyPosture('restrictive', 'no written config and the installed store is empty')
-            authorized = {}
-        end
-        -- If the store never answers the install stays permissive, which is the
-        -- same behaviour it has today. Refusing on a server we could not read
-        -- would be the worse failure.
-    end)
-end
+-- NO DEFERRED PROBE ANYMORE. This thread used to wait up to 30 seconds for a
+-- `dataProbe` provider to answer whether the installed store held rows, and
+-- decide the posture from that. Two things were wrong with it and both are
+-- structural:
+--
+--   * It left `posture` nil while it waited, and nil meant PERMISSIVE. So a
+--     database that was merely slow unlocked every door on the server for half
+--     a minute, on every boot, before deciding.
+--   * It asked a PRODUCT about a PRODUCT's own table, on a timer, to decide
+--     whether a security gate should be open. A gate whose state depends on
+--     someone else's I/O is not a gate.
+--
+-- `dataProbe` remains a registrable slot for compatibility -- a product that
+-- registers it is not refused -- but nothing here asks it anything.
+
 
 -- The one place a mutation asks "may I?". `authorized` carries three states
 -- and they are not interchangeable:

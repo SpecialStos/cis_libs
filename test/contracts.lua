@@ -450,6 +450,9 @@ local function securityScenario(opts)
     if opts.authorized then
         Security.AuthorizedResources = opts.authorized
     end
+    if opts.allowAny ~= nil then
+        Security.AllowAnyResource = opts.allowAny
+    end
     -- Stand up the product side of the probe, if this scenario has one.
     if opts.persisted then
         CisRegistry.register('doors', function(op)
@@ -497,7 +500,16 @@ do
         'new install: the console output says how to fix it')
     check(mentions(env, 'InvokingAllowed'),
         'new install: the console output points at InvokingAllowed')
-    check(env.marker ~= nil, 'new install: a marker is written so the decision is stable')
+    -- NO MARKER IS WRITTEN, and that is the change. cis_libs writes no files; the
+    -- marker existed only to make a security decision survive a reboot, and it
+    -- did that by writing into the resource folder -- which an update by folder
+    -- replacement DELETES. An operator who updated cis_libs lost the record of
+    -- their own restrictive decision and got the permissive reading back. A
+    -- library that owns no files cannot have this failure.
+    check(env.marker == nil,
+        'new install: NO marker is written -- the decision needs no file to survive a reboot')
+    check(#env.writes == 0,
+        ('new install: and security.lua writes nothing at all (%d write(s))'):format(#env.writes))
     CisInvokingAllowed = nil
     env.reset()
 
@@ -513,36 +525,36 @@ do
     CisInvokingAllowed = nil
     env.reset()
 
-    -- A marker written by an OLDER version of this library, or by something else,
-    -- carries no decision of ours, so it does not by itself make the install
-    -- legacy. L-C2 corrected this: the marker used to be read as "a written
-    -- config exists", which meant permissive, while it was in fact only ever
-    -- written for a RESTRICTIVE decision. The restrictive boot therefore
-    -- unlocked itself on the next one.
-    --
-    -- What actually makes an install legacy is a product that persists state
-    -- already holding rows -- the signal asserted below.
+    -- A STALE MARKER IS NOW IRRELEVANT, whatever it says. The file is not read,
+    -- so a restrictive install cannot be flipped permissive by losing it, and a
+    -- permissive-looking leftover cannot unlock anything. Both halves of that
+    -- were the D-07 defect: updating cis_libs by replacing its folder deleted
+    -- the marker, and `legacyByConfig` then fell through to the dataProbe rows
+    -- check and read "the database is empty" as "this is a new install".
     env = securityScenario({
         authorized = {},
-        marker = '{"eventPrefix":"cis_libs"}',
+        marker = '{"restricted":true,"eventPrefix":"cis_libs"}',
         invoking = 'cis_someProduct',
     })
     check(env.EXPORTS.InvokingAllowed() == false,
-        'a marker carrying no restrictive flag is not evidence of a legacy install')
+        'a restrictive marker left on disk changes nothing -- the decision is never read back')
     CisInvokingAllowed = nil
     env.reset()
 
-    -- Legacy install, signal 2: a storing product is installed and it already
-    -- holds rows. Before the split this was a SELECT against cis_doors; the
-    -- product now answers the same question about its own store.
+    -- AND THE INVERSE, which is the half that actually mattered. A populated
+    -- store used to mean "legacy", i.e. permissive, on every boot. A resource
+    -- that merely HAD a database was therefore granted the right to rewrite
+    -- every door on the server.
     env = securityScenario({
         authorized = {},
         persisted = true,
         hasRows = true,
+        invoking = 'cis_someProduct',
     })
-    check(env.EXPORTS.InvokingAllowed() == true,
-        'legacy install (store already populated) keeps the permissive path')
-    check(mentions(env, 'PERMISSIVE'), 'legacy install: the console says it is permissive')
+    check(env.EXPORTS.InvokingAllowed() == false,
+        'a populated store no longer buys permissive -- an empty list is always restrictive')
+    check(not mentions(env, 'PERMISSIVE'),
+        'and nothing says PERMISSIVE, because nothing is permissive')
     CisInvokingAllowed = nil
     env.reset()
 
@@ -559,19 +571,20 @@ do
     CisInvokingAllowed = nil
     env.reset()
 
-    -- Unclassifiable: a product that persists is installed but never answered.
-    -- Today this install is permissive, and it must stay that way -- refusing on
-    -- a server we could not read would be the worse failure.
-    env = securityScenario({ authorized = {}, persisted = true })
-    check(env.EXPORTS.InvokingAllowed() == true,
-        'an install that cannot be classified stays permissive')
-    check(mentions(env, 'not classified'),
-        'an unclassified install says so instead of refusing silently')
+    -- Unclassifiable is NO LONGER A CATEGORY. It existed because a store could
+    -- fail to answer and the library had to pick a posture anyway; it picked
+    -- permissive, so a database that was merely slow unlocked every door on the
+    -- server. There is no undecided posture to be in any more.
+    env = securityScenario({ authorized = {}, persisted = true, invoking = 'cis_someProduct' })
+    check(env.EXPORTS.InvokingAllowed() == false,
+        'a store that never answers no longer means permissive')
+    check(not mentions(env, 'not classified'),
+        'and "not classified" is gone as a state -- there is nothing to classify')
     CisInvokingAllowed = nil
     env.reset()
 
     -- A populated list behaves exactly as it always has, on any install.
-    env = securityScenario({ authorized = { 'cis_storeRobberies' }, marker = '{"restricted":true}' })
+    env = securityScenario({ authorized = { 'cis_storeRobberies' } })
     env.invoking = 'cis_storeRobberies'
     check(env.EXPORTS.InvokingAllowed() == true, 'a listed resource is allowed')
     env.invoking = 'cis_someOther'
@@ -580,6 +593,51 @@ do
         'a populated list emits no empty-list warning')
     CisInvokingAllowed = nil
     env.reset()
+
+    -- ------------------------------------------------- AllowAnyResource (DEC-2)
+    --
+    -- The one behaviour change in 2.2.0, and it is deliberately loud. Someone who
+    -- wants the old permissive behaviour can have it, but never by accident and
+    -- never quietly: the boot warning is the point.
+    do
+        local envA = securityScenario({ authorized = {}, allowAny = true })
+        envA.invoking = 'cis_someProduct'
+        check(envA.EXPORTS.InvokingAllowed() == true,
+            'AllowAnyResource: a foreign resource is accepted')
+        check(mentions(envA, 'AllowAnyResource'),
+            'AllowAnyResource: and the console says the permissive mode is on')
+        check(mentions(envA, 'AllowAnyResources') or mentions(envA, 'AuthorizedResources'),
+            'AllowAnyResource: and says which key turns it off')
+        CisInvokingAllowed = nil
+        envA.reset()
+    end
+
+    -- Off BY DEFAULT. A default that was permissive would be the exact defect
+    -- DEC-2 exists to remove, reintroduced by a new key.
+    do
+        local envD = securityScenario({ authorized = {}, invoking = 'cis_someProduct' })
+        check(envD.EXPORTS.InvokingAllowed() == false,
+            'AllowAnyResource: off by default, so the default is still restrictive')
+        -- Not "says nothing about AllowAnyResource": the restrictive banner
+        -- NAMES it, because it is the documented way out and an operator
+        -- reading the refusal should be told the key exists. What must not
+        -- appear is the permissive-mode banner.
+        check(not mentions(envD, 'AllowAnyResource is TRUE'),
+            'AllowAnyResource: and the permissive-mode banner is not printed')
+        CisInvokingAllowed = nil
+        envD.reset()
+    end
+
+    -- A POPULATED LIST STILL WINS over AllowAnyResource. Otherwise the escape
+    -- hatch would quietly make the list meaningless on every server that set it.
+    do
+        local envL = securityScenario({ authorized = { 'cis_storeRobberies' }, allowAny = true })
+        envL.invoking = 'cis_someOther'
+        check(envL.EXPORTS.InvokingAllowed() == false,
+            'AllowAnyResource: an explicit list still governs when both are set')
+        CisInvokingAllowed = nil
+        envL.reset()
+    end
 
     -- The other exports on this file are untouched.
     env = securityScenario({ authorized = { 'cis_storeRobberies' } })
@@ -689,75 +747,75 @@ do
     env.reset()
 end
 
--- ==================== 2c. the install marker must survive a second boot
+-- ==================== 2c. the decision is stable with NO file at all
 --
--- The marker is written ONLY when the posture is restrictive, but
--- `legacyByConfig()` read ANY marker as "a written config already exists",
--- which means legacy, which means permissive. Boot 1 therefore ran restrictive
--- and every boot after it ran permissive -- on the same server, with the same
--- files, minutes apart. An operator who installed fresh, saw the refusal,
--- rebooted and found doors wide open, had no way to get that back.
+-- This block used to test that an install marker written on boot 1 was read
+-- back on boot 2. It is deleted, and the deletion is the point.
 --
--- The scenario BOOTS TWICE in one env and keeps `env.marker` across both, which
--- is what models a restart: SaveResourceFile writes and LoadResourceFile
--- reads the same file.
+-- The marker existed to make a security decision survive a reboot, and it was
+-- written INSIDE THE RESOURCE FOLDER -- which is exactly where an update puts
+-- a new version. Updating cis_libs the normal way (replace the folder) deleted
+-- the operator's own record of their restrictive decision, and `legacyByConfig`
+-- read the missing file as "nothing recorded" and fell through to permissive.
+-- A restrictive install became permissive because it was UPGRADED. (D-07)
+--
+-- So there is no file, and no classification, and the decision cannot drift:
+-- it is a pure function of the operator's own configuration, which is still
+-- there after any update because it lives in THEIR config.
 do
+    -- Boot 1 refuses.
     local env = securityScenario({ authorized = {}, invoking = 'cis_someProduct' })
-    check(env.EXPORTS.InvokingAllowed() == false, 'L-C2 boot 1: a new install refuses')
-    check(env.marker ~= nil, 'L-C2 boot 1: the restrictive decision is recorded on disk')
-    check(env.marker:find('"restricted"', 1, true) ~= nil or env.marker:find('restricted', 1, true) ~= nil,
-        'L-C2 boot 1: the marker records that the decision was RESTRICTIVE')
-
-    -- Restart. Same marker file, fresh module state.
-    local env2 = securityScenario({ authorized = {}, marker = env.marker, invoking = 'cis_someProduct' })
-    check(env2.EXPORTS.InvokingAllowed() == false,
-        'L-C2 boot 2: a marker that says restricted keeps the install restrictive')
-    check(not mentions(env2, 'PERMISSIVE'),
-        'L-C2 boot 2: the second boot does not announce the permissive path')
+    check(env.EXPORTS.InvokingAllowed() == false, 'posture boot 1: a new install refuses')
+    check(#env.writes == 0,
+        ('posture boot 1: and nothing was written to remember it (%d write(s))')
+            :format(#env.writes))
     CisInvokingAllowed = nil
     env.reset()
+
+    -- Boot 2, with the resource folder WIPED -- which is what an update does.
+    -- The decision is identical because nothing about it was ever on disk.
+    local env2 = securityScenario({ authorized = {}, marker = nil, invoking = 'cis_someProduct' })
+    check(env2.EXPORTS.InvokingAllowed() == false,
+        'posture boot 2: an update that deleted the resource folder changes nothing')
+    check(not mentions(env2, 'PERMISSIVE'),
+        'posture boot 2: and the permissive path is never announced')
+    CisInvokingAllowed = nil
     env2.reset()
 
-    -- A marker that does NOT claim restricted was written by something other than
-    -- this library's decision path, so it is not evidence of anything -- and the
-    -- install is then classified on the remaining signal alone. With no
-    -- persisting product, that means NEW, so restrictive.
-    local env3 = securityScenario({
-        authorized = {},
-        marker = '{"eventPrefix":"cis_libs"}',
-        invoking = 'cis_someProduct',
-    })
-    check(env3.EXPORTS.InvokingAllowed() == false,
-        'L-C2: a marker without the restrictive flag is not treated as legacy')
-    check(not mentions(env3, 'PERMISSIVE'),
-        'L-C2: and it does not announce the permissive path')
-    CisInvokingAllowed = nil
-    env3.reset()
+    -- A marker left behind by an OLD version is not read either. Both of its
+    -- old readings were the defect: "restricted" was honoured only while the
+    -- file survived, and anything else was read as legacy.
+    for _, stale in ipairs({ '{"restricted":true}', '{"eventPrefix":"cis_libs"}', '', 'not json at all' }) do
+        local envS = securityScenario({
+            authorized = {},
+            marker = stale,
+            invoking = 'cis_someProduct',
+        })
+        check(envS.EXPORTS.InvokingAllowed() == false,
+            ('posture: a leftover marker (%q) decides nothing')
+                :format(stale:sub(1, 24)))
+        check(not mentions(envS, 'PERMISSIVE'),
+            ('posture: and a leftover marker (%q) never announces permissive')
+                :format(stale:sub(1, 24)))
+        CisInvokingAllowed = nil
+        envS.reset()
+    end
 
-    -- Same marker, but this time a persisting product already holds rows. THAT
-    -- is what makes an install legacy, and it is the signal that has always
-    -- been the honest one -- it asks a product about its own store instead of
-    -- inferring history from a file.
+    -- And a POPULATED STORE decides nothing either. This is the half that
+    -- actually mattered: a server that merely HAD a database was reading its
+    -- own emptiness as permission for any resource to rewrite every door.
     local env5 = securityScenario({
         authorized = {},
-        marker = '{"eventPrefix":"cis_libs"}',
         persisted = true,
         hasRows = true,
         invoking = 'cis_someProduct',
     })
-    check(env5.EXPORTS.InvokingAllowed() == true,
-        'L-C2: a populated store is still the signal that makes an install legacy')
-    check(mentions(env5, 'PERMISSIVE'), 'L-C2: and it announces the permissive path')
+    check(env5.EXPORTS.InvokingAllowed() == false,
+        'posture: a populated store is no longer evidence of a legacy install')
+    check(not mentions(env5, 'PERMISSIVE'),
+        'posture: and it announces nothing permissive')
     CisInvokingAllowed = nil
     env5.reset()
-
-    -- Unreadable or absent is NOT legacy. That was the whole defect: absence and
-    -- refusal were being read the same way.
-    local env4 = securityScenario({ authorized = {}, marker = '', invoking = 'cis_someProduct' })
-    check(env4.EXPORTS.InvokingAllowed() == false,
-        'L-C2: an absent marker is a new install, not a legacy one')
-    CisInvokingAllowed = nil
-    env4.reset()
 end
 
 -- ============================== 2e. clients get the config they were given
@@ -1361,15 +1419,19 @@ do
     end
 
     -- ---- 2. no writes to disk --------------------------------------
-    -- cis_libs writes no files. Every SaveResourceFile in the tree is a
-    -- defect being removed, not a feature: server/proxy.lua rewrites an audit
-    -- log on every event, server/security.lua writes an install marker that a
-    -- folder-replacing update deletes. Tasks 3.8 and 3.9 empty this list, and
-    -- when they do this loop finds nothing and the empty table below is the
-    -- proof.
+    -- cis_libs writes no files, and that is now TRUE rather than aspirational.
+    --
+    -- Every entry that used to be here was a defect being removed, not a
+    -- feature. Task 3.8 removed server/security.lua's install marker -- a file
+    -- inside the resource folder, so a folder-replacing UPDATE deleted it and
+    -- the install silently went permissive. One entry left: the audit log
+    -- rewrite in server/proxy.lua, which task 3.9 turns into an in-memory ring.
+    --
+    -- The empty case is worth stating: an allow-list that has shrunk to one entry
+    -- is a list, and a list that is empty is not an allow-list at all. When 3.9
+    -- lands this table goes to `{}` and the loop below finds nothing.
     local SAVE_ALLOWED = {
         ['server/proxy.lua'] = 'the audit log rewrite, removed in 3.9',
-        ['server/security.lua'] = 'the install marker, removed in 3.8',
     }
     for _, file in ipairs(shipped) do
         if bodies[file]:find('%f[%a_]saveResourceFile') and not SAVE_ALLOWED[file] then
@@ -1500,27 +1562,37 @@ end
 do
     local secSource = readCode('server/security.lua')
 
-    -- A configured list is a definite answer; it must settle the posture.
-    -- Located with PLAIN search rather than a Lua pattern: a non-greedy
-    -- pattern stops at the first `end`, which here is the `for` loop's, and
-    -- the assertion silently inspects the wrong slice. That failure mode is
-    -- the reason this test exists in the first place.
+    -- A configured list is a definite answer, and now it is the ONLY definite
+    -- answer -- there is nothing else the posture could be waiting for. Located
+    -- with PLAIN search rather than a Lua pattern: a non-greedy pattern stops at
+    -- the first `end`, which here is the `for` loop's, and the assertion
+    -- silently inspects the wrong slice. That failure mode is the reason this
+    -- test exists in the first place.
     local from = secSource:find('local list = configuredList', 1, true)
     local to = from and secSource:find('\n        return', from, true)
     local branch = (from and to) and secSource:sub(from, to) or nil
     check(branch ~= nil, 'the configured-list branch is locatable in security.lua')
     check(branch and branch:find("posture = 'configured'", 1, true) ~= nil,
-        'a configured allow-list marks the posture decided, so no legacy query runs')
+        'a configured allow-list marks the posture decided, so nothing else runs')
 
-    -- And the deferred probe must ask a product, not a table.
-    local pFrom = secSource:find('if posture == nil then', 1, true)
-    local pTo = pFrom and secSource:find('\nend', pFrom, true)
-    local probe = (pFrom and pTo) and secSource:sub(pFrom, pTo) or nil
-    check(probe ~= nil, 'security.lua has a deferred posture resolution')
-    check(probe and probe:find('persistConfigured', 1, true) ~= nil,
-        'the deferred probe is gated on a storing product being installed')
-    check(probe and probe:find('dataProbe', 1, true) ~= nil,
-        'the deferred probe waits for a product that can answer the question')
+    -- AND THERE IS NO DEFERRED RESOLUTION ANYMORE (DEC-2).
+    --
+    -- The point of the change is that the posture is a pure function of the
+    -- operator's configuration, decided at load. A probe thread left behind --
+    -- one that asks a product about a product's own table and leaves the posture
+    -- nil while it waits -- is a gate that opens and closes on somebody else's
+    -- database latency. Asserted at the SOURCE level because the property is an
+    -- absence, and an absence is exactly what a behavioural test cannot see.
+    check(secSource:find('if posture == nil then', 1, true) == nil,
+        'security.lua has NO deferred posture resolution')
+    check(secSource:find('CreateThread', 1, true) == nil,
+        'security.lua starts no thread at all -- nothing about the posture waits')
+    check(secSource:find('SaveResourceFile', 1, true) == nil,
+        'security.lua WRITES NO FILE -- the decision needs no record to survive a reboot')
+    check(secSource:find('LoadResourceFile', 1, true) == nil,
+        'security.lua reads no file either, so a stale marker cannot decide anything')
+    check(secSource:find('persistConfigured', 1, true) == nil,
+        'and the legacy classifier that asked about a stored table is gone')
 
     -- The regression itself: this library must not name a table it does not own.
     -- A grep-level assertion, because the failure it guards is a string that

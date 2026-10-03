@@ -912,12 +912,30 @@ end)
 -- from being annoying, which is a trade this library should not make. It is
 -- validated and rate-limited instead.
 
+-- EVERY REFUSAL NAMES THE FIX. (Plan 3.8.)
+--
+-- "not on Security.AuthorizedResources" tells a caller it was refused and
+-- nothing about what to do, and the caller is usually a product author with no
+-- way to guess that the fix lives in ANOTHER resource's config on the SERVER.
+-- The sentence below names the export, the resource that was refused, and the
+-- exact key and value to add -- so the action is copy-pasteable from the message
+-- that caused it.
+--
+-- The alternative -- one generic line at boot -- was tried and does not work:
+-- a product that mutates doors is refused silently, and by the time the operator
+-- reads a boot banner they have already lost whatever the product was doing.
+local function notAuthorizedReason(exportName)
+    local caller = GetInvokingResource() or 'cis_libs'
+    return ("cis_libs refused %s from %s: add '%s' to Security.AuthorizedResources")
+        :format(tostring(exportName), tostring(caller), tostring(caller))
+end
+
 exports('PublishJobUpdate', function(job, src)
     if type(job) ~= 'table' then
         return false, 'job must be a table'
     end
     if not CisInvokingAllowed() then
-        return false, 'not on Security.AuthorizedResources'
+        return false, notAuthorizedReason('PublishJobUpdate')
     end
     -- The job histogram is a cis_libs feature and stays one: it is a pure
     -- in-memory structure, it owns no table, and `GetOnlineJobCount` is
@@ -982,7 +1000,7 @@ exports('PublishInventory', function(src)
     -- On the allow-list, because this writes state a CLIENT acts on. See the
     -- note above the publishers: a fake snapshot makes a product's UI lie.
     if not CisInvokingAllowed() then
-        return false, 'not on Security.AuthorizedResources'
+        return false, notAuthorizedReason('PublishInventory')
     end
     local ok, snapshot = CisRegistry.call('inventory', 'snapshot', src)
     if not ok then

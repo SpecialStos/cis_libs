@@ -413,7 +413,7 @@ return {
         -- code does not change when the platform underneath it does.
         SetConfig = {
             since = '2.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Called by cis_core at boot with (config, security, discord). First registration wins; a second is refused and named',
+            use = 'Called by cis_core at boot with (config, security, discord). First registration wins; a second is refused and named. `security.AllowAnyResource` is the 2.2.0 opt-in escape hatch: with it true an EMPTY AuthorizedResources stops meaning restrictive, and the console warns on every boot',
             realm = 'server',
             signature = '(config, security, discord)',
         },

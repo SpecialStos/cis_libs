@@ -981,7 +981,7 @@ function cis_libs.SecurityReport(src, reason) end
 function cis_libs.SendDiscordLog(webhookURL, title, message, color, ping) end
 
 ---@class cis_libs.SetConfig
----@field use string Called by cis_core at boot with (config, security, discord). First registration wins; a second is refused and named
+---@field use string Called by cis_core at boot with (config, security, discord). First registration wins; a second is refused and named. `security.AllowAnyResource` is the 2.2.0 opt-in escape hatch: with it true an EMPTY AuthorizedResources stops meaning restrictive, and the console warns on every boot
 ---@field since string 2.0.0
 ---@field deprecated boolean false
 ---@param config any

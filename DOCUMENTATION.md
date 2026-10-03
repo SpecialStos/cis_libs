@@ -500,7 +500,7 @@ real registered surface ever differ.
 | `SecureNetOn` | server | `(name, fn, opts)` | 1.0.0 | Cis.net.on(name, fn, opts) -> true when the event was bound |
 | `SecurityReport` | server | `(src, reason)` | 1.0.0 | Cis.security.report(src, reason) |
 | `SendDiscordLog` | server | `(webhookURL, title, message, color, ping)` | 1.0.0 | Cis.log.info with a discordType; no proxy equivalent for a raw webhook push |
-| `SetConfig` | server | `(config, security, discord)` | 2.0.0 | Called by cis_core at boot with (config, security, discord). First registration wins; a second is refused and named |
+| `SetConfig` | server | `(config, security, discord)` | 2.0.0 | Called by cis_core at boot with (config, security, discord). First registration wins; a second is refused and named. `security.AllowAnyResource` is the 2.2.0 opt-in escape hatch: with it true an EMPTY AuthorizedResources stops meaning restrictive, and the console warns on every boot |
 | `SetDropPlayerHandler` | server | `(provider)` | 2.0.0 | Called by whoever ships the config, with "resource:Export". A FUNCTION cannot be sent across the boundary, which is why this exists |
 | `SetVehicleProperties` | client | `(vehicle, props, fixVehicle)` | 1.0.0 | no proxy equivalent; diffs against the last applied snapshot |
 | `SyncCreate` | server | `(kind, data)` | 1.0.0 | Cis.sync.ped / Cis.sync.prop / Cis.sync.vehicle |

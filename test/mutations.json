@@ -65,6 +65,13 @@
       "why": "Remove the playerDropped rejection. Every server-to-client await aimed at a player who has just left then waits out the full CallbackTimeout -- 10 seconds and a parked live coroutine per outstanding call -- and is reported as a generic 'timeout', so the caller is told the client was slow about a client that is gone."
     },
     {
+      "id": "M14",
+      "file": "server/security.lua",
+      "find": "    if allowAnyResource() then\n        applyPosture('permissive', 'Security.AllowAnyResource is set')\n        return\n    end\n",
+      "replace": "",
+      "why": "Make an empty AuthorizedResources permissive again -- the exact behaviour DEC-2 removes. Every resource on the server regains the right to add, break and rewrite every door and every synced entity, on a server whose operator was told the gate was closed. The refusal itself is unchanged, so nothing about the shape of the answer gives it away."
+    },
+    {
       "id": "M12",
       "file": "server/sync.lua",
       "find": "    for id, record in pairs(records) do\n        if record.owner == resource then\n            remove(id)\n        end\n    end\nend)",
