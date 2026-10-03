@@ -1766,6 +1766,118 @@ do
     env.reset()
 end
 
+-- ============================================== 3.12 · GetFramework parity
+--
+-- The server answers `CisRegistry.methods('framework')` — the METHOD TABLE. The
+-- client answered `CisRegistry.resolve('framework')`, which is the provider's
+-- EXPORT itself: a callable, or a callable table once it has crossed the
+-- boundary.
+--
+-- Every caller then did `fw.GetPlayer(src)` and got nil, with no error and no
+-- way to tell that from "this player has no framework record". On a server
+-- whose framework arrives from another resource the result is a table carrying
+-- a `__cfx_functionReference`, so indexing it for a method name finds nothing.
+-- api.lua documents a table; the source returned something else.
+do
+    local env = newEnv({})
+    env.saved[#env.saved + 1] = { name = 'CisReadyState', value = rawget(_G, 'CisReadyState') }
+    CisReadyState = { wait = function() return true end, ready = true }
+    -- Loaded HERE for the first time in any suite. client/proxy.lua was never
+    -- loaded by a test before this one, which is why its GetFramework could
+    -- return the wrong shape for however long without anything noticing --
+    -- the same disease as DrawText3D, and the reason the load is here rather
+    -- than in a shared helper.
+    loadModule('client/proxy.lua')
+
+    -- A framework provider that answers with a METHOD TABLE, which is what a
+    -- real one does and what the docs promise.
+    local methods = { GetPlayer = function() return 'record' end, Notify = function() end }
+    CisRegistry.register('framework', function() return methods end)
+
+    local fw = exports.GetFramework()
+    check(type(fw) == 'table',
+        ('3.12: GetFramework answers a table (got %s)'):format(type(fw)))
+    -- Guarded, so a wrong answer is a clean FAIL and not a crash that hides
+    -- every later assertion in the suite.
+    check(type(fw) == 'table' and type(rawget(fw, 'GetPlayer')) == 'function',
+        '3.12: and it is the METHOD TABLE, so fw.GetPlayer is callable')
+    check(type(fw) == 'table' and fw.GetPlayer ~= nil,
+        '3.12: the documented usage works (fw.GetPlayer(src))')
+    local again = exports.GetFramework()
+    check(type(again) == 'table' and type(rawget(again, 'GetPlayer')) == 'function',
+        '3.12: and on the SECOND call, from the cache, it still is')
+    env.reset()
+end
+
+-- ============================================== 3.14 · the doorsClient path
+--
+-- `RequestLockDoors` / `RequestUnlockDoors` fired
+-- `<prefix>:doorlock:requestState` DIRECTLY, bypassing the capability slot
+-- every other client→server call in this library goes through.
+--
+-- It works today only because `cis_keys` happens to handle that exact event
+-- name. So a product that supplies the `doorsClient` slot the documented way is
+-- ignored, and the wire name this library chose is load-bearing on every
+-- installed server whether anybody agreed to it or not.
+--
+-- The fix is DEC-5: go through `CisRegistry.call('doorsClient', 'RequestState',
+-- ...)` when a provider is registered, and fall back to the event only when
+-- none is.
+do
+    local env = newEnv({})
+    env.saved[#env.saved + 1] = { name = 'CisReadyState', value = rawget(_G, 'CisReadyState') }
+    CisReadyState = { wait = function() return true end, ready = true }
+    loadModule('client/proxy.lua')
+
+    -- NO provider registered: the event fallback must carry it, because that is
+    -- what every installed server uses today.
+    env.serverEvents = {}
+    exports.RequestLockDoors('shop')
+    local fired = env.serverEvents[#env.serverEvents]
+    check(fired and fired.name:find('doorlock:requestState', 1, true) ~= nil,
+        '3.14: with no doorsClient provider the event fallback still fires')
+    check(fired and fired.args[1] == 'shop' and fired.args[2] == true,
+        '3.14: and it carries the identifier and the state')
+
+    -- WITH a provider: the slot must win, and the event must NOT fire. Firing
+    -- both is the failure that would leave a product seeing two requests for one
+    -- door lock and having no idea which one it answered.
+    -- A PROVIDER SHAPE THIS LIBRARY DOCUMENTS: a bare callable is a DISPATCHER
+    -- and takes the method name as its first argument -- cis_migrate's shape,
+    -- and the one `CisRegistry.register` explicitly supports.
+    --
+    -- The first version of this fixture registered a function that RETURNS a
+    -- method table. The registry read that as a dispatcher being asked for a
+    -- method, it answered with a table, and the call SUCCEEDED -- so the case
+    -- reported zero calls and no error anywhere. A test fixture that is the
+    -- wrong shape for the thing it is testing fails in a way that looks exactly
+    -- like the defect it was written to catch.
+    local seen = {}
+    CisRegistry.register('doorsClient', function(method, identifier, lock)
+        if method ~= 'RequestState' then
+            return nil
+        end
+        seen[#seen + 1] = { identifier = identifier, lock = lock }
+        return 'handled by the slot'
+    end)
+
+    env.serverEvents = {}
+    exports.RequestLockDoors('bank')
+    check(#seen == 1 and seen[1].identifier == 'bank' and seen[1].lock == true,
+        ('3.14: a registered doorsClient provider is asked instead (%d call(s))')
+            :format(#seen))
+    check(#env.serverEvents == 0,
+        ('3.14: and the event does NOT also fire -- one request, one handler '
+            .. '(%d event(s))'):format(#env.serverEvents))
+
+    seen = {}
+    exports.RequestUnlockDoors('bank')
+    check(#seen == 1 and seen[1].lock == false,
+        '3.14: and the same path answers for the unlock half')
+    check(#env.serverEvents == 0, '3.14: with no event fallback either')
+    env.reset()
+end
+
 -- ==================================================================== report
 for i = 1, #failures do
     io.stderr:write('FAIL(client): ' .. failures[i] .. '\n')

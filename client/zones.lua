@@ -85,6 +85,37 @@ end
 --   onEnterEvent = 'myResource:shopEnter'   -- receive: (zoneName, x, y, z)
 --
 -- The function form works inside cis_libs; the event form works from a consumer.
+--
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+-- THE EVENT FORM IS A CLIENT CLAIM. READ THIS BEFORE YOU TRUST IT.
+-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+--
+-- The containment test above runs on the CLIENT, and the event carries whatever
+-- the client computed. cis_libs cannot validate the consumer's handler, and no
+-- code on this side can make the claim true -- a modified client fires the event
+-- from anywhere, for any player, at any time.
+--
+-- That matters in proportion to what the handler DOES with it. "Show a prompt"
+-- is cosmetic and a forged prompt is an annoyance. "Give the player the item",
+-- "teleport them in", "open the door" -- each of those is a cheat vector, and
+-- none of them is stopped by anything written here.
+--
+-- So, if the handler matters:
+--
+--   * Register it with `Cis.net.on(name, handler)`. That is the same path
+--     every other net event takes, so the handler receives an INJECTED `source`
+--     that a client cannot choose, and it is rate limited. A bare
+--     `RegisterNetEvent` gets neither, and the source it sees is whatever the
+--     client felt like sending.
+--   * Then decide on the server whether the claim is plausible: the player is
+--     actually near the door, actually has the key, actually has the job.
+--   * For anything where being wrong is expensive, use a SERVER-VERIFIED zone
+--     instead -- `Cis.zones.server.box/poly/sphere` computes containment on the
+--     server from server-side ped coordinates. It costs a timer and it cannot be
+--     forged.
+--
+-- The same applies to the function form when the consumer supplies it to a zone
+-- it created inside this resource: that function runs on the client too.
 local function invoke(zone, name, ...)
     local fn = zone[name]
     if fn then

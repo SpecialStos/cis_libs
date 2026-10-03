@@ -256,6 +256,22 @@ Pure and dependency-free: a spatial hash over `shared/grid.lua`, plus
 name-only shim kept for 1.x callers; there is no PolyZone adapter and there is
 not going to be one.
 
+> **`onEnterEvent` / `onExitEvent` / `insideEvent` are CLIENT CLAIMS.**
+>
+> Containment is computed on the client and the event carries whatever the
+> client computed. cis_libs cannot validate your handler, and nothing here can
+> make the claim true: a modified client fires the event from anywhere, for any
+> player, at any moment. That is fine for "show a prompt" and it is a cheat
+> vector for anything that grants something.
+>
+> If the handler matters: register it with `Cis.net.on(name, handler)` so it
+> receives an **injected `source`** a client cannot choose, and is rate limited
+> — a bare `RegisterNetEvent` gets neither. Then have the server check the claim
+> is plausible. For anything where being wrong is expensive, use a
+> server-verified zone instead (`Cis.zones.server.box/poly/sphere`), which
+> computes containment server-side from server-side ped coordinates and cannot
+> be forged at the cost of a timer.
+
 ### 4.3 Callbacks (both)
 
 ```lua

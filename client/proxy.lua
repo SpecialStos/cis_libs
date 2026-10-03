@@ -156,7 +156,16 @@ exports('GetFramework', function()
     if not CisReadyState.wait(15000) then
         return nil
     end
-    return CisRegistry.resolve('framework')
+    -- `methods()`, NOT `resolve()`. (3.12)
+    --
+    -- This answered the provider's EXPORT: a callable, or a callable table once
+    -- it has crossed the exports boundary. Every caller then did
+    -- `fw.GetPlayer(src)`, indexed a function or a `__cfx_functionReference`,
+    -- and got nil -- with no error and no way to tell that from "this player has
+    -- no framework record". The SERVER has always answered `methods()`, which is
+    -- the method table api.lua documents, so one export name meant two different
+    -- things depending on which side asked.
+    return CisRegistry.methods('framework')
 end)
 
 -- ===========================================================================
@@ -234,20 +243,34 @@ end)
 -- The two REQUESTS rather than commands. There is deliberately no doorlock code
 -- here: the client does not decide, and a client that could set a lock state
 -- locally would be a client that can open a server's doors.
-exports('RequestLockDoors', function(identifier)
+--
+-- THROUGH THE SLOT WHEN THERE IS ONE (DEC-5, 3.14). These used to fire
+-- `<prefix>:doorlock:requestState` directly, bypassing the capability registry
+-- every other call here goes through. It worked only because `cis_keys`
+-- happens to handle that exact event name -- so a product supplying the
+-- documented `doorsClient` slot was ignored, and this library's wire name was
+-- load-bearing on every installed server whether anybody agreed to it or not.
+--
+-- The event remains as a FALLBACK, and only when no provider is registered.
+-- Both firing would be worse than either: the product would see two requests
+-- for one door lock and have no way to know which one it had answered.
+local function requestDoorState(identifier, lock)
     if not CisReadyState.wait(15000) then
         return nil
     end
-    TriggerServerEvent((Security and Security.EventPrefix or 'cis_libs') .. ':doorlock:requestState',
-        identifier, true)
+    if CisRegistry.has('doorsClient') then
+        return forward('doorsClient', nil, 'RequestState', identifier, lock)
+    end
+    return TriggerServerEvent((Security and Security.EventPrefix or 'cis_libs')
+        .. ':doorlock:requestState', identifier, lock)
+end
+
+exports('RequestLockDoors', function(identifier)
+    return requestDoorState(identifier, true)
 end)
 
 exports('RequestUnlockDoors', function(identifier)
-    if not CisReadyState.wait(15000) then
-        return nil
-    end
-    TriggerServerEvent((Security and Security.EventPrefix or 'cis_libs') .. ':doorlock:requestState',
-        identifier, false)
+    return requestDoorState(identifier, false)
 end)
 
 -- ============================================================ GetDiagnostics

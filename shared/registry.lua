@@ -115,6 +115,12 @@ CisRegistry.SLOTS = {
         addGroup = 'AddDoorGroup(data) -> boolean',
         closest = 'GetClosestDoor() -> { id, distance, door }|nil',
         state = 'GetDoorState(doorId) -> boolean|nil',
+        -- ADDITIVE (DEC-5, 3.14). The client asked for a lock state by firing
+        -- `<prefix>:doorlock:requestState` directly, so a provider that supplied
+        -- this slot the documented way was never asked. Declaring the method is
+        -- what lets the registry's name check accept it; nothing that exists
+        -- today changes shape.
+        RequestState = 'RequestState(identifier, lock) -> any',
     },
     -- Discord webhooks and any other outbound sink.
     discord = {
@@ -666,20 +672,19 @@ function CisRegistry.call(slot, ...)
                 methods = false
                 held.methods = false
             elseif type(value) == 'table' then
+                -- The method table. Every table lands here, including one that
+                -- is ALSO callable -- a function that arrived across the exports
+                -- boundary is a table carrying a `__cfx_functionReference` --
+                -- which is precisely why the callable test above comes first.
                 methods = value
                 held.methods = value
-            elseif type(value) == 'table' and not isCallable(value) then
-                methods = value
-                held.methods = value
-            elseif isCallable(value) then
-                -- The export answered with a FUNCTION rather than a method
-                -- table, so it is a dispatcher that takes the method name as its
-                -- first argument -- cis_migrate's shape. That verdict is
-                -- definitive and is cached, so the export is asked once.
-                methods = false
-                held.methods = false
             else
                 -- NIL. AMBIGUOUS, AND DELIBERATELY NOT CACHED.
+                --
+                -- TWO BRANCHES THAT WERE HERE ARE DELETED (3.13), and this is
+                -- the proof rather than the assertion of it: they were
+                -- unreachable, because the branch above already catches every
+                -- table and the first branch catches every callable.
                 --
                 -- Two providers legitimately answer nil here. A dispatcher asked
                 -- for no action may answer nil (cis_migrate does). And a method
