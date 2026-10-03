@@ -21,7 +21,9 @@
     "test:mutate": "node tools/mutate.js",
     "test:lua54": "node tools/run-lua54.js",
     "check:luacheck": "node tools/gen-luacheck.js --check",
-    "live:deploy": "node tools/live-deploy.js"
+    "live:deploy": "node tools/live-deploy.js",
+    "live:run": "node tools/live-run.js",
+    "live:client": "node tools/client.js"
   },
   "devDependencies": {
     "fengari": "^0.1.5"

@@ -60,6 +60,23 @@ function CisTestStatus.Snapshot()
         resources[name] = GetResourceState(name)
     end
 
+    -- Which suites exist and which of them need a player, read from the runner
+    -- rather than written down anywhere else. tools/live-run.js needs this to
+    -- decide whether to start a client, and a hard-coded tier list there would
+    -- be the thing that goes stale: a suite added tomorrow would be run with no
+    -- player and every case in it would SKIP, and the run would still be green.
+    local suites = {}
+    local okSuites, list = pcall(function() return CisTestRunner.Suites() end)
+    if okSuites and type(list) == 'table' then
+        for _, s in ipairs(list) do
+            suites[#suites + 1] = {
+                suite = tostring(s.name),
+                tier = tostring(s.tier),
+                needsPlayer = (s.needsPlayer == true),
+            }
+        end
+    end
+
     return {
         cisLibsVersion = libsVersion(),
         -- 'unknown' when deploy.json is missing, which is itself the signal: it
@@ -69,6 +86,7 @@ function CisTestStatus.Snapshot()
         playerCount = count,
         slotOwners = slotOwners,
         resources = resources,
+        suites = suites,
     }
 end
 
@@ -84,6 +102,7 @@ function CisTestStatus.Write()
         playerCount = snap.playerCount,
         slotOwners = snap.slotOwners,
         resources = snap.resources,
+        suites = snap.suites,
     }
     local encoded = CisTestJson.encode(body)
     local ok, err = pcall(SaveResourceFile, GetCurrentResourceName(), 'status.json', encoded, -1)
