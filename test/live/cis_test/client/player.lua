@@ -316,6 +316,30 @@ function P.ResetBaseOrigin()
     baseOrigin = nil
 end
 
+-- PUT THE PED BACK WHERE THE SUITE STARTED.
+--
+-- Cases must not depend on each other's leftovers. A case that walks the player
+-- leaves them somewhere else, while the offsets `at()` hands out are measured
+-- from the suite's base origin -- so the next case builds its geometry around a
+-- place the player is no longer standing. The removal case did exactly that: it
+-- built a box around the origin the player had walked away from two cases
+-- earlier, and reported a missing onExit for a zone they were never inside.
+--
+-- Only moves when there is somewhere to go back to, so a case that never walks
+-- costs nothing.
+function P.ReturnToBase()
+    local base = P.BaseOrigin()
+    local ped = P.Ped()
+    if not base or not ped or not DoesEntityExist(ped) then
+        return false, 'no ped or no base origin'
+    end
+    local here = GetEntityCoords(ped)
+    if #(here - base) <= 0.5 then
+        return true
+    end
+    return P.StepTowards(base, 8)
+end
+
 function P.StepTowards(target, steps)
     steps = steps or 20
     local ped = P.Ped()
@@ -411,26 +435,44 @@ function P.RunSuite(name)
 
     local results = {}
     for _, c in ipairs(cases) do
-        -- A case answers (passed, why). xpcall puts ITS OWN first return value in
-        -- the second slot and the case's explanation in the THIRD, so capturing
-        -- two values silently threw the explanation away and every non-raising
-        -- failure reported a bare "false" -- which is the one thing a results
-        -- file exists to prevent. A probe deployed to find out exactly which
-        -- client exports were missing computed its answer, lost it here, and
-        -- came back as `detail: "false"` with nothing to act on.
-        local ok, passed, explanation = xpcall(c.run, function(m)
-            return debug.traceback(tostring(m), 2)
-        end)
-        if not ok then
-            -- A case that RAISED is a failure with the stack attached, not a
-            -- crash that loses every case after it.
-            results[#results + 1] = { name = c.name, ok = false, msg = tostring(passed) }
-        else
+        -- Each case starts from the suite's origin, whatever the last one did.
+        --
+        -- A case that cannot set up its own starting position has not tested
+        -- anything, so it is recorded as a failure and NOT run -- running it
+        -- anyway would file a second result under the same name, one of them
+        -- about the wrong thing, and the counts would no longer add up to the
+        -- number of cases asked for.
+        local home, homeWhy = P.ReturnToBase()
+        if not home then
             results[#results + 1] = {
                 name = c.name,
-                ok = passed ~= false,
-                msg = (explanation ~= nil) and tostring(explanation) or tostring(passed),
+                ok = false,
+                msg = ('could not return the player to the suite origin: %s')
+                    :format(tostring(homeWhy)),
             }
+        else
+            -- A case answers (passed, why). xpcall puts ITS OWN first value in
+            -- the second slot and the case's explanation in the THIRD, so
+            -- capturing two values silently threw the explanation away and every
+            -- non-raising failure reported a bare "false" -- which is the one
+            -- thing a results file exists to prevent. A probe deployed to find
+            -- out exactly which client exports were missing computed its answer,
+            -- lost it here, and came back as `detail: "false"` with nothing to
+            -- act on.
+            local ok, passed, explanation = xpcall(c.run, function(m)
+                return debug.traceback(tostring(m), 2)
+            end)
+            if not ok then
+                -- A case that RAISED is a failure with the stack attached, not
+                -- a crash that loses every case after it.
+                results[#results + 1] = { name = c.name, ok = false, msg = tostring(passed) }
+            else
+                results[#results + 1] = {
+                    name = c.name,
+                    ok = passed ~= false,
+                    msg = (explanation ~= nil) and tostring(explanation) or tostring(passed),
+                }
+            end
         end
     end
 

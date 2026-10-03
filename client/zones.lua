@@ -413,6 +413,18 @@ CreateThread(function()
     local lastRecheck = 0
     while true do
         if next(zones) == nil then
+            -- THE DEBUG SNAPSHOT MUST NOT GO STALE.
+            --
+            -- debugStats is rebuilt inside the pass below, which only runs when
+            -- there is at least one zone. So the moment the last zone is
+            -- removed, GetZoneDebug keeps reporting the previous pass -- a
+            -- zone that no longer exists, still counted as "inside". A harness
+            -- waiting on `insideCount > 0` is then satisfied instantly by a
+            -- zone that was deleted, concludes its own zone was found, and
+            -- reports a missing onExit for code that never ran. Cost one full
+            -- diagnosis cycle here, and it presented as a leak in remove().
+            debugStats.insideCount = 0
+            debugStats.insideNames = {}
             Wait(500)
         else
             local started = GetGameTimer()

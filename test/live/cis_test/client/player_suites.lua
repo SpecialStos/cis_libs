@@ -133,7 +133,7 @@ P.RegisterSuite('zones', {
             local ok, why = exports['cis_libs']:CreateZone('box', 'z_standing',
                 { x = o.x, y = o.y, z = o.z },
                 extent(8.0, 8.0, 8.0),
-                { onEnter = function(coords) P.NoteEnter(coords) end })
+                { onEnter = function(_zone, coords) P.NoteEnter(coords) end })
             if not ok then return false, ('CreateZone was refused: %s'):format(tostring(why)) end
 
             -- The plan allows 250 ms. 1000 is generous and still bounded: a
@@ -163,7 +163,7 @@ P.RegisterSuite('zones', {
             P.ClearEnterLog()
             local ok, why = exports['cis_libs']:CreateZone('box', 'z_walk',
                 at(12.0, 12.0, 0.0), extent(4.0, 4.0, 4.0),
-                { onEnter = function(coords) P.NoteEnter(coords) end })
+                { onEnter = function(_zone, coords) P.NoteEnter(coords) end })
             if not ok then return false, ('CreateZone was refused: %s'):format(tostring(why)) end
 
             -- StepTowards answers whether the ped ACTUALLY moved. Ignoring that
@@ -194,14 +194,27 @@ P.RegisterSuite('zones', {
             local contains = exports['cis_libs']:ZoneContains('z_walk', here)
 
             local n = #P.EnterLog()
-            exports['cis_libs']:RemoveZone('z_walk')
-            return n == 1,
+            local removed = exports['cis_libs']:RemoveZone('z_walk')
+            -- Does removing it actually drop the library's belief? A leftover
+            -- `inside` entry from THIS case is what made the next case wait on
+            -- a zone that was never discovered and then report a missing onExit.
+            P.WaitFor(function() return false end, 400)
+            local after = exports['cis_libs']:GetZoneDebug()
+            local stillIn = after and table.concat(after.insideNames or {}, ',') or 'n/a'
+            -- A zone that survives its own removal in the library's `inside`
+            -- table is a leak, and it used to show up one case later as a
+            -- missing onExit somewhere else entirely. Assert it HERE, where the
+            -- evidence is, instead of leaving it to be misattributed.
+            local leaked = stillIn ~= '' and stillIn ~= 'n/a'
+            return n == 1 and not leaked,
                 ('onEnter fired exactly once while walking in: %d time(s), '
                     .. 'insideCount=%s inside=[%s] passMs=%s | '
-                    .. 'ZoneContains(player)=%s at %.1f,%.1f,%.1f')
+                    .. 'ZoneContains(player)=%s at %.1f,%.1f,%.1f | '
+                    .. 'removed=%s, inside AFTER removal=[%s]%s')
                     :format(n, tostring(insideCount), tostring(insideNames),
                             tostring(dbg and dbg.lastPassMs), tostring(contains),
-                            here.x, here.y, here.z)
+                            here.x, here.y, here.z, tostring(removed), stillIn,
+                            leaked and '  <-- LEAKED: the library still holds a removed zone' or '')
         end,
     },
     {
@@ -212,24 +225,63 @@ P.RegisterSuite('zones', {
             P.ClearExitLog()
             local ok, why = exports['cis_libs']:CreateZone('box', 'z_remove',
                 at(2.0, 2.0, 2.0), extent(4.0, 4.0, 4.0),
-                { onEnter = function() end, onExit = function(coords) P.NoteExit(coords) end })
+                { onEnter = function() end, onExit = function(_zone, coords) P.NoteExit(coords) end })
             -- A refused zone here reports "coords MISSING" thirty lines later,
             -- which names the symptom and hides the cause. The exit can only be
             -- observed on a zone that exists.
             if not ok then return false, ('CreateZone was refused: %s'):format(tostring(why)) end
 
-            -- Wait until the library agrees the player is inside, so the exit
-            -- below is a real exit and not the removal of a zone that was never
-            -- entered.
-            P.WaitFor(function() return true end, 300)
+            -- Wait until the LIBRARY agrees the player is inside.
+            --
+            -- RemoveZone only fires onExit for a zone it believes the player is
+            -- in, and that belief is established by the sweep, not by the
+            -- creation. This used to `WaitFor(function() return true end, 300)`,
+            -- which returns on the first evaluation and so waited no time at
+            -- all -- the zone was removed before the loop had ever looked at
+            -- it, and the case reported 0 exits regardless of what removal
+            -- does. It has been reporting that for the whole project.
+            -- Wait for THIS zone by NAME, not merely for any zone to be inside.
+            -- `insideCount > 0` is satisfied by a leftover from a previous case
+            -- -- or, before the debug-snapshot fix, by a stale snapshot naming
+            -- a zone that had already been removed -- and then this case waits
+            -- for something that will never happen and blames the removal.
+            local dbg
+            local seen = P.WaitFor(function()
+                dbg = exports['cis_libs']:GetZoneDebug()
+                for _, nme in ipairs((dbg and dbg.insideNames) or {}) do
+                    if nme == 'z_remove' then return true end
+                end
+                return false
+            end, 2000)
+            if not seen then
+                return false, ('the library never registered the player inside '
+                    .. 'z_remove (insideCount=%s after 2000ms)')
+                        :format(tostring(dbg and dbg.insideCount))
+            end
+
+            -- WHICH zone did the library think the player was inside? The wait
+            -- above only proves SOME zone was; RemoveZone fires onExit for the
+            -- named one only, and a leftover from a previous case would satisfy
+            -- the wait while leaving this zone undiscovered.
+            local insideNames = dbg and table.concat(dbg.insideNames or {}, ',') or 'n/a'
+
             P.ClearExitLog()
-            exports['cis_libs']:RemoveZone('z_remove')
+            local removed = exports['cis_libs']:RemoveZone('z_remove')
 
             local exits = P.ExitLog()
-            local coords = type(exits[1]) == 'table' and exits[1] or nil
-            return #exits == 1 and coords ~= nil,
-                ('one onExit on removal: %d, coords %s'):format(#exits,
-                    coords and ('%.1f, %.1f, %.1f'):format(coords.x, coords.y, coords.z) or 'MISSING')
+            local first = exits[1]
+            -- A zone callback is called as fn(zone, coords) -- see `invoke` in
+            -- client/zones.lua -- so the harness reads the SECOND argument.
+            -- Reading the first handed it the zone table, whose `.x` is nil, and
+            -- the message format raised instead of reporting the pass. The case
+            -- had been reporting this failure for the whole project.
+            local haveCoords = type(first) == 'table' and type(first.x) == 'number'
+            local coordsText = haveCoords
+                and ('%.1f, %.1f, %.1f'):format(first.x, first.y, first.z)
+                or 'MISSING'
+            return #exits == 1 and haveCoords,
+                ('one onExit on removal: %d, coords %s (removed=%s, library had inside=[%s])')
+                    :format(#exits, coordsText, tostring(removed), insideNames)
         end,
     },
     {
@@ -288,6 +340,24 @@ P.RegisterSuite('points', {
 
             local moved, moveWhy = P.StepTowards(at(4.0, 0.0, 0.0), 25)
             if not moved then return false, ('could not walk: %s'):format(tostring(moveWhy)) end
+
+            -- LET THE LIBRARY OBSERVE THE PLAYER INSIDE BEFORE WALKING OUT.
+            --
+            -- Two teleports with nothing between them can land entirely between
+            -- two sweeps. The watcher then sees outside, then outside again, and
+            -- reports nothing at all -- which is what `0 in, 0 out` was: not a
+            -- dropped callback, a state the library was never shown.
+            local gotIn = P.WaitFor(function()
+                for _, e in ipairs(P.NearLog()) do
+                    if e == 'in' then return true end
+                end
+                return false
+            end, 2000)
+            if not gotIn then
+                return false, ('the watcher never reported the enter at '
+                    .. '2 m from a 4 m radius (log: %s)'):format(table.concat(P.NearLog(), ','))
+            end
+
             -- 10 m from the watcher: clearly outside, so the exit is real.
             moved, moveWhy = P.StepTowards(at(16.0, 0.0, 0.0), 25)
             if not moved then return false, ('could not walk: %s'):format(tostring(moveWhy)) end
