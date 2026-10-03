@@ -325,7 +325,7 @@ function cis_libs.LogInfo(message, discordType) end
 function cis_libs.LogWarn(message, discordType) end
 
 ---@class cis_libs.Notify
----@field use string Cis.framework.notify(...). The two-argument client form sends `kind` in the message slot; this is pinned as a known defect in test/contracts.lua and is a MAJOR change to correct
+---@field use string Cis.framework.notify(...). With a framework provider registered the call passes through to it untouched; with none, cis_libs delivers it itself through the same guards NotifyClient uses, so a server with no framework does not go mute and does not become the unbounded path. The two-argument client form sends `kind` in the message slot; this is pinned as a known defect in test/contracts.lua and is a MAJOR change to correct
 ---@field since string 1.0.0
 ---@field deprecated boolean false
 ---@param src any
@@ -880,7 +880,7 @@ function cis_libs.LogInfo(message, discordType) end
 function cis_libs.LogWarn(message, discordType) end
 
 ---@class cis_libs.Notify
----@field use string Cis.framework.notify(...). The two-argument client form sends `kind` in the message slot; this is pinned as a known defect in test/contracts.lua and is a MAJOR change to correct
+---@field use string Cis.framework.notify(...). With a framework provider registered the call passes through to it untouched; with none, cis_libs delivers it itself through the same guards NotifyClient uses, so a server with no framework does not go mute and does not become the unbounded path. The two-argument client form sends `kind` in the message slot; this is pinned as a known defect in test/contracts.lua and is a MAJOR change to correct
 ---@field since string 1.0.0
 ---@field deprecated boolean false
 ---@param src any
@@ -889,7 +889,7 @@ function cis_libs.LogWarn(message, discordType) end
 function cis_libs.Notify(src, message, kind) end
 
 ---@class cis_libs.NotifyClient
----@field use string Called by a product to show a notification to one client, without hardcoding the event name owned by this library
+---@field use string Called by a product to show a notification to one client, without hardcoding the event name owned by this library. Answers `false, reason` for a src that is not a connected player, truncates a message past 512 characters, and allows 10 a second per (src, calling resource)
 ---@field since string 2.0.0
 ---@field deprecated boolean false
 ---@param src any
@@ -1181,7 +1181,7 @@ function cis_libs.LogInfo(message, discordType) end
 function cis_libs.LogWarn(message, discordType) end
 
 ---@class cis_libs.Notify
----@field use string Cis.framework.notify(...). The two-argument client form sends `kind` in the message slot; this is pinned as a known defect in test/contracts.lua and is a MAJOR change to correct
+---@field use string Cis.framework.notify(...). With a framework provider registered the call passes through to it untouched; with none, cis_libs delivers it itself through the same guards NotifyClient uses, so a server with no framework does not go mute and does not become the unbounded path. The two-argument client form sends `kind` in the message slot; this is pinned as a known defect in test/contracts.lua and is a MAJOR change to correct
 ---@field since string 1.0.0
 ---@field deprecated boolean false
 ---@param src any

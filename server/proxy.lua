@@ -37,6 +37,49 @@ local warned = {}
 local MAX_NOTIFY_LENGTH = 512
 local NOTIFY_MAX_PER_SECOND = 10
 
+-- THE ONE DELIVERY PATH. `Notify` with no framework behind it and
+-- `NotifyClient` are the same act -- put one string in front of one player --
+-- so they share one set of guards rather than each carrying its own.
+--
+-- They did not, and that is the defect this exists to remove: `NotifyClient`
+-- grew a rate limit and `Notify`'s fallback never did, so the bounded path was
+-- the rarer one. A guard that is written twice is a guard that is fixed once.
+--
+-- The checks, in order, because the reason a caller gets names the first thing
+-- that was wrong:
+--
+--   * src is a number greater than zero. Zero is the console, negative is a
+--     broadcast, and neither is a player. `'1'` is a string, and a string is the
+--     shape a caller gets from JSON or a config file, where it looks fine.
+--   * src is a player who is here. A plausible id is not a player: firing at
+--     somebody who left is a success the caller is told about and nothing else,
+--     which is the worst of both -- it looks delivered and reaches nobody.
+--   * the message is length-capped. It crosses the wire as text and is rendered
+--     on a screen the server does not own. Truncated rather than refused: a long
+--     notification is a mistake rather than an attack, and refusing it outright
+--     would break the caller without saying what was wrong.
+--   * the (src, caller) pair is rate-limited. Unbounded, this is a resource
+--     spending a server's event budget on one player at will. Keyed by caller as
+--     well as target so one noisy resource cannot exhaust the budget that
+--     another resource's legitimate notifications to the same player share.
+local function deliverNotification(src, message, kind)
+    if type(src) ~= 'number' or src <= 0 then
+        return false, ('src must be a connected player id, got %s'):format(tostring(src))
+    end
+    if not GetPlayerName(src) then
+        return false, ('src %d is not connected'):format(src)
+    end
+    if type(message) == 'string' and #message > MAX_NOTIFY_LENGTH then
+        message = message:sub(1, MAX_NOTIFY_LENGTH)
+    end
+    local caller = GetInvokingResource() or 'cis_libs'
+    if not CisRateOk(src, 'notify:' .. tostring(caller), 1000, NOTIFY_MAX_PER_SECOND) then
+        return false, 'notification rate limit'
+    end
+    TriggerClientEvent('cis_libs:client:showNotification', src, message, kind)
+    return true
+end
+
 -- A2 · THE AUDIT LINE.
 --
 -- Three events change who is trusted with what, and all three were visible only
@@ -605,9 +648,12 @@ exports('Notify', function(src, message, kind)
         return forward('framework', nil, 'Notify', src, message, kind)
     end
     -- No framework: cis_libs delivers the notification itself rather than
-    -- dropping it. The old standalone path fell back to the native feed on the
-    -- client, and a server with no framework should not go mute.
-    TriggerClientEvent('cis_libs:client:showNotification', src, message, kind)
+    -- dropping it. A server with no framework should not go mute.
+    --
+    -- And it delivers it through the SAME guarded path as NotifyClient, so a
+    -- fallback cannot be the unbounded one. Which it was, until this call went
+    -- through `deliverNotification` like its twin.
+    return deliverNotification(src, message, kind)
 end)
 
 -- ===========================================================================
@@ -888,27 +934,7 @@ end)
 -- rename. Routing it through an export keeps the wire -- the event name, the
 -- payload shape, the fallback -- in the one place that owns it.
 exports('NotifyClient', function(src, message, kind)
-    if type(src) ~= 'number' or src <= 0 then
-        return false
-    end
-    -- LENGTH-CAPPED. The message crosses the wire as text and is rendered on a
-    -- screen the server does not own, so an unbounded string is a resource
-    -- spending other people's bandwidth to say nothing. Truncated rather than
-    -- refused: a long notification is a mistake rather than an attack, and
-    -- refusing it outright would break the caller without saying what was wrong.
-    if type(message) == 'string' and #message > MAX_NOTIFY_LENGTH then
-        message = message:sub(1, MAX_NOTIFY_LENGTH)
-    end
-    -- RATE-LIMITED PER (src, caller). Unbounded, this is a resource that can
-    -- spend a server's event budget on one player at will. Keyed by caller as
-    -- well as target so one noisy resource cannot exhaust the budget that
-    -- another resource's legitimate notifications to the same player share.
-    local caller = GetInvokingResource() or 'cis_libs'
-    if not CisRateOk(src, 'notify:' .. tostring(caller), 1000, NOTIFY_MAX_PER_SECOND) then
-        return false, 'notification rate limit'
-    end
-    TriggerClientEvent('cis_libs:client:showNotification', src, message, kind)
-    return true
+    return deliverNotification(src, message, kind)
 end)
 
 exports('PublishInventory', function(src)

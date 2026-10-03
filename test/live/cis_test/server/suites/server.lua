@@ -206,34 +206,47 @@ end)
 
 CisTestRunner.Suite('notify', { tier = 'server', realm = 'server' }, function(t)
     -- Appendix A: refused sources, oversize, burst.
-    -- THE TWO CASES BELOW FAIL AGAINST THE CURRENT BUILD, ON PURPOSE. They
+    --
+    -- THE TWO CASES BELOW FAILED AGAINST THE PRE-FIX BUILD, ON PURPOSE. They
     -- were written before the fix and they found it:
     --
-    --   * NotifyClient refuses src 0 and -1 with a BARE `false` and no reason,
-    --     while the rate limit one line below refuses with a reason. Every other
-    --     refusal in this library answers `false, reason`, and the code
-    --     standard says so. A refusal with nothing in it gives the caller
-    --     nothing to log or show.
-    --   * NotifyClient to a src that is not CONNECTED returns true and fires the
-    --     event at a player who is not there. The guard checks the number's
-    --     shape, not whether the player exists.
+    --   * NotifyClient refused src 0 and -1 with a BARE `false` and no reason,
+    --     while the rate limit one line below refused with one. Every other
+    --     refusal in this library answers `false, reason`.
+    --   * NotifyClient to a src that is not CONNECTED returned true and fired
+    --     the event at a player who was not there. The guard checked the
+    --     number's shape, not whether the player exists.
     --
-    -- Task 3.7 owns both. They stay here, red, until it does: a fixed defect
-    -- whose test was deleted is a defect that comes back.
+    -- Both now pass, and `test/contracts.lua` holds the strings behind them --
+    -- including the `Notify` fallback, which cannot be reached on this server
+    -- because a framework provider holds the slot and DEC-13 passes that call
+    -- through untouched.
     t.case('a refused source is refused WITH a reason', function()
-        for _, bad in ipairs({ 0, -1 }) do
+        -- '1' is here for the same reason it is refused in the unit suite: it is
+        -- the shape a caller gets from JSON or a config file, where it looks
+        -- fine, and `type(src) ~= 'number'` is what catches it.
+        for _, bad in ipairs({ 0, -1, '1' }) do
             local ok, why = exports['cis_libs']:NotifyClient(bad, 'harness', 'x')
             t.eq(ok, false, ('src %s is refused'):format(tostring(bad)))
             t.ok(type(why) == 'string' and #why > 0,
-                ('src %s names the reason (currently bare false)'):format(tostring(bad)))
+                ('src %s names the reason'):format(tostring(bad)))
         end
     end)
 
-    t.case('a disconnected src is refused', function()
+t.case('a disconnected src is refused', function()
         local ok, why = exports['cis_libs']:NotifyClient(9999, 'harness', 'x')
-        t.eq(ok, false, 'a src that is not connected is refused (currently it fires)')
+        t.eq(ok, false, 'a src that is not connected is refused')
         t.ok(type(why) == 'string' and #why > 0, 'with a reason')
     end)
+
+    -- The remaining two bounds -- the burst limit and the length cap -- CANNOT
+    -- be asserted here, and the reason is worth writing down rather than
+    -- discovering at 2am: both need a src that resolves to a real player, and
+    -- the connected check now refuses everything else. Standing in a fake id
+    -- would make the case a second copy of the one above wearing a different
+    -- name, which is worse than no case: it reports PASS for a thing it never
+    -- tested. Both are asserted in test/contracts.lua against a src-aware
+    -- player stub, and both are on the list to run live the day a client exists.
 end)
 
 CisTestRunner.Suite('diagnostics', { tier = 'server', realm = 'server' }, function(t)

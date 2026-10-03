@@ -39,9 +39,23 @@
     {
       "id": "M06",
       "file": "server/proxy.lua",
-      "find": "    audit('capability-force-released', ('slot=%s owner=%s'):format(slot, tostring(previous)))\nend, true)",
-      "replace": "    audit('capability-force-released', ('slot=%s owner=%s'):format(slot, tostring(previous)))\nend)",
-      "why": "Drop the restricted flag from the one console command that removes a capability. FiveM then accepts it from a client, and an unknown client command reaches the server with the player's id as the source -- so any player can strip `security`, `database` or `framework` from a running server out of their own chat. The source check inside the handler survives this, which is the point of having both halves."
+      "find": "    if src ~= 0 then\n        print('cis_libs: cis_force_unregister is a server console command. '",
+      "replace": "    if false then\n        print('cis_libs: cis_force_unregister is a server console command. '",
+      "why": "Remove the source check from the one console command that removes a capability. The restricted flag stays, so this is precisely the belt surviving the braces: anything that can get a player id in front of the handler -- a console that forwards a src, or a restricted flag that is not what it was assumed to be -- can strip `security`, `database` or `framework` from a running server."
+    },
+    {
+      "id": "M10",
+      "file": "server/proxy.lua",
+      "find": "    -- through `deliverNotification` like its twin.\n    return deliverNotification(src, message, kind)",
+      "replace": "    -- through `deliverNotification` like its twin.\n    TriggerClientEvent('cis_libs:client:showNotification', src, message, kind)",
+      "why": "Skip the shared guard on the fallback path. `Notify` with no framework behind it and `NotifyClient` are the same act, and this is the shape they had before: the bounded path was the rarer one, so a server with no framework installed had the unbounded one."
+    },
+    {
+      "id": "M21",
+      "file": "server/proxy.lua",
+      "find": "    if not GetPlayerName(src) then\n        return false, ('src %d is not connected'):format(src)\n    end\n",
+      "replace": "",
+      "why": "Remove the connected-player check from the shared notify guard. A plausible server id is not a player, so without this the export reports success and fires at somebody who has already left -- the worst of both, because it looks delivered and reaches nobody."
     },
     {
       "id": "M07",

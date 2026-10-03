@@ -478,8 +478,8 @@ real registered surface ever differ.
 | `LogError` | both | `(message, discordType, errorInfo)` | 1.0.0 | Cis.log.error(message) |
 | `LogInfo` | both | `(message, discordType)` | 1.0.0 | Cis.log.info(message) |
 | `LogWarn` | both | `(message, discordType)` | 1.0.0 | Cis.log.warn(message) |
-| `Notify` | both | `(src, message, kind)` | 1.0.0 | Cis.framework.notify(...). The two-argument client form sends `kind` in the message slot; this is pinned as a known defect in test/contracts.lua and is a MAJOR change to correct |
-| `NotifyClient` | server | `(src, message, kind)` | 2.0.0 | Called by a product to show a notification to one client, without hardcoding the event name owned by this library |
+| `Notify` | both | `(src, message, kind)` | 1.0.0 | Cis.framework.notify(...). With a framework provider registered the call passes through to it untouched; with none, cis_libs delivers it itself through the same guards NotifyClient uses, so a server with no framework does not go mute and does not become the unbounded path. The two-argument client form sends `kind` in the message slot; this is pinned as a known defect in test/contracts.lua and is a MAJOR change to correct |
+| `NotifyClient` | server | `(src, message, kind)` | 2.0.0 | Called by a product to show a notification to one client, without hardcoding the event name owned by this library. Answers `false, reason` for a src that is not a connected player, truncates a message past 512 characters, and allows 10 a second per (src, calling resource) |
 | `OnPlayerCache` | client | `(key, cb)` | 1.0.0 | Cis.player.on(key, cb). The cb cannot cross the boundary; use a net event |
 | `PublishInventory` | server | `(src)` | 2.0.0 | Called by the inventory service. Pushes cis_libs:client:inventory to one player |
 | `PublishJobUpdate` | server | `(job, src)` | 2.0.0 | Called by cis_core when a player changes job. Fires cis_libs:jobUpdated, so the event name stays owned by this library |

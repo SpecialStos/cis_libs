@@ -228,7 +228,16 @@ local function newEnv(opts)
     function GetResourceState(name) return env.started[name] or 'missing' end
     function GetCurrentResourceName() return 'cis_libs' end
     function GetInvokingResource() return env.invoking end
-    function GetPlayerName() return 'TestPlayer' end
+    -- SRC-AWARE, and that is the point of it. A stub that answers a name for
+    -- every id makes "is this player connected" untestable: every src looks
+    -- connected, so a guard that checks it passes for the wrong reason. Set
+    -- `env.online` to a set of ids and only those are connected; left nil,
+    -- everything is, which is what the rest of this file assumes.
+    env.online = nil
+    function GetPlayerName(src)
+        if env.online == nil then return 'TestPlayer' end
+        return env.online[src] and 'TestPlayer' or nil
+    end
     function DropPlayer() end
     function AddEventHandler() end
     function RegisterNetEvent() end
@@ -2182,6 +2191,81 @@ do
             ('H3: and a huge message is truncated rather than relayed (longest %d)')
                 :format(longest))
         envN.reset()
+
+        -- ---------------------------------------------------------- H3, refusals
+        -- A refusal with nothing in it gives the caller nothing to log or show,
+        -- and every other refusal in this library answers `false, reason`. These
+        -- are the ones that did not.
+        --
+        -- The four shapes of "not a player": a number that is zero, a number that
+        -- is negative, a string that looks like one, and a number that is a
+        -- plausible id for somebody who has already left.
+        do
+            local envR = bootAudit('cis_someThirdParty')
+            envR.invoking = 'some_third_party'
+            for _, bad in ipairs({ 0, -1, '1', true, {} }) do
+                local ok, refusal = envR.EXPORTS.NotifyClient(bad, 'harness', 'info')
+                check(ok == false,
+                    ('H3: src %s is refused'):format(tostring(bad)))
+                check(type(refusal) == 'string' and #refusal > 0,
+                    ('H3: src %s is refused WITH a reason (got %s)')
+                        :format(tostring(bad), tostring(refusal)))
+            end
+
+            -- A connected player is still delivered to. The refusal above must not
+            -- be "refuse anything that is not obviously fine", which is the shape
+            -- a guard written to make a test pass takes.
+            envR.online = { [7] = true }
+            envR.clientEvents = {}
+            check(envR.EXPORTS.NotifyClient(7, 'harness', 'info') == true,
+                'H3: a connected player is still notified')
+
+            -- And the one the shape of the argument gets right and the player's
+            -- existence still does not.
+            local gone, whyGone = envR.EXPORTS.NotifyClient(8, 'harness', 'info')
+            check(gone == false,
+                ('H3: a plausible id for somebody who has left is refused (got %s)')
+                    :format(tostring(gone)))
+            check(type(whyGone) == 'string' and #whyGone > 0,
+                ('H3: and that refusal has a reason too (got %s)'):format(tostring(whyGone)))
+            envR.reset()
+        end
+
+        -- The Notify fallback and NotifyClient are the same delivery with two
+        -- names on it. One guard set, so a refusal cannot be fixed on one and
+        -- forgotten on the other -- which is exactly what happened: NotifyClient
+        -- gained the rate limit and Notify's fallback never did.
+        do
+            local envF = bootAudit('cis_someThirdParty')
+            envF.invoking = 'some_third_party'
+            check(envF.EXPORTS.GetCapabilities().framework == nil
+                or envF.EXPORTS.GetCapabilities().framework.owner == nil,
+                'H3: no framework provider, so Notify takes its fallback path')
+
+            envF.online = { [9] = true }
+            for _, bad in ipairs({ 0, -1, '1' }) do
+                envF.clientEvents = {}
+                local ok, refusal = envF.EXPORTS.Notify(bad, 'harness', 'info')
+                check(ok == false,
+                    ('H3: the Notify fallback refuses src %s too'):format(tostring(bad)))
+                check(type(refusal) == 'string' and #refusal > 0,
+                    ('H3: and says why (%s)'):format(tostring(refusal)))
+                local fired = 0
+                for _, e in ipairs(envF.clientEvents) do
+                    if e.name == 'cis_libs:client:showNotification' then fired = fired + 1 end
+                end
+                check(fired == 0,
+                    ('H3: and fires nothing at src %s (%d event(s))')
+                        :format(tostring(bad), fired))
+            end
+
+            -- The connected case still works: the fallback is a delivery path, not
+            -- a reason to go quiet on a server with no framework.
+            envF.clientEvents = {}
+            check(envF.EXPORTS.Notify(9, 'harness', 'info') ~= false,
+                'H3: and a connected player is still notified through the fallback')
+            envF.reset()
+        end
     end
 
     -- ------------------------------------------------------------------ A4
