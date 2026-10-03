@@ -67,13 +67,11 @@ function DrawText3D(x, y, z, text, settings)
     if not onScreen then
         return
     end
-    -- luacheck: ignore 113
-    -- Open defect, tracked. The native is GET_GAMEPLAY_CAM_COORD. There is no
-    -- plural form: the call raises `attempt to call a nil value` the first time
-    -- any consumer draws. Nothing caught it because no test calls this export
-    -- and the two natives databases between them contain no such name, so both
-    -- the lint and the realm check are reporting it correctly for once.
-    local p = GetGameplayCamCoords()
+    -- `GetGameplayCamCoord`, SINGULAR, and it is the only such name in
+    -- FiveM's native database. This used to be `GetGameplayCamCoords()`, which
+    -- does not exist, so this function raised on its first call and nobody
+    -- noticed because no test called it.
+    local p = GetGameplayCamCoord()
     local distance = #(p - vector3(x, y, z))
     if distance <= 0.01 then
         return
@@ -89,14 +87,17 @@ function DrawText3D(x, y, z, text, settings)
     SetTextFont(font)
     SetTextProportional(1)
     SetTextColour(color[1], color[2], color[3], alpha)
-    SetTextEntry('STRING')
     SetTextCentre(center)
-    AddTextComponentString(text)
-    -- luacheck: ignore 113
-    -- Open defect, tracked, and the same as the line above: there is no DRAW_TEXT
-    -- native. Screen text is drawn with BeginTextCommandDisplayText and
-    -- EndTextComponentDisplayText; only DRAW_RECT exists alongside this.
-    DrawText(_x, _y)
+    -- `BeginTextCommandDisplayText` TAKES THE STRING, and `EndTextCommandDisplayText`
+    -- finishes it. Neither of those is `EndTextComponentDisplayText`, which was
+    -- the obvious name to reach for and which does not exist -- verified against
+    -- FiveM's published database, not from memory:
+    --   HUD/BEGIN_TEXT_COMMAND_DISPLAY_TEXT  (char* text)
+    --   HUD/END_TEXT_COMMAND_DISPLAY_TEXT    (float x, float y)
+    -- The second one is "Command", not "Component". There is no DrawText native
+    -- either, which was the other half of the defect this replaces.
+    BeginTextCommandDisplayText(text)
+    EndTextCommandDisplayText(_x, _y)
 
     local factor = (string.len(text)) / 370
     DrawRect(_x, _y + 0.0125, 0.015 + factor, 0.03, 0, 0, 0, 100)

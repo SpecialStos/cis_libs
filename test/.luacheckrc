@@ -27,7 +27,7 @@ self = false
 -- In shipped code an unused parameter is a real smell and stays reported.
 unused_args = false
 
--- 359 names writable in this directory.
+-- 360 names writable in this directory.
 globals = {
     "AddCommand", "AddEventHandler", "AddTextComponentString",
     "AddTextComponentSubstringPlayerName", "BeginTextCommandDisplayText",
@@ -54,8 +54,8 @@ globals = {
     "GetDistanceBetweenCoords", "GetDriftTyresEnabled", "GetEntityCollisionEnabled",
     "GetEntityCoords", "GetEntityHeading", "GetEntityHealth", "GetEntityInvincible",
     "GetEntityMaxHealth", "GetEntityModel", "GetEntityRoutingBucket", "GetEntityType",
-    "GetFrameCount", "GetGameBuildNumber", "GetGameTimer", "GetGameplayCamFov",
-    "GetInvokingResource", "GetIsVehiclePrimaryColourCustom",
+    "GetFrameCount", "GetGameBuildNumber", "GetGameTimer", "GetGameplayCamCoord",
+    "GetGameplayCamFov", "GetInvokingResource", "GetIsVehiclePrimaryColourCustom",
     "GetIsVehicleSecondaryColourCustom", "GetNumPlayerIdentifiers", "GetNumPlayerIndices",
     "GetNumResourceMetadata", "GetNumResources", "GetOffsetFromEntityInWorldCoords",
     "GetPedAmmo", "GetPedAmmoTypeFromWeapon", "GetPedArmour", "GetPedConfigFlag",

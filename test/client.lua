@@ -1617,6 +1617,86 @@ do
     env.reset()
 end
 
+-- ================================================ 3.4 · DrawText3D raises
+--
+-- `DrawText3D` called two natives that DO NOT EXIST: `GetGameplayCamCoords`
+-- (the native is singular, `GetGameplayCamCoord`) and `DrawText` (there is no
+-- such native at all -- screen text is `BeginTextCommandDisplayText` followed
+-- by `EndTextComponentDisplayText`). It raised `attempt to call a nil value`
+-- the first time anybody drew, and `cis_keys` calls it in a loop.
+--
+-- It survived because NO TEST CALLED IT. That is the whole lesson: a file can be
+-- loaded, exported, documented and linted every single run while the one line
+-- that makes it work is dead.
+--
+-- The native names are not guessed, and THAT IS THE POINT OF THE LOOKUP. The
+-- first version of this fix used `EndTextComponentDisplayText`, which is the
+-- obvious name to reach for and does not exist. Verified against FiveM's own
+-- published database (`tools/natives/natives_gta.json`, re-downloaded from
+-- runtime.fivem.net for this task):
+--   CAM/GET_GAMEPLAY_CAM_COORD           ()
+--   HUD/BEGIN_TEXT_COMMAND_DISPLAY_TEXT  (char* text)
+--   HUD/END_TEXT_COMMAND_DISPLAY_TEXT    (float x, float y)
+-- and there is no DRAW_TEXT entry, nor an END_TEXT_COMPONENT_DISPLAY_TEXT one.
+do
+    local env = newEnv({})
+    -- Every text/camera native as an explicit stub that RECORDS its name, so the
+    -- assertion is about what was called rather than about what did not raise.
+    -- An unstubbed native is nil in this VM, which is exactly how the real
+    -- defect presented.
+    env.called = {}
+    local function rec(name)
+        return function(...)
+            env.called[#env.called + 1] = name
+            return nil
+        end
+    end
+    for _, n in ipairs({
+        'GetGameplayCamCoord', 'GetGameplayCamFov', 'SetTextScale', 'SetTextFont',
+        'SetTextProportional', 'SetTextColour', 'SetTextCentre',
+        'BeginTextCommandDisplayText', 'EndTextCommandDisplayText', 'DrawRect',
+    }) do
+        _G[n] = rec(n)
+    end
+    _G.GetGameplayCamCoord = function()
+        env.called[#env.called + 1] = 'GetGameplayCamCoord'
+        return { x = 0.0, y = 0.0, z = 0.0 }
+    end
+    _G.GetGameplayCamFov = function()
+        env.called[#env.called + 1] = 'GetGameplayCamFov'
+        return 50.0
+    end
+    _G.World3dToScreen2d = function()
+        return true, 0.5, 0.5
+    end
+    -- vec2/vector3 are CfxLua builtins this VM does not have. `vector3` is
+    -- already stubbed by newEnv; vec2 was not, which is why the first version of
+    -- this test failed on a NATIVE and looked like the fix had not worked.
+    _G.vec2 = function(x, y) return { x = x, y = y } end
+
+    loadModule('client/utils.lua')
+
+    local ok, err = pcall(function()
+        exports.DrawText3D(10.0, 20.0, 30.0, 'harness')
+    end)
+    check(ok, ('3.4: DrawText3D does not raise on first call (%s)'):format(tostring(err)))
+
+    local function called(name)
+        for i = 1, #env.called do
+            if env.called[i] == name then return true end
+        end
+        return false
+    end
+    check(called('GetGameplayCamCoord'),
+        '3.4: it asks the camera for its coords (singular -- the plural does not exist)')
+    check(called('BeginTextCommandDisplayText'),
+        '3.4: and hands the text to BeginTextCommandDisplayText')
+    check(called('EndTextCommandDisplayText'),
+        '3.4: and positions it with EndTextCommandDisplayText -- Command, not '
+            .. 'Component, and there is no DrawText native at all')
+    env.reset()
+end
+
 -- ==================================================================== report
 for i = 1, #failures do
     io.stderr:write('FAIL(client): ' .. failures[i] .. '\n')

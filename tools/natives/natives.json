@@ -6,13 +6,13 @@
   },
   "counts": {
     "shippedFiles": 47,
-    "nativesUsed": 144,
+    "nativesUsed": 146,
     "byRealm": {
-      "client": 82,
-      "server": 3,
+      "client": 85,
+      "server": 2,
       "shared": 59
     },
-    "unresolvedPascalCaseGlobals": 40
+    "unresolvedPascalCaseGlobals": 36
   },
   "natives": {
     "AddTextComponentSubstringPlayerName": {
@@ -32,6 +32,24 @@
       "files": [
         "client/initialize.lua",
         "client/proxy.lua"
+      ]
+    },
+    "BeginTextCommandDisplayText": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "HUD"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/utils.lua"
       ]
     },
     "BeginTextCommandThefeedPost": {
@@ -247,6 +265,24 @@
       ],
       "files": [
         "server/security.lua"
+      ]
+    },
+    "EndTextCommandDisplayText": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "HUD"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/utils.lua"
       ]
     },
     "EndTextCommandThefeedPostTicker": {
@@ -547,6 +583,24 @@
         "shared/registry.lua"
       ]
     },
+    "GetGameplayCamCoord": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "CAM"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/utils.lua"
+      ]
+    },
     "GetGameplayCamFov": {
       "realm": "client",
       "evidence": [
@@ -738,6 +792,8 @@
         "server"
       ],
       "files": [
+        "server/callback.lua",
+        "server/proxy.lua",
         "server/security.lua"
       ]
     },
@@ -1949,22 +2005,6 @@
         "client/utils.lua"
       ]
     },
-    "SaveResourceFile": {
-      "realm": "server",
-      "evidence": [
-        "server"
-      ],
-      "sources": [
-        "cfx"
-      ],
-      "namespaces": [],
-      "usedIn": [
-        "server"
-      ],
-      "files": [
-        "server/proxy.lua"
-      ]
-    },
     "SetBlockingOfNonTemporaryEvents": {
       "realm": "client",
       "evidence": [
@@ -2766,7 +2806,6 @@
         "init.lua",
         "server/callback.lua",
         "server/initialize.lua",
-        "server/security.lua",
         "server/sync.lua",
         "shared/ready.lua",
         "shared/registry.lua"
@@ -2775,7 +2814,6 @@
   },
   "unresolvedGlobals": [
     "AddEventHandler",
-    "AddTextComponentString",
     "CisForgetPlayer",
     "CisInvokingAllowed",
     "CisJobCount",
@@ -2793,10 +2831,8 @@
     "CisZonesRemove",
     "CreateThread",
     "DebugLog",
-    "DrawText",
     "DrawText3D",
     "GetCurrentWeaponData",
-    "GetGameplayCamCoords",
     "GetPlayerVehicleSeat",
     "GetPlayers",
     "GetTableSize",
@@ -2806,7 +2842,6 @@
     "RandomFloat",
     "RegisterNetEvent",
     "RequestModelTimeout",
-    "SetTextEntry",
     "SetTimeout",
     "SetVehicleProperties",
     "TriggerClientEvent",
