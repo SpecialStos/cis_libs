@@ -58,7 +58,7 @@ local function newEnv(opts)
         'Globals', 'Config', 'Security', 'Logging', 'CisLog', 'CisInvokingAllowed',
         'CisSyncEnabled', 'exports', 'print', 'Wait', 'CreateThread',
         'GetGameTimer', 'GetCurrentResourceName', 'GetInvokingResource',
-        'AddEventHandler', 'onClientResourceStop', 'RegisterNetEvent',
+        'AddEventHandler', 'RegisterNetEvent',
         'TriggerEvent', 'TriggerServerEvent', 'RegisterCommand',
         'Citizen', 'promise', 'RequestModel', 'HasModelLoaded', 'SetModelAsNoLongerNeeded',
         'joaat', 'NetworkGetEntityIsNetworked', 'NetworkDoesNetworkIdExist',
@@ -264,14 +264,19 @@ local function newEnv(opts)
         return out
     end
 
-    -- The CLIENT-side stop event, which is a different global from the
-    -- server's onResourceStop and fires for OTHER resources. A file that binds
-    -- it and gets nil here would be untestable rather than broken, so it is
-    -- recorded through the same handler table.
-    function onClientResourceStop(fn)
-        env.handlers.onClientResourceStop = env.handlers.onClientResourceStop or {}
-        env.handlers.onClientResourceStop[#env.handlers.onClientResourceStop + 1] = fn
-    end
+    -- THERE IS NO onClientResourceStop GLOBAL, and that is the point of this
+    -- comment.
+    --
+    -- This harness used to define one, so four client files could call it and
+    -- pass 95 assertions under a real Lua 5.4 while raising on every live
+    -- client. A stub for a global that does not exist is not a convenience: it
+    -- is a lie that makes a broken file look correct, and it did exactly that.
+    -- `client/zones.lua` and `client/target.lua` never finished loading on the
+    -- server, so all nine of their exports were missing, and the zone suite
+    -- spent a session reporting a behavioural P0 against code that never ran.
+    --
+    -- Deleting the stub is the regression test. A file that reaches for it again
+    -- now fails here, in a second, instead of on a live server.
 
     -- The exports table the files under test install onto, modelled on the real
     -- one: callable as `exports('Name', fn)` and indexable as
@@ -726,7 +731,7 @@ do
     check(before and before.args[3] == 1,
         'L-C7: with the handler result behind the flag')
 
-    env.fire('onClientResourceStop', 'res_a')
+    env.fire('onResourceStop', 'res_a')
 
     env.serverEvents = {}
     env.net('cis_libs:cb', 1, 'y', 2)

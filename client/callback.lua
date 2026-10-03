@@ -189,7 +189,7 @@ end)
 
 -- L-C7: a consumer that stops takes its client callbacks with it, so the next
 -- call answers 'unknown' rather than raising against a dead export.
-onClientResourceStop(function(resource)
+AddEventHandler('onResourceStop', function(resource)
     if resource == GetCurrentResourceName() then
         return
     end

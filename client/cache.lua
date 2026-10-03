@@ -454,7 +454,7 @@ end)
 -- A watcher is a per-tick distance check on a coordinates table. A resource
 -- that restarts leaks one every time, and the cost is invisible: no error, no
 -- log line, just a server that gets marginally slower for as long as it is up.
-onClientResourceStop(function(resource)
+AddEventHandler('onResourceStop', function(resource)
     if resource == GetCurrentResourceName() then
         return
     end

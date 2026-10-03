@@ -168,24 +168,43 @@ function main() {
   console.log(`deployed ${copied} files to ${target}`)
   console.log(`  commit ${info.commit} on ${info.branch}${info.dirty ? ' (DIRTY WORKING TREE)' : ''}`)
 
-  // The harness, into its own folder.
-  const harnessDir = path.join(resourcesDir, 'cis_test')
+  // The harness, each into its OWN folder under resourcesDir.
+  //
+  // `dst` used to be `path.join(harnessDir, res)` with harnessDir already
+  // pointing at resources/cis_test, so every harness deploy landed in a nested
+  // cis_test/cis_test/ and the LIVE harness kept running whatever it was
+  // started with. Nothing failed: the folder did not exist, so the marker check
+  // passed, and "deployed 22 harness file(s)" printed. It also dropped a second
+  // manifest named 'cis_test' INSIDE the resources tree, which is exactly the
+  // recursive double-load the check above exists to prevent -- and the ad-hoc
+  // probe I deployed to diagnose a client-export bug kept answering long after
+  // the fix meant to replace it had been committed.
   let harnessCopied = 0
   for (const res of HARNESS) {
     const src = path.join(root, 'test', 'live', res)
     if (!fs.existsSync(src)) { console.log(`  ${res}: not written yet, skipped`); continue }
-    const dst = path.join(harnessDir, res)
+    const dst = path.join(resourcesDir, res)
     if (fs.existsSync(dst) && !hasMarker(dst)) {
       console.error(`  REFUSED ${res}: ${dst} exists and carries no ${MARKER}`)
       process.exit(1)
     }
+    // A run's results file is the only record that the run happened and what it
+    // found. Replacing the folder wholesale deletes every one of them, so they
+    // are carried across rather than destroyed.
+    const kept = fs.existsSync(dst)
+      ? fs.readdirSync(dst)
+        .filter(f => /^results_.*\.json$/.test(f))
+        .map(f => ({ name: f, body: fs.readFileSync(path.join(dst, f)) }))
+      : []
     fs.rmSync(dst, { recursive: true, force: true })
     harnessCopied += copyInto(src, dst, walkLua(src).map(r => path.relative(src, r)))
+    for (const r of kept) fs.writeFileSync(path.join(dst, r.name), r.body)
     fs.writeFileSync(path.join(dst, MARKER), 'cis_libs live harness deploy\n')
     fs.writeFileSync(path.join(dst, 'deploy.json'),
       JSON.stringify({ ...info, timestamp: stamp }, null, 2) + '\n')
+    if (kept.length) console.log(`  ${res}: carried ${kept.length} results file(s) across`)
   }
-  console.log(`deployed ${harnessCopied} harness file(s) to ${harnessDir}`)
+  console.log(`deployed ${harnessCopied} harness file(s) under ${resourcesDir}`)
 
   console.log('')
   console.log('CONSOLE SEQUENCE (printed, not executed -- starting is a separate call):')

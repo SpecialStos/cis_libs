@@ -54,7 +54,13 @@ local function runClientSuite(suiteName, timeoutMs)
 end
 
 -- Every client suite the server knows about, asked for in turn.
-local CLIENT_SUITES = { 'zones', 'debugtext', 'points' }
+--
+-- 'exports' is FIRST on purpose. It only asks whether the client can see the
+-- exports the suites below are about to call, so when it fails the rest report
+-- failures against code that never ran -- which is how a zone P0 was reported
+-- twice in this project. The cost is a suite that cannot be wrong about
+-- anything except reachability.
+local CLIENT_SUITES = { 'exports', 'zones', 'debugtext', 'points' }
 
 CisTestRunner.Suite('player', { tier = 'player', realm = 'client', needsPlayer = true }, function(t)
     t.case('every client suite runs, and the player is left as found', function()

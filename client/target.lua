@@ -184,7 +184,7 @@ end
 -- Under pcall per zone: a provider that is itself stopping throws on the first
 -- call, and without the guard that would abandon the sweep and leave every
 -- remaining target in the world.
-onClientResourceStop(function(resource)
+AddEventHandler('onResourceStop', function(resource)
     if resource == GetCurrentResourceName() then
         return
     end

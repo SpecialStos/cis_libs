@@ -500,7 +500,7 @@ end)
 -- Guarded against cis_libs's OWN stop: at that point every client is going
 -- away and firing server events for zones nobody will ever hear about is noise
 -- on a resource that is mid-shutdown.
-onClientResourceStop(function(resource)
+AddEventHandler('onResourceStop', function(resource)
     if resource == GetCurrentResourceName() then
         return
     end

@@ -84,7 +84,7 @@ exports('GetCapabilities', function()
 end)
 
 -- See the server half: a stopped resource's exports are gone, so its slots are.
-AddEventHandler('onClientResourceStop', function(resource)
+AddEventHandler('onResourceStop', function(resource)
     for _, slot in ipairs(CisRegistry.releaseOwner(resource)) do
         warned = {}
         Logging.Warn(('cis_libs: capability %q released: %s stopped'):format(slot, resource))

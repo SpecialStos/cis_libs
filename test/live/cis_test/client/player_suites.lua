@@ -18,6 +18,84 @@ local function at(dx, dy, dz)
     return { x = o.x + dx, y = o.y + dy, z = o.z + dz }
 end
 
+-- ====================================================== export reachability
+--
+-- A missing export and a broken loop look IDENTICAL from outside: the callback
+-- never arrives either way, and the case files a behavioural failure against
+-- code that never ran. That is not hypothetical. It is how two findings in
+-- this project went wrong, and how the first attempt at this file answered a
+-- bare "false" with nothing to act on.
+--
+-- So the boring question gets asked first: can the client SEE the export it is
+-- about to call? One export per client file, in fxmanifest load order, because
+-- a single name cannot tell you WHERE the chain stopped. CreateZone missing
+-- means one of two very different things -- zones.lua failed to register its
+-- own exports, or the file before it raised and killed the load chain -- and
+-- the fix is in a different file either way.
+--
+-- FiveM aborts the remaining client scripts when one raises, and logs that to
+-- the CLIENT console, which nobody can read. This suite is the only place that
+-- particular blindness is visible from the server side.
+
+-- Manifest order. Keep in step with client_scripts in fxmanifest.lua.
+--
+-- zones.lua and target.lua are probed three and five deep rather than once,
+-- because "this file registered nothing" and "this one export is missing" are
+-- different failures with different causes. A file that registered nothing did
+-- not finish loading; an export missing out of a file whose others arrived is a
+-- narrower thing and this suite should not blur the two.
+local CLIENT_EXPORT_PROBES = {
+    { file = 'client/initialize.lua', name = 'IsReady' },
+    { file = 'client/logging.lua',     name = 'LogInfo' },
+    { file = 'client/streaming.lua',   name = 'RequestModelTimeout' },
+    { file = 'client/utils.lua',       name = 'DrawText3D' },
+    { file = 'client/weapon.lua',      name = 'GetCurrentWeaponData' },
+    { file = 'client/vehicle.lua',     name = 'GetVehicleProperties' },
+    { file = 'client/cache.lua',       name = 'WatchNear' },
+    { file = 'client/cache.lua',       name = 'GetGlobals' },
+    { file = 'client/zones.lua',       name = 'CreateZone' },
+    { file = 'client/zones.lua',       name = 'RemoveZone' },
+    { file = 'client/zones.lua',       name = 'ZoneContains' },
+    { file = 'client/zones.lua',       name = 'GetZoneDebug' },
+    { file = 'client/callback.lua',    name = 'RegisterCallback' },
+    { file = 'client/callback.lua',    name = 'AwaitCallback' },
+    { file = 'client/target.lua',      name = 'CreateTarget' },
+    { file = 'client/target.lua',      name = 'RemoveTarget' },
+    { file = 'client/target.lua',      name = 'TargetExists' },
+    { file = 'client/target.lua',      name = 'UpdateTarget' },
+    { file = 'client/target.lua',      name = 'TargetAvailable' },
+    { file = 'client/proxy.lua',       name = 'GetCapabilities' },
+    { file = 'client/proxy.lua',       name = 'GetClosestDoor' },
+    { file = 'client/proxy.lua',       name = 'GetDiagnostics' },
+    { file = 'client/sync.lua',        name = 'GetSyncedEntities' },
+}
+
+P.RegisterSuite('exports', {
+    {
+        name = 'the client can reach the exports the other suites call',
+        run = function()
+            local missing, firstBroken = {}, nil
+            for _, p in ipairs(CLIENT_EXPORT_PROBES) do
+                -- A missing export RAISES out of the proxy, so the lookup has to
+                -- be guarded or the probe dies on the first gap and says nothing
+                -- about the twelve files after it.
+                local ok = pcall(function() return exports['cis_libs'][p.name] end)
+                if not ok then
+                    missing[#missing + 1] = ('%s:%s'):format(p.file, p.name)
+                    if not firstBroken then firstBroken = p.file end
+                end
+            end
+            if #missing == 0 then
+                return true, ('all %d probes reached; onClientResourceStop is %s')
+                    :format(#CLIENT_EXPORT_PROBES, type(onClientResourceStop))
+            end
+            return false, ('FIRST BROKEN FILE: %s | onClientResourceStop is %s | missing %d of %d: %s')
+                :format(tostring(firstBroken), type(onClientResourceStop),
+                        #missing, #CLIENT_EXPORT_PROBES, table.concat(missing, ', '))
+        end,
+    },
+})
+
 -- ===================================================================== zones
 --
 -- THE MOST IMPORTANT SUITE IN THIS FILE. The plan's first P0 is that zones
