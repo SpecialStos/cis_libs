@@ -286,10 +286,61 @@ function P.NoteNear(which) LOGS.near[#LOGS.near + 1] = which end
 -- than teleporting matters: a teleport can cross a zone boundary between two
 -- zone-loop passes and look like the player walked through it.
 
+-- Frames to let the physics body catch up after a teleport, before the ped is
+-- frozen again. Five is generous; the failure this guards against is a silent
+-- snap-back, not a slow one.
+local SETTLE_FRAMES = 5
+
+-- A STABLE reference point for the whole suite.
+--
+-- `at(dx, dy, dz)` used to read the player's CURRENT position on every call, so
+-- two targets written as offsets "from the player" silently compounded: walk to
+-- at(8, 8, 0) and then to at(12, 12, 0) and you land 20,20 from where the
+-- suite started, not 12,12. A zone centred on at(12, 12, 0) is then nowhere
+-- near the player, and the case files a containment failure against a library
+-- asked about someone standing 11 m outside the box.
+--
+-- The offsets are only meaningful against one fixed origin, so they are now
+-- measured against one. It is captured lazily and reset per suite, so a suite
+-- always starts from wherever the player actually is at that moment.
+local baseOrigin = nil
+
+function P.BaseOrigin()
+    if not baseOrigin then
+        baseOrigin = P.Origin()
+    end
+    return baseOrigin
+end
+
+function P.ResetBaseOrigin()
+    baseOrigin = nil
+end
+
 function P.StepTowards(target, steps)
     steps = steps or 20
     local ped = P.Ped()
     if not ped or not DoesEntityExist(ped) then return false end
+    -- THE PED IS FROZEN FOR THE WHOLE SUITE, AND A FROZEN PED DOES NOT MOVE.
+    --
+    -- RunSuite freezes it so an AFK player cannot drift out from under a case
+    -- that is reading the world. Every zone and point case then needs to move
+    -- that ped deliberately -- and SetEntityCoordsNoOffset on a frozen entity
+    -- is silently ignored, with no error and no return value.
+    --
+    -- So the freeze is lifted for the move and put straight back. It was not
+    -- obvious because nothing failed: the cases ran, the player stayed exactly
+    -- where it started, and `at()` kept building targets relative to a
+    -- stationary origin. The walk-into-a-zone case reported
+    -- `ZoneContains(player)=false` while standing 17 m from a zone centred on
+    -- where it had been told to walk to, which reads like a containment bug and
+    -- is not one.
+    --
+    -- Defaulting to `true` means an unreadable freeze state still ends with the
+    -- ped frozen, which is the state the rest of the suite assumes.
+    local wasFrozen = read('IsEntityPositionFrozen', true, ped) == true
+    if wasFrozen then
+        write('FreezeEntityPosition', ped, false)
+    end
     local from = GetEntityCoords(ped)
     for i = 1, steps do
         local t = i / steps
@@ -299,6 +350,28 @@ function P.StepTowards(target, steps)
             from.z + (target.z - from.z) * t,
             false, false, false)
         Wait(0)
+    end
+    -- PHYSICS HAS TO CATCH UP BEFORE THE PED IS FROZEN AGAIN.
+    --
+    -- SetEntityCoordsNoOffset moves the entity without touching the physics
+    -- body; the body catches up on a later tick. Re-freezing in the same frame
+    -- locks the position the body still holds -- the one the ped started from
+    -- -- so the ped appears to move for an instant and then snaps back. The
+    -- zone case watched exactly that: the move read back clean, and by the time
+    -- it asked where the player was, it was back at the origin it started from.
+    for _ = 1, SETTLE_FRAMES do Wait(0) end
+    -- READ BACK AFTER THE SETTLE, DO NOT ASSUME. Read before it, this reports
+    -- the position the teleport wrote rather than the position the ped ended up
+    -- in, which is the one thing this check exists to catch.
+    local at0 = GetEntityCoords(ped)
+    local moved = #(at0 - from) > 0.01
+    if wasFrozen then
+        write('FreezeEntityPosition', ped, true)
+    end
+    if not moved then
+        return false, ('the ped did not move: wanted (%.1f, %.1f, %.1f), '
+            .. 'still at (%.1f, %.1f, %.1f)'):format(target.x, target.y, target.z,
+                at0.x, at0.y, at0.z)
     end
     return true
 end
@@ -319,6 +392,10 @@ function P.RunSuite(name)
     if not cases then
         return { ok = false, error = 'no such client suite: ' .. tostring(name) }
     end
+
+    -- Before the snapshot, so at() measures against where the player is now and
+    -- not wherever a previous suite left the cached value.
+    P.ResetBaseOrigin()
 
     local snap, why = P.Snapshot()
     if not snap then

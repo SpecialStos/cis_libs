@@ -14,11 +14,15 @@ local P = CisTestPlayer
 local exports = exports
 
 local function at(dx, dy, dz)
-    local o = P.Origin()
+    local o = P.BaseOrigin()
     return { x = o.x + dx, y = o.y + dy, z = o.z + dz }
 end
 
 -- A box zone is (CENTER, SIZE), not (min corner, max corner).
+--
+-- `at()` is an ABSOLUTE offset from the player's position, so every target is
+-- relative to wherever the player actually is when the line runs. It is not a
+-- fixed map coordinate and never was.
 --
 -- The library halves whatever arrives as `size` (`zone.hx = sx * 0.5`), so a
 -- max corner is read as an extent. Hand it one and a player standing at x =
@@ -124,7 +128,7 @@ P.RegisterSuite('zones', {
     {
         name = 'a zone created AROUND a standing player fires onEnter',
         run = function()
-            local o = P.Origin()
+            local o = P.BaseOrigin()
             P.ClearEnterLog()
             local ok, why = exports['cis_libs']:CreateZone('box', 'z_standing',
                 { x = o.x, y = o.y, z = o.z },
@@ -162,13 +166,42 @@ P.RegisterSuite('zones', {
                 { onEnter = function(coords) P.NoteEnter(coords) end })
             if not ok then return false, ('CreateZone was refused: %s'):format(tostring(why)) end
 
-            P.StepTowards(at(8.0, 8.0, 0.0), 10)
-            P.StepTowards(at(12.0, 12.0, 0.0), 25)
+            -- StepTowards answers whether the ped ACTUALLY moved. Ignoring that
+            -- is what turned a frozen ped into a containment failure: the case
+            -- carried on and reported a zone bug for a player who never took a
+            -- step.
+            local moved, moveWhy = P.StepTowards(at(8.0, 8.0, 0.0), 10)
+            if not moved then return false, ('could not walk: %s'):format(tostring(moveWhy)) end
+            moved, moveWhy = P.StepTowards(at(12.0, 12.0, 0.0), 25)
+            if not moved then return false, ('could not walk: %s'):format(tostring(moveWhy)) end
+
+            -- Settle, then ask the library what it thinks rather than only
+            -- whether the callback arrived. An empty log is the same whether
+            -- the zone was never FOUND by the candidate pass or was found and
+            -- the callback never ran, and those are different bugs.
+            P.WaitFor(function() return false end, 600)
+            local dbg = exports['cis_libs']:GetZoneDebug()
+            local insideCount = dbg and dbg.insideCount or -1
+            local insideNames = dbg and table.concat(dbg.insideNames or {}, ',') or 'n/a'
+
+            -- THE DIRECT TEST, which separates "the zone does not contain the
+            -- player" from "the sweep never looked". ZoneContains answers the
+            -- geometry question on its own, with no grid and no loop involved,
+            -- so it says which of the two is true where insideCount alone does
+            -- not. If this is true and insideCount is 0, the zone exists and
+            -- holds the player, and the sweep is what is failing.
+            local here = P.Origin()
+            local contains = exports['cis_libs']:ZoneContains('z_walk', here)
 
             local n = #P.EnterLog()
             exports['cis_libs']:RemoveZone('z_walk')
             return n == 1,
-                ('onEnter fired exactly once while walking in: %d time(s)'):format(n)
+                ('onEnter fired exactly once while walking in: %d time(s), '
+                    .. 'insideCount=%s inside=[%s] passMs=%s | '
+                    .. 'ZoneContains(player)=%s at %.1f,%.1f,%.1f')
+                    :format(n, tostring(insideCount), tostring(insideNames),
+                            tostring(dbg and dbg.lastPassMs), tostring(contains),
+                            here.x, here.y, here.z)
         end,
     },
     {
@@ -245,12 +278,19 @@ P.RegisterSuite('points', {
         name = 'crossing a point radius gives one enter and one exit',
         run = function()
             P.ClearNearLog()
+            -- Radius 4 about at(6,0,0). The walk has to end OUTSIDE it, and both
+            -- old targets were inside: at(4,0,0) is 2 m out and at(9,0,0) is
+            -- 3 m out, so the case could produce an enter but never an exit and
+            -- reported `1 in, 0 out` as though the library had dropped one.
             exports['cis_libs']:WatchNear(at(6.0, 0.0, 0.0), 4.0,
                 function() P.NoteNear('in') end,
                 function() P.NoteNear('out') end)
 
-            P.StepTowards(at(4.0, 0.0, 0.0), 25)
-            P.StepTowards(at(9.0, 0.0, 0.0), 25)
+            local moved, moveWhy = P.StepTowards(at(4.0, 0.0, 0.0), 25)
+            if not moved then return false, ('could not walk: %s'):format(tostring(moveWhy)) end
+            -- 10 m from the watcher: clearly outside, so the exit is real.
+            moved, moveWhy = P.StepTowards(at(16.0, 0.0, 0.0), 25)
+            if not moved then return false, ('could not walk: %s'):format(tostring(moveWhy)) end
 
             local ins, outs = 0, 0
             for _, e in ipairs(P.NearLog()) do

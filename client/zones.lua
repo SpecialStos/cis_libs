@@ -426,7 +426,37 @@ CreateThread(function()
                 lastRecheck = GetGameTimer()
             elseif GetGameTimer() - lastRecheck >= RECHECK_MS then
                 lastRecheck = GetGameTimer()
-                recheckInside(coords)
+                -- [D-02] DISCOVERY WAS GATED ON MOVEMENT, AND NOTHING ELSE.
+                --
+                -- `moved` needs half a cell -- 32 m at CELL = 64 -- or a cell
+                -- boundary crossing. Below that, the only work that happens is
+                -- `recheckInside`, which by definition re-tests the zones the
+                -- player is ALREADY inside. So a zone can only ever be entered
+                -- by a player who crosses 32 m or happens to land in a new
+                -- cell: walk a short way into a small zone and nothing finds
+                -- it, and a zone created around a stationary player is found
+                -- only if the previous pass happened to leave `lastPos` nil.
+                --
+                -- Reproduced live, run-20261003-003525: walking ~17 m into a
+                -- 4 m box gave `0 time(s), insideCount=0 inside=[]` -- the
+                -- library believed the player was inside nothing at all.
+                --
+                -- The fix is to keep the cheap path where it is actually cheap.
+                -- `recheckInside` is still the right call when every registered
+                -- zone is already accounted for, which is the steady state for
+                -- a player sitting inside one. It is only wrong when something
+                -- registered is NOT yet inside, because that is exactly the
+                -- state in which discovery is possible and the cheap path
+                -- cannot perform it.
+                local insideCount = 0
+                for _ in pairs(inside) do insideCount = insideCount + 1 end
+                local zoneCount = 0
+                for _ in pairs(zones) do zoneCount = zoneCount + 1 end
+                if insideCount < zoneCount then
+                    refreshInside(coords)
+                else
+                    recheckInside(coords)
+                end
             end
 
             local now = GetGameTimer()

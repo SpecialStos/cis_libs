@@ -1004,6 +1004,58 @@ do
     env.reset()
 end
 
+-- [D-02] A PLAYER WHO WALKS A SHORT WAY INTO A ZONE MUST BE FOUND.
+--
+-- Discovery was gated on `moved`: half a cell, 32 m at CELL = 64, or a cell
+-- boundary crossing. Below that threshold the only work that happened was
+-- `recheckInside`, which by definition re-tests the zones already inside and
+-- so can never discover one. A zone was therefore enterable only by a player
+-- who happened to travel far enough or land in a new cell.
+--
+-- Every zone test above passed on the FIRST pass alone: `lastPos` is nil then,
+-- and `not lastPos` counts as moved, so the discovery path ran exactly once and
+-- the threshold was never exercised. That is why this passed in unit tests and
+-- failed on a real player: live, run-20261003-003525, a player walking ~17 m
+-- into a 4 m box reported `0 time(s), insideCount=0 inside=[]`.
+--
+-- 40 passes at 0.1 each puts the player at x = 4.0 -- inside a box spanning
+-- 3..7, and nowhere near the 32 m that would have woken the old gate.
+do
+    local env = zoneEnv()
+    env.enterCount = 0
+    local created = exports.CreateZone('box', 'shortwalk',
+        { x = 5.0, y = 0.0, z = 0.0 }, { x = 4.0, y = 4.0, z = 4.0 }, {
+            onEnter = function() env.enterCount = env.enterCount + 1 end,
+        })
+    check(created == true, 'D-02: the short-walk zone creates')
+
+    local realWait = Wait
+    local passes = 0
+    Wait = function(ms)
+        env.clock = env.clock + (tonumber(ms) or 0)
+        passes = passes + 1
+        if passes >= 40 then error(TICK_LIMIT, 0) end
+    end
+    local ok, err = pcall(env.threads[1])
+    Wait = realWait
+    if not ok and err ~= TICK_LIMIT then error(err, 0) end
+
+    local dbg = exports.GetZoneDebug()
+    check(env.enterCount == 1,
+        ('D-02: a player who walks 4 m into a zone is found exactly once '
+            .. '(onEnter=%d insideCount=%s inside=[%s] after %d passes)')
+            :format(env.enterCount, tostring(dbg and dbg.insideCount),
+                    tostring(dbg and table.concat(dbg.insideNames or {}, ',')),
+                    passes))
+
+    -- The duplicate half of the claim: once found, the player must STAY found,
+    -- and the pass that discovers must not also re-fire onEnter every tick.
+    check(dbg ~= nil and dbg.insideCount == 1,
+        ('D-02: and the player stays inside it (insideCount=%s)')
+            :format(tostring(dbg and dbg.insideCount)))
+    env.reset()
+end
+
 -- `local = true` keeps the event on the client. Every zone event reaches the
 -- server by default, because that is the only way a server-side consumer can be
 -- notified -- but a consumer that only cares about its own client does not need
