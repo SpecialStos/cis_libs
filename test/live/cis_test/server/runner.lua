@@ -156,6 +156,26 @@ function Case:allowCounter(name, delta)
     return self
 end
 
+-- ANY INCREASE IS EXPECTED HERE, and the number is not what is under test.
+--
+-- Some cases exist to make cis_libs REFUSE things: stop its providers, register
+-- a resource whose contract it does not speak. Those refusals log warnings, so
+-- the warning counter rises by however many slots happen to be affected --
+-- eleven, then twenty-one -- and the count tracks the registry rather than
+-- anything the case asserts. `allowCounter` demands an exact delta, so those
+-- cases could only ever declare a number that is incidental, and would break
+-- the day a slot is added.
+--
+-- This is the opt-out, and it is opt-IN per counter per case. Exact deltas stay
+-- the default everywhere else, because "this case is allowed to raise exactly
+-- one error" is an assertion and "warnings may move here" is not.
+local ANY_COUNTER = {}
+
+function Case:allowCounterAny(name)
+    self.expectedCounters[name] = ANY_COUNTER
+    return self
+end
+
 function Case:record(passed, msg, detail)
     self.checks = self.checks + 1
     if passed then
@@ -214,10 +234,18 @@ local function diffCounters(before, after, expected)
         local was, now = bc[key] or 0, ac[key] or 0
         if now ~= was then
             local allowed = expected[key]
-            if allowed == nil or (now - was) ~= allowed then
-                moved[#moved + 1] = ('%s went %d -> %d%s'):format(
-                    key, was, now,
-                    allowed and (' (this case allows %d)'):format(allowed) or ' (no case declared this)')
+            local declared = allowed ~= nil
+            local explained = declared and (allowed == ANY_COUNTER or (now - was) == allowed)
+            if not explained then
+                local suffix
+                if not declared then
+                    suffix = ' (no case declared this)'
+                elseif allowed == ANY_COUNTER then
+                    suffix = ' (this case declares any movement expected)'
+                else
+                    suffix = (' (this case allows %d)'):format(allowed)
+                end
+                moved[#moved + 1] = ('%s went %d -> %d%s'):format(key, was, now, suffix)
             end
         end
     end
@@ -378,6 +406,9 @@ local function runSuite(suite)
     t.fail = function(msg, detail) return Case.record(needCase('t.fail'), false, msg, detail) end
     t.allowCounter = function(name, delta)
         return Case.allowCounter(needCase('t.allowCounter'), name, delta)
+    end
+    t.allowCounterAny = function(name)
+        return Case.allowCounterAny(needCase('t.allowCounterAny'), name)
     end
     t.waitUntil = function(fn, timeoutMs, msg)
         return CisTestRunner.waitUntil(fn, timeoutMs, msg)

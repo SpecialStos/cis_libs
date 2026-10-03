@@ -60,6 +60,9 @@ CisTestRunner.Suite('lifecycle', { tier = 'lifecycle', realm = 'server' }, funct
     -- closest a test gets to "the product is not installed", and the calls must
     -- answer rather than raise.
     t.case('stopping the providers turns every call into a refusal', function()
+        -- Refusals log warnings, and how many is a property of the registry,
+        -- not of this case. See Case:allowCounterAny.
+        t.allowCounterAny('warnings')
         local stopped, stopWhy = CisTestControl.Stop('cis_test_providers')
         if not stopped then
             t.fail('cis_test_providers did not stop', tostring(stopWhy))
@@ -82,6 +85,9 @@ CisTestRunner.Suite('lifecycle', { tier = 'lifecycle', realm = 'server' }, funct
 
     -- ------------------------------------------- the provider coming back again
     t.case('the providers re-register and their calls work again', function()
+        -- Refusals log warnings, and how many is a property of the registry,
+        -- not of this case. See Case:allowCounterAny.
+        t.allowCounterAny('warnings')
         CisTestControl.Start('cis_test_providers', { refresh = true })
         local reached = CisTestControl.WaitForState('cis_libs', 'started', 3000)
         t.ok(reached, 'cis_libs is up')
@@ -111,6 +117,9 @@ CisTestRunner.Suite('lifecycle', { tier = 'lifecycle', realm = 'server' }, funct
     -- the dependency. Starting it must NOT break the install -- that is the
     -- whole point of the refusal paths -- and its claim must be refused.
     t.case('a resource with a mismatched contract is refused, and the install survives', function()
+        -- Refusals log warnings, and how many is a property of the registry,
+        -- not of this case. See Case:allowCounterAny.
+        t.allowCounterAny('warnings')
         local before = exports['cis_libs']:GetSelfCheck()
         local beforeOk = before.ok
 
@@ -123,13 +132,36 @@ CisTestRunner.Suite('lifecycle', { tier = 'lifecycle', realm = 'server' }, funct
             -- property that matters either way.
             t.ok(true, 'cis_test_badmeta did not start, which is an acceptable refusal')
         else
-            local attempts = exports['cis_test_badmeta']:Attempts()
+            -- A STARTED RESOURCE IS NOT A RESOURCE THAT HAS ACTED.
+            --
+            -- badmeta's claim runs in a CreateThread that first waits for
+            -- cis_libs to be started, and only then calls RegisterCapability.
+            -- This case used to read Attempts() the moment the resource reached
+            -- 'started', which is before that thread has done anything --
+            -- `attempts` was empty every single run, `refused` stayed false,
+            -- and the case reported that the contract check had FAILED. The
+            -- server log shows it plainly: `Started resource cis_test_badmeta`
+            -- immediately followed by `Stopping resource cis_test_badmeta`,
+            -- with no output from the resource in between.
+            --
+            -- So this waited 8 seconds on an "undiagnosed P0" that the fixture
+            -- had never once exercised. Wait for the ATTEMPT, not the start.
             local refused = false
-            for _, a in ipairs(attempts or {}) do
-                if a.ok == false then refused = true end
+            local recorded = 0
+            local deadline = GetGameTimer() + 8000
+            while GetGameTimer() < deadline do
+                local attempts = exports['cis_test_badmeta']:Attempts() or {}
+                recorded = #attempts
+                refused = false
+                for _, a in ipairs(attempts) do
+                    if a.ok == false then refused = true end
+                end
+                if recorded > 0 then break end
+                Wait(100)
             end
             t.ok(refused,
-                'its capability claim was REFUSED rather than registered')
+                ('its capability claim was REFUSED rather than registered '
+                    .. '(attempts recorded: %d)'):format(recorded))
         end
 
         -- The property that actually matters: cis_libs is still healthy.
