@@ -387,6 +387,25 @@ end
 -- The enter/exit callbacks cannot be sent across the exports boundary, so a
 -- caller that is not cis_libs must use the event forms instead:
 --   onEnterEvent / onExitEvent, receiving (distance) as a server event.
+-- STOP A WATCHER BY ITS ID. The half of the pair that survives the exports
+-- boundary; see the RemoveNearWatcher export for why the returned unsubscribe
+-- cannot be used from outside this realm.
+function CisCache.removeNearWatcher(id)
+    if type(id) ~= 'number' then
+        return false, ('a watcher id is a number, got %s'):format(type(id))
+    end
+    local watcher = nearWatchers[id]
+    if not watcher then
+        return false, ('no watcher with id %s'):format(tostring(id))
+    end
+    nearWatchers[id] = nil
+    -- Same reason unsubscribe() forgets it: a watcher already removed by its
+    -- owner must not also be counted by the stop sweep, or it reports a count
+    -- that never happened.
+    CisOwned.forget(nearOwned, 'nearWatcher', id)
+    return true
+end
+
 function CisCache.watchNear(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent)
     if coords == nil then
         -- The exports boundary can drop a value entirely; indexing nil would
@@ -447,6 +466,23 @@ end)
 
 exports('WatchNear', function(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent)
     return CisCache.watchNear(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent)
+end)
+
+-- STOPPING A WATCHER, IN A FORM A CONSUMER CAN ACTUALLY CALL.
+--
+-- `WatchNear` returns an unsubscribe function, and a function RETURNED across
+-- the exports boundary has no representation on the other side: the consumer
+-- gets a table and cannot call it. Passing a function IN works -- the library
+-- holds it and invokes it in this realm -- which is why onEnter and onExit are
+-- fine and the return value is not. The harness proved it on a live server:
+-- `WatchNear returned table, not an unsubscribe function`.
+--
+-- So the id is the handle. `watchNear` already returns it as its second value;
+-- this is the other half of the pair. Without it a watcher can only be stopped
+-- by its owner stopping, and it costs a distance check every tick for the life
+-- of the server.
+exports('RemoveNearWatcher', function(id)
+    return CisCache.removeNearWatcher(id)
 end)
 
 -- A CONSUMER THAT STOPS TAKES ITS NEAR WATCHERS WITH IT (L-C7).

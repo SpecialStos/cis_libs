@@ -365,6 +365,13 @@ function cis_libs.RegisterCallback(name, handler) end
 ---@param provider any
 function cis_libs.RegisterCapability(slot, provider) end
 
+---@class cis_libs.RemoveNearWatcher
+---@field use string Cis.player.nearStop(id); the id WatchNear returns as its second value
+---@field since string 2.2.0
+---@field deprecated boolean false
+---@param id any
+function cis_libs.RemoveNearWatcher(id) end
+
 ---@class cis_libs.RemoveTarget
 ---@field use string Cis.target.remove(name, isPed)
 ---@field since string 1.0.0
@@ -1297,6 +1304,7 @@ cis_libs.RandomFloat = cis_libs.RandomFloat
 cis_libs.RateOk = cis_libs.RateOk
 cis_libs.RegisterCallback = cis_libs.RegisterCallback
 cis_libs.RegisterCapability = cis_libs.RegisterCapability
+cis_libs.RemoveNearWatcher = cis_libs.RemoveNearWatcher
 cis_libs.RemoveTarget = cis_libs.RemoveTarget
 cis_libs.RemoveZone = cis_libs.RemoveZone
 cis_libs.RequestInventorySync = cis_libs.RequestInventorySync

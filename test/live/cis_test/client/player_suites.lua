@@ -73,6 +73,7 @@ local CLIENT_EXPORT_PROBES = {
     { file = 'client/vehicle.lua',     name = 'GetVehicleProperties' },
     { file = 'client/cache.lua',       name = 'WatchNear' },
     { file = 'client/cache.lua',       name = 'GetGlobals' },
+    { file = 'client/cache.lua',       name = 'RemoveNearWatcher' },
     { file = 'client/zones.lua',       name = 'CreateZone' },
     { file = 'client/zones.lua',       name = 'RemoveZone' },
     { file = 'client/zones.lua',       name = 'ZoneContains' },
@@ -334,40 +335,94 @@ P.RegisterSuite('points', {
             -- old targets were inside: at(4,0,0) is 2 m out and at(9,0,0) is
             -- 3 m out, so the case could produce an enter but never an exit and
             -- reported `1 in, 0 out` as though the library had dropped one.
-            exports['cis_libs']:WatchNear(at(6.0, 0.0, 0.0), 4.0,
+            -- UNSUBSCRIBE, OR THE WATCHER OUTLIVES THE RUN.
+            --
+            -- watchNear returns an unsubscribe and the harness discarded it, so
+            -- every run left a live watcher behind. It is a per-tick distance
+            -- check that costs the rest of the server's life, and it kept
+            -- calling into a log the next run had already cleared -- which is
+            -- why this case passed on a clean server and reported exactly
+            -- `2 in, 2 out` on the very next run: the previous run's watcher,
+            -- watching the same player, firing as well.
+            local _, watcherId = exports['cis_libs']:WatchNear(at(6.0, 0.0, 0.0), 4.0,
                 function() P.NoteNear('in') end,
                 function() P.NoteNear('out') end)
+            -- The id is the handle that crosses the boundary intact; the
+            -- unsubscribe WatchNear also returns does not (it arrives as a
+            -- table). RemoveNearWatcher exists for exactly this.
+            if type(watcherId) ~= 'number' then
+                return false, ('WatchNear returned %s as its id, not a number')
+                    :format(type(watcherId))
+            end
 
-            local moved, moveWhy = P.StepTowards(at(4.0, 0.0, 0.0), 25)
-            if not moved then return false, ('could not walk: %s'):format(tostring(moveWhy)) end
-
-            -- LET THE LIBRARY OBSERVE THE PLAYER INSIDE BEFORE WALKING OUT.
-            --
-            -- Two teleports with nothing between them can land entirely between
-            -- two sweeps. The watcher then sees outside, then outside again, and
-            -- reports nothing at all -- which is what `0 in, 0 out` was: not a
-            -- dropped callback, a state the library was never shown.
-            local gotIn = P.WaitFor(function()
-                for _, e in ipairs(P.NearLog()) do
-                    if e == 'in' then return true end
+            -- The walk runs in a closure so the unsubscribe happens on EVERY path out.
+            -- This case has five early returns, and a watcher leaked by any of
+            -- them is the same defect as never unsubscribing at all -- it would
+            -- simply be rarer.
+            local passed, why = (function()
+                local moved, moveWhy = P.StepTowards(at(4.0, 0.0, 0.0), 25)
+                if not moved then
+                    return false, ('could not walk: %s'):format(tostring(moveWhy))
                 end
-                return false
-            end, 2000)
-            if not gotIn then
-                return false, ('the watcher never reported the enter at '
-                    .. '2 m from a 4 m radius (log: %s)'):format(table.concat(P.NearLog(), ','))
-            end
 
-            -- 10 m from the watcher: clearly outside, so the exit is real.
-            moved, moveWhy = P.StepTowards(at(16.0, 0.0, 0.0), 25)
-            if not moved then return false, ('could not walk: %s'):format(tostring(moveWhy)) end
+                -- LET THE LIBRARY OBSERVE THE PLAYER INSIDE BEFORE WALKING OUT.
+                --
+                -- Two teleports with nothing between them can land entirely
+                -- between two sweeps. The watcher then sees outside, then
+                -- outside again, and reports nothing at all -- which is what
+                -- `0 in, 0 out` was: not a dropped callback, a state the
+                -- library was never shown.
+                local gotIn = P.WaitFor(function()
+                    for _, e in ipairs(P.NearLog()) do
+                        if e == 'in' then return true end
+                    end
+                    return false
+                end, 2000)
+                if not gotIn then
+                    return false, ('the watcher never reported the enter at '
+                        .. '2 m from a 4 m radius (log: %s)')
+                            :format(table.concat(P.NearLog(), ','))
+                end
 
-            local ins, outs = 0, 0
-            for _, e in ipairs(P.NearLog()) do
-                if e == 'in' then ins = ins + 1 else outs = outs + 1 end
+                -- 10 m from the watcher: clearly outside, so the exit is real.
+                moved, moveWhy = P.StepTowards(at(16.0, 0.0, 0.0), 25)
+                if not moved then
+                    return false, ('could not walk: %s'):format(tostring(moveWhy))
+                end
+
+                -- AND WAIT FOR THE EXIT TOO. Waiting only for the enter made
+                -- this case timing-dependent: the sweep runs on a 200 ms tick
+                -- with a 500 ms periodic check, so walking out and counting
+                -- immediately raced it. It passed on a clean server and
+                -- reported `1 in, 0 out` on the next run. Same lesson as the
+                -- enter -- the case must observe each state, not assume it.
+                local gotOut = P.WaitFor(function()
+                    for _, e in ipairs(P.NearLog()) do
+                        if e == 'out' then return true end
+                    end
+                    return false
+                end, 2000)
+                if not gotOut then
+                    return false, ('the watcher never reported the exit 10 m from '
+                        .. 'a 4 m radius (log: %s)'):format(table.concat(P.NearLog(), ','))
+                end
+
+                local ins, outs = 0, 0
+                for _, e in ipairs(P.NearLog()) do
+                    if e == 'in' then ins = ins + 1 else outs = outs + 1 end
+                end
+                return ins == 1 and outs == 1,
+                    ('exactly one enter and one exit: %d in, %d out'):format(ins, outs)
+            end)()
+
+            -- Stop the watcher on every path out, so a run never leaves a per-tick
+            -- distance check behind for the next one to trip over.
+            local stopped, stopWhy = exports['cis_libs']:RemoveNearWatcher(watcherId)
+            if not stopped then
+                return false, ('could not remove watcher %s: %s')
+                    :format(tostring(watcherId), tostring(stopWhy))
             end
-            return ins == 1 and outs == 1,
-                ('exactly one enter and one exit: %d in, %d out'):format(ins, outs)
+            return passed, why
         end,
     },
 })

@@ -488,6 +488,7 @@ real registered surface ever differ.
 | `RateOk` | server | `(src, name, windowMs, maxHits)` | 1.0.0 | no proxy equivalent; a resource may share the library rate limiter |
 | `RegisterCallback` | both | `(name, handler)` | 1.0.0 | Cis.callback.register(name, handler) |
 | `RegisterCapability` | both | `(slot, provider)` | 2.0.0 | Called by cis_core, cis_bridge and cis_keys with (slot, "resource:Export"). First registration wins |
+| `RemoveNearWatcher` | client | `(id)` | 2.2.0 | Cis.player.nearStop(id); the id WatchNear returns as its second value |
 | `RemoveTarget` | client | `(name, isPed)` | 1.0.0 | Cis.target.remove(name, isPed) |
 | `RemoveZone` | client | `(name)` | 1.0.0 | Cis.zones.remove(name) |
 | `RequestInventorySync` | client | `()` | 2.0.0 | Cis.inventory.count is a hint. This asks for a fresh one. Client only |

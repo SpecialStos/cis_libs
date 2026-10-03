@@ -392,6 +392,12 @@ return {
             realm = 'client',
             signature = '(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent)',
         },
+        RemoveNearWatcher = {
+            since = '2.2.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Cis.player.nearStop(id); the id WatchNear returns as its second value',
+            realm = 'client',
+            signature = '(id)',
+        },
         GetGlobals = {
             since = '1.0.0', ['until'] = '3.0.0', stable = false, deprecated = true,
             use = 'Cis.player.* and Cis.sync.*; there is no single replacement',
