@@ -30,15 +30,22 @@ dependencies {
     '/onesync',
 }
 
+-- ORDER MATTERS HERE, and it was wrong once. status.lua writes status.json as
+-- soon as it loads, so it must load AFTER the suites have registered -- placed
+-- between control.lua and report.lua it wrote a status.json with an empty
+-- `suites` array, and tools/live-run.js read that as "every suite needs a
+-- player" and skipped an entire run on a server with no player connected. The
+-- suites are registered by the three suites/* scripts; status.lua is loaded once
+-- they are all in.
 server_scripts {
     'server/json.lua',
     'server/runner.lua',
     'server/control.lua',
-    'server/status.lua',
     'server/report.lua',
     'server/suites/server.lua',
     'server/suites/player.lua',
     'server/suites/lifecycle.lua',
+    'server/status.lua',
     'server/commands.lua',
 }
 

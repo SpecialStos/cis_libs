@@ -39,3 +39,7 @@ tools/natives/natives_cfx.json
 # Editor/agent working state, not part of the library.
 .zcode/
 .zcodeignore
+# Live run results kept by tools/live-run.js (W4). Two of these are the
+# evidence for W7, so they are kept; the deployed copies in the resources
+# folder are not.
+test/live/results/

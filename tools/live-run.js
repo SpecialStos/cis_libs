@@ -185,18 +185,37 @@ function checkCommit(env, want) {
 
 // --------------------------------------------------------------- the player
 
-// Whether the selection needs a player, read from the harness rather than from
-// a list written here. If status.json predates this, the answer is unknown and
-// is treated as "assume it needs one" -- starting a client that was not needed
-// is cheap, SKIPping a tier that did need one is not.
+// What the selection needs, read from the harness rather than from a list
+// written here.
+//
+// `all` matters as much as `any`. When the selection is `all` and NO client
+// arrives, the run must still go ahead: the harness SKIPs its own player suites,
+// with its own reason, and the other tiers produce real results. Only a
+// selection that consists ENTIRELY of player-dependent suites has nothing left
+// to do, and only then is the whole run reported as SKIP. Skipping `all` because
+// the player tier could not run would throw away the server, lifecycle and perf
+// results along with it, and would report that as a reason to skip rather than
+// as a loss.
+//
+// UNKNOWN IS NOT "NEEDS A PLAYER". If the suite list is missing, this starts a
+// client (cheap, and possibly right) but does NOT skip the run (expensive, and
+// possibly wrong). Getting this backwards cost a whole run: status.lua once
+// wrote its first status.json before the suites had registered, so the list came
+// back empty and every suite read as needing a player.
 function selectionNeedsPlayer(status, tierArg) {
-  if (!status.suites || !status.suites.length) return { needed: true, known: false }
+  if (!status.suites || !status.suites.length) {
+    return { any: true, all: false, known: false, selected: 0 }
+  }
   const all = tierArg === 'all'
+  let any = false, selected = 0, needCount = 0
   for (const s of status.suites) {
     const inSelection = all || s.tier === tierArg || s.suite === tierArg
-    if (inSelection && s.needsPlayer) return { needed: true, known: true }
+    if (!inSelection) continue
+    selected++
+    if (s.needsPlayer) { any = true; needCount++ }
   }
-  return { needed: false, known: true }
+  if (selected === 0) return { any: false, all: false, known: true, selected: 0 }
+  return { any, all: needCount === selected, known: true, selected }
 }
 
 function waitForPlayer(env, clientCfg, player) {
@@ -298,37 +317,47 @@ function main() {
   log(`  commit ${status.commit} confirmed; cis_libs ${status.cisLibsVersion}` +
     (want.dirty ? '  (working tree was dirty at deploy time)' : ''))
 
-  const client = require('./client.js')
+const client = require('./client.js')
   const clientCfg = client.loadClientConfig()
   const player = selectionNeedsPlayer(status, tierArg)
 
   let startedClient = false
-  if (player.needed) {
+  let startDetail = null
+  if (player.any) {
     log('')
     log('[4/7] start the client')
     const r = client.start(clientCfg)
-    log(`  ${r.skipped ? 'SKIP' : r.ok ? 'OK' : 'FAIL'} ${r.detail || ''}`)
+    startDetail = r.skipped ? (r.why || 'client.mode is "off"') : (r.detail || '')
+    log(`  ${r.skipped ? 'SKIP' : r.ok ? 'OK' : 'FAIL'} ${startDetail}`)
     startedClient = r.ok && !r.skipped
   } else {
     log('')
     log('[4/7] start the client -- not needed: no suite in this selection needs a player')
   }
 
+  // The whole run is only skipped when NOTHING in the selection can run without
+  // a client. A mixed selection runs, and the harness SKIPs the suites that need
+  // a player with its own reason -- which is a better record than this tool
+  // inventing one.
   let skipped = null
-  if (player.needed && startedClient) {
+  if (player.all && !startedClient) {
+    skipped = startDetail
+      ? `every suite in '${tierArg}' needs a player, and ${startDetail}`
+      : `every suite in '${tierArg}' needs a player, and none is connected`
+    log('')
+    log(`[5/7] SKIP: ${skipped}`)
+  } else if (player.any && startedClient) {
     log('')
     log('[5/7] wait for the client to connect')
-    const p = waitForPlayer(env, clientCfg, player)
+    const p = waitForPlayer(env, clientCfg)
     if (!p.connected) {
-      skipped = p.why
-      log(`  SKIP: ${p.why}`)
+      log(`  client did not connect: ${p.why}`)
+      log('  Mixed selection: the run continues and the harness SKIPs the player')
+      log('  suites itself, with its own reason. Only a wholly player-dependent')
+      log('  selection would stop the whole run here.')
     } else {
       log('  a client is connected')
     }
-  } else if (player.needed) {
-    skipped = 'the client could not be started'
-    log('')
-    log(`[5/7] SKIP: ${skipped}`)
   } else {
     log('')
     log('[5/7] no player needed')
