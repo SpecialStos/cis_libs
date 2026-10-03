@@ -199,6 +199,27 @@ AddEventHandler('onResourceStop', function(resource)
     if resource == GetCurrentResourceName() then
         return
     end
+    -- AND THE PENDING ENTRIES THAT RESOURCE CREATED.
+    --
+    -- Dropped WITHOUT invoking them. Its Lua VM is already gone, so calling the
+    -- closure would raise inside cis_libs's own handler over a caller that no
+    -- longer exists -- and the closure's `cb` or `promise` belongs to that dead
+    -- resource anyway. The entries go; the waiters do not get an answer, because
+    -- there is nobody left to receive one.
+    --
+    -- Collected and removed FIRST, then reported, for the reason
+    -- `CisPending.sweep` documents: the store must be consistent before any
+    -- other code can look at it.
+    local doomed = {}
+    for key, item in pairs(pending.items) do
+        if item.payload.owner == resource then
+            doomed[#doomed + 1] = key
+        end
+    end
+    for i = 1, #doomed do
+        pending.items[doomed[i]] = nil
+    end
+
     local freed = CisOwned.release(callbackOwned, resource)
     for i = 1, #freed do
         if freed[i].kind == 'callback' then
@@ -208,6 +229,45 @@ AddEventHandler('onResourceStop', function(resource)
     end
     if #freed > 0 then
         Logging.Info(('cis_libs: released %d callback(s) owned by %s'):format(#freed, tostring(resource)))
+    end
+    if #doomed > 0 then
+        Logging.Info(('cis_libs: dropped %d pending callback(s) owned by %s')
+            :format(#doomed, tostring(resource)))
+    end
+end)
+
+--- A PLAYER WHO DROPS DOES NOT LEAVE THE SERVER WAITING FOR THEM.
+---
+--- Every server-to-client await aimed at this src is rejected now, with a reason
+--- that says what happened, rather than being left to the one-second sweep and
+--- then to the full CallbackTimeout. Ten seconds is not a long time to a person,
+--- but it is ten seconds of a live coroutine per outstanding call, and the
+--- caller was told nothing at all while it lasted.
+AddEventHandler('playerDropped', function()
+    local src = source
+    if type(src) ~= 'number' or src <= 0 then
+        return
+    end
+    local doomed = {}
+    for key, item in pairs(pending.items) do
+        if item.payload.target == src then
+            doomed[#doomed + 1] = key
+        end
+    end
+    for i = 1, #doomed do
+        local item = pending.items[doomed[i]]
+        pending.items[doomed[i]] = nil
+        local payload = item and item.payload
+        if payload and payload.cb then
+            -- The CALLER may still be alive -- a resource waiting on a player who
+            -- just left is exactly the normal case -- so this one IS answered,
+            -- and answered with the reason rather than the generic 'timeout'.
+            payload.cb(false, 'player dropped')
+        end
+    end
+    if #doomed > 0 then
+        Logging.Info(('cis_libs: dropped %d pending callback(s) for player %d who left')
+            :format(#doomed, src))
     end
 end)
 
@@ -369,7 +429,14 @@ local function askClient(name, target, cb, ...)
     -- against the src that answered. The key alone is not a secret: it is a
     -- sequential integer and any client can read another client's key out of
     -- its own event traffic.
-    local key = CisPending.alloc(pending, { cb = cb, target = target }, GetGameTimer() + timeoutMs())
+    -- `owner` IS RECORDED AT ALLOCATION, not looked up later. A pending entry
+    -- has two ends -- the resource waiting, and the player who owes the answer --
+    -- and the resource end is the only one that can go away silently. Without an
+    -- owner on the entry, a stopped resource's entries are indistinguishable
+    -- from anyone else's, so the sweep below has nothing to sweep.
+    local key = CisPending.alloc(pending,
+        { cb = cb, target = target, owner = GetInvokingResource() },
+        GetGameTimer() + timeoutMs())
     TriggerClientEvent('cis_libs:cb', target, name, key, ...)
     return key
 end
@@ -476,8 +543,21 @@ exports('AwaitCallbackClient', function(name, target, ...)
         return false, ('callback %q: target must be a player id, got %s')
             :format(tostring(name), tostring(target))
     end
+    -- AND A PLAUSIBLE ID THAT NOBODY HOLDS IS REFUSED HERE TOO.
+    --
+    -- `GetPlayerName` answering nil is this library's own "that player is not
+    -- here" test (server/security.lua, server/proxy.lua), and this is the third
+    -- place that needs it. Before the check, an await for a player who has
+    -- already left allocated an entry, fired an event at nobody, and parked the
+    -- caller until the full CallbackTimeout -- ten seconds of a thread doing
+    -- nothing, for a caller who already knew the answer.
+    if not GetPlayerName(target) then
+        return false, ('callback %q: player %d is not connected'):format(tostring(name), target)
+    end
     local p = promise.new()
-    local key = CisPending.alloc(pending, { promise = p, target = target }, GetGameTimer() + timeoutMs())
+    local key = CisPending.alloc(pending,
+        { promise = p, target = target, owner = GetInvokingResource() },
+        GetGameTimer() + timeoutMs())
     TriggerClientEvent('cis_libs:cb', target, name, key, ...)
     -- C1 · CITIZEN.AWAIT RETURNS ONE VALUE, AND A REJECTION THROWS.
     --
@@ -535,6 +615,17 @@ end)
 -- Pending callbacks are the leak the plan's lifecycle cases exist to catch, and
 -- they leak in one direction more easily than the other: a server-to-client
 -- await whose player leaves has no owner left to expire it.
+--
+-- GROUPED BY OWNER, for the same reason `syncRecords` is grouped by owner: a
+-- total cannot tell "released its own" from "released everything", and those
+-- are different answers to the question the lifecycle tier asks. Before entries
+-- carried an owner at all, so there was nothing to group by.
 CisDiagnostics.Register('server', 'pendingCallbacks', function()
-    return { toClient = CisPending.count(pending), total = CisPending.count(pending) }
+    local total, byOwner = 0, {}
+    for _, item in pairs(pending.items) do
+        total = total + 1
+        local owner = item.payload.owner or '<none>'
+        byOwner[owner] = (byOwner[owner] or 0) + 1
+    end
+    return { toClient = total, total = total, byOwner = byOwner }
 end)

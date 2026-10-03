@@ -55,7 +55,7 @@ local function newEnv(opts)
         'NetworkGetEntityFromNetworkId', 'Entity', 'DoesEntityExist',
         'DeleteEntity', 'SetEntityCoords', 'SetEntityHeading',
         'SetNetworkedEntityLocallyVisible', 'SetNetworkedEntityLocallyInvisible',
-        'promise', 'Citizen',
+        'promise', 'Citizen', 'collectgarbage',
     }) do
         env.saved[#env.saved + 1] = { name = name, value = rawget(_G, name) }
     end
@@ -100,8 +100,24 @@ local function newEnv(opts)
     function GetCurrentResourceName() return 'cis_libs' end
     function GetInvokingResource() return env.invoking end
     function GetResourceState() return 'missing' end
-    function GetPlayerName() return 'TestPlayer' end
+    -- SRC-AWARE, because a stub that answers a name for every id makes "is this
+    -- player connected" untestable: every src looks connected, so a guard that
+    -- checks it passes for the wrong reason. This is the same change the contract
+    -- suite got, and for the same reason.
+    function GetPlayerName(src)
+        if src == nil then return 'TestPlayer' end
+        return env.players[src] and 'TestPlayer' or nil
+    end
     function DropPlayer() end
+    -- `collectgarbage` is a Lua builtin, but only the real one: fengari raises
+    -- `lua_gc not implemented` for the 'count' form `GetDiagnostics` asks for, so
+    -- every probe of that export was unreachable in this suite. A stub, because
+    -- the memory figure is a diagnostic and not a behaviour under test.
+    local realCollect = collectgarbage
+    collectgarbage = function(opt)
+        if opt == 'count' then return 64.0 end
+        return realCollect(opt)
+    end
     -- Event handlers are RECORDED, not dropped: the consumer-stop fix is
     -- entirely about what happens when `onResourceStop` fires, so the harness
     -- has to be able to fire one and a test has to be able to see the binding.
@@ -1694,7 +1710,11 @@ end
 -- `data/shared/citizen/scripting/lua/scheduler.lua`; the promise stub at the top
 -- of this file models it exactly.
 do
-    local env = newEnv({})
+    -- Player 7 is REGISTERED, because `GetPlayerName` is src-aware in this stub
+    -- and an unregistered id is a player who is not there. This block is about
+    -- the answer's SHAPE, so the target has to be a real one -- previously it did
+    -- not have to be, because the stub answered a name for every id.
+    local env = newEnv({ players = { [7] = {}, [8] = {} } })
     Config = CisDefaults.config()
     Security = CisDefaults.security()
     loadModule('server/security.lua')
@@ -2054,6 +2074,102 @@ do
 
     check(CisRegistry.unregister('database', 'cis_alpha') == true,
         'G3: the owner can release its own slot')
+    env.reset()
+end
+
+-- ============================================================== 3.5 · PENDING
+-- Four gaps in one block, because they are one property: a pending entry has to
+-- end when the thing that made it ends. A player who leaves, and a resource
+-- that stops, are both "gone", and neither was noticed.
+--
+-- TIME IS FAKE HERE, so "at once" is provable. The gap between asking and being
+-- answered is the whole cost, and a test that only checks the final state cannot
+-- tell an instant refusal from a fast one.
+do
+    local env = newEnv({ players = { [1] = {}, [2] = {} } })
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+    loadModule('server/callback.lua')
+
+    env.invoking = 'res_a'
+    env.EXPORTS.RegisterCallback('a:live', function() return 'from a' end)
+
+    local function byOwner()
+        return ((env.EXPORTS.GetDiagnostics().probes or {}).pendingCallbacks or {}).byOwner or {}
+    end
+
+    -- (1) A PLAYER WHO IS NOT THERE IS REFUSED IMMEDIATELY.
+    --
+    -- 9001 has no ped, no name and no place in GetPlayers(). Before the fix
+    -- this allocated an entry, fired an event at nobody, and left the caller
+    -- parked until the full CallbackTimeout -- 10 seconds of a thread doing
+    -- nothing, for a caller who already knows the answer.
+    local startedAt = env.clock
+    local ok, why = env.EXPORTS.AwaitCallbackClient('a:live', 9001)
+    check(ok == false, '3.5: an await on a player who is not connected is refused')
+    check(tostring(why):find('not connected', 1, true) ~= nil,
+        ('3.5: and says so (%s)'):format(tostring(why)))
+    check(env.clock == startedAt,
+        '3.5: and is refused WITHOUT waiting -- the whole point of the check')
+
+    -- (2) THE ENTRY RECORDS WHO ASKED FOR IT, AND THE PROBE CAN SAY SO.
+    --
+    -- Without an owner on the entry a stopping resource's pending entries are
+    -- indistinguishable from anyone else's, and the stop sweep cannot exist.
+    -- Grouped BY OWNER for the same reason `syncRecords` is: a total cannot tell
+    -- "released its own" from "released everything", and those are different
+    -- answers to the question the lifecycle tier asks.
+    env.invoking = 'res_a'
+    env.EXPORTS.CallCallbackClient('a:live', 1, function() end)
+    check((byOwner().res_a or 0) == 1,
+        ('3.5: a pending entry records the resource that created it (%s)')
+            :format(tostring(byOwner().res_a)))
+
+    -- (3) A RESOURCE THAT STOPS TAKES ITS OWN PENDING ENTRIES WITH IT, and
+    -- nobody else's.
+    env.invoking = 'res_b'
+    env.EXPORTS.RegisterCallback('b:live', function() return 'from b' end)
+    env.EXPORTS.CallCallbackClient('b:live', 2, function() end)
+    check((byOwner().res_b or 0) == 1, '3.5: and so does the second resource\'s')
+
+    env.fire('onResourceStop', 'res_a')
+    check(byOwner().res_a == nil,
+        '3.5: a stopped resource takes its own pending entries with it')
+    check((byOwner().res_b or 0) == 1,
+        '3.5: and another resource\'s entries are untouched')
+
+    -- (4) A PLAYER WHO DROPS DOES NOT LEAVE THE SERVER WAITING FOR THEM.
+    --
+    -- This one was missing, and mutation M20 said so: without it the whole
+    -- `playerDropped` handler is a SURVIVOR, because every other assertion in
+    -- this block passes with it deleted.
+    --
+    -- The entry is recreated first, so the stop sweep above is not what empties
+    -- the map -- otherwise the two properties could be confused for each other
+    -- and both would pass with either one broken.
+    local answeredWith, answeredWhy
+    env.invoking = 'res_a'
+    env.EXPORTS.CallCallbackClient('a:live', 1, function(cbOk, cbWhy)
+        answeredWith, answeredWhy = cbOk, cbWhy
+    end)
+    check((byOwner().res_a or 0) == 1, '3.5: res_a has an entry aimed at player 1')
+
+    -- `playerDropped` is an AddEventHandler and the handler reads the `source`
+    -- GLOBAL, which the net-event emitter never sets. Hand-set, the same way the
+    -- C2 case above does it.
+    local savedSource = rawget(_G, 'source')
+    source = 1
+    env.fire('playerDropped')
+    _G.source = savedSource
+
+    check(byOwner().res_a == nil,
+        '3.5: a dropped player takes their pending entries with them')
+    check(answeredWith == false,
+        '3.5: and the waiting caller is ANSWERED, not left to time out')
+    check(tostring(answeredWhy) == 'player dropped',
+        ('3.5: with a reason that says what happened (%s)'):format(tostring(answeredWhy)))
+    check((byOwner().res_b or 0) == 1,
+        "3.5: another player's entries survive the drop")
     env.reset()
 end
 

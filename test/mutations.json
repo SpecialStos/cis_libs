@@ -58,6 +58,13 @@
       "why": "Remove the connected-player check from the shared notify guard. A plausible server id is not a player, so without this the export reports success and fires at somebody who has already left -- the worst of both, because it looks delivered and reaches nobody."
     },
     {
+      "id": "M20",
+      "file": "server/callback.lua",
+      "find": "        if item.payload.target == src then\n            doomed[#doomed + 1] = key\n        end\n    end\n    for i = 1, #doomed do\n        local item = pending.items[doomed[i]]",
+      "replace": "        if false then\n            doomed[#doomed + 1] = key\n        end\n    end\n    for i = 1, #doomed do\n        local item = pending.items[doomed[i]]",
+      "why": "Remove the playerDropped rejection. Every server-to-client await aimed at a player who has just left then waits out the full CallbackTimeout -- 10 seconds and a parked live coroutine per outstanding call -- and is reported as a generic 'timeout', so the caller is told the client was slow about a client that is gone."
+    },
+    {
       "id": "M12",
       "file": "server/sync.lua",
       "find": "    for id, record in pairs(records) do\n        if record.owner == resource then\n            remove(id)\n        end\n    end\nend)",

@@ -248,11 +248,11 @@ local function run(id, cmd)
             or (action == 'cis_test') and 'cis_test'
             or action)
         if not IsPrincipalAceAllowed(principal, object) then
-            local reason = ('cis_ctl is not allowed to run %q (%s -> %s). Add this '
+            local denied = ('cis_ctl is not allowed to run %q (%s -> %s). Add this '
                 .. 'line to server.cfg and restart, or type it into the console: '
                 .. 'add_ace %s %s allow'):format(command, principal, object, principal, object)
-            writeFile('outbox.json', encodeOutbox(id, false, nil, reason))
-            print(('[cis_ctl] refused %s: %s'):format(id, reason))
+            writeFile('outbox.json', encodeOutbox(id, false, nil, denied))
+            print(('[cis_ctl] refused %s: %s'):format(id, denied))
             return
         end
     end
