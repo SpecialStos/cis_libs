@@ -127,22 +127,34 @@ CisTestRunner.Suite('registry', { tier = 'server', realm = 'server' }, function(
         end)
         t.ok(released == true, 'the slot was released')
 
-        local rows, why = exports['cis_libs']:DbQuery('SELECT 1')
+        -- ONE WARNING, AND DECLARED. The missing provider is worth exactly one
+        -- console line -- `forward` latches it per slot and method so a boot
+        -- cannot flood the operator -- and this case is the first thing on a
+        -- fresh process to trigger it. Declaring the delta is the honest way to
+        -- say "this is the warning I am causing", as opposed to allowing the
+        -- counter to move for any reason at all, which is how a real leak gets
+        -- waved through.
+        t.expectCounter('warnings', 1)
+
+        local rows = exports['cis_libs']:DbQuery('SELECT 1')
         -- nil, not false: forward() hands back the provider's refusal reason so
         -- the caller can report it, and an answer of `false` would be
         -- indistinguishable from a provider that legitimately returned false.
+        -- Nine contract tests pin that shape deliberately, because `if not rows`
+        -- is the test most callers actually write.
         t.eq(rows, nil, 'a call with no provider answers nothing at all')
-        -- FAILS AT THE BASELINE, ON PURPOSE. `forward()` does compute the reason
-        -- and does return it -- as its second value -- and it still arrives nil.
-        -- Everything that answer goes through an EXPORT, and a second return
-        -- value is exactly what this library's own comments say does not
-        -- survive a crossing. So the refusal a caller sees has no explanation in
-        -- it, which is the same defect as the notify one below and for the same
-        -- reason: the code standard says every refusal answers with a reason, and
-        -- the boundary is where the reason goes.
-        t.ok(type(why) == 'string' and #why > 0,
-            'and hands back a reason that says something (the reason is lost across the export: ' ..
-            tostring(why) .. ')')
+
+        -- THE REASON COMES FROM SOMEWHERE ELSE, and that is not a workaround --
+        -- it is the only shape that works. A nil FIRST value truncates the
+        -- return list at the exports boundary, which the `boundary` suite in
+        -- this same file measures. So `nil, reason` structurally cannot carry
+        -- the explanation the code standard requires, and the refusal travels
+        -- out of band instead.
+        local refusal = exports['cis_libs']:GetLastRefusal()
+        t.ok(type(refusal) == 'string' and #refusal > 0,
+            ('and the reason is readable from GetLastRefusal (got %s)'):format(tostring(refusal)))
+        t.ok(refusal and refusal:find('database', 1, true) ~= nil,
+            ('and it names the capability that is missing (%s)'):format(tostring(refusal)))
     end)
 
     t.case('a provider that raises never escapes into the consumer', function()

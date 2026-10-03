@@ -542,6 +542,17 @@ return {
             realm = 'server',
             signature = '(jobs)',
         },
+        -- A read refusal answers nil, because `if not rows` is what callers
+        -- write -- and a nil FIRST value truncates the return list at the
+        -- exports boundary, so the reason cannot ride along in it. This carries
+        -- it out of band instead. Scoped to the calling resource and cleared by
+        -- the next successful call.
+        GetLastRefusal = {
+            since = '2.2.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Read after a nil/false answer from a capability export to learn WHY it was refused. Returns a sentence naming the missing or failing capability, or nil when the last call succeeded. Additive: no existing return shape changes',
+            realm = 'server',
+            signature = '()',
+        },
 
         -- ----------------------------------------------------------- security
         -- L-C24: `opts` is forwarded, and the registration result is returned.

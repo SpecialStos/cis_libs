@@ -456,6 +456,7 @@ real registered surface ever differ.
 | `GetFramework` | both | `()` | 1.0.0 | Cis.framework.player(src) on the server; Cis.framework.notify on the client. Not an API: it returns a table of callable references **deprecated** unstable |
 | `GetGlobals` | client | `()` | 1.0.0 | Cis.player.* and Cis.sync.*; there is no single replacement **deprecated** unstable |
 | `GetKnownTargets` | both | `()` | 2.0.0 | The ordered framework and driver tables detection uses. Shared so a product cannot disagree with the debug output about what is running |
+| `GetLastRefusal` | server | `()` | 2.2.0 | Read after a nil/false answer from a capability export to learn WHY it was refused. Returns a sentence naming the missing or failing capability, or nil when the last call succeeded. Additive: no existing return shape changes |
 | `GetLibsPrefix` | server | `()` | 1.0.0 | no proxy equivalent; the configured Security.EventPrefix |
 | `GetLogging` | server | `()` | 1.0.0 | Cis.log.debug / info / warn / error |
 | `GetNormalizedPlayer` | server | `(src)` | 1.0.0 | Cis.framework.player(src) |

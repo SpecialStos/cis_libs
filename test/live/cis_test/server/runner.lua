@@ -297,7 +297,12 @@ local function runCase(suite, caseName, fn)
     if #moved > 0 and case.status == 'PASS' then
         case.status = 'FAIL'
         case.failures[#case.failures + 1] = {
-            msg = 'a counter moved and the case did not say it would',
+            -- NAMED IN THE MESSAGE, not only in a `detail` field the results
+            -- writer never emits. "a counter moved" sends whoever is on call back
+            -- to the console to find out which one -- the exact trip this file
+            -- exists to remove. It was computed, carried and dropped.
+            msg = ('a counter moved and the case did not say it would: %s')
+                :format(table.concat(moved, '; ')),
             detail = table.concat(moved, '; '),
         }
     end
@@ -406,6 +411,13 @@ local function runSuite(suite)
     t.fail = function(msg, detail) return Case.record(needCase('t.fail'), false, msg, detail) end
     t.allowCounter = function(name, delta)
         return Case.allowCounter(needCase('t.allowCounter'), name, delta)
+    end
+    -- Exposed because `Case:expectCounter` existed and was unreachable, so the
+    -- only way a case could declare an EXPECTED counter movement was to allow
+    -- ANY movement in it -- which is a much weaker promise, and is how a real
+    -- leak gets waved through by a case that meant to describe one warning.
+    t.expectCounter = function(name, delta)
+        return Case.expectCounter(needCase('t.expectCounter'), name, delta)
     end
     t.allowCounterAny = function(name)
         return Case.allowCounterAny(needCase('t.allowCounterAny'), name)

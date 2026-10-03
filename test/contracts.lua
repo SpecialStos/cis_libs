@@ -2305,6 +2305,88 @@ do
         envC.reset()
         clearRegistry()
     end
+
+    -- ------------------------------------------------------------ GetLastRefusal
+    --
+    -- Every refusal the pins above assert is the same refusal: the right SHAPE,
+    -- and no explanation in it. A nil first value truncates the return list
+    -- across the exports boundary -- measured live, not assumed -- so
+    -- `nil, reason` hands the caller nothing, and `if not rows` has no sentence
+    -- to put in a log.
+    --
+    -- So the reason travels out of band instead. ADDITIVE: no return shape
+    -- moves, so nothing a sibling already wrote changes. That is the whole
+    -- reason it is not the other way round -- nine contract tests pin these
+    -- shapes deliberately, and `if not rows` is what callers actually write.
+    --
+    -- At the end of the file with the console sweep because `bootAudit` is
+    -- defined below the pins it is testing.
+    do
+        local envL = bootAudit('cis_someProduct')
+        envL.invoking = 'cis_someProduct'
+        -- AUTHORIZED FIRST, or nothing below registers and every "success" is
+        -- another refusal. An empty AuthorizedResources is restrictive by
+        -- design, which is correct and quietly unhelpful in a test.
+        envL.EXPORTS.SetConfig(nil, {
+            AuthorizedResources = { 'cis_someProduct', 'cis_aDifferentProduct' },
+        })
+        check(envL.EXPORTS.GetLastRefusal() == nil,
+            'GetLastRefusal: nothing has been refused yet, so there is nothing to report')
+
+        envL.EXPORTS.DbQuery('SELECT 1', {})
+        local why = envL.EXPORTS.GetLastRefusal()
+        check(type(why) == 'string' and #why > 0,
+            ('GetLastRefusal: the missing-provider refusal is readable afterwards (%s)')
+                :format(tostring(why)))
+        check(tostring(why):find('database', 1, true) ~= nil,
+            ('GetLastRefusal: and it names the capability that is missing (%s)'):format(tostring(why)))
+
+        -- PER RESOURCE, not one shared slot, and this half comes BEFORE the provider
+        -- is registered: once `database` resolves, every call succeeds and
+        -- nothing is recorded, which would make the isolation untestable.
+        --
+        -- A single global would let any resource read another's reason -- a small
+        -- leak, and a source of baffling log lines, because nobody could tell
+        -- whose refusal was whose.
+        envL.invoking = 'cis_aDifferentProduct'
+        check(envL.EXPORTS.GetLastRefusal() == nil,
+            'GetLastRefusal: a different resource does not see the first one\'s refusal')
+
+        envL.EXPORTS.DbQuery('SELECT 1', {})
+        check(type(envL.EXPORTS.GetLastRefusal()) == 'string',
+            'GetLastRefusal: but it records its own')
+
+        -- And switching back answers with the FIRST one's own refusal, not with
+        -- the second's. Independence in one direction is half a proof.
+        envL.invoking = 'cis_someProduct'
+        check(envL.EXPORTS.GetLastRefusal() == why,
+            'GetLastRefusal: switching back answers with its OWN refusal, not the other\'s')
+
+        -- A SUCCESS clears it. A stale reason is worse than none: the next
+        -- `if not rows` would report the failure that happened a minute ago,
+        -- which is a log line that argues with the truth.
+        --
+        -- The provider has to actually RESOLVE, not merely be registered: the
+        -- stub's `exports` table holds only `cis_libs`, so a registration
+        -- pointing at a resource that is not there fails the same way a missing
+        -- one does, and the "successful" call below was silently a second
+        -- refusal. Registering is not providing.
+        envL.EXPORTS.cis_bridge = {
+            Db = function()
+                return { query = function() return { { id = 1 } } end }
+            end,
+        }
+        envL.started['cis_bridge'] = 'started'
+        local registered = envL.EXPORTS.RegisterCapability('database', 'cis_bridge:Db')
+        check(registered == true, 'GetLastRefusal: the provider registered')
+        local rows = envL.EXPORTS.DbQuery('SELECT 1', {})
+        check(type(rows) == 'table',
+            ('GetLastRefusal: and the call really succeeded (got %s)'):format(tostring(rows)))
+        check(envL.EXPORTS.GetLastRefusal() == nil,
+            ('GetLastRefusal: a successful call clears the previous refusal (%s)')
+                :format(tostring(envL.EXPORTS.GetLastRefusal())))
+        envL.reset()
+    end
 end
 
 -- ------------------------------------------------------------------ report

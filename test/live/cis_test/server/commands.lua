@@ -56,18 +56,46 @@ local function selectedSuites(spec)
     end
 
     local out, missing = {}, {}
+    -- A TIER IS NOT CONSUMED BY ITS FIRST MATCH, and that distinction is the
+    -- whole function.
+    --
+    -- It used to do `wanted[s.name] = nil; wanted[s.tier] = nil` for whichever
+    -- matched, so naming a tier collected the FIRST suite in it and then threw
+    -- the token away. `cis_test run server` ran the single `boundary` case out
+    -- of ten, reported pass 1 fail 0, and exited 0 -- a green run of almost
+    -- nothing, which is the one outcome worse than a red one.
+    --
+    -- A SUITE NAME is consumed, because that is how a typo gets reported. A tier
+    -- is remembered as HIT rather than consumed, and only a name nothing ever
+    -- matched is missing.
+    local hit = {}
     for _, s in ipairs(suites) do
-        if wanted[s.name] or wanted[s.tier] then
+        local byName = wanted[s.name] and true or false
+        local byTier = wanted[s.tier] and true or false
+        if byName or byTier then
             out[#out + 1] = s
+        end
+        if byName then
             wanted[s.name] = nil
-            wanted[s.tier] = nil
+        end
+        if byTier then
+            hit[s.tier] = true
         end
     end
-    for name in pairs(wanted) do missing[#missing + 1] = name end
+    for name in pairs(wanted) do
+        if not hit[name] then
+            missing[#missing + 1] = name
+        end
+    end
     if #missing > 0 then
         table.sort(missing)
         print(('[cis_test] no suite or tier matches: %s'):format(table.concat(missing, ', ')))
         print(('[cis_test] known tiers: %s'):format(table.concat(CisTestRunner.DistinctTiers(), ', ')))
+    end
+    if #out == 0 and (spec ~= 'all') then
+        -- Said out loud, because "nothing ran" and "everything passed" print the
+        -- same summary otherwise, and only one of them is a result.
+        print(('[cis_test] %q selected 0 suites; nothing will run'):format(tostring(spec)))
     end
     return out
 end

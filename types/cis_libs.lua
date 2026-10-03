@@ -764,6 +764,12 @@ function cis_libs.GetFramework() end
 ---@field deprecated boolean false
 function cis_libs.GetKnownTargets() end
 
+---@class cis_libs.GetLastRefusal
+---@field use string Read after a nil/false answer from a capability export to learn WHY it was refused. Returns a sentence naming the missing or failing capability, or nil when the last call succeeded. Additive: no existing return shape changes
+---@field since string 2.2.0
+---@field deprecated boolean false
+function cis_libs.GetLastRefusal() end
+
 ---@class cis_libs.GetLibsPrefix
 ---@field use string no proxy equivalent; the configured Security.EventPrefix
 ---@field since string 1.0.0
@@ -1272,6 +1278,7 @@ cis_libs.GetDoorState = cis_libs.GetDoorState
 cis_libs.GetFramework = cis_libs.GetFramework
 cis_libs.GetGlobals = cis_libs.GetGlobals
 cis_libs.GetKnownTargets = cis_libs.GetKnownTargets
+cis_libs.GetLastRefusal = cis_libs.GetLastRefusal
 cis_libs.GetLibsPrefix = cis_libs.GetLibsPrefix
 cis_libs.GetLogging = cis_libs.GetLogging
 cis_libs.GetNormalizedPlayer = cis_libs.GetNormalizedPlayer

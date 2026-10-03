@@ -188,15 +188,48 @@ end
 -- The generic forward. Returns nil (or false) plus a reason on failure, and
 -- hands back every value the provider produced on success.
 --
--- `onFail` is this slot's failure shape, and the shapes differ. A count answers
--- 0, a mutation answers false, a transaction answers false AND a reason, and a
--- read answers nil -- and those are the shapes consumers' existing `if not x`
--- tests were written against. Pass a function when the failure needs more than
--- one value; it is called, not returned.
+-- `onFail` is this slot's SUCCESS-FREE shape, and the shapes differ. A count
+-- answers 0, a mutation answers false, and a read answers nil -- and those are
+-- the shapes consumers' existing `if not x` tests were written against, so they
+-- are preserved exactly. Pass a function when the failure needs more than one
+-- value; it is called, not returned.
+--
+-- ON FAILURE THE SLOT'S OWN SHAPE IS KEPT, AND THE REASON IS CARRIED OUT OF
+-- BAND. Both halves of that are load-bearing:
+--
+--   * The shape is not negotiable. `DbQuery` answering nil means "no provider",
+--     never false, because `if not rows` is the test most callers actually
+--     write, and collapsing it to false would be a silent behaviour change on
+--     every installed server. Nine contract tests pin it.
+--   * The reason cannot ride in the return list. **A nil FIRST value truncates
+--     the return list at the exports boundary** -- measured on the live server
+--     rather than assumed: `true` and `false` carry a second value across, `nil`
+--     does not. So a read refusal, which is nil, is structurally incapable of
+--     delivering the reason the code standard requires.
+--
+-- Which leaves out of band as the only shape that satisfies both. The refusal
+-- is recorded per calling resource and read back with `GetLastRefusal`.
+local lastRefusal = {}
+
+--- The reason for the most recent capability refusal made BY THIS RESOURCE.
+---
+--- Per resource, not a single global: a shared one would let any resource read
+--- another's reason, which is both a small information leak and a source of
+--- bafflingly wrong log lines -- two products, one table, and nobody can tell
+--- whose refusal was whose.
+---
+--- Cleared on a successful call, because a stale reason is worse than none: the
+--- next `if not rows` would report the failure that happened a minute ago.
+exports('GetLastRefusal', function()
+    return lastRefusal[GetInvokingResource() or 'cis_libs']
+end)
+
 local function forward(slot, onFail, ...)
+    local caller = GetInvokingResource() or 'cis_libs'
     local results = table.pack(CisRegistry.call(slot, ...))
     if not results[1] then
         warnOnce(slot, (...), results[2])
+        lastRefusal[caller] = results[2]
         if type(onFail) == 'function' then
             return onFail()
         end
@@ -205,6 +238,7 @@ local function forward(slot, onFail, ...)
         end
         return nil, results[2]
     end
+    lastRefusal[caller] = nil
     return table.unpack(results, 2, results.n)
 end
 
@@ -515,6 +549,10 @@ end)
 -- call into an honest "no provider registered" and lets the restarted resource
 -- register again; the warning latch is cleared so the next failure is reported.
 AddEventHandler('onResourceStop', function(resource)
+    -- The resource's refusal goes with it. A stopped resource is never asked
+    -- again, and a table entry keyed by a name that can never call in is a
+    -- small leak on a server that restarts resources all day.
+    lastRefusal[resource] = nil
     for _, slot in ipairs(CisRegistry.releaseOwner(resource)) do
         warned = {}
         Logging.Warn(('cis_libs: capability %q released: %s stopped'):format(slot, resource))
