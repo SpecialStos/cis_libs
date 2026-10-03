@@ -6,6 +6,55 @@
 -- server -- a real exports boundary, a real resource, a real Lua VM -- which is
 -- the class of bug the unit suite structurally cannot see.
 
+-- WHAT SURVIVES AN EXPORT CALL, MEASURED RATHER THAN ASSUMED.
+--
+-- Three live cases report a refusal that arrives with no explanation, and each
+-- one carries a comment saying the reason does not survive the boundary. That
+-- may be true when the first value is nil and false when it is `false` --
+-- `CreateZone` returns `false, reason` and its reason arrives intact, which
+-- already contradicts the general claim. So it is measured.
+--
+-- This is deliberately a property of the HARNESS, not of cis_libs: it lives
+-- here so the answer is about the platform, not about this library's exports.
+exports('ReturnShapeProbe', function(shape)
+    if shape == 'nil' then return nil, 'reason-after-nil' end
+    if shape == 'false' then return false, 'reason-after-false' end
+    if shape == 'none' then return end
+    return true, 'reason-after-true'
+end)
+
+CisTestRunner.Suite('boundary', { tier = 'server', realm = 'server' }, function(t)
+    t.case('a second return value survives UNLESS the first is nil', function()
+        local seen = {}
+        for _, shape in ipairs({ 'none', 'true', 'false', 'nil' }) do
+            local _, second = exports['cis_test']:ReturnShapeProbe(shape)
+            seen[shape] = second
+        end
+        -- MEASURED, run-20261003-075458:
+        --   none  -> nil                (nothing was returned; correct)
+        --   true  -> reason-after-true  (survives)
+        --   false -> reason-after-false (survives)
+        --   nil   -> nil                (TRUNCATED)
+        --
+        -- So it is not "a second return value does not survive the exports
+        -- boundary", which is what three live cases asserted in their comments
+        -- and what this project believed for a stage. It is a nil FIRST value
+        -- that truncates the return list, and nothing else does.
+        --
+        -- This matters because cis_libs answers `nil, reason` on a read that has
+        -- no provider, and `CreateZone` answers `false, reason` on a refusal --
+        -- one loses its reason, the other keeps it, from the same boundary.
+        t.ok(seen['true'] == 'reason-after-true',
+            'a reason survives behind a `true` (' .. tostring(seen['true']) .. ')')
+        t.ok(seen['false'] == 'reason-after-false',
+            'and behind a `false` (' .. tostring(seen['false']) .. ')')
+        t.ok(seen['nil'] == nil,
+            ('but is LOST behind a `nil` (%s) -- the return list is truncated '
+                .. 'at the nil, so any export answering `nil, reason` hands '
+                .. 'the caller no reason at all'):format(tostring(seen['nil'])))
+    end)
+end)
+
 CisTestRunner.Suite('registry', { tier = 'server', realm = 'server' }, function(t)
     -- The fakes are holding every slot, so a refusal here is cis_libs refusing,
     -- not the environment being empty. That distinction is the reason the
