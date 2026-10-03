@@ -31,7 +31,7 @@ const root = path.join(__dirname, '..')
 const MARKER = '.cis_deploy'
 const ENV = path.join(root, '.live-env.json')
 
-const HARNESS = ['cis_test', 'cis_test_providers', 'cis_test_b', 'cis_test_badmeta']
+const HARNESS = ['cis_test', 'cis_test_providers', 'cis_test_b', 'cis_test_badmeta', 'cis_ctl']
 
 function fail(msg, extra) {
   console.error('DEPLOY REFUSED: ' + msg)
@@ -207,17 +207,15 @@ function main() {
   console.log(`deployed ${harnessCopied} harness file(s) under ${resourcesDir}`)
 
   console.log('')
-  console.log('CONSOLE SEQUENCE (printed, not executed -- starting is a separate call):')
-  console.log('  stop cis_test')
-  console.log('  stop cis_test_b')
-  console.log('  stop cis_test_providers')
-  console.log('  stop cis_libs')
-  console.log('  refresh            <-- required after any manifest change; restart alone')
-  console.log('                      does not re-read fxmanifest')
-  console.log('  ensure cis_libs')
-  console.log('  ensure cis_test_providers')
-  console.log('  ensure cis_test_b')
-  console.log('  ensure cis_test')
+  console.log('The agent no longer runs a console sequence. Since W2 the command path is')
+  console.log('cis_ctl: a command file the server reads, driven by tools/fx.js. Use')
+  console.log('  npm run live:run -- <tier|all>')
+  console.log('which deploys, sends the stop / refresh / ensure sequence through fx.js,')
+  console.log('and verifies from status.json that the commit it deployed is the one running.')
+  console.log('')
+  console.log('The OWNER still starts cis_ctl once, from the txAdmin console or server.cfg:')
+  console.log('  ensure cis_ctl')
+  console.log('  (its ACE lines live in server.cfg -- see cis_libs_vps_setup.md 3.5)')
 }
 
 function walkLua(dir, acc = []) {

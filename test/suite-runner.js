@@ -103,6 +103,13 @@ const SUITES = {
   // inside newEnv, which is the honest version of the dependency every env was
   // already relying on.
   'test/server.lua': [...SHARED, ...ALGO_UTIL],
+  // The cis_ctl allow-list, and nothing else. cis_ctl is a live-harness
+  // resource like the cis_test* set, and its command surface is the only thing
+  // stopping the agent from typing an arbitrary console command -- so it is
+  // tested the same way the library is: in a fresh state, on both interpreters.
+  // It needs no preload of the library's modules because it depends on none,
+  // which is the point of keeping it pure Lua.
+  'test/ctl-allow.lua': ['test/live/cis_ctl/server/allow.lua'],
 }
 
 const suite = process.argv[2]

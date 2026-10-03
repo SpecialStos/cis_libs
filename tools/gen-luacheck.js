@@ -150,9 +150,15 @@ function buildTestConfig() {
   // resources that never ship, discovered by hand rather than from cis_libs'
   // manifest, because the manifest does not list them.
   for (const n of ['CisTestRunner', 'CisTestJson', 'CisTestReport', 'CisTestClientCase',
-    'CisTestB', 'CisTestBClient', 'CisTestBadMeta', 'CisTestPlayer', 'CisTestControl']) {
+    'CisTestB', 'CisTestBClient', 'CisTestBadMeta', 'CisTestPlayer', 'CisTestControl',
+    'CisTestStatus']) {
     writable.add(n)
   }
+  // cis_ctl's allow-list (test/live/cis_ctl). Same reasoning: a live-harness
+  // resource that never ships, and whose global is defined in one file and read
+  // from two others -- server/ctl.lua and the off-server suite -- none of which
+  // are named by any manifest this generator reads.
+  writable.add('CisCtlAllow')
   // Natives the fake VM implements that the shipped code never calls, so they
   // are in neither natives.json nor the runtime list. A stub the code under
   // test does not exercise is still a stub, and still an assignment.

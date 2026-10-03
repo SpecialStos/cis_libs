@@ -81,6 +81,7 @@ if not CIS_SUITE_MODE then
     local SUITES = {
         'test/run.lua', 'test/binding.lua', 'test/contracts.lua',
         'test/modules.lua', 'test/client.lua', 'test/server.lua',
+        'test/ctl-allow.lua',
     }
     local PRELOAD = {
         ['test/run.lua'] = SHARED,
@@ -89,6 +90,10 @@ if not CIS_SUITE_MODE then
         ['test/modules.lua'] = BOTH,
         ['test/client.lua'] = BOTH,
         ['test/server.lua'] = BOTH,
+        -- The cis_ctl allow-list on its own: it is pure Lua and depends on none
+        -- of the library's modules, so loading them would only give this suite
+        -- globals it has no business reading.
+        ['test/ctl-allow.lua'] = { 'test/live/cis_ctl/server/allow.lua' },
     }
 
     local crashed, failedAssertions = 0, 0

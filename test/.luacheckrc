@@ -27,22 +27,22 @@ self = false
 -- In shipped code an unused parameter is a real smell and stays reported.
 unused_args = false
 
--- 355 names writable in this directory.
+-- 357 names writable in this directory.
 globals = {
     "AddCommand", "AddEventHandler", "AddTextComponentString",
     "AddTextComponentSubstringPlayerName", "BeginTextCommandDisplayText",
     "BeginTextCommandThefeedPost", "CIS_API_REAL", "CIS_DUMP_TARGET", "CIS_LIVE_ENV",
-    "CIS_SUITE_MODE", "CIS_TEST_FILES", "Cis", "CisCache", "CisConfigUtil", "CisCurve",
-    "CisDefaults", "CisDetect", "CisDiagnostics", "CisForgetPlayer", "CisGrid", "CisHeap",
-    "CisHistogram", "CisId", "CisInterp", "CisInvokingAllowed", "CisJobCount", "CisJson",
-    "CisLRU", "CisLibFailed", "CisLibReady", "CisLog", "CisNetOn", "CisOwned", "CisPending",
-    "CisRandom", "CisRate", "CisRateBucketCount", "CisRateOk", "CisReadyState",
-    "CisRegisterCallback", "CisRegistry", "CisRememberJob", "CisSecurityRebuild",
-    "CisSecurityReport", "CisSemver", "CisSparse", "CisString", "CisSyncEnabled",
-    "CisTable", "CisTestB", "CisTestBClient", "CisTestBadMeta", "CisTestClientCase",
-    "CisTestControl", "CisTestJson", "CisTestPlayer", "CisTestReport", "CisTestRing",
-    "CisTestRunner", "CisTime", "CisValidate", "CisWindow", "CisZonesContains",
-    "CisZonesCreate", "CisZonesRemove", "Citizen", "ClearTimeout",
+    "CIS_SUITE_MODE", "CIS_TEST_FILES", "Cis", "CisCache", "CisConfigUtil", "CisCtlAllow",
+    "CisCurve", "CisDefaults", "CisDetect", "CisDiagnostics", "CisForgetPlayer", "CisGrid",
+    "CisHeap", "CisHistogram", "CisId", "CisInterp", "CisInvokingAllowed", "CisJobCount",
+    "CisJson", "CisLRU", "CisLibFailed", "CisLibReady", "CisLog", "CisNetOn", "CisOwned",
+    "CisPending", "CisRandom", "CisRate", "CisRateBucketCount", "CisRateOk",
+    "CisReadyState", "CisRegisterCallback", "CisRegistry", "CisRememberJob",
+    "CisSecurityRebuild", "CisSecurityReport", "CisSemver", "CisSparse", "CisString",
+    "CisSyncEnabled", "CisTable", "CisTestB", "CisTestBClient", "CisTestBadMeta",
+    "CisTestClientCase", "CisTestControl", "CisTestJson", "CisTestPlayer", "CisTestReport",
+    "CisTestRing", "CisTestRunner", "CisTestStatus", "CisTime", "CisValidate", "CisWindow",
+    "CisZonesContains", "CisZonesCreate", "CisZonesRemove", "Citizen", "ClearTimeout",
     "ClearVehicleCustomPrimaryColour", "ClearVehicleCustomSecondaryColour", "Config",
     "CreateObject", "CreatePed", "CreateThread", "CreateVehicle", "DebugLog",
     "DeleteEntity", "DiscordConfig", "DoesEntityExist", "DoesExtraExist", "DrawRect",

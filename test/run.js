@@ -25,6 +25,7 @@ const SUITES = [
   ['test/modules.lua', 'algo and util modules'],
   ['test/client.lua', 'client modules'],
   ['test/server.lua', 'server modules'],
+  ['test/ctl-allow.lua', 'cis_ctl command allow-list'],
 ]
 
 const runner = path.join(__dirname, 'suite-runner.js')
