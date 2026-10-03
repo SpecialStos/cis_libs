@@ -116,6 +116,12 @@ end
 -- ------------------------------------------------------------------- status
 
 local function status()
+    -- status.json is the machine-readable half of this command, and since W3 the
+    -- agent reads that file rather than the console. Forced, so the timestamp
+    -- and the snapshot always reflect the moment the command was typed.
+    local wrote = CisTestStatus.Refresh(true)
+    print(('[cis_test] status.json %s'):format(wrote and 'written' or 'NOT written'))
+
     -- There is no GetVersion export, so the version is read the only way it can
     -- be: from the resource's own fxmanifest. Guessing at a print here would put
     -- a '?' in the one line an operator reads to decide which build is running.

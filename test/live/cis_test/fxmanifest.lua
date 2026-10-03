@@ -8,9 +8,10 @@
 -- plain exports, and cis_libs is only ever the SUBJECT.
 --
 -- WHAT IT MAY WRITE. The harness writes one results file per run with
--- SaveResourceFile. cis_libs writes no files at all; that boundary is checked
--- by test/contracts.lua and the harness deliberately does not inherit it, or
--- there would be no way to record what a run found.
+-- SaveResourceFile, plus status.json, which the agent reads instead of console
+-- scrollback. cis_libs writes no files at all; that boundary is checked by
+-- test/contracts.lua and the harness deliberately does not inherit it, or there
+-- would be no way to record what a run found.
 --
 -- NEVER LOGGED: player names, identifiers or IPs. A run id, a server id and
 -- counts are enough to read a result, and those are what get printed.
@@ -33,6 +34,7 @@ server_scripts {
     'server/json.lua',
     'server/runner.lua',
     'server/control.lua',
+    'server/status.lua',
     'server/report.lua',
     'server/suites/server.lua',
     'server/suites/player.lua',
