@@ -334,15 +334,26 @@ function P.RunSuite(name)
 
     local results = {}
     for _, c in ipairs(cases) do
-        local ok, msg = xpcall(c.run, function(m)
+        -- A case answers (passed, why). xpcall puts ITS OWN first return value in
+        -- the second slot and the case's explanation in the THIRD, so capturing
+        -- two values silently threw the explanation away and every non-raising
+        -- failure reported a bare "false" -- which is the one thing a results
+        -- file exists to prevent. A probe deployed to find out exactly which
+        -- client exports were missing computed its answer, lost it here, and
+        -- came back as `detail: "false"` with nothing to act on.
+        local ok, passed, explanation = xpcall(c.run, function(m)
             return debug.traceback(tostring(m), 2)
         end)
         if not ok then
             -- A case that RAISED is a failure with the stack attached, not a
             -- crash that loses every case after it.
-            results[#results + 1] = { name = c.name, ok = false, msg = tostring(msg) }
+            results[#results + 1] = { name = c.name, ok = false, msg = tostring(passed) }
         else
-            results[#results + 1] = { name = c.name, ok = msg ~= false, msg = msg }
+            results[#results + 1] = {
+                name = c.name,
+                ok = passed ~= false,
+                msg = (explanation ~= nil) and tostring(explanation) or tostring(passed),
+            }
         end
     end
 
