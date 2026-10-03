@@ -52,9 +52,20 @@ RegisterNetEvent('cis_libs:cb', function(name, key, ...)
     end
 
     local packed = table.pack(...)
-    local ok, a, b, c, d, e, f
+    -- PACKED, NOT SIX NAMED LOCALS.
+    --
+    -- This used to be `local ok, a, b, c, d, e, f` with the reply rebuilt from
+    -- exactly those six. A handler returning seven values lost the seventh, with
+    -- no error and nothing to tell the caller its answer was short -- six was
+    -- never a documented limit, it was how many names somebody wrote down.
+    --
+    -- `pcall` returns a variable-length list, so the whole result is captured
+    -- with `table.pack` and rebuilt from the pack. A nil in the middle is
+    -- preserved BECAUSE the count travels with it: `local ok, a, b = f()` stops
+    -- at the first nil, and `{...}` and a bare `unpack` do the same.
+    local result
     if handler then
-        ok, a, b, c, d, e, f = pcall(handler, table.unpack(packed, 1, packed.n))
+        result = table.pack(pcall(handler, table.unpack(packed, 1, packed.n)))
     else
         -- Resolved ON CALL, not captured at registration: a restarted resource
         -- exports new closures, and a captured ref keeps calling the instance
@@ -70,18 +81,21 @@ RegisterNetEvent('cis_libs:cb', function(name, key, ...)
             TriggerServerEvent('cis_libs:cb:serverRes', key, false, 'error')
             return
         end
-        ok, a, b, c, d, e, f = pcall(fn, target, table.unpack(packed, 1, packed.n))
+        result = table.pack(pcall(fn, target, table.unpack(packed, 1, packed.n)))
     end
 
-    if not ok then
+    if not result[1] then
         -- A handler that throws is answered as a failure rather than being
         -- allowed to abort the event thread, and the error is logged with the
         -- callback name attached so the traceback is attributable.
-        Logging.AutoLogError(a, name)
+        Logging.AutoLogError(result[2], name)
         TriggerServerEvent('cis_libs:cb:serverRes', key, false, 'error')
         return
     end
-    TriggerServerEvent('cis_libs:cb:serverRes', key, true, a, b, c, d, e, f)
+    -- `1, result.n` rather than `result.n`: entry 1 of the pack is pcall's own
+    -- `true`, which is not part of the handler's answer.
+    TriggerServerEvent('cis_libs:cb:serverRes', key, true,
+        table.unpack(result, 2, result.n))
 end)
 
 RegisterNetEvent('cis_libs:cb:res', function(key, ok, ...)

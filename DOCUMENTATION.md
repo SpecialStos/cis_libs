@@ -276,7 +276,17 @@ is registered. That is deliberate: a silent `false` is indistinguishable from a
 handler that returned `false`, and the first is a bug you want to hear about
 immediately.
 
-Wire capacity is six values. A seventh is dropped.
+**The wire capacity differs by direction, and the difference is deliberate.**
+
+A **client** handler's answer travels back to the server with every value it
+returned — including a `nil` in the middle, and a seventh value onward. That is
+the direction real payloads travel, so nothing is dropped.
+
+A **server** answer travelling *to* a client carries at most **six** values; a
+seventh is dropped. That cap predates the library and is pinned as a known
+defect in §12: widening it changes the wire for every client already built
+against it. A server handler needing more than six values should return a single
+table.
 
 ### 4.4 Sync (both)
 

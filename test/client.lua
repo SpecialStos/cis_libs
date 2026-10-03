@@ -1574,6 +1574,49 @@ do
     env.reset()
 end
 
+-- ============================================== 3.6 · every value survives
+--
+-- The client handler's results were captured into six named locals --
+-- `local ok, a, b, c, d, e, f` -- and the reply was rebuilt from exactly those
+-- six. A handler returning seven values lost the seventh, with no error and no
+-- indication that anything had gone missing: the caller got a shorter answer and
+-- had no way to know it.
+--
+-- Six was never a documented limit. It was however many names somebody wrote
+-- down, which is the worst possible reason for an API to stop.
+--
+-- A NIL IN THE MIDDLE is the interesting case, because `{...}` and a bare
+-- `unpack` both truncate at the first nil. Position 3 is nil and everything
+-- after it must still arrive.
+do
+    local env = newEnv({})
+    loadModule('client/callback.lua')
+
+    env.invoking = 'res_a'
+    env.EXPORTS.RegisterCallback('many', function()
+        return 'one', 'two', nil, 'four', 'five', 'six', 'seven', 'eight'
+    end)
+
+    env.serverEvents = {}
+    env.net('cis_libs:cb', 1, 'many', 42)
+    local reply = env.serverEvents[#env.serverEvents]
+    check(reply and reply.name == 'cis_libs:cb:serverRes',
+        '3.6: the client answers the request')
+
+    local args = reply and reply.args or {}
+    -- The wire shape is (key, ok, then the handler's values).
+    check(args[1] == 42, '3.6: the key comes back first')
+    check(args[2] == true, '3.6: and the ok flag')
+    check(args[3] == 'one' and args[4] == 'two',
+        '3.6: the first two handler values arrive')
+    check(args[6] == 'four' and args[7] == 'five',
+        '3.6: EVERYTHING AFTER A NIL SURVIVES -- the part a bare unpack loses')
+    check(args[8] == 'six' and args[9] == 'seven' and args[10] == 'eight',
+        ('3.6: and so does the seventh value, which used to be dropped (n=%d)')
+            :format(#args))
+    env.reset()
+end
+
 -- ==================================================================== report
 for i = 1, #failures do
     io.stderr:write('FAIL(client): ' .. failures[i] .. '\n')

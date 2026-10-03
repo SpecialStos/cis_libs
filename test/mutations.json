@@ -79,6 +79,13 @@
       "why": "Remove the owner check on the stop sweep, so any resource stopping takes every OTHER resource's records with it. This is the D-03 P0 in its current form: not a silent table wipe this time, but the same player-visible harm -- every synced prop on the server disappears the moment any one consumer restarts, and every client that was told about one is left holding it."
     },
     {
+      "id": "M18",
+      "file": "client/callback.lua",
+      "find": "    TriggerServerEvent('cis_libs:cb:serverRes', key, true,\n        table.unpack(result, 2, result.n))",
+      "replace": "    TriggerServerEvent('cis_libs:cb:serverRes', key, true,\n        table.unpack(result, 2, math.min(result.n, 7)))",
+      "why": "Truncate the client's reply back to six handler values -- the shape this code had before it was packed. A client handler returning seven values loses the seventh, with no error and nothing in the reply to say the answer was short, so the server cannot tell a short answer from a complete one."
+    },
+    {
       "id": "M07",
       "file": "server/callback.lua",
       "find": "    if peeked.payload.target ~= src then\n        return\n    end\n",
