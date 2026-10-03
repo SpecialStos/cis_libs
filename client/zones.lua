@@ -319,16 +319,31 @@ function CisZonesRemove(name)
         return false
     end
     if inside[name] then
-        -- WITH COORDINATES. The `onExit` call passed none, and `invoke` only
-        -- reaches `TriggerServerEvent` when it has coords to send -- so removing
-        -- a zone the player was standing in silently skipped the `onExitEvent`
-        -- and the consumer's "player left" handler never ran. A function cannot
-        -- cross the exports boundary, so `onExitEvent` is the ONLY way a
-        -- consumer learns about it, and this was the one route that lost it.
-        -- The zone's own centre is what the enter side would have reported, so
-        -- the pair still describes the same place.
+        -- THE PLAYER'S COORDS, not the zone's.
+        --
+        -- This passed the zone's stored `cx/cy/cz` -- which is not even the
+        -- zone's CENTRE, it is the corner the zone was created from. The old
+        -- comment here claimed "the zone's own centre ... so the pair still
+        -- describes the same place", and both halves of that were wrong.
+        --
+        -- `onExit` everywhere else in this file is called with where the player
+        -- actually is, so a consumer that uses the coordinates got two different
+        -- meanings from one handler -- and a removal was the one case where it
+        -- was guaranteed to be wrong, because the corner the zone was declared at
+        -- is almost never where anybody is standing.
+        --
+        -- The centre falls back only when there is no player position to report
+        -- at all, because an `onExit` with NO coordinates is the bug this line
+        -- was originally fixing: `invoke` only reaches `TriggerServerEvent` when
+        -- it has something to send, so the consumer's "player left" handler
+        -- silently never ran.
         local zone = zones[name]
-        invoke(zone, 'onExit', { x = zone.cx, y = zone.cy, z = zone.cz })
+        local ped = PlayerPedId()
+        local p = GetEntityCoords(ped)
+        local coords = (p and p.x ~= nil)
+            and { x = p.x, y = p.y, z = p.z }
+            or { x = zone.cx, y = zone.cy, z = zone.cz }
+        invoke(zone, 'onExit', coords)
         inside[name] = nil
     end
     CisGrid.remove(grid, name)

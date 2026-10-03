@@ -83,6 +83,34 @@ local function newEnv(opts)
     function Wait(ms)
         env.clock = env.clock + (tonumber(ms) or 0)
     end
+
+    -- Drive the LAST collected thread for N passes of its loop. A loop shaped
+    -- `while true do ...; Wait(t) end` never returns on its own, so `Wait` is
+    -- where the iteration is counted and where a private sentinel unwinds it.
+    -- The sentinel is raised and caught INSIDE this function, so it never
+    -- reaches the suite's error handling and never reads as a failure.
+    env.TICK_LIMIT = {}
+    function env.tick(passes)
+        passes = passes or 1
+        local fn = env.threads[#env.threads]
+        if not fn then
+            return
+        end
+        local budget = passes
+        local realWait = Wait
+        Wait = function(ms)
+            budget = budget - 1
+            if budget <= 0 then
+                error(env.TICK_LIMIT, 0)
+            end
+            realWait(ms)
+        end
+        local ok, err = pcall(fn)
+        Wait = realWait
+        if not ok and err ~= env.TICK_LIMIT then
+            error(err, 0)
+        end
+    end
     function GetGameTimer() return env.clock end
     function GetCurrentResourceName() return 'cis_libs' end
     function GetInvokingResource() return env.invoking end
@@ -1694,6 +1722,47 @@ do
     check(called('EndTextCommandDisplayText'),
         '3.4: and positions it with EndTextCommandDisplayText -- Command, not '
             .. 'Component, and there is no DrawText native at all')
+    env.reset()
+end
+
+-- ============================================== 3.3 · onExit on remove
+--
+-- `CisZonesRemove` fired `onExit` with the zone's CENTRE. Every other exit in
+-- this file passes where the player actually is, so a consumer that uses the
+-- coordinates got two different meanings from one handler -- and a removal was
+-- the one case where it was guaranteed to be wrong, because the zone centre is
+-- almost never where anybody is standing.
+--
+-- The old comment claimed "the pair still describes the same place". It does
+-- not, and a test that agreed with it would have passed.
+do
+    local env = zoneEnv()
+    local entered, exited
+    exports.CreateZone('box', 'shop', { x = 0.0, y = 0.0, z = 0.0 },
+        { x = 20.0, y = 20.0, z = 20.0 }, {
+            onEnter = function() entered = true end,
+            onExit = function(_, coords) exited = coords end,
+        })
+
+    -- Stand inside the zone, then move to a spot well away from its centre.
+    -- The pass only re-tests containment after half a cell of movement, so a
+    -- player standing still never enters and the test would measure nothing.
+    env.coords = vector3(2.0, 2.0, 0.0)
+    simulateSecond(env)
+    check(entered == true, '3.3: entering fires onEnter and arms the exit')
+
+    env.coords = vector3(15.5, 17.25, 0.0)
+    simulateSecond(env)
+    exited = nil
+    check(exports.RemoveZone('shop') == true, '3.3: the zone removes')
+    check(type(exited) == 'table',
+        '3.3: and removing it while the player is inside fires onExit')
+    check(exited and math.abs(exited.x - 15.5) < 0.001 and math.abs(exited.y - 17.25) < 0.001,
+        ('3.3: with the PLAYER\'s position, not the zone centre (got %s, %s)')
+            :format(tostring(exited and exited.x), tostring(exited and exited.y)))
+    check(exited and math.abs(exited.x - 0.0) > 0.001,
+        ('3.3: and it is demonstrably NOT the old value, which was %s')
+            :format(tostring(exited and exited.x)))
     env.reset()
 end
 
