@@ -1,57 +1,119 @@
 # Live harness runbook
 
-Everything needed to run `cis_test` against a real server, written down because
-all of it was discovered the hard way and none of it is guessable.
+Everything needed to run `cis_test` against a real server, on the Windows VPS.
+Written down because all of it was discovered the hard way and none of it is
+guessable.
 
 ## What this is
 
-Four resources under `test/live/`, deployed to the server's resources folder:
+Six resources under `test/live/`, deployed into the server's resources folder:
 
 | Resource | What it is |
 |---|---|
 | `cis_libs` | the library itself — deployed by `npm run live:deploy` |
 | `cis_test_providers` | recording fakes for all eleven capability slots, and the config the harness runs under |
-| `cis_test` | the orchestrator: suites, cases, console commands, results |
+| `cis_test` | the orchestrator: suites, cases, console commands, results, status.json |
 | `cis_test_b` | a second consumer that collides with `cis_test` on purpose |
 | `cis_test_badmeta` | deliberately broken, started only by cases that need it |
+| `cis_ctl` | the agent's console: reads a command file, runs allow-listed commands |
+
+`cis_ctl` depends on nothing. That is the point: the one thing a recovery tool
+must survive is `cis_libs` and the harness being in a bad state.
 
 `_cis_libstest` is **retired**. Do not start it, do not reference it, do not
 leave it running.
 
-## One-time setup
-
-The harness reads `.live-env.json` for `resourcesDir`, the console URL and the
-log path. It holds no passwords, no keys and no identifiers.
-
-## Deploying
+## Running a test
 
 ```
-npm run live:deploy
+npm run live:run -- all
+npm run live:run -- server
+npm run live:run -- player
 ```
 
-It copies exactly the file set `fxmanifest.lua` names — never a hand-maintained
-list, which is the thing that goes stale — and writes `deploy.json` (commit,
-branch, dirty flag, timestamp) into every folder it touches so
-`cis_test status` can prove what is running.
+That is the whole thing for the agent. It deploys, drives the server through
+`cis_ctl`, checks that the running build is the one it deployed, starts the
+client if the tier needs one, runs, collects the results and prints a summary.
+Exit 0 only when nothing FAILed.
 
-**It prints the console sequence; it does not run it.** Deploying a resource and
-starting it are separate decisions, and starting needs `refresh` to have
-happened first.
+**From now on, do not run live tests any other way.** A run assembled by hand
+from console entries is a run nobody can prove tested what it claims to.
 
-### If it refuses
+## The console: two different things
 
-The tool stops when it finds a `cis_libs` folder it did not create. FiveM scans
-resource directories recursively, so two of them means the one that loads is a
-coin flip, and the second folder is not the tool's to delete. This is expected
-the first time: a `cis_libs` deployed by hand, as the first one here was. Either
-move that folder out of the resources tree, or confirm it is canonical — the
-next deploy then writes a `.cis_deploy` marker into it and stops asking.
+| | who | how |
+|---|---|---|
+| **txAdmin console** | the owner | `http://localhost:40120/server/console`, txAdmin serves it |
+| **`cis_ctl`** | the agent | `node tools/fx.js "<command>"` |
 
-## The session ACEs
+txAdmin stays. It keeps the server up, restarts it after a crash, and it is the
+owner's view. What changed is that **the agent does not type into it.**
 
-ACEs do not survive a server restart. Once per session, in the console:
+The old path was: fill the input, click it, press Enter. On the PC that cost
+several attempts and never worked the way it was written down —
+
+| Attempt | Result |
+|---|---|
+| Playwright `click()` on the prompt input | **times out**, every time |
+| `fill()` then `press('Enter')` | text appears, never submits |
+| Click the terminal **body** | types into a *different, hidden* input than the visible prompt |
+| Coordinate click on the visible prompt line, then `Enter` | works, at one window size only |
+
+A control step that only works at one window size is not a control step.
+`cis_ctl` replaces it with a file the server reads.
+
+### `tools/fx.js`
 
 ```
+node tools/fx.js "restart cis_test_b"
+node tools/fx.js "cis_test run all"
+node tools/fx.js --log 200
+```
+
+Writes `inbox.json` through a temp file and a rename, polls `outbox.json` for
+**its own id**, prints the answer. Exit 1 means the command was refused; exit 2
+means it was never answered (cis_ctl not started, or a timeout).
+
+The id is what makes this safe: an id already in the inbox at startup is marked
+seen and never run, so `restart cis_ctl` cannot restart itself in a loop.
+
+`--log` prints the tail of the server log with IP addresses, `fivem:` identifiers
+and licence-shaped digit runs redacted. Everything else is untouched — redacting
+the diagnostics would defeat the purpose of reading the log.
+
+### What `cis_ctl` may run
+
+A complete allow-list, defaulting to **no**:
+
+- `refresh`
+- `ensure` / `start` / `stop` / `restart` of `cis_libs`, `cis_test`,
+  `cis_test_b`, `cis_test_providers`, `cis_test_badmeta`
+- `restart cis_ctl`
+- `cis_test <args>`, where args are letters, digits, spaces and `_ : - .`
+
+Everything else is refused, including `quit`, `sv_licenseKey`, `add_ace` and
+`exec`. This is deliberate: an agent that can type into a console can print the
+server's licence key by accident, on a box whose model provider may log what it
+reads. The list is unit tested in `test/ctl-allow.lua`.
+
+One known gap: `cis_test run server,lifecycle` is refused, because a comma is
+outside the documented character set even though cis_test's own parser accepts
+one. Run tiers separately — `live:run` does one per invocation anyway.
+
+## The ACE lines
+
+ACEs do **not** survive a server restart, so they live in `server.cfg`, not in a
+console session. They are the owner's to add; the agent never edits `server.cfg`.
+
+```
+ensure cis_ctl
+add_ace resource.cis_ctl command.ensure allow
+add_ace resource.cis_ctl command.start allow
+add_ace resource.cis_ctl command.stop allow
+add_ace resource.cis_ctl command.restart allow
+add_ace resource.cis_ctl command.refresh allow
+add_ace resource.cis_ctl command.cis_test allow
+
 add_ace resource.cis_test command.ensure allow
 add_ace resource.cis_test command.stop allow
 add_ace resource.cis_test command.start allow
@@ -61,67 +123,74 @@ add_ace resource.cis_test command.cis_force_unregister allow
 add_ace resource.cis_test command.cis_audit allow
 ```
 
-Every `cis_test` command also refuses `source ~= 0` from inside the handler, so
-a missing ACE costs you the command, not the server.
+Until the `cis_ctl` block is present, `cis_ctl` starts but executes nothing, and
+`live:run` stops at step 2 with a message saying so. Until the `cis_test` block
+is present, the lifecycle tier runs hand-driven and says so on every case.
 
-## The console, and its quirks
+`cis_test` also refuses `source ~= 0` from inside every handler, so a missing
+ACE costs you the command, not the server.
 
-The console is at the `txConsoleUrl` in `.live-env.json`.
+## Where state is read from
 
-**Read results from the console pane or from the results file — never by tailing
-the server log.** On this server the log is flooded with a repeating
-`Server list query returned an error` line, which drowns anything a command
-prints.
+Not console scrollback. Three files in the deployed `cis_test` folder:
 
-**Under browser automation the prompt does not behave.** The plan says "fill the
-input, click it, then press Enter". What actually works:
-
-| Attempt | Result |
+| File | What it holds |
 |---|---|
-| Playwright `click()` on the prompt input | **times out**, every time |
-| `fill()` then `press('Enter')` | text appears, never submits |
-| Click the terminal **body** | types into a *different, hidden* input than the visible prompt |
-| Coordinate click on the visible prompt line, then `Enter` | **works** |
+| `status.json` | cis_libs version, deployed commit, whether a player is connected, slot owners, the suite list |
+| `results_latest.json` | the most recent run |
+| `results_<runId>.json` | one file per run; the history |
 
-The working sequence, in full: click the visible prompt line by coordinate, then
-press Enter. This is not cosmetic — it is the difference between a harness that
-runs and one that silently sends nothing, which is the failure this repository
-has been bitten by before.
+`status.json` is rewritten at start, on every player join and drop, and on
+`cis_test status`. The join/drop part is a change-detecting watcher rather than
+only event handlers, because FiveM has no single reliable server-side "player
+joined" event.
 
-## Running
+It records **whether** a player is connected and never **who**. No name, no
+identifier, no IP. The same rule applies to the results files and to the log
+tail.
 
-```
-cis_test status              version, deployed commit, players, slot owners, self-check
-cis_test list [tier]         what is registered
-cis_test run all             every tier except the self-test
-cis_test run <tier|suite>    one tier or one suite
-cis_test run selftest        the harness testing ITSELF: this is meant to FAIL
-cis_test abort               stop after the current suite; cleanups still run
-cis_test restore             release every slot; the player is NOT touched
-```
+## The client
 
-`run all` deliberately **excludes** the `selftest` tier. Its cases are written to
-fail, because a harness that has only ever been seen to pass has not been
-tested. A permanently red command is one everybody stops reading, so the
-self-test is run on its own, where a FAIL is the correct answer.
+`.live-env.json` carries a `client` block. Three modes:
+
+| `client.mode` | what it does | when |
+|---|---|---|
+| `local` | `Start-Process 'fivem://connect/127.0.0.1:30120'` | the client is on the same machine, which needs a real GPU |
+| `ssh` | `schtasks /run /tn CisFiveMStart` over SSH | the client is on another machine, reached over Tailscale |
+| `off` | nothing; the player tier is SKIP with a reason | no client is available |
+
+**This VPS has no GPU** (`Microsoft Remote Display Adapter`), so GTA V cannot
+run on it and `local` is not available here. It is `off` until a client machine
+is set up; `live:run` then reports the `player` tier as SKIP with the reason
+printed. That is a correct result, not a broken one.
+
+For `ssh` mode the remote command must stay inside **one** quoted string, and
+the host key has to be saved first by connecting once by hand.
 
 ## Reading a run
 
-One JSON object per console line, prefixed `[cis_test] `:
+```
+run run-20261003-075804  commit 107ee39  players 1
+  pass 12  fail 5  skip 3  manual 0  error 0  (84213 ms)
+
+  5 failing case(s):
+    [FAIL] registry :: no provider means a refusal, not a raise
+        ...
+```
+
+`status` values are `PASS`, `FAIL`, `SKIP`, `MANUAL` and `ERROR`.
+
+**SKIP is not a pass.** A tier that needs a player and finds none reports SKIP
+with a reason and counts for nothing.
+
+The console still prints one JSON object per line for a run in progress, which
+is useful when watching:
 
 ```
 {"ev":"run_start","run":"run-20261002-222059","commit":"unknown","tiers":["player","self","server"]}
 {"ev":"case","run":"…","tier":"player","suite":"player","case":"…","status":"FAIL","ms":182,"msg":"…"}
 {"ev":"run_end","run":"…","fail":1,"pass":0,"skip":0,"manual":0,"error":0,"ms":243}
 ```
-
-Two files land in the `cis_test` folder: `results_<runId>.json` and
-`results_latest.json`. Both hold the same body, written whole — never appended —
-so a run that dies half way leaves a complete file or none.
-
-`status` values are `PASS`, `FAIL`, `SKIP`, `MANUAL` and `ERROR`. **SKIP is not
-pass**: a tier that needs a player and finds none reports SKIP with a reason and
-counts for nothing.
 
 ## The player contract
 
@@ -132,16 +201,28 @@ Never: drop, kick, ban, or write to the player's KVP or settings. The harness
 config sets `Security.DropPlayer = false` so nothing in it *can*, and the fake
 `security` provider refuses rather than acting.
 
-All geometry is relative to the player's **current position**. No case
+### Death cases and `cis_test_allow_death`
+
+The convar is **0** unless deliberately set otherwise, and that is the safe
+default: with it at 0 the death and respawn cases **stay on the approved SKIP
+list** and a run over the owner's own character cannot kill anyone.
+
+Set it to `1` only when the client is a test account — a dedicated machine, or
+the VPS's own second GTA V licence under its own Steam and Rockstar accounts.
+With it at `1` the death cases **leave the approved SKIP list and run**.
+
+`cis_test_allow_death 0` is what is in `server.cfg` here. Changing it is the
+owner's call.
+
+### Geometry
+
+All geometry is relative to the player's **current** position. No case
 hard-codes a map coordinate: the player's origin is wherever they happened to
 connect, and a coordinate that is open road on one server is water on the next.
 
 Movement freezes the ped and steps it with `SetEntityCoordsNoOffset`. Stepping
 rather than teleporting matters — a teleport can cross a zone boundary between
 two zone-loop passes and look like the player walked through it.
-
-Death and respawn run only when the convar `cis_test_allow_death` is `1`, which
-defaults to `0`.
 
 ### Which fields the client could actually read
 
@@ -158,8 +239,7 @@ database, which carries an `apiset` per native:
   `GET_PED_IN_VEHICLE_SEAT`, `FREEZE_ENTITY_POSITION`, and the routing-bucket family
 
 The harness reads a field only when the native exists on the client, and every
-field it skipped is reported in the run envelope. An unread field is safe only
-if no case can touch it either — which is what the report is for.
+field it skipped is reported in the run envelope.
 
 ## What is in which tier
 
@@ -172,13 +252,37 @@ if no case can touch it either — which is what the report is for.
 | `soak` | no | 30 minutes, memory and count drift |
 | `selftest` | no | the harness failing on purpose |
 
+`run all` excludes `selftest` on purpose: its cases are written to fail, because
+a harness that has only ever been seen to pass has not been tested. Run it on
+its own, where a FAIL is the correct answer.
+
+The table is not the source of truth. `cis_test` writes the real list into
+`status.json` and `live:run` reads it from there.
+
+## Deploying
+
+```
+npm run live:deploy
+```
+
+It copies exactly the file set `fxmanifest.lua` names, and writes `deploy.json`
+(commit, branch, dirty flag, timestamp) into every folder it touches, which is
+what `status.json` reports as the deployed commit.
+
+### If it refuses
+
+The tool stops when it finds a `cis_libs` folder it did not create. FiveM scans
+resource directories recursively, so two of them means the one that loads is a
+coin flip, and the second folder is not the tool's to delete. Either move it out
+of the resources tree, or confirm it is canonical — the next deploy then writes
+a `.cis_deploy` marker into it and stops asking.
+
 ## Known open items
 
-- **`cis_test_b` is deployed but no suite drives it yet.** The lifecycle tier
-  (2.6) starts and stops it to prove ownership and cleanup.
-- **`cis_test_badmeta` is deployed but no suite starts it yet.** Same.
-- **`GetZoneDebug` and `DrawText3D`** are called by the player tier and are
-  expected to fail — they are the two undefined natives found in Stage 1, and the
-  cases stay red until those are fixed.
+- **No client on this VPS.** `client.mode` is `off`, so the `player` tier is
+  SKIP. Section 4.2 of `cis_libs_vps_setup.md` is the way out.
+- **`cis_test_b` owns no sync record**, and the lifecycle callback case answers
+  its own await. Both are fixture gaps, not library defects.
+- **`cis_test_badmeta`'s contract-99 claim is not refused** on registration.
 - **Second-player and real player-drop cases cannot be produced on this server**
   and are unit-only, on the approved SKIP list.
