@@ -490,6 +490,20 @@ local function mentions(env, needle)
     return false
 end
 
+-- Case-insensitive "any line mentions this", for assertions about what was
+-- PRINTED rather than what was written to a buffer. Needed because every audit
+-- entry now goes through the normal log path, so an action's own line is no
+-- longer the last thing printed.
+local function anyLineContains(env, needle)
+    local lower = tostring(needle):lower()
+    for i = 1, #env.lines do
+        if tostring(env.lines[i]):lower():find(lower, 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
 do
     -- New install: empty list, persistence never enabled, nothing written yet.
     local env = securityScenario({ authorized = {}, invoking = 'cis_someProduct' })
@@ -1419,20 +1433,19 @@ do
     end
 
     -- ---- 2. no writes to disk --------------------------------------
-    -- cis_libs writes no files, and that is now TRUE rather than aspirational.
+    -- cis_libs writes no files. THIS IS NOW TRUE rather than aspirational.
     --
     -- Every entry that used to be here was a defect being removed, not a
     -- feature. Task 3.8 removed server/security.lua's install marker -- a file
     -- inside the resource folder, so a folder-replacing UPDATE deleted it and
-    -- the install silently went permissive. One entry left: the audit log
-    -- rewrite in server/proxy.lua, which task 3.9 turns into an in-memory ring.
+    -- the install silently went permissive. Task 3.9 removed server/proxy.lua's
+    -- audit log, which rewrote a growing file on every capability change.
     --
-    -- The empty case is worth stating: an allow-list that has shrunk to one entry
-    -- is a list, and a list that is empty is not an allow-list at all. When 3.9
-    -- lands this table goes to `{}` and the loop below finds nothing.
-    local SAVE_ALLOWED = {
-        ['server/proxy.lua'] = 'the audit log rewrite, removed in 3.9',
-    }
+    -- The table is EMPTY, and that is the strongest form this check can take:
+    -- there is no reviewed site, so any SaveResourceFile anywhere in the shipped
+    -- tree fails. An allow-list with one entry is still a list; an empty one is
+    -- the promise.
+    local SAVE_ALLOWED = {}
     for _, file in ipairs(shipped) do
         if bodies[file]:find('%f[%a_]saveResourceFile') and not SAVE_ALLOWED[file] then
             fail(file, 'SaveResourceFile outside the reviewed allow-list')
@@ -1980,14 +1993,34 @@ do
     -- The audit file as it stands on disk. Every write replaces the file, so the
     -- LAST body IS the whole trail -- which is what makes "it remembers the
     -- earlier event" a real assertion rather than a formatting question.
+    -- The audit log is a RING IN MEMORY now (DEC-3), so this reads the export rather
+    -- than the file the log used to be written to. It joins the entries into one
+    -- string because every assertion below asks "does the log mention X", and
+    -- that is the same question the file answered before.
     local function auditText(env)
-        local latest = nil
-        for _, e in ipairs(env.writes or {}) do
-            if e.path == 'audit.log' then
-                latest = e.body
-            end
+        if type(env.EXPORTS.GetAuditLog) ~= 'function' then
+            return ''
         end
-        return latest or ''
+        -- THE READER IS NOT THE ACTOR. Reading the log goes through the same
+        -- gate as writing to it, so a refusal made by an unlisted resource could
+        -- otherwise never be read by anyone -- which would make the most
+        -- interesting entries the ones nobody can see. So the harness reads as
+        -- an authorised caller and puts the actor back afterwards.
+        local saved = env.invoking
+        local list = Security and Security.AuthorizedResources or {}
+        if type(list) == 'table' and list[1] then
+            env.invoking = list[1]
+        end
+        local ok, log = pcall(env.EXPORTS.GetAuditLog, 1000)
+        env.invoking = saved
+        if not ok or type(log) ~= 'table' then
+            return ''
+        end
+        local parts = {}
+        for i = 1, #log do
+            parts[#parts + 1] = tostring(log[i] and log[i].line or '')
+        end
+        return table.concat(parts, '\n')
     end
 
     local function bootAudit(invoking, contract)
@@ -2007,6 +2040,12 @@ do
         end
         loadModule('server/security.lua')
         loadModule('server/proxy.lua')
+        -- AUTHORIZED BY DEFAULT HERE, because every use of this environment is a
+        -- test that reads the audit log, and reading it goes through the same
+        -- gate as writing to it. Without this every audit assertion below fails
+        -- for the wrong reason -- the reader was refused, so there was nothing to
+        -- read -- which is a failure that looks exactly like "the log is empty".
+        env.EXPORTS.SetConfig(nil, { AuthorizedResources = { invoking or 'cis_core' } })
         return env
     end
 
@@ -2055,6 +2094,86 @@ do
         local survived = pcall(function() envF.EXPORTS.SetConfig(nil) end)
         check(survived, 'A2: a failed audit write does not stop the config from being applied')
         envF.reset()
+    end
+
+    -- ------------------------------------------------------- A2, as a bounded ring
+    --
+    -- The audit log was a file rewritten in full on every event, and that is
+    -- incompatible with the promise cis_libs makes everywhere else: it writes no
+    -- files. Worse, the rewrite cost grew with the log, so the more history a
+    -- server had, the more it paid to record that nothing happened.
+    --
+    -- What it is now: a ring in memory, sized by config, read through a RESTRICTED
+    -- console command and an export gated on the same allow-list as everything
+    -- else that mutates. Entries carry resource and slot names and never a
+    -- player identifier -- an audit log that holds a person's details is a file
+    -- that has to be treated as personal data by whoever holds it.
+    do
+        local envR = bootAudit('cis_core')
+        envR.invoking = 'cis_core'
+        envR.EXPORTS.SetConfig(nil, { AuthorizedResources = { 'cis_core' } })
+
+        check(#envR.writes == 0,
+            'A2 ring: a configuration change writes NO file '
+                .. '(cis_libs writes none at all)')
+        check(type(envR.commands.auditText) == 'function'
+            or type(envR.commands['cis_audit']) == 'function',
+            'A2 ring: there is a console command to read the log back')
+
+        -- Entries, not a blob. `GetAuditLog` answers a LIST, so a caller can take
+        -- the last N and read them.
+        envR.EXPORTS.RegisterCapability('discord', 'cis_bridge:Webhooks')
+        local log = envR.EXPORTS.GetAuditLog(10)
+        check(type(log) == 'table', 'A2 ring: GetAuditLog answers a table')
+        check(#log >= 1, ('A2 ring: and it has the entry (%d)'):format(#log))
+
+        local last = log[#log]
+        check(type(last) == 'table', 'A2 ring: each entry is a table')
+        check(last.event == 'capability-registered',
+            ('A2 ring: the newest entry names what happened (%s)'):format(tostring(last.event)))
+        check(tostring(last.owner or last.resource or last.slot) ~= nil,
+            'A2 ring: and names the resource it happened to')
+
+        -- NOTHING IN AN ENTRY IS A PLAYER. The harness records every stubbed
+        -- player name and identifier; if one reached an audit entry, that entry
+        -- would be personal data.
+        local body = tostring(log)
+        check(not body:find('TestPlayer', 1, true),
+            'A2 ring: no player NAME is in an audit entry')
+
+        -- The GATE. An export that hands the log to anyone is an export that
+        -- hands it to a resource the operator refused.
+        envR.invoking = 'cis_someUnauthorisedResource'
+        local refused, why = envR.EXPORTS.GetAuditLog(10)
+        check(refused == false, 'A2 ring: GetAuditLog is refused off the allow-list')
+        check(tostring(why):find('AuthorizedResources', 1, true) ~= nil,
+            ('A2 ring: and the refusal says which list to join (%s)'):format(tostring(why)))
+        envR.reset()
+    end
+
+    -- ------------------------------------------------------------- A2, capacity
+    --
+    -- A ring that is only bounded in theory is not bounded. The capacity is read
+    -- from config so an operator can widen it for a server they are debugging,
+    -- and the default is small because the volume is a handful of capability
+    -- changes per boot -- a log that grows forever is a memory leak wearing a
+    -- log's name.
+    do
+        local envC = bootAudit('cis_core')
+        envC.invoking = 'cis_core'
+        -- Authorized, or the export correctly refuses and the ring is never
+        -- reached -- which is the gate doing its job, not a failure of the test.
+        envC.EXPORTS.SetConfig(nil, { AuthorizedResources = { 'cis_core' } })
+        local log = envC.EXPORTS.GetAuditLog(1000)
+        check(type(log) == 'table', 'A2 ring: the log is readable before anything happens')
+        for i = 1, 12 do
+            envC.EXPORTS.RegisterCapability(('discord'), 'cis_bridge:Webhooks')
+        end
+        local capped = envC.EXPORTS.GetAuditLog(1000)
+        check(#capped <= 500,
+            ('A2 ring: the ring is bounded, whatever the reader asks for (%d held)')
+                :format(#capped))
+        envC.reset()
     end
 
     -- ---------------------------------------------------------------- A4
@@ -2128,7 +2247,12 @@ do
         check(auditText(envP):find('capability-revoke-refused', 1, true) ~= nil,
             'A4: but it IS recorded as a refusal -- the log is how an owner finds '
                 .. 'out that somebody was trying')
-        check(#envP.lines > 0 and envP.lines[#envP.lines]:lower():find('console', 1, true) ~= nil,
+        -- ANY line, not the last one. Every audit entry now goes through the normal log
+        -- path, so an audited action prints AFTER the message that announced it
+        -- and "the last line" stopped being a reliable place to look. That is a
+        -- better behaviour arriving and breaking a brittle assertion, which is
+        -- the right way round.
+        check(anyLineContains(envP, 'console'),
             'A4: and it says where the command has to come from')
         envP.reset()
 

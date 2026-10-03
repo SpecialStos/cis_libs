@@ -553,6 +553,15 @@ return {
             realm = 'server',
             signature = '()',
         },
+        -- The audit ring is in MEMORY, read through this export or the
+        -- restricted `cis_audit [n]` console command. cis_libs writes no files, so
+        -- there is nothing on disk to read.
+        GetAuditLog = {
+            since = '2.2.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'The capability and configuration change log, newest last. Gated on Security.AuthorizedResources like every other mutating call. Entries carry resource and slot names and never a player name, identifier or IP. Bounded by Config.AuditLines, default 500',
+            realm = 'server',
+            signature = '(limit)',
+        },
 
         -- ----------------------------------------------------------- security
         -- L-C24: `opts` is forwarded, and the registration result is returned.

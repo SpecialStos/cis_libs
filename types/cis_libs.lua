@@ -714,6 +714,13 @@ function cis_libs.FixDoor(identifier) end
 ---@field deprecated boolean false
 function cis_libs.GetAllDoorData() end
 
+---@class cis_libs.GetAuditLog
+---@field use string The capability and configuration change log, newest last. Gated on Security.AuthorizedResources like every other mutating call. Entries carry resource and slot names and never a player name, identifier or IP. Bounded by Config.AuditLines, default 500
+---@field since string 2.2.0
+---@field deprecated boolean false
+---@param limit any
+function cis_libs.GetAuditLog(limit) end
+
 ---@class cis_libs.GetCapabilities
 ---@field use string The one call that answers "which of my four resources is actually running". Returns { [slot] = { owner, resolved } }
 ---@field since string 2.0.0
@@ -1258,6 +1265,7 @@ cis_libs.DetectFramework = cis_libs.DetectFramework
 cis_libs.DrawText3D = cis_libs.DrawText3D
 cis_libs.FixDoor = cis_libs.FixDoor
 cis_libs.GetAllDoorData = cis_libs.GetAllDoorData
+cis_libs.GetAuditLog = cis_libs.GetAuditLog
 cis_libs.GetCachedHeading = cis_libs.GetCachedHeading
 cis_libs.GetCachedPed = cis_libs.GetCachedPed
 cis_libs.GetCachedServerId = cis_libs.GetCachedServerId

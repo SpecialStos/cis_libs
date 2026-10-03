@@ -89,47 +89,141 @@ end
 -- snapshot cannot answer it -- by the time anybody thinks to ask, the line has
 -- scrolled away.
 --
--- Written to a file, one line per event, ALWAYS -- including refusals, which is
--- the half that matters. A capability that was REFUSED is precisely the thing
--- somebody will want to find later.
+-- EVERY REFUSAL NAMES THE FIX. (Plan 3.8.)
 --
--- Best-effort by design. `SaveResourceFile` can fail (read-only data directory,
--- permissions), and an audit trail that takes the library down when it cannot be
--- written is worse than no audit trail: it would turn a disk problem into an
--- outage. So a failure says so ONCE and then goes quiet.
+-- "not on Security.AuthorizedResources" tells a caller it was refused and
+-- nothing about what to do, and the caller is usually a product author with no
+-- way to guess that the fix lives in ANOTHER resource's config on the SERVER.
+-- The sentence below names the export, the resource that was refused, and the
+-- exact key and value to add -- so the action is copy-pasteable from the message
+-- that caused it.
 --
--- DECLARED HERE, ABOVE SetConfig, because Lua binds an upvalue where the
--- enclosing function is DEFINED: a `local audit` further down this file is nil
--- while SetConfig is compiled, and the call raises on the first config rather
--- than at load -- the worst possible time to discover it.
-local auditFailures = 0
-local auditText = ''
+-- The alternative -- one generic line at boot -- was tried and does not work:
+-- a product that mutates doors is refused silently, and by the time the operator
+-- reads a boot banner they have already lost whatever the product was doing.
+--
+-- DECLARED HERE, ABOVE every export that uses it, because Lua binds an upvalue
+-- where the enclosing function is DEFINED: a `local` further down this file is
+-- nil while an earlier export is being compiled, and the call raises at the
+-- moment of use rather than at load -- the worst possible time to discover it.
+local function notAuthorizedReason(exportName)
+    local caller = GetInvokingResource() or 'cis_libs'
+    return ("cis_libs refused %s from %s: add '%s' to Security.AuthorizedResources")
+        :format(tostring(exportName), tostring(caller), tostring(caller))
+end
+-- IN MEMORY, IN A BOUNDED RING, AND NOWHERE ELSE (DEC-3).
+--
+-- This used to be a file: every event appended a line to a string and rewrote
+-- the whole thing through `SaveResourceFile`, which has no append mode -- its
+-- fourth argument is the INDENT, and passing -1 means "no indent" and overwrites.
+-- Three problems, in increasing order of how long they would have taken to notice:
+--
+--   * cis_libs writes no files. That is the promise every consumer relies on
+--     when they install it, and an audit log quietly broke it.
+--   * The rewrite cost GREW with the log. The longer a server had been running,
+--     the more it paid to record that nothing had happened.
+--   * The file lived inside the resource folder, so an update deleted it --
+--     the same D-07 shape, and the same consequence: the record of what a server
+--     did was destroyed by upgrading the thing that did it.
+--
+-- A ring in memory has none of those. It is bounded by config, so it cannot grow
+-- without an operator asking, and it is read through a restricted console
+-- command or an export gated on the same allow-list as everything else that
+-- mutates.
+--
+-- WHAT AN ENTRY NEVER HOLDS: a player name, an identifier, an IP. Entries carry
+-- resource names, slot names and the event. An audit log holding a person's
+-- details is a file every holder now has to treat as personal data, and the
+-- events being recorded -- a capability registering, a configuration being
+-- replaced -- are about resources, never about players.
+local AUDIT_DEFAULT_LINES = 500
+local auditRing = {}
+local auditNext = 1
+local auditHeld = 0
 
-local function audit(event, detail)
-    if auditFailures > 0 then
-        return
+local function auditCapacity()
+    local configured = Config and Config.AuditLines
+    local n = tonumber(configured)
+    if not n or n < 1 then
+        return AUDIT_DEFAULT_LINES
     end
-    auditText = auditText .. ('%s cis_libs %s %s\n'):format(
-        os.date('%Y-%m-%dT%H:%M:%S'), event, detail or '')
-    -- WHOLE-FILE REWRITE, every time. There is no append mode here, and that is
-    -- worth stating rather than discovering: `SaveResourceFile`'s fourth argument
-    -- is the INDENT, not a flag -- passing `-1` means "no indent" and overwrites.
-    -- An audit log written that way keeps exactly one line, which is the one
-    -- thing an audit log must never do.
-    --
-    -- Accumulating in memory and rewriting the lot is the cheap way to get real
-    -- append semantics: the volume is a handful of lines per boot, so the write
-    -- cost is irrelevant next to the correctness of the record. Bounded by the
-    -- number of capability changes, which is small and human-scale.
-    local okWrite = pcall(function()
-        SaveResourceFile(GetCurrentResourceName(), 'audit.log', auditText, -1)
-    end)
-    if not okWrite then
-        auditFailures = 1
-        Logging.Warn('cis_libs: cannot write the audit log; capability changes will '
-            .. 'be reported to the console only')
+    -- A ceiling as well as a floor. `Config.AuditLines = 1e9` is a typo, and a
+    -- ring that honours it is not a ring.
+    return math.min(math.floor(n), 10000)
+end
+
+--- Every entry also goes through the normal log path, so an operator watching
+--- the console still sees changes happen as they happen rather than only being
+--- able to ask afterwards.
+local function audit(event, detail)
+    local line = ('%s cis_libs %s %s'):format(
+        os.date('%Y-%m-%dT%H:%M:%S'), tostring(event), tostring(detail or ''))
+    Logging.Info(line)
+
+    auditRing[auditNext] = { event = tostring(event), detail = tostring(detail or ''), line = line }
+    auditNext = auditNext + 1
+    if auditNext > auditCapacity() then
+        auditNext = 1
+    end
+    if auditHeld < auditCapacity() then
+        auditHeld = auditHeld + 1
     end
 end
+
+--- The entries, newest LAST. `limit` is capped by what the ring actually holds,
+--- so asking for 10 000 from a ring of 20 answers 20 -- not an error, and not an
+--- empty table, which is the answer that reads like "nothing has happened".
+--
+-- DECLARED BEFORE the console command below, which uses it. Lua binds an
+-- upvalue where the enclosing function is DEFINED, so a `local function` written
+-- after the command is nil inside it -- and the failure appears as "attempt to
+-- call a nil value" the first time somebody reads the audit log.
+local function auditEntries(limit)
+    local want = tonumber(limit)
+    if not want or want < 1 then
+        want = auditHeld
+    end
+    want = math.min(math.floor(want), auditHeld)
+    local out = {}
+    for i = 1, want do
+        -- The oldest surviving entry, then forward. `auditNext` points at the slot
+        -- the NEXT entry will use, which is exactly the oldest one held.
+        out[#out + 1] = auditRing[((auditNext - 1 - want + i - 1) % auditCapacity()) + 1]
+    end
+    return out
+end
+
+--- The console reader, for the operator who has no resource to call from.
+---
+--- RESTRICTED for the same reason `cis_force_unregister` is: the log is a record
+--- of who holds what, and anything that can read it can map the platform. The
+--- third argument is not decoration -- without it any player could ask what else
+--- is installed on this server.
+---
+--- `cis_audit` with no argument prints everything held; `cis_audit 20` prints the
+--- last twenty, which is the only form anyone actually wants.
+RegisterCommand('cis_audit', function(src, args)
+    if src ~= 0 then
+        print('cis_libs: cis_audit is a server console command. Run it from the '
+            .. 'txAdmin console or the server terminal.')
+        return
+    end
+    local limit = tonumber(args and args[1]) or auditHeld
+    local shown = 0
+    for _, entry in ipairs(auditEntries(limit)) do
+        print(entry.line)
+        shown = shown + 1
+    end
+    print(('[cis_libs] audit: %d entr%s held, %d shown (capacity %d)')
+        :format(auditHeld, auditHeld == 1 and 'y' or 'ies', shown, auditCapacity()))
+end, true)
+
+exports('GetAuditLog', function(limit)
+    if not CisInvokingAllowed() then
+        return false, notAuthorizedReason('GetAuditLog')
+    end
+    return auditEntries(limit)
+end)
 
 -- A1 · THE CONTRACT VERSION THIS LIBRARY IMPLEMENTS, and the reader for the
 -- version a product claims.
@@ -911,24 +1005,6 @@ end)
 -- numerous and mostly third-party. Gating it would break them to stop a resource
 -- from being annoying, which is a trade this library should not make. It is
 -- validated and rate-limited instead.
-
--- EVERY REFUSAL NAMES THE FIX. (Plan 3.8.)
---
--- "not on Security.AuthorizedResources" tells a caller it was refused and
--- nothing about what to do, and the caller is usually a product author with no
--- way to guess that the fix lives in ANOTHER resource's config on the SERVER.
--- The sentence below names the export, the resource that was refused, and the
--- exact key and value to add -- so the action is copy-pasteable from the message
--- that caused it.
---
--- The alternative -- one generic line at boot -- was tried and does not work:
--- a product that mutates doors is refused silently, and by the time the operator
--- reads a boot banner they have already lost whatever the product was doing.
-local function notAuthorizedReason(exportName)
-    local caller = GetInvokingResource() or 'cis_libs'
-    return ("cis_libs refused %s from %s: add '%s' to Security.AuthorizedResources")
-        :format(tostring(exportName), tostring(caller), tostring(caller))
-end
 
 exports('PublishJobUpdate', function(job, src)
     if type(job) ~= 'table' then

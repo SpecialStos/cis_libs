@@ -436,6 +436,7 @@ real registered surface ever differ.
 | `DrawText3D` | client | `(x, y, z, text, settings)` | 1.0.0 | no proxy equivalent |
 | `FixDoor` | server | `(identifier)` | 1.0.0 | no proxy equivalent; exports["cis_libs"]:FixDoor(identifier) |
 | `GetAllDoorData` | server | `()` | 1.0.0 | no proxy equivalent; the full door and group tables |
+| `GetAuditLog` | server | `(limit)` | 2.2.0 | The capability and configuration change log, newest last. Gated on Security.AuthorizedResources like every other mutating call. Entries carry resource and slot names and never a player name, identifier or IP. Bounded by Config.AuditLines, default 500 |
 | `GetCachedHeading` | client | `()` | 1.0.0 | Cis.player.heading(), which reads the native directly in a consumer VM |
 | `GetCachedPed` | client | `()` | 1.0.0 | Cis.player.ped(), which reads the native directly in a consumer VM |
 | `GetCachedServerId` | client | `()` | 1.0.0 | Cis.player.serverId() |

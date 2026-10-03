@@ -53,6 +53,17 @@ function CisDefaults.config()
             VehicleProperties = 5000,
         },
 
+        -- How many capability and configuration events the in-memory audit ring
+        -- keeps (DEC-3). The volume is a handful per boot -- a capability
+        -- registering, a resource stopping, a config being supplied -- so 500 is
+        -- months of history on a busy server and the ring never has to evict.
+        --
+        -- It is a ring, not a log that grows: the oldest entry is overwritten once
+        -- the capacity is reached, so the memory cost is fixed whatever the server
+        -- does. Raise it while debugging a platform; there is no reason to lower
+        -- it.
+        AuditLines = 500,
+
         -- 'default' reads IsPlayerFreeAiming(), which is the real game state.
         -- 'configFlag' reads a ped config flag, which is NOT the aiming state on
         -- current builds and reports aiming false almost always. Kept for
@@ -250,6 +261,7 @@ end
 -- operator has to edit, which is the whole value of a refusal.
 local CONFIG_RULES = {
     { path = 'CallbackTimeout', ok = between(1000, 60000) },
+    { path = 'AuditLines', ok = between(1, 10000) },
     { path = 'UpdateInterval.Player', ok = between(100, 10000) },
     { path = 'UpdateInterval.Weapon', ok = between(100, 10000) },
     { path = 'UpdateInterval.Vehicle', ok = between(100, 10000) },
