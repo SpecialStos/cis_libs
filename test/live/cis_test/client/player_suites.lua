@@ -18,6 +18,22 @@ local function at(dx, dy, dz)
     return { x = o.x + dx, y = o.y + dy, z = o.z + dz }
 end
 
+-- A box zone is (CENTER, SIZE), not (min corner, max corner).
+--
+-- The library halves whatever arrives as `size` (`zone.hx = sx * 0.5`), so a
+-- max corner is read as an extent. Hand it one and a player standing at x =
+-- -836 gets a "size" of -832, which is negative, and the grid refuses the AABB
+-- as inverted. Every zone case in this file spent a session passing absolute
+-- map coordinates where an extent belonged, so the zone loop has never once
+-- been exercised against a zone that existed.
+--
+-- A helper with a name that cannot be confused with at() is the whole point:
+-- the two arguments look identical until one of them is wrong by a factor of
+-- the player's distance from the origin.
+local function extent(sx, sy, sz)
+    return { x = sx, y = sy, z = sz }
+end
+
 -- ====================================================== export reachability
 --
 -- A missing export and a broken loop look IDENTICAL from outside: the callback
@@ -110,11 +126,11 @@ P.RegisterSuite('zones', {
         run = function()
             local o = P.Origin()
             P.ClearEnterLog()
-            local ok = exports['cis_libs']:CreateZone('box', 'z_standing',
+            local ok, why = exports['cis_libs']:CreateZone('box', 'z_standing',
                 { x = o.x, y = o.y, z = o.z },
-                { x = o.x + 8.0, y = o.y + 8.0, z = o.z + 8.0 },
+                extent(8.0, 8.0, 8.0),
                 { onEnter = function(coords) P.NoteEnter(coords) end })
-            if not ok then return false, 'CreateZone was refused' end
+            if not ok then return false, ('CreateZone was refused: %s'):format(tostring(why)) end
 
             -- The plan allows 250 ms. 1000 is generous and still bounded: a
             -- harness that waits forever cannot tell a slow library from a hung
@@ -141,10 +157,10 @@ P.RegisterSuite('zones', {
         run = function()
             exports['cis_libs']:RemoveZone('z_walk')
             P.ClearEnterLog()
-            local ok = exports['cis_libs']:CreateZone('box', 'z_walk',
-                at(10.0, 10.0, 0.0), at(14.0, 14.0, 0.0),
+            local ok, why = exports['cis_libs']:CreateZone('box', 'z_walk',
+                at(12.0, 12.0, 0.0), extent(4.0, 4.0, 4.0),
                 { onEnter = function(coords) P.NoteEnter(coords) end })
-            if not ok then return false, 'CreateZone was refused' end
+            if not ok then return false, ('CreateZone was refused: %s'):format(tostring(why)) end
 
             P.StepTowards(at(8.0, 8.0, 0.0), 10)
             P.StepTowards(at(12.0, 12.0, 0.0), 25)
@@ -161,9 +177,13 @@ P.RegisterSuite('zones', {
             exports['cis_libs']:RemoveZone('z_remove')
             P.ClearEnterLog()
             P.ClearExitLog()
-            exports['cis_libs']:CreateZone('box', 'z_remove',
-                at(0.0, 0.0, 0.0), at(4.0, 4.0, 4.0),
+            local ok, why = exports['cis_libs']:CreateZone('box', 'z_remove',
+                at(2.0, 2.0, 2.0), extent(4.0, 4.0, 4.0),
                 { onEnter = function() end, onExit = function(coords) P.NoteExit(coords) end })
+            -- A refused zone here reports "coords MISSING" thirty lines later,
+            -- which names the symptom and hides the cause. The exit can only be
+            -- observed on a zone that exists.
+            if not ok then return false, ('CreateZone was refused: %s'):format(tostring(why)) end
 
             -- Wait until the library agrees the player is inside, so the exit
             -- below is a real exit and not the removal of a zone that was never
@@ -183,8 +203,13 @@ P.RegisterSuite('zones', {
         name = 'a zone 400 m above the player does not contain them',
         run = function()
             exports['cis_libs']:RemoveZone('z_high')
-            exports['cis_libs']:CreateZone('box', 'z_high',
-                at(0.0, 0.0, 400.0), at(4.0, 4.0, 404.0), {})
+            local ok, why = exports['cis_libs']:CreateZone('box', 'z_high',
+                at(2.0, 2.0, 402.0), extent(4.0, 4.0, 4.0), {})
+            -- This one is the dangerous shape: a refused zone leaves
+            -- ZoneContains answering about a name that does not exist, and
+            -- "does not contain the player" is the PASSING answer. A refusal
+            -- here would have been recorded as a success.
+            if not ok then return false, ('CreateZone was refused: %s'):format(tostring(why)) end
             local inside = exports['cis_libs']:ZoneContains('z_high', P.Origin())
             exports['cis_libs']:RemoveZone('z_high')
             return inside == false,
