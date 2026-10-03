@@ -408,7 +408,27 @@ end)
 --- is the exact authority S1 spent this batch removing. A console command runs
 --- with no invoking resource, so there is no caller to authorise -- which is
 --- exactly why it is safe here and would not be as an export.
-RegisterCommand('cis_force_unregister', function(_, args)
+---
+--- RESTRICTED, AND THE SOURCE IS CHECKED ANYWAY. Those are two halves of one
+--- property, not belt and braces for its own sake. Without the restricted flag
+--- FiveM accepts the command from a client, and an unknown client command is
+--- forwarded to the server with the player's server id as the source -- so a
+--- player could strip `security`, `database` or `framework` from a running server
+--- out of their own chat. The flag is the platform's half; the `src` check is
+--- this library's, and it holds even if the flag is not what it was assumed to
+--- be. `cis_debug` in server/initialize.lua is registered the same way.
+RegisterCommand('cis_force_unregister', function(src, args)
+    if src ~= 0 then
+        print('cis_libs: cis_force_unregister is a server console command. '
+            .. 'Run it from the txAdmin console or the server terminal.')
+        -- Audited, because the audit log is how an owner finds out that somebody
+        -- was trying. A refusal that prints and is never recorded is a refusal
+        -- that leaves no trace, which is the same as no refusal at all as far as
+        -- the next investigation is concerned.
+        audit('capability-revoke-refused', ('slot=%s caller=%s')
+            :format(tostring((args and args[1]) or '?'), tostring(src)))
+        return
+    end
     -- FiveM passes (source, args, argString): `args` is a TABLE of the words
     -- after the command name. Reading it as a table rather than as varargs is
     -- the signature that actually exists, and guessing wrong here is a syntax
@@ -429,7 +449,7 @@ RegisterCommand('cis_force_unregister', function(_, args)
     print(('cis_libs: revoked %q (was held by %s); the provider may register it again.')
         :format(slot, tostring(previous)))
     audit('capability-force-released', ('slot=%s owner=%s'):format(slot, tostring(previous)))
-end)
+end, true)
 
 --- What is registered, what is not, and who owns what. This is the answer to
 --- "why is the database nil", and it is the first thing a support thread needs.

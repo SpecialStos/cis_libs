@@ -237,8 +237,14 @@ local function newEnv(opts)
     -- cannot see it cannot assert it exists, cannot invoke it, and would pass
     -- happily if it were deleted.
     env.commands = {}
-    function RegisterCommand(name, fn)
+    -- The third argument is FiveM's RESTRICTED flag, and it is recorded rather
+    -- than dropped. A stub that keeps only name and handler cannot tell a command
+    -- any player may run from one only the console may run, so a P0 that is
+    -- exactly this flag being absent is invisible to every test in this file.
+    env.commandFlags = {}
+    function RegisterCommand(name, fn, restricted)
         env.commands[name] = fn
+        env.commandFlags[name] = restricted == true
     end
     function GetResourceMetadata(_, field) return field == 'version' and '1.0.0' or '' end
     function PerformHttpRequest(url, cb)
@@ -2012,6 +2018,52 @@ do
         envR.reset()
     end
 
+    -- ------------------------------------------------------- A4, the P0 half
+    -- A console command with no restricted flag is a command any PLAYER may run,
+    -- and FiveM forwards an unknown client command to the server with the
+    -- player's server id as the source. So without the flag a player could run
+    -- this from their own chat and strip `security`, `database` or `framework`
+    -- from the running server -- the trust boundary S1 spent this batch building,
+    -- undone by one line of registration.
+    --
+    -- Both halves are asserted. The flag is the platform's half; the source check
+    -- is this library's own, and it is the belt to the flag's braces -- a console
+    -- that forwards a player src, or a flag that is not what it was assumed to be,
+    -- must not become a way to run this without permission. `cis_debug` in
+    -- server/initialize.lua is held to the same rule and is asserted here too, so
+    -- the two cannot drift apart.
+    do
+        local envP = bootAudit('cis_core')
+        envP.EXPORTS.RegisterCapability('discord', 'cis_bridge:Webhooks')
+        check(CisRegistry.has('discord') == true, 'A4: the slot is held before the attempt')
+
+        local revoke = envP.commands['cis_force_unregister']
+        envP.lines = {}
+        revoke(5, { 'discord' })
+        check(CisRegistry.has('discord') == true,
+            'A4: a PLAYER cannot revoke a capability (source 5 stripped it)')
+        check(auditText(envP):find('capability-force-released', 1, true) == nil,
+            'A4: and a refused attempt leaves no force-release in the audit trail')
+        check(auditText(envP):find('capability-revoke-refused', 1, true) ~= nil,
+            'A4: but it IS recorded as a refusal -- the log is how an owner finds '
+                .. 'out that somebody was trying')
+        check(#envP.lines > 0 and envP.lines[#envP.lines]:lower():find('console', 1, true) ~= nil,
+            'A4: and it says where the command has to come from')
+        envP.reset()
+
+        -- `env.reset` puts globals back; it does not touch the capability
+        -- registry, which is process-global in the stubbed VM. The refused
+        -- revoke above deliberately left the slot held, so this block has to be
+        -- the one that gives it back -- otherwise A1 below boots believing a
+        -- provider already holds `discord`, and its "nothing was registered"
+        -- assertion fails for a reason that has nothing to do with A1.
+        --
+        -- The console-command sweep is at the very end of this file rather than
+        -- here, because enumerating every command means booting every server
+        -- file that registers one, and that boot leaves module state behind.
+        CisRegistry.unregister('discord')
+    end
+
     -- ---------------------------------------------------------------- A1
     -- The contract is the promise that a slot's method names and argument
     -- shapes mean the same thing on both sides. A 3.x product registering into
@@ -2130,6 +2182,44 @@ do
             ('H3: and a huge message is truncated rather than relayed (longest %d)')
                 :format(longest))
         envN.reset()
+    end
+
+    -- ------------------------------------------------------------------ A4
+    -- EVERY console command this library registers is restricted, and every one
+    -- of them checks the source itself. Last in the file because enumerating it
+    -- means booting every server file that registers one, and that boot leaves
+    -- shared module state behind.
+    --
+    -- Enumerated from what the boot actually registered, not from a hand-written
+    -- list: a list of names passes by being empty the day a command is added,
+    -- which is the day it matters. A scan of the source would be worse still --
+    -- a scan that finds nothing is indistinguishable from a scan that found
+    -- nothing to complain about.
+    do
+        local envC = bootAudit('cis_core')
+        loadModule('server/initialize.lua')
+        local names = {}
+        for name in pairs(envC.commands) do
+            names[#names + 1] = name
+        end
+        table.sort(names)
+        check(#names > 0, 'A4: the server boot registered console commands at all')
+        for _, name in ipairs(names) do
+            -- The restricted flag is the platform's half: without it FiveM takes
+            -- the command from a client, and an unknown client command arrives at
+            -- the server with the player's id as the source. A player could then
+            -- strip a capability out of their own chat.
+            check(envC.commandFlags[name] == true,
+                ('A4: %s is registered restricted'):format(name))
+
+            -- And this is ours, holding even if the flag is not what it was
+            -- assumed to be.
+            envC.lines = {}
+            local raised = pcall(envC.commands[name], 5)
+            check(raised, ('A4: %s does not raise for a player source'):format(name))
+        end
+        envC.reset()
+        clearRegistry()
     end
 end
 

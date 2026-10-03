@@ -158,6 +158,50 @@ CisTestRunner.Suite('registry', { tier = 'server', realm = 'server' }, function(
         end)
         t.ok(ok, 'a raising provider does not raise into the caller')
     end)
+
+    -- THE PLAYER-SOURCE HALF IS UNIT-ONLY, AND THAT IS NOT AN EXCUSE.
+    -- `cis_force_unregister` is restricted and refuses a non-console source,
+    -- because FiveM forwards an unknown client command to the server with the
+    -- player's id as its source. Proving that needs a client to type the
+    -- command, and this machine has no GPU to run one -- so it is asserted in
+    -- test/contracts.lua, where the handler is invoked directly with source 5.
+    --
+    -- What a server CAN prove, and what would be a much worse regression than
+    -- the hole itself, is that the command still works from the console. A
+    -- command locked down past the point of being usable is not a fix; it is the
+    -- same outage with an extra step. ExecuteCommand runs as the console
+    -- (source 0), so this is the operator's exact path.
+    t.case('the revoke command still works from the console', function()
+        -- `GetCapabilities` lists EVERY slot with an `owner` that is nil when it
+        -- is unregistered, so the owner is the thing to read. Asserting on the
+        -- slot's presence instead asks a question with a constant answer: the
+        -- table always has an entry for all of them.
+        local function holder()
+            return exports['cis_libs']:GetCapabilities().discord
+                and exports['cis_libs']:GetCapabilities().discord.owner
+        end
+
+        t.ok(holder() ~= nil, 'a fake holds discord before the command runs')
+        t.cleanup(function()
+            exports['cis_test_providers']:ClaimSlot('discord')
+        end)
+
+        ExecuteCommand('cis_force_unregister discord')
+
+        t.eq(holder(), nil, 'the console revoked it')
+
+        -- Claimed HERE rather than only in cleanup, and the ordering matters:
+        -- cleanup runs after the case body, so a case that registers its own
+        -- re-claim in cleanup and then asserts on it is asserting on a state
+        -- that has not happened yet. It reads as a library refusal.
+        local re, why = exports['cis_test_providers']:ClaimSlot('discord')
+        t.cleanup(function()
+            exports['cis_test_providers']:ClaimSlot('discord')
+        end)
+        t.eq(holder(), 'cis_test_providers',
+            ('and the provider took it straight back (ok=%s why=%s)'):format(
+                tostring(re), tostring(why)))
+    end)
 end)
 
 CisTestRunner.Suite('notify', { tier = 'server', realm = 'server' }, function(t)

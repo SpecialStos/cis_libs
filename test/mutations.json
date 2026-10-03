@@ -37,6 +37,13 @@
       "why": "A shipped file writing to disk outside the reviewed allow-list. Already allow-listed at two sites, so this also proves the allow-list is a list and not a blanket."
     },
     {
+      "id": "M06",
+      "file": "server/proxy.lua",
+      "find": "    audit('capability-force-released', ('slot=%s owner=%s'):format(slot, tostring(previous)))\nend, true)",
+      "replace": "    audit('capability-force-released', ('slot=%s owner=%s'):format(slot, tostring(previous)))\nend)",
+      "why": "Drop the restricted flag from the one console command that removes a capability. FiveM then accepts it from a client, and an unknown client command reaches the server with the player's id as the source -- so any player can strip `security`, `database` or `framework` from a running server out of their own chat. The source check inside the handler survives this, which is the point of having both halves."
+    },
+    {
       "id": "M07",
       "file": "server/callback.lua",
       "find": "    if peeked.payload.target ~= src then\n        return\n    end\n",
