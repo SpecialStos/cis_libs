@@ -145,20 +145,19 @@ end)
 -- key and its promise in the table for the lifetime of the client. One pass a
 -- second is coarse enough to be free and fine enough that a timeout is
 -- indistinguishable from an honest slow answer.
-CreateThread(function()
-    while true do
-        Wait(1000)
-        local now = GetGameTimer()
-        CisPending.sweep(pending, now, function(_, item)
-            local payload = item.payload
-            if payload.cb then
-                payload.cb(false, 'timeout')
-            elseif payload.promise then
-                payload.promise:reject('timeout')
-            end
-        end)
-    end
-end)
+-- GUARDED (3.10): a consumer's timeout handler raising used to end this sweep,
+-- and then every pending callback on the client sat in its table for the rest of
+-- the session -- no timeout, no sweep, no error.
+CreateThread(CisLoopGuard.Run('client.callback.sweep', 1000, function()
+    CisPending.sweep(pending, GetGameTimer(), function(_, item)
+        local payload = item.payload
+        if payload.cb then
+            payload.cb(false, 'timeout')
+        elseif payload.promise then
+            payload.promise:reject('timeout')
+        end
+    end)
+end))
 
 local function startCall(name, cb, ...)
     local key = CisPending.alloc(pending, { cb = cb }, GetGameTimer() + timeoutMs())

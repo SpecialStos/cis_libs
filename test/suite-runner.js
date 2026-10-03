@@ -86,6 +86,9 @@ const SHARED = [
   // First, like the manifest: the counters have to exist before the first
   // thing that counts one.
   'shared/diagnostics.lua',
+  // Then loopguard, in the manifest's order: a guarded loop counts into
+  // diagnostics, so it needs the counter to exist first.
+  'shared/loopguard.lua',
   'shared/defaults.lua', 'shared/registry.lua', 'shared/grid.lua',
   'shared/pending.lua', 'shared/owned.lua', 'shared/config.lua',
   'shared/ready.lua', 'shared/histogram.lua', 'shared/detect.lua',

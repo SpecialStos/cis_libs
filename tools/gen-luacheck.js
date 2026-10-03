@@ -146,6 +146,12 @@ function buildTestConfig() {
   // test/run.lua. A suite needs it to reload a module the way the server reloads
   // it; without it "does it survive a reload" is not a question a test can ask.
   writable.add('CIS_CTL_ALLOW_SOURCE')
+  // cis_libs' own module global, declared here for the same reason the others
+  // are: shared/loopguard.lua defines it, and build-libglobals.js reads
+  // cis_libs' manifest -- where it IS listed, so it should have been
+  // discovered. Declaring it explicitly is cheaper than another special case in
+  // that reader.
+  writable.add('CisLoopGuard')
   // The live harness's own shared table (test/live/cis_test_providers). Declared
   // here rather than discovered: build-libglobals.js reads cis_libs' manifest,
   // and the harness is a separate resource that is never shipped.

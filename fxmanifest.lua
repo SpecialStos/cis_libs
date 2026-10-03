@@ -86,6 +86,10 @@ shared_scripts {
     -- Before everything else: a counter has to exist before the first thing it
     -- counts, and an error counted late is an error missed.
     'shared/diagnostics.lua',
+    -- Immediately after diagnostics, because a guarded loop COUNTS into it, and
+    -- a counter that does not exist yet is an error counted nowhere. Before
+    -- everything else that starts a loop, for the same reason.
+    'shared/loopguard.lua',
     'shared/defaults.lua',
     'shared/registry.lua',
     'shared/grid.lua',

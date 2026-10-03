@@ -403,19 +403,16 @@ end, { maxHits = 40 })
 -- scheduler hundreds of times per second for no observable gain. A client that
 -- gave up has already moved on; this is what stops a dead client's entry from
 -- living in the table forever.
-CreateThread(function()
-    while true do
-        Wait(1000)
-        CisPending.sweep(pending, GetGameTimer(), function(_, item)
-            local payload = item.payload
-            if payload.cb then
-                payload.cb(false, 'timeout')
-            elseif payload.promise then
-                payload.promise:reject('timeout')
-            end
-        end)
-    end
-end)
+CreateThread(CisLoopGuard.Run('server.callback.sweep', 1000, function()
+    CisPending.sweep(pending, GetGameTimer(), function(_, item)
+        local payload = item.payload
+        if payload.cb then
+            payload.cb(false, 'timeout')
+        elseif payload.promise then
+            payload.promise:reject('timeout')
+        end
+    end)
+end))
 
 local function askClient(name, target, cb, ...)
     if type(target) ~= 'number' or target <= 0 then

@@ -420,16 +420,16 @@ end
 -- lastApplied holds one snapshot per vehicle handle ever touched. Handles are
 -- recycled by the game, so drop entries whose entity is gone instead of
 -- letting the table grow for the lifetime of the client.
-CreateThread(function()
-    while true do
-        Wait(30000)
-        for vehicle in pairs(lastApplied) do
-            if not DoesEntityExist(vehicle) then
-                lastApplied[vehicle] = nil
-            end
+-- GUARDED (3.10): this loop is what stops `lastApplied` growing for the
+-- lifetime of the client, so a raise in here was a slow memory leak that also
+-- never reported itself.
+CreateThread(CisLoopGuard.Run('client.vehicle.reap', 30000, function()
+    for vehicle in pairs(lastApplied) do
+        if not DoesEntityExist(vehicle) then
+            lastApplied[vehicle] = nil
         end
     end
-end)
+end))
 
 AddEventHandler('onResourceStop', function(resource)
     if resource == GetCurrentResourceName() then

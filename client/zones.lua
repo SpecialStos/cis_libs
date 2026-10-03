@@ -457,99 +457,123 @@ CreateThread(function()
     local lastCellX, lastCellY
     local lastPos
     local lastRecheck = 0
-    while true do
-        if next(zones) == nil then
-            -- THE DEBUG SNAPSHOT MUST NOT GO STALE.
-            --
-            -- debugStats is rebuilt inside the pass below, which only runs when
-            -- there is at least one zone. So the moment the last zone is
-            -- removed, GetZoneDebug keeps reporting the previous pass -- a
-            -- zone that no longer exists, still counted as "inside". A harness
-            -- waiting on `insideCount > 0` is then satisfied instantly by a
-            -- zone that was deleted, concludes its own zone was found, and
-            -- reports a missing onExit for code that never ran. Cost one full
-            -- diagnosis cycle here, and it presented as a leak in remove().
-            debugStats.insideCount = 0
-            debugStats.insideNames = {}
-            Wait(500)
-        else
-            local started = GetGameTimer()
-            local coords = Cis.player.coords()
-            local cx, cy = CisGrid.cell(coords.x, coords.y)
-            local moved = not lastPos or #(coords - lastPos) >= HALF_CELL or cx ~= lastCellX or cy ~= lastCellY
-            if moved then
-                lastPos = coords
-                lastCellX, lastCellY = cx, cy
-                refreshInside(coords)
-                lastRecheck = GetGameTimer()
-            elseif GetGameTimer() - lastRecheck >= RECHECK_MS then
-                lastRecheck = GetGameTimer()
-                -- [D-02] DISCOVERY WAS GATED ON MOVEMENT, AND NOTHING ELSE.
-                --
-                -- `moved` needs half a cell -- 32 m at CELL = 64 -- or a cell
-                -- boundary crossing. Below that, the only work that happens is
-                -- `recheckInside`, which by definition re-tests the zones the
-                -- player is ALREADY inside. So a zone can only ever be entered
-                -- by a player who crosses 32 m or happens to land in a new
-                -- cell: walk a short way into a small zone and nothing finds
-                -- it, and a zone created around a stationary player is found
-                -- only if the previous pass happened to leave `lastPos` nil.
-                --
-                -- Reproduced live, run-20261003-003525: walking ~17 m into a
-                -- 4 m box gave `0 time(s), insideCount=0 inside=[]` -- the
-                -- library believed the player was inside nothing at all.
-                --
-                -- The fix is to keep the cheap path where it is actually cheap.
-                -- `recheckInside` is still the right call when every registered
-                -- zone is already accounted for, which is the steady state for
-                -- a player sitting inside one. It is only wrong when something
-                -- registered is NOT yet inside, because that is exactly the
-                -- state in which discovery is possible and the cheap path
-                -- cannot perform it.
-                local insideCount = 0
-                for _ in pairs(inside) do insideCount = insideCount + 1 end
-                local zoneCount = 0
-                for _ in pairs(zones) do zoneCount = zoneCount + 1 end
-                if insideCount < zoneCount then
-                    refreshInside(coords)
+    -- GUARDED (3.10). One raise in here used to end this loop for
+    -- good: the thread unwound and never came back, and the symptom
+    -- -- callbacks timing out, props not spawning -- arrived minutes
+    -- later with nothing connecting it to this line.
+    local tick = CisLoopGuard.Body('client.zones.pass', function()
+                if next(zones) == nil then
+                    -- THE DEBUG SNAPSHOT MUST NOT GO STALE.
+                    --
+                    -- debugStats is rebuilt inside the pass below, which only runs when
+                    -- there is at least one zone. So the moment the last zone is
+                    -- removed, GetZoneDebug keeps reporting the previous pass -- a
+                    -- zone that no longer exists, still counted as "inside". A harness
+                    -- waiting on `insideCount > 0` is then satisfied instantly by a
+                    -- zone that was deleted, concludes its own zone was found, and
+                    -- reports a missing onExit for code that never ran. Cost one full
+                    -- diagnosis cycle here, and it presented as a leak in remove().
+                    debugStats.insideCount = 0
+                    debugStats.insideNames = {}
+                    -- Returned, never waited on inside the guard: see the note
+                    -- on the other return below.
+                    return 500
                 else
-                    recheckInside(coords)
-                end
-            end
-
-            local now = GetGameTimer()
-            local waitMs = 250
-            for id, state in pairs(inside) do
-                local zone = zones[id]
-                if zone and (zone.inside or zone.insideEvent) then
-                    local interval = zone.insideInterval or 500
-                    if interval > 0 then
-                        if now - state.lastInside >= interval then
-                            state.lastInside = now
-                            invoke(zone, 'inside', coords)
-                        end
-                        local remain = interval - (now - state.lastInside)
-                        if remain < waitMs then
-                            waitMs = math.max(0, remain)
+                    local started = GetGameTimer()
+                    local coords = Cis.player.coords()
+                    local cx, cy = CisGrid.cell(coords.x, coords.y)
+                    local moved = not lastPos or #(coords - lastPos) >= HALF_CELL or cx ~= lastCellX or cy ~= lastCellY
+                    if moved then
+                        lastPos = coords
+                        lastCellX, lastCellY = cx, cy
+                        refreshInside(coords)
+                        lastRecheck = GetGameTimer()
+                    elseif GetGameTimer() - lastRecheck >= RECHECK_MS then
+                        lastRecheck = GetGameTimer()
+                        -- [D-02] DISCOVERY WAS GATED ON MOVEMENT, AND NOTHING ELSE.
+                        --
+                        -- `moved` needs half a cell -- 32 m at CELL = 64 -- or a cell
+                        -- boundary crossing. Below that, the only work that happens is
+                        -- `recheckInside`, which by definition re-tests the zones the
+                        -- player is ALREADY inside. So a zone can only ever be entered
+                        -- by a player who crosses 32 m or happens to land in a new
+                        -- cell: walk a short way into a small zone and nothing finds
+                        -- it, and a zone created around a stationary player is found
+                        -- only if the previous pass happened to leave `lastPos` nil.
+                        --
+                        -- Reproduced live, run-20261003-003525: walking ~17 m into a
+                        -- 4 m box gave `0 time(s), insideCount=0 inside=[]` -- the
+                        -- library believed the player was inside nothing at all.
+                        --
+                        -- The fix is to keep the cheap path where it is actually cheap.
+                        -- `recheckInside` is still the right call when every registered
+                        -- zone is already accounted for, which is the steady state for
+                        -- a player sitting inside one. It is only wrong when something
+                        -- registered is NOT yet inside, because that is exactly the
+                        -- state in which discovery is possible and the cheap path
+                        -- cannot perform it.
+                        local insideCount = 0
+                        for _ in pairs(inside) do insideCount = insideCount + 1 end
+                        local zoneCount = 0
+                        for _ in pairs(zones) do zoneCount = zoneCount + 1 end
+                        if insideCount < zoneCount then
+                            refreshInside(coords)
+                        else
+                            recheckInside(coords)
                         end
                     end
-                end
-            end
-            -- WHICH zones the library currently believes the player is inside.
-            -- Without this a harness can only see whether onEnter fired, which
-            -- is indistinguishable from "the zone was never found": both look
-            -- like an empty log. This is the one thing that separates them.
-            debugStats.insideCount = 0
-            debugStats.insideNames = {}
-            for id in pairs(inside) do
-                debugStats.insideCount = debugStats.insideCount + 1
-                debugStats.insideNames[#debugStats.insideNames + 1] = id
-            end
-            table.sort(debugStats.insideNames)
-            debugStats.lastPassMs = GetGameTimer() - started
+
+                    local now = GetGameTimer()
+                    local waitMs = 250
+                    for id, state in pairs(inside) do
+                        local zone = zones[id]
+                        if zone and (zone.inside or zone.insideEvent) then
+                            local interval = zone.insideInterval or 500
+                            if interval > 0 then
+                                if now - state.lastInside >= interval then
+                                    state.lastInside = now
+                                    invoke(zone, 'inside', coords)
+                                end
+                                local remain = interval - (now - state.lastInside)
+                                if remain < waitMs then
+                                    waitMs = math.max(0, remain)
+                                end
+                            end
+                        end
+                    end
+                    -- WHICH zones the library currently believes the player is inside.
+                    -- Without this a harness can only see whether onEnter fired, which
+                    -- is indistinguishable from "the zone was never found": both look
+                    -- like an empty log. This is the one thing that separates them.
+                    debugStats.insideCount = 0
+                    debugStats.insideNames = {}
+                    for id in pairs(inside) do
+                        debugStats.insideCount = debugStats.insideCount + 1
+                        debugStats.insideNames[#debugStats.insideNames + 1] = id
+                    end
+                    table.sort(debugStats.insideNames)
+debugStats.lastPassMs = GetGameTimer() - started
             debugStats.lastPassAt = GetGameTimer()
-            Wait(waitMs)
-        end
+            -- THE INTERVAL IS RETURNED, NOT WAITED ON HERE.
+            --
+            -- The guard wraps this body in a pcall, and a `Wait` inside a pcall
+            -- means the YIELD RAISES INSIDE IT -- so the loop-unwinding signal,
+            -- and on a real server the resource-stop signal, is swallowed by the
+            -- very thing meant to make the loop survivable. A stopped resource
+            -- would keep ticking. So the Wait stays in the caller's loop.
+            return waitMs
+                end
+    end)
+    -- The interval this pass uses when the guarded body raises and therefore cannot
+    -- advise one. `waitMs` inside the body is a LOCAL to that body, so the
+    -- fallback in the caller has to be its own value -- referencing the body's
+    -- from out here is an undefined global, which luacheck caught.
+    local PASS_DEFAULT_MS = 250
+    while true do
+        -- The Wait is HERE, outside the guard's pcall, so a yield cannot be
+        -- swallowed by the thing that is meant to catch errors. A body that
+        -- raised returns nil, and a nil interval means "no advice".
+        Wait(tick() or PASS_DEFAULT_MS)
     end
 end)
 
@@ -557,7 +581,9 @@ CreateThread(function()
     if not CisReadyState.wait(15000) then
         return
     end
-    while true do
+    -- GUARDED (3.10): an `inside` callback raising used to end this loop for
+    -- good, and the inside-events for every other zone went with it.
+    local tickInside = CisLoopGuard.Body('client.zones.inside', function()
         local drew = false
         local coords
         for id in pairs(inside) do
@@ -568,11 +594,10 @@ CreateThread(function()
                 drew = true
             end
         end
-        if drew then
-            Wait(0)
-        else
-            Wait(250)
-        end
+        return drew and 0 or 250
+    end)
+    while true do
+        Wait(tickInside() or 250)
     end
 end)
 

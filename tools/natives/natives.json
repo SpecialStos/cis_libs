@@ -5,7 +5,7 @@
     "gta": "https://runtime.fivem.net/doc/natives.json"
   },
   "counts": {
-    "shippedFiles": 47,
+    "shippedFiles": 48,
     "nativesUsed": 146,
     "byRealm": {
       "client": 85,
@@ -449,6 +449,7 @@
       "files": [
         "client/cache.lua",
         "client/vehicle.lua",
+        "client/zones.lua",
         "init.lua",
         "server/sync.lua"
       ]
@@ -579,6 +580,7 @@
         "server/security.lua",
         "server/selfcheck.lua",
         "shared/diagnostics.lua",
+        "shared/loopguard.lua",
         "shared/ready.lua",
         "shared/registry.lua"
       ]
@@ -1927,6 +1929,7 @@
         "client/cache.lua",
         "client/vehicle.lua",
         "client/weapon.lua",
+        "client/zones.lua",
         "init.lua"
       ]
     },
@@ -2798,15 +2801,13 @@
       ],
       "files": [
         "client/cache.lua",
-        "client/callback.lua",
         "client/initialize.lua",
         "client/streaming.lua",
-        "client/vehicle.lua",
         "client/zones.lua",
         "init.lua",
-        "server/callback.lua",
         "server/initialize.lua",
         "server/sync.lua",
+        "shared/loopguard.lua",
         "shared/ready.lua",
         "shared/registry.lua"
       ]

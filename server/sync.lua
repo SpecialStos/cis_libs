@@ -576,14 +576,11 @@ end
 -- The pass is skipped when nothing is synced at all, which is the default state
 -- of a server running cis_libs alone: there the loop costs one table read and
 -- one Wait a second.
-CreateThread(function()
-    while true do
-        if next(records) then
-            streamPass()
-        end
-        Wait(STREAM_MS)
+CreateThread(CisLoopGuard.Run('server.sync.stream', STREAM_MS, function()
+    if next(records) then
+        streamPass()
     end
-end)
+end))
 
 -- A player who drops takes their whole set with them. Server ids are REUSED, so
 -- a returning player would otherwise inherit every record the previous occupant

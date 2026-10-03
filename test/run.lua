@@ -63,6 +63,9 @@ if not CIS_SUITE_MODE then
         -- First, like the manifest: the counters have to exist before the
         -- first thing that counts one.
         'shared/diagnostics.lua',
+        -- Then loopguard, in the same order the manifest loads it: a guarded
+        -- loop counts into diagnostics, so it needs the counter to exist.
+        'shared/loopguard.lua',
         'shared/defaults.lua', 'shared/registry.lua', 'shared/grid.lua',
         'shared/pending.lua', 'shared/owned.lua', 'shared/config.lua',
         'shared/ready.lua', 'shared/histogram.lua', 'shared/detect.lua',
@@ -1161,6 +1164,110 @@ s, v = server({ oxmysql = true }), function() return '2.6.0' end
 d = CisDetect.database('NONE', s, v)
 expect(d.name == 'NONE' and d.how == 'configured', 'database NONE is honoured')
 
+
+-- ============================== 3.10: A LOOP THAT RAISES MUST SURVIVE IT
+--
+-- Every `while true do ... Wait(n) end` in cis_libs used to run its body bare.
+-- A raise inside one -- a consumer's handler, a driver answering with the wrong
+-- shape -- unwound the thread, and a thread that has unwound is GONE. It does
+-- not come back on the next tick and nothing reports it, so the loop that was
+-- sweeping expired callbacks or streaming records simply stops, and the symptom
+-- arrives minutes later somewhere else entirely.
+--
+-- The assertion that matters is not "it counts" and not "it logs". It is that
+-- the loop is STILL RUNNING afterwards.
+do
+    -- Minimal host surface: the guard needs a clock, a Wait that lets the test
+    -- stop the loop, and the counter it increments.
+    local savedGetGameTimer = rawget(_G, 'GetGameTimer')
+    local savedWait = rawget(_G, 'Wait')
+    local savedLogging = rawget(_G, 'Logging')
+    local clock = 0
+    _G.GetGameTimer = function() return clock end
+
+    local waited = 0
+    _G.Wait = function(ms)
+        waited = waited + 1
+        clock = clock + (tonumber(ms) or 0)
+        if waited >= 4 then
+            error('STOP', 0)
+        end
+    end
+    local logged = {}
+    _G.Logging = { Error = function(msg) logged[#logged + 1] = tostring(msg) end }
+
+    CisLoopGuard.Raises = {}
+    local before = CisDiagnostics.Count('loopErrors')
+
+    local ticks = 0
+    local good = 0
+    local loop = CisLoopGuard.Run('test.loop', 1000, function()
+        ticks = ticks + 1
+        -- Fails on the second tick and only the second. A loop that dies on
+        -- tick one is caught by any later assertion; one that dies halfway is
+        -- the case worth having.
+        if ticks == 2 then
+            error('injected failure')
+        end
+        good = good + 1
+    end)
+
+    local ok, stopReason = pcall(loop)
+
+    -- The SENTINEL is how the test stops an infinite loop, so `ok` being false
+    -- is expected and is NOT the property under test. The property is what
+    -- happened BEFORE it: the loop kept going after the body raised. Asserting
+    -- `ok` would be asserting that my own test harness worked.
+    expect(not ok and stopReason == 'STOP',
+        ('the loop is only stopped by the test sentinel, never by the body (%s)')
+            :format(tostring(stopReason)))
+    expect(ticks >= 4,
+        ('the loop KEPT RUNNING after the raise (ticks=%s)'):format(tostring(ticks)))
+    expect(good == 3,
+        ('every healthy tick after the failure still ran (good=%s of %s)')
+            :format(tostring(good), tostring(ticks)))
+    expect((CisLoopGuard.Raises['test.loop'] or 0) == 1,
+        ('the raise is counted against the loop that raised it (%s)')
+            :format(tostring(CisLoopGuard.Raises['test.loop'])))
+    expect(CisDiagnostics.Count('loopErrors') == before + 1,
+        'and it is counted in the diagnostics the harness diffs')
+    expect(#logged == 1 and logged[1]:find('test.loop', 1, true) ~= nil,
+        ('and it is logged ONCE, naming the loop (%d line(s))'):format(#logged))
+
+    -- THROTTLED: a loop that raises every tick must not turn the console into
+    -- the thing the operator learns to ignore.
+    CisLoopGuard.Raises = {}
+    logged = {}
+    clock = 0
+    local alwaysBad = 0
+    local loop2 = CisLoopGuard.Run('test.noisy', 1000, function()
+        alwaysBad = alwaysBad + 1
+        error('every tick')
+    end)
+    local limit = 0
+    _G.Wait = function()
+        limit = limit + 1
+        clock = clock + 1000
+        if limit >= 30 then error('STOP', 0) end
+    end
+    pcall(loop2)
+    -- EXACTLY 3, not "few". The clock advances 1000 ms per tick, so the throttle
+    -- logs on the FIRST raise (nothing has been logged yet), then at 10 000 ms
+    -- and 20 000 ms. Asserting an upper bound would pass a guard that logs once
+    -- and never again, which is the opposite defect; the arithmetic is the
+    -- check.
+    expect(#logged == 3,
+        ('a loop raising every tick is logged about every ten seconds, not every '
+            .. 'tick (expected 3, got %d in 30 s)'):format(#logged))
+    expect((CisLoopGuard.Raises['test.noisy'] or 0) == 30,
+        ('and every one of them is still COUNTED even while quiet (%s)')
+            :format(tostring(CisLoopGuard.Raises['test.noisy'])))
+
+    _G.GetGameTimer = savedGetGameTimer
+    _G.Wait = savedWait
+    _G.Logging = savedLogging
+    CisLoopGuard.Raises = {}
+end
 
 io.write(('passed=%d failed=%d\n'):format(passed, failed))
 if failed > 0 then

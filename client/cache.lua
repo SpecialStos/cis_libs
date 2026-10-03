@@ -285,39 +285,48 @@ CreateThread(function()
     refreshWeapon(CisCache.ped)
 
     local lastWeaponAt = 0
-    while true do
-        -- THE INTERVALS ARE RE-READ EVERY PASS, not captured above.
-        --
-        -- The server re-pushes the client payload after SetConfig, so a client
-        -- can be told a different interval mid-session -- and it was not
-        -- listening. `playerMs` was read once before the loop, so the one value
-        -- a re-push is most likely to change was the one value that could not,
-        -- and the push looked like it had worked while nothing had.
-        --
-        -- Two table lookups and a `math.max` per pass, against a loop that
-        -- already costs ten natives: not a measurable cost, and it is what makes
-        -- the re-push mean anything.
-        intervals = (Config and Config.UpdateInterval) or {}
-        playerMs = math.max(100, intervals.Player or 1000)
-        weaponMs = math.max(100, intervals.Weapon or playerMs)
+    -- GUARDED (3.10). One raise in here used to end this loop for
+    -- good: the thread unwound and never came back, and the symptom
+    -- -- callbacks timing out, props not spawning -- arrived minutes
+    -- later with nothing connecting it to this line.
+    local tick = CisLoopGuard.Body('client.cache.pass', function()
+                -- THE INTERVALS ARE RE-READ EVERY PASS, not captured above.
+                --
+                -- The server re-pushes the client payload after SetConfig, so a client
+                -- can be told a different interval mid-session -- and it was not
+                -- listening. `playerMs` was read once before the loop, so the one value
+                -- a re-push is most likely to change was the one value that could not,
+                -- and the push looked like it had worked while nothing had.
+                --
+                -- Two table lookups and a `math.max` per pass, against a loop that
+                -- already costs ten natives: not a measurable cost, and it is what makes
+                -- the re-push mean anything.
+                intervals = (Config and Config.UpdateInterval) or {}
+                playerMs = math.max(100, intervals.Player or 1000)
+                weaponMs = math.max(100, intervals.Weapon or playerMs)
 
-        local ped = refreshPed()
-        local inVeh = IsPedInAnyVehicle(ped, false)
-        if inVeh then
-            refreshVehicle(ped)
-        elseif CisCache.vehicle ~= 0 then
-            setField('vehicle', 0)
-            CisCache.seat = nil
-        end
-        local now = GetGameTimer()
-        if now - lastWeaponAt >= weaponMs then
-            lastWeaponAt = now
-            refreshWeapon(ped)
-        end
-        setField('aiming', aimingNow())
-        CisCache.shooting = IsPedShooting(ped)
-        publishGlobals()
-        Wait(playerMs)
+                local ped = refreshPed()
+                local inVeh = IsPedInAnyVehicle(ped, false)
+                if inVeh then
+                    refreshVehicle(ped)
+                elseif CisCache.vehicle ~= 0 then
+                    setField('vehicle', 0)
+                    CisCache.seat = nil
+                end
+                local now = GetGameTimer()
+                if now - lastWeaponAt >= weaponMs then
+                    lastWeaponAt = now
+                    refreshWeapon(ped)
+                end
+                setField('aiming', aimingNow())
+                CisCache.shooting = IsPedShooting(ped)
+                publishGlobals()
+                -- Interval RETURNED, not waited on: a Wait inside the guard's
+                -- pcall would swallow the yield that unwinds this loop.
+                return playerMs
+    end)
+    while true do
+        Wait(tick() or playerMs)
     end
 end)
 
@@ -330,38 +339,46 @@ CreateThread(function()
     end
     local lastCoords
     local lastCheck = 0
-    while true do
+    -- GUARDED (3.10): this loop carries `lastCoords` and `lastCheck` across
+    -- ticks, so a raise used to leave them stale AND end the loop -- proximity
+    -- watchers simply stopped firing for the rest of the session.
+    local tickNear = CisLoopGuard.Body('client.cache.near', function()
         if next(nearWatchers) == nil then
-            Wait(500)
-        else
-            local now = GetGameTimer()
-            local coords = Cis.player.coords()
-            local moved = not lastCoords or #(coords - lastCoords) >= 8.0
-            if moved or (now - lastCheck) >= 500 then
-                lastCoords = coords
-                lastCheck = now
-                for _, watcher in pairs(nearWatchers) do
-                    local dist = #(coords - watcher.coords)
-                    local inside = dist <= watcher.distance
-                    if inside and not watcher.inside then
-                        watcher.inside = true
-                        if watcher.onEnter then
-                            pcall(watcher.onEnter, dist)
-                        elseif watcher.onEnterEvent then
-                            pcall(TriggerServerEvent, watcher.onEnterEvent, dist)
-                        end
-                    elseif not inside and watcher.inside then
-                        watcher.inside = false
-                        if watcher.onExit then
-                            pcall(watcher.onExit, dist)
-                        elseif watcher.onExitEvent then
-                            pcall(TriggerServerEvent, watcher.onExitEvent, dist)
-                        end
+            -- Idle, and the interval is RETURNED rather than waited on here:
+            -- a Wait inside the guard's pcall would swallow the yield that
+            -- unwinds this loop, so a stopped resource would keep ticking.
+            return 500
+        end
+        local now = GetGameTimer()
+        local coords = Cis.player.coords()
+        local moved = not lastCoords or #(coords - lastCoords) >= 8.0
+        if moved or (now - lastCheck) >= 500 then
+            lastCoords = coords
+            lastCheck = now
+            for _, watcher in pairs(nearWatchers) do
+                local dist = #(coords - watcher.coords)
+                local inside = dist <= watcher.distance
+                if inside and not watcher.inside then
+                    watcher.inside = true
+                    if watcher.onEnter then
+                        pcall(watcher.onEnter, dist)
+                    elseif watcher.onEnterEvent then
+                        pcall(TriggerServerEvent, watcher.onEnterEvent, dist)
+                    end
+                elseif not inside and watcher.inside then
+                    watcher.inside = false
+                    if watcher.onExit then
+                        pcall(watcher.onExit, dist)
+                    elseif watcher.onExitEvent then
+                        pcall(TriggerServerEvent, watcher.onExitEvent, dist)
                     end
                 end
             end
-            Wait(200)
         end
+        return 200
+    end)
+    while true do
+        Wait(tickNear() or 200)
     end
 end)
 
