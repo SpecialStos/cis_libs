@@ -226,6 +226,37 @@ local function run(id, cmd)
     local command = (action == 'refresh') and 'refresh'
         or (action == 'cis_test') and ('cis_test ' .. args)
         or (action .. ' ' .. resource)
+
+    -- ASK FIRST, BECAUSE A REFUSED COMMAND IS INDISTINGUISHABLE FROM A NO-OP.
+    --
+    -- `ExecuteCommand` returns void and never sets a result, so from Lua the
+    -- only signal a denied command produces is one console line ("Access denied
+    -- for command X.") that goes to the server log, not to the caller. So a
+    -- denied `stop cis_test` on a resource that was ALREADY stopped looks
+    -- exactly like a successful one, and this resource reported it as
+    -- `stopped (true)`. The agent read that as the ACEs being in place when the
+    -- server had restarted and taken them all -- which is how an entire live run
+    -- reported success while running against stale permissions.
+    --
+    -- Parameter order is (principal, object), which is the opposite of what this
+    -- file's own comment used to claim and could not be checked while the ACEs
+    -- were absent. Confirmed against FiveM's own native declaration
+    -- (ext/native-decls/IsPrincipalAceAllowed.md, namespace CFX, apiset shared).
+    if type(IsPrincipalAceAllowed) == 'function' then
+        local principal = 'resource.' .. RESOURCE
+        local object = 'command.' .. ((action == 'refresh') and 'refresh'
+            or (action == 'cis_test') and 'cis_test'
+            or action)
+        if not IsPrincipalAceAllowed(principal, object) then
+            local reason = ('cis_ctl is not allowed to run %q (%s -> %s). Add this '
+                .. 'line to server.cfg and restart, or type it into the console: '
+                .. 'add_ace %s %s allow'):format(command, principal, object, principal, object)
+            writeFile('outbox.json', encodeOutbox(id, false, nil, reason))
+            print(('[cis_ctl] refused %s: %s'):format(id, reason))
+            return
+        end
+    end
+
     ExecuteCommand(command)
 
     if action == 'refresh' then
