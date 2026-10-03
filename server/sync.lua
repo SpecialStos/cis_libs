@@ -606,22 +606,35 @@ AddEventHandler('onResourceStop', function(resource)
         for id in pairs(records) do
             TriggerClientEvent('cis_libs:client:syncRemove', -1, id)
         end
-    else
-        for id, record in pairs(records) do
-            if record.owner == resource then
-                remove(id)
-            end
+        -- ALL FOUR, AND ONLY HERE. This reset used to run on EVERY stop, for
+        -- every resource, which made one consumer stopping take every other
+        -- consumer's records with it -- and take them SILENTLY, because a table
+        -- going empty sends nothing. Every client that had been told about a
+        -- surviving resource's prop kept it for good: nobody owned it, nobody
+        -- despawned it, and the server no longer knew it existed.
+        --
+        -- Dropping everything here is still right. This resource is going away,
+        -- so there is no process left to keep any of it, and the broadcast above
+        -- has already told every client to let go.
+        records = {}
+        byContent = {}
+        has = {}
+        dynamicCount = 0
+        return
+    end
+
+    -- `remove` IS the fix for another resource stopping. It unindexes the record
+    -- from byContent and from every player's `has`, and sends the remove -- so a
+    -- consumer that stops takes exactly its own records, announces them, and
+    -- leaves the rest of the platform streaming. Leaving byContent populated
+    -- across this stop is what used to be feared, and it cannot happen: the
+    -- records that were in it are gone and the ones that remain were never
+    -- touched.
+    for id, record in pairs(records) do
+        if record.owner == resource then
+            remove(id)
         end
     end
-    -- Both tables, not just records. byContent maps content to an id in records,
-    -- and leaving it populated across a stop/start would resolve lookups to ids
-    -- that no longer exist -- the guard in upsert would then fall through and
-    -- allocate a fresh id for content already present, which is the
-    -- duplicate-entity case by another route.
-    records = {}
-    byContent = {}
-    has = {}
-    dynamicCount = 0
 end)
 
 exports('SyncCreate', function(kind, data)

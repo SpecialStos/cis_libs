@@ -486,6 +486,71 @@ do
     env.reset()
 end
 
+-- OWNERSHIP ON STOP. One resource stopping must take ITS OWN records and leave
+-- every other resource's alone. A single-owner test cannot see this at all --
+-- with one owner, "removed everything" and "removed its own" are the same
+-- observation -- which is why this needed a second owner to exist at all, and
+-- why the live harness needed a second owner before it could show the defect.
+--
+-- ASSERTED THROUGH WHAT A PLAYER RECEIVES, not through an internal count. What
+-- a client is told is the thing that actually happened; a per-owner tally
+-- would be the library marking its own homework.
+do
+    local env = newEnv({ players = { [1] = { coords = { x = 10.0, y = 0.0, z = 0.0 } } } })
+    loadSync(env)
+
+    local function ownAs(ownerName, id, x)
+        env.invoking = ownerName
+        local made = env.EXPORTS.SyncCreate('prop', {
+            id = id,
+            model = 'prop_barrier_05a',
+            coords = { x = x, y = 0.0, z = 0.0 },
+        })
+        env.invoking = 'cis_anyProduct'
+        return made
+    end
+
+    local mineA = ownAs('res_a', 'a-one', 0.0)
+    local mineB = ownAs('res_b', 'b-one', 20.0)
+    check(type(mineA) == 'string' and type(mineB) == 'string',
+        'D-03: two resources each own a record')
+
+    env.tick()
+    check(env.upsertsTo(1, mineA) == 1 and env.upsertsTo(1, mineB) == 1,
+        'D-03: the player standing between them is sent both')
+
+    -- res_a stops.
+    env.fire('onResourceStop', 'res_a')
+
+    check(env.removesOf(mineA) == 1,
+        'D-03: the stopped resource took its own record with it')
+
+    -- WALK OUT OF RANGE. This is the assertion that has teeth, and it took a
+    -- second pass to find. Counting records does not catch this defect: the
+    -- reset at the end of the handler drops them SILENTLY, so a tally says
+    -- "gone" exactly as it should whether the drop was announced or not.
+    --
+    -- The harm is on the client. A record the server forgets without sending a
+    -- remove leaves every client that was told about it holding a prop forever:
+    -- nobody owns it, nobody despawns it, and the player walks away from a
+    -- world object that will not go. So the question is not "is the record
+    -- gone" but "was anybody TOLD".
+    env.players[1] = { coords = { x = 5000.0, y = 5000.0, z = 0.0 } }
+    env.tick()
+    check(env.removesOf(mineB) == 1,
+        'D-03: the OTHER resource\'s record is still removed from the player who '
+            .. 'walks out of range (a silent drop leaves them holding it forever)')
+
+    -- And walking back re-sends it, which also proves the content index still
+    -- resolves: a record left in `records` but dropped from `byContent` would
+    -- allocate a SECOND id for the same content and spawn a duplicate.
+    env.players[1] = { coords = { x = 10.0, y = 0.0, z = 0.0 } }
+    env.tick()
+    check(env.upsertsTo(1, mineB) == 2,
+        'D-03: and it streams again when the player comes back, under the SAME id')
+    env.reset()
+end
+
 -- Two players at different distances: the near one has it, the far one does not.
 -- A single-player test cannot tell a range filter from "sent to everyone".
 do
