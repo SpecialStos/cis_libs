@@ -47,17 +47,27 @@ const RESULTS_KEEP = path.join(root, 'test', 'live', 'results')
 // dropped -- `restart` alone does not drop it, which is how a harness ends up
 // testing yesterday's build.
 //
-// cis_ctl is deliberately absent from both lists. It is the thing executing
-// this sequence, and stopping it would stop the run halfway.
+// cis_ctl is deliberately absent from the stop and ensure lists. It is the
+// thing executing this sequence, and stopping it would stop the run halfway.
+//
+// It is also deliberately NOT restarted here. It used to be loaded with its
+// allow-list once, at start, so a deploy that changed the allow-list needed a
+// restart -- through the very bridge being restarted, which leaves the process
+// answering "ready" and then never processing a command again. cis_ctl now
+// loads its allow-list when a command uses it, so the whole class of problem
+// is gone rather than worked around. Restarting a resource from inside itself
+// is not a thing this tool should depend on.
 const SEQUENCE = [
   'stop cis_test',
   'stop cis_test_b',
+  'stop cis_test_c',
   'stop cis_test_providers',
   'stop cis_libs',
   'refresh',
   'ensure cis_libs',
   'ensure cis_test_providers',
   'ensure cis_test_b',
+  'ensure cis_test_c',
   'ensure cis_test',
 ]
 

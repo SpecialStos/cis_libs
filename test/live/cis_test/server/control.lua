@@ -172,7 +172,7 @@ end
 -- Counts every resource the harness cares about, for the before/after compare.
 function CisTestControl.ResourceStates()
     local out = {}
-    for _, r in ipairs({ 'cis_libs', 'cis_test_providers', 'cis_test_b', 'cis_test_badmeta', 'cis_test' }) do
+    for _, r in ipairs({ 'cis_libs', 'cis_test_providers', 'cis_test_b', 'cis_test_c', 'cis_test_badmeta', 'cis_test' }) do
         out[r] = GetResourceState(r)
     end
     return out

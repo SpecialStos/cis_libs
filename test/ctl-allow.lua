@@ -62,7 +62,7 @@ if type(Allow) == 'table' and type(Allow.Check) == 'function' then
     accepts('refresh', 'refresh', nil, nil, 'a bare word, whole')
 
     for _, verb in ipairs({ 'ensure', 'start', 'stop', 'restart' }) do
-        for _, res in ipairs({ 'cis_libs', 'cis_test', 'cis_test_b',
+        for _, res in ipairs({ 'cis_libs', 'cis_test', 'cis_test_b', 'cis_test_c',
             'cis_test_providers', 'cis_test_badmeta' }) do
             accepts(verb .. ' ' .. res, verb, res, nil, 'every allow-listed verb x resource')
         end
@@ -206,6 +206,76 @@ if type(Allow) == 'table' and type(Allow.Check) == 'function' then
     local selfOk, selfAction, selfRes = Allow.Check('restart cis_ctl')
     check(selfOk and selfAction == 'restart' and selfRes == 'cis_ctl',
         'CANARY: restart cis_ctl is allow-listed, which is what makes the startup seen-id rule necessary')
+end
+
+-- -------------------------------------------------------------------- reload
+--
+-- cis_ctl loads this chunk ONCE PER COMMAND and clears the global afterwards,
+-- so the module has to survive being loaded, used, unloaded and loaded again.
+-- The live server found out the hard way: the first case after a reload died
+-- on `attempt to index a nil value (global 'CisCtlAllow')`, because every
+-- function reached back through the global it had been attached to. The pcall
+-- in the poll loop caught it, so the bridge stayed up and silently dropped the
+-- command -- a bridge that looks alive and does nothing is the one failure this
+-- whole resource exists to avoid.
+--
+-- The rest of this file loads the module exactly once and never clears the
+-- global, so that dependency was always satisfied here and the suite could not
+-- see it. Everything above runs against a module that has been through this
+-- cycle first, which is the state the server actually uses it in.
+do
+    local src = CIS_CTL_ALLOW_SOURCE
+    check(type(src) == 'string' and #src > 0,
+        'the allow-list source is available to reload from')
+
+    CisCtlAllow = nil
+    check(CisCtlAllow == nil, 'the global is cleared, as cis_ctl does after each command')
+
+    local chunk = (type(load) == 'function') and load(src, '@server/allow.lua', 't')
+    check(type(chunk) == 'function', 'and the chunk compiles again from that source')
+
+    if type(chunk) == 'function' then
+        -- Everything here runs under pcall on purpose. A module that still
+        -- reaches through the global it was attached to does not merely fail an
+        -- assertion -- it raises on the FIRST line that touches it, taking the
+        -- whole suite down and hiding every other result. A test that reports
+        -- "this one thing is broken" is worth more here than a test that
+        -- reports "the harness is broken".
+        local ran, err = pcall(chunk)
+        check(ran, ('the reloaded chunk runs without raising (%s)'):format(tostring(err)))
+
+        -- cis_ctl's loadAllow, exactly: run the chunk, take the table the
+        -- global now names, then CLEAR the global. The clear is the part that
+        -- matters and the part a reload test usually skips -- with the global
+        -- still set, every function reaches back through it and finds what it
+        -- expects, so the bug stays invisible.
+        local re = CisCtlAllow
+        CisCtlAllow = nil
+        check(type(re) == 'table' and type(re.Check) == 'function',
+            'the table survives having the global taken away')
+
+        if type(re) == 'table' and type(re.Check) == 'function' then
+            -- The assertion that matters: a CHECK, not just a load. The stale
+            -- reference only blows up when a function is actually CALLED, which
+            -- is the whole reason a load-only reload test passes by accident.
+            local callOk, accepted, action = pcall(re.Check, 'ensure cis_libs')
+            check(callOk, ('a reloaded allow-list can still be CALLED (%s)'):format(tostring(accepted)))
+            check(accepted == true and action == 'ensure',
+                'a reloaded allow-list still ACCEPTS after the global is gone')
+
+            local refuseOk, refused = pcall(re.Check, 'sv_licenseKey')
+            check(refuseOk and refused == false,
+                'and still refuses, which is the property the whole resource exists for')
+
+            local cOk, cRes = pcall(re.Check, 'stop cis_test_c')
+            check(cOk and cRes == true,
+                'including the harness resource added after this suite was written')
+
+            local sOk, want = pcall(re.ExpectedState, 'ensure')
+            check(sOk and want == 'started',
+                'and ExpectedState still answers with the global gone')
+        end
+    end
 end
 
 for i = 1, #failures do

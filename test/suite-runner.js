@@ -57,8 +57,21 @@ function injectFiles() {
 }
 injectFiles()
 
+// The source of a re-runnable dependency, so a suite can reload a module from
+// SOURCE rather than only seeing the table it left behind. ctl-allow needs
+// this: cis_ctl reloads its allow-list once per command, so "does it survive a
+// reload" is a question about the chunk, not about one loaded instance.
+//
+// Named per dependency rather than as a single ALLOW_SOURCE, because by the
+// time a suite runs, the most recent file loaded is the SUITE -- not the thing
+// it wants to reload.
+
 function run(rel) {
   const src = fs.readFileSync(path.join(root, rel), 'utf8')
+  if (/cis_ctl[\\/]server[\\/]allow\.lua$/.test(rel)) {
+    lua.lua_pushstring(L, toLua(src))
+    lua.lua_setglobal(L, toLua('CIS_CTL_ALLOW_SOURCE'))
+  }
   const status = lauxlib.luaL_dostring(L, toLua(src))
   if (status !== lua.LUA_OK) {
     throw new Error(`${rel}: ${lua.lua_tojsstring(L, -1)}`)

@@ -27,11 +27,19 @@ CreateThread(function()
     -- security cases need a resource that calls a mutating export and gets a
     -- refusal naming the fix, and an allow-list that named it would leave
     -- nothing to refuse.
+    --
+    -- cis_test_c IS listed, and for the opposite reason. Ownership is only
+    -- observable between two resources that actually own something, and a
+    -- resource that is refused every mutating export owns nothing -- so the two
+    -- ownership cases had a fixture that could not pass whatever the library
+    -- did. An unauthorized consumer is the right shape for a refusal case and
+    -- the wrong shape for an ownership case; the harness needs both, so it has
+    -- both resources.
     local ok, why = exports['cis_libs']:SetConfig({
         UpdateInterval = { Player = 500, Weapon = 500 },
     }, {
         EventPrefix = 'cis_libs',
-        AuthorizedResources = { 'cis_test', 'cis_test_providers' },
+        AuthorizedResources = { 'cis_test', 'cis_test_providers', 'cis_test_c' },
         DropPlayer = false,
         CheckVersion = false,
     }, {
@@ -39,7 +47,7 @@ CreateThread(function()
     })
 
     if ok then
-        print('[cis_test_providers] config supplied: cis_test, cis_test_providers authorized; DropPlayer off')
+        print('[cis_test_providers] config supplied: cis_test, cis_test_providers, cis_test_c authorized; DropPlayer off')
     else
         -- Printed, not raised. A harness that raises here takes the whole
         -- resource down and every slot with it, which turns one config problem

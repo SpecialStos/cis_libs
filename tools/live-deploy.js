@@ -31,7 +31,7 @@ const root = path.join(__dirname, '..')
 const MARKER = '.cis_deploy'
 const ENV = path.join(root, '.live-env.json')
 
-const HARNESS = ['cis_test', 'cis_test_providers', 'cis_test_b', 'cis_test_badmeta', 'cis_ctl']
+const HARNESS = ['cis_test', 'cis_test_providers', 'cis_test_b', 'cis_test_c', 'cis_test_badmeta', 'cis_ctl']
 
 function fail(msg, extra) {
   console.error('DEPLOY REFUSED: ' + msg)

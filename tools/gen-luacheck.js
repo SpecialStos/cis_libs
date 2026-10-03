@@ -142,6 +142,10 @@ function buildTestConfig() {
   // from "driven by the stock-Lua entry point", which is the only thing that
   // distinguishes the two modes of test/run.lua.
   writable.add('CIS_SUITE_MODE')
+  // The SOURCE of the cis_ctl allow-list, supplied by test/suite-runner.js and by
+  // test/run.lua. A suite needs it to reload a module the way the server reloads
+  // it; without it "does it survive a reload" is not a question a test can ask.
+  writable.add('CIS_CTL_ALLOW_SOURCE')
   // The live harness's own shared table (test/live/cis_test_providers). Declared
   // here rather than discovered: build-libglobals.js reads cis_libs' manifest,
   // and the harness is a separate resource that is never shipped.
@@ -150,8 +154,8 @@ function buildTestConfig() {
   // resources that never ship, discovered by hand rather than from cis_libs'
   // manifest, because the manifest does not list them.
   for (const n of ['CisTestRunner', 'CisTestJson', 'CisTestReport', 'CisTestClientCase',
-    'CisTestB', 'CisTestBClient', 'CisTestBadMeta', 'CisTestPlayer', 'CisTestControl',
-    'CisTestStatus']) {
+    'CisTestB', 'CisTestBClient', 'CisTestC', 'CisTestBadMeta', 'CisTestPlayer',
+    'CisTestControl', 'CisTestStatus']) {
     writable.add(n)
   }
   // cis_ctl's allow-list (test/live/cis_ctl). Same reasoning: a live-harness

@@ -280,15 +280,16 @@ RegisterCommand('cis_test', function(src, _args, argString)
         -- it, so this cannot happen inside a case: the before phase records what
         -- is about to change, the operator restarts, and the after phase runs in
         -- a FRESH cis_test that has no memory of the first.
-        print(('resources: cis_libs=%s cis_test_providers=%s cis_test_b=%s')
+        print(('resources: cis_libs=%s cis_test_providers=%s cis_test_b=%s cis_test_c=%s')
             :format(GetResourceState('cis_libs'), GetResourceState('cis_test_providers'),
-                    GetResourceState('cis_test_b')))
+                    GetResourceState('cis_test_b'), GetResourceState('cis_test_c')))
         if tail == 'libs_restart_before' then
             local states = CisTestControl.ResourceStates()
             local ok = CisTestControl.WritePhase('libs_restart_before', states)
             print(('[cis_test] recorded the before state (%s)')
                 :format(ok and 'written to phase.json' or 'NOT written'))
-            print('[cis_test] ACTION: restart cis_libs   then: ensure cis_test_providers, ensure cis_test_b, ensure cis_test')
+            print('[cis_test] ACTION: restart cis_libs   then: ensure cis_test_providers, '
+                .. 'ensure cis_test_b, ensure cis_test_c, ensure cis_test')
         elseif tail == 'libs_restart_after' then
             local states = CisTestControl.ResourceStates()
             local bad = {}

@@ -102,6 +102,11 @@ if not CIS_SUITE_MODE then
         env.arg = { [0] = rel }
         env.CIS_SUITE_MODE = true
         env.CIS_TEST_FILES = CIS_TEST_FILES
+        -- The SOURCE of the cis_ctl allow-list, so its suite can reload the
+        -- chunk the way cis_ctl does on the server. Without it the suite can
+        -- only ever see one loaded instance, and a module that depends on a
+        -- global staying alive passes here forever.
+        env.CIS_CTL_ALLOW_SOURCE = assert(readDisk('test/live/cis_ctl/server/allow.lua'))
         -- FiveM provides this as a global; stock Lua does not, and several
         -- shipped files call it at load time.
         env.exports = {}

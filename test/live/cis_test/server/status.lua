@@ -27,7 +27,7 @@
 
 CisTestStatus = {}
 
-local RESOURCES = { 'cis_libs', 'cis_test_providers', 'cis_test_b', 'cis_test_badmeta', 'cis_ctl' }
+local RESOURCES = { 'cis_libs', 'cis_test_providers', 'cis_test_b', 'cis_test_c', 'cis_test_badmeta', 'cis_ctl' }
 
 -- --------------------------------------------------------------- collecting
 

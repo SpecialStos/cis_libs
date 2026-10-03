@@ -42,30 +42,47 @@ local STATE_POLL_MS = 100
 -- the design note calls for: the manifest names exactly one server script, so
 -- this file is reached at runtime instead. The path comes from the resource
 -- root, so it is correct wherever the server data folder lives.
-local allow
-do
-    local path = GetResourcePath(RESOURCE) .. '/server/allow.lua'
-    local fh = io.open(path, 'rb')
-    if fh then
-        local src = fh:read('a')
-        fh:close()
-        local chunk, err = load(src, '@server/allow.lua', 't')
-        if chunk then chunk() end
-        if not chunk then
-            print(('[cis_ctl] allow-list failed to load: %s'):format(tostring(err)))
-        end
-    else
-        print('[cis_ctl] allow-list is missing at server/allow.lua')
+--
+-- LOADED WHEN A COMMAND USES IT, NOT ONCE AT START. It was loaded once, and
+-- that made a deploy which CHANGED the allow-list invisible until somebody
+-- restarted the resource -- which meant the agent either ran through the old
+-- rules without noticing, or had to restart the one process it was talking to
+-- and lose the bridge mid-run. Both are worse than re-reading a small file a
+-- few dozen times per run, which costs nothing and cannot go stale.
+--
+-- A failed load REFUSES. A cis_ctl that cannot read its rules must not fall
+-- back to having none: a bridge that executes anything is strictly worse than
+-- no bridge, because the operator would believe the console surface was closed.
+local ALLOW_PATH = GetResourcePath(RESOURCE) .. '/server/allow.lua'
+
+local function loadAllow()
+    local fh = io.open(ALLOW_PATH, 'rb')
+    if not fh then
+        return nil, ('allow-list is missing at server/allow.lua')
     end
-    allow = CisCtlAllow
+    local src = fh:read('a')
+    fh:close()
+    local chunk, err = load(src, '@server/allow.lua', 't')
+    if not chunk then
+        return nil, ('allow-list failed to load: %s'):format(tostring(err))
+    end
+    chunk()
+    local allow = CisCtlAllow
+    CisCtlAllow = nil
+    if type(allow) ~= 'table' or type(allow.Check) ~= 'function' then
+        return nil, 'allow-list did not define CisCtlAllow.Check'
+    end
+    return allow
 end
 
-if not allow or type(allow.Check) ~= 'function' then
-    -- Refusing to start is the correct failure. A cis_ctl with no allow-list
-    -- would be a bridge that executes anything, which is strictly worse than no
-    -- bridge: the operator would believe the console surface was closed.
-    print('[cis_ctl] refusing to start: no usable allow-list')
-    return
+-- Checked once at startup so a missing or broken allow-list is loud and early,
+-- rather than discovered on the first command an hour later.
+do
+    local ok, why = loadAllow()
+    if not ok then
+        print('[cis_ctl] refusing to start: ' .. tostring(why))
+        return
+    end
 end
 
 -- io.open is the reader, and LoadResourceFile the fallback.
@@ -183,6 +200,12 @@ end
 -- loop, and a stopped loop is a cis_ctl that silently ignores every later
 -- command -- the failure mode where the tool looks alive and does nothing.
 local function run(id, cmd)
+    local allow, loadWhy = loadAllow()
+    if not allow then
+        writeFile('outbox.json', encodeOutbox(id, false, nil, loadWhy))
+        print(('[cis_ctl] refused %s: %s'):format(id, tostring(loadWhy)))
+        return
+    end
     local ok, action, resource, args, reason = allow.Check(cmd)
     if not ok then
         writeFile('outbox.json', encodeOutbox(id, false, nil, reason))

@@ -25,15 +25,30 @@
 -- the part that decides WHETHER to talk to the server is, and that is the part
 -- where a bug would matter.
 
-CisCtlAllow = {}
+-- A LOCAL TABLE, with the global as a handle for the loader rather than as the
+-- module itself.
+--
+-- It used to be `CisCtlAllow = {}` with every function reaching back through
+-- that global. That works exactly as long as the global stays alive, and
+-- nothing in the file said so. cis_ctl loads this chunk once per command and
+-- clears the global afterwards, and the first command after that died on
+-- `attempt to index a nil value (global 'CisCtlAllow')` -- an error caught by
+-- the poll loop's pcall, so the bridge stayed up and silently dropped the
+-- command instead of reporting anything.
+--
+-- The off-server suite missed it because it loads this file ONCE and never
+-- clears the global, so the dependency it did not know about was always
+-- satisfied. `test/ctl-allow.lua` now reloads, which is what catches it.
+local allow = {}
 
 -- The resources a lifecycle command may name. `cis_ctl` is deliberately absent:
 -- it is the one resource in the list whose restart would stop the very thread
 -- doing the work, so it gets its own branch below rather than sharing this one.
-CisCtlAllow.LIFECYCLE = {
+allow.LIFECYCLE = {
     ['cis_libs'] = true,
     ['cis_test'] = true,
     ['cis_test_b'] = true,
+    ['cis_test_c'] = true,
     ['cis_test_providers'] = true,
     ['cis_test_badmeta'] = true,
 }
@@ -64,7 +79,7 @@ local EXPECTED = {
     stop = 'stopped',
 }
 
-function CisCtlAllow.Check(cmd)
+function allow.Check(cmd)
     if type(cmd) ~= 'string' then
         return false, nil, nil, nil, ('cmd is a %s, not a string'):format(type(cmd))
     end
@@ -93,7 +108,7 @@ function CisCtlAllow.Check(cmd)
 
     local verb, arg = text:match('^(%S+)%s+(%S+)$')
     if verb and ACTIONS[verb] then
-        if CisCtlAllow.LIFECYCLE[arg] then
+        if allow.LIFECYCLE[arg] then
             return true, ACTIONS[verb], arg, nil
         end
         return false, nil, nil, nil, ('refused: %s is not a harness resource'):format(arg)
@@ -116,8 +131,13 @@ function CisCtlAllow.Check(cmd)
 end
 
 -- The state a lifecycle command should end in, or nil when it has none.
-function CisCtlAllow.ExpectedState(action)
+function allow.ExpectedState(action)
     return EXPECTED[action]
 end
+
+-- The handle the loader reads. Set LAST, so a chunk that raises part-way
+-- through leaves the previous good one in place rather than replacing it with
+-- half a module.
+CisCtlAllow = allow
 
 return true
