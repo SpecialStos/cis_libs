@@ -1,6 +1,21 @@
 -- Server bootstrap: config pull, ready gate, diagnostics, console commands.
 -- See DECISIONS.md for the incident narratives.
 
+-- FiveM still loads later scripts after a sibling chunk errors, so this copy
+-- of the identity check is what can actually StopResource (server-only,
+-- 0x21783161). shared/identity.lua cannot call that native.
+if type(GetCurrentResourceName) == 'function' then
+    local ok, name = pcall(GetCurrentResourceName)
+    if ok and type(name) == 'string' and name ~= 'cis_libs' then
+        local err = ('[cis_libs] FATAL: this resource is %q. The Cisoko Community Source & Identity License requires the folder name cis_libs. Rename the folder. Rebranding is not permitted.'):format(name)
+        print('^1' .. err .. '^7')
+        CreateThread(function()
+            StopResource(name)
+        end)
+        error(err, 0)
+    end
+end
+
 CisNetOn('cis_libs:server:getData', function(src)
     -- Rebuilt per request. A cache would leak a stale Config after a re-point.
     local payload = CisConfigUtil.clientPayload(Config, Security)

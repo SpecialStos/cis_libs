@@ -603,6 +603,13 @@
       "find": "function CisTiming.observe(name, ms)\n    if type(name) ~= 'string' or not SERIES[name] then\n        return false, ('unknown timing series %q'):format(tostring(name))\n    end\n",
       "replace": "function CisTiming.observe(name, ms)\n    if type(name) ~= 'string' then\n        return false, ('unknown timing series %q'):format(tostring(name))\n    end\n",
       "why": "Accept any series name. GetDiagnostics.timings would then grow keys 8.2 cannot attribute, and a typo in observe() would look like a missing pass."
+    },
+    {
+      "id": "M92",
+      "file": "shared/identity.lua",
+      "find": "    if ok and type(name) == 'string' and name ~= 'cis_libs' then\n",
+      "replace": "    if ok and type(name) == 'string' and name ~= 'cis_libs' and false then\n",
+      "why": "Disable the folder-name check. A rebranded copy then boots, which is the thing the license and the check exist to stop."
     }
   ]
 }

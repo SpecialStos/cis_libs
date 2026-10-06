@@ -9,8 +9,8 @@ not PolyZone. It sits beside ESX / QBCore / QBOX and normalises the differences
 so your resource can be written once.
 
 Version **1.0.0**. Requires OneSync and server build 4500+.
-Licensed under [MIT](LICENSE.md); the original author's name and the resource
-name must be retained in all copies.
+See [LICENSE.md](LICENSE.md); the original author's name and the resource
+name must be retained in all copies. The current tree is not MIT.
 
 ---
 

@@ -10,6 +10,18 @@ The **contract** is versioned separately and is still `api = 1`.
 
 First public product version.
 
+### Licence
+
+- Replaced MIT with the Cisoko Community Source & Identity License 1.0.
+  Commercial servers may use and modify `cis_libs`. The folder name must stay
+  `cis_libs`. Rebranding, authorship claims, and disabling the identity check
+  are forbidden.
+- Boot refuses a folder name other than `cis_libs`: `shared/identity.lua` first
+  in `shared_scripts`, plus copies in `server/initialize.lua` (calls
+  `StopResource`) and `client/initialize.lua`. Not in `init.lua` — that file is
+  injected into consumers, where `GetCurrentResourceName()` is the consumer.
+- Corrected the platform spelling to Cisoko.
+
 1.x alias exports are gone: `Database*`, `GetFramework`, `GetGlobals`,
 `GetPolyzones`, `CreateSafeCallback`, `CheckResourceVersion`. Use `DbQuery` /
 `Cis.db.*`, `GetNormalizedPlayer`, `Cis.player.*`, `Cis.zones.*`,

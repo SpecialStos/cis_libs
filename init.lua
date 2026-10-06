@@ -3,6 +3,9 @@
 local RESOURCE = 'cis_libs'
 local THIS = GetCurrentResourceName()
 -- True when this copy of the file belongs to cis_libs itself.
+-- THIS is the consumer when this file is injected via @cis_libs/init.lua, so a
+-- folder-name fatal here would kill every dependent resource. The identity
+-- check lives in shared/identity.lua, which consumers never load.
 local IS_SELF = THIS == RESOURCE
 local IS_SERVER = IsDuplicityVersion()
 

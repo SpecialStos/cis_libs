@@ -355,6 +355,105 @@ local function newEnv(opts)
     return env
 end
 
+-- ============================================ 0. license identity
+-- init.lua is injected into consumers. GetCurrentResourceName() there is the
+-- CONSUMER, so a folder-name fatal in that file would refuse every dependent
+-- resource. The check lives in shared/identity.lua (first shared_script) and
+-- is copied into the two initialize files because FiveM still loads later
+-- scripts after a sibling chunk errors.
+do
+    local function runIdentity(opts)
+        local env = {
+            print = function() end,
+            type = type,
+            pcall = pcall,
+            error = error,
+            tostring = tostring,
+        }
+        if opts.native ~= false then
+            env.GetCurrentResourceName = function()
+                return opts.name
+            end
+        end
+        local chunk, compileErr = load(readFile('shared/identity.lua'), '@shared/identity.lua', 't', env)
+        if not chunk then
+            return false, compileErr
+        end
+        return pcall(chunk)
+    end
+
+    local okCanon, errCanon = runIdentity({ name = 'cis_libs' })
+    check(okCanon == true,
+        ('canonical name cis_libs boots (got %s / %s)'):format(tostring(okCanon), tostring(errCanon)))
+
+    local okStolen, errStolen = runIdentity({ name = 'stolen_lib' })
+    check(okStolen == false, 'a renamed folder is fatal')
+    check(type(errStolen) == 'string' and errStolen:find('[cis_libs] FATAL:', 1, true) ~= nil,
+        ('the fatal names the license (got %s)'):format(tostring(errStolen)))
+    check(type(errStolen) == 'string' and errStolen:find('stolen_lib', 1, true) ~= nil,
+        'and it names the folder that was refused')
+
+    local okCase, errCase = runIdentity({ name = 'CIS_LIBS' })
+    check(okCase == false,
+        ('the name is case-sensitive (CIS_LIBS got %s / %s)'):format(tostring(okCase), tostring(errCase)))
+
+    local okNil, errNil = runIdentity({ name = nil })
+    check(okNil == true,
+        ('a missing return from the native is skipped offline (got %s / %s)')
+            :format(tostring(okNil), tostring(errNil)))
+
+    local okOff, errOff = runIdentity({ native = false })
+    check(okOff == true,
+        ('no GetCurrentResourceName native still loads (got %s / %s)')
+            :format(tostring(okOff), tostring(errOff)))
+
+    local man = readFile('fxmanifest.lua')
+    check(man:find("shared_scripts%s*{%s*'shared/identity.lua'", 1) ~= nil,
+        'shared/identity.lua is the first shared_script')
+
+    local identitySrc = readFile('shared/identity.lua')
+    check(stripComments(identitySrc):find('StopResource', 1, true) == nil,
+        'shared/identity.lua does not call StopResource (server-only native)')
+    check(readFile('server/initialize.lua'):find('StopResource', 1, true) ~= nil,
+        'server/initialize.lua is the copy that can StopResource')
+
+    local marker = 'The Cisoko Community Source & Identity License requires the folder name cis_libs'
+    for _, rel in ipairs({
+        'shared/identity.lua',
+        'server/initialize.lua',
+        'client/initialize.lua',
+    }) do
+        local body = readFile(rel)
+        check(body:find(marker, 1, true) ~= nil,
+            rel .. ' carries the identity fatal')
+        check(body:find("name ~= 'cis_libs'", 1, true) ~= nil,
+            rel .. ' compares the live resource name to cis_libs')
+    end
+
+    local initSrc = stripComments(readFile('init.lua'))
+    check(initSrc:find('[cis_libs] FATAL:', 1, true) == nil,
+        'init.lua does not carry the identity fatal: it is injected into consumers')
+
+    local lic = readFile('LICENSE.md')
+    check(lic:find('Cisoko Community Source & Identity License', 1, true) ~= nil,
+        'LICENSE.md is CSIL-1.0')
+    check(lic:find('cis_libs', 1, true) ~= nil,
+        'LICENSE.md names the canonical resource')
+    check(lic:find('CIsoko', 1, true) == nil,
+        'LICENSE.md spells Cisoko')
+
+    check(readFile('README.md'):find('CIsoko', 1, true) == nil,
+        'README.md spells Cisoko')
+
+    for rel, body in pairs(CIS_TEST_FILES) do
+        if type(rel) == 'string' and type(body) == 'string'
+            and (rel:sub(-4) == '.lua' or rel:sub(-3) == '.md') then
+            check(body:find('CIsoko', 1, true) == nil,
+                rel .. ' spells Cisoko, not CIsoko')
+        end
+    end
+end
+
 -- ============================================ 1. CheckVersion and its endpoint
 -- The config is no longer a file in this repository: `shared/defaults.lua`
 -- states the floor, and cis_core hands over the real table at runtime. The
@@ -372,7 +471,7 @@ do
     check(not Config.VersionCheckUrl:find('specialstos', 1, true),
         'Config.VersionCheckUrl names no personal GitHub Pages host')
     check(Config.VersionCheckUrl:find('cisoko', 1, true) ~= nil,
-        'Config.VersionCheckUrl is a CIsoko-controlled endpoint')
+        'Config.VersionCheckUrl is a Cisoko-controlled endpoint')
 
     -- The literal the old default was built from must not survive anywhere.
     for _, rel in ipairs({ 'shared/defaults.lua', 'server/version.lua' }) do
@@ -1363,7 +1462,7 @@ end
 --
 -- "cis_libs must own zero tables. A server owner deletes libraries when they
 -- are unhappy; they cannot delete their player records. That property is what
--- makes trying CIsoko safe, and safe trial is the single biggest driver of
+-- makes trying Cisoko safe, and safe trial is the single biggest driver of
 -- adoption."
 --
 -- A property this load-bearing cannot be left to a review comment, and it

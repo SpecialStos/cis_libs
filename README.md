@@ -1,8 +1,10 @@
 # cis_libs
 
-A FiveM library. Zero runtime dependencies. MIT. Product **1.0.0**, contract **`api = 1`**.
+A FiveM library. Zero runtime dependencies. Cisoko Community Source & Identity
+License 1.0 (the folder must stay named `cis_libs`). Product **1.0.0**,
+contract **`api = 1`**.
 
-It is the shared boundary of the CIsoko platform: naming, marshalling, gating,
+It is the shared boundary of the Cisoko platform: naming, marshalling, gating,
 and primitives. It owns no database table, reads no config file, and never
 calls a third-party resource by name. Products (`cis_core`, `cis_bridge`,
 `cis_keys`) register into it. A server that runs this resource alone still

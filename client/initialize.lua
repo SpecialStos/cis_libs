@@ -1,5 +1,16 @@
 -- Boot sequence and config intake.
 
+-- Sibling chunks still load after shared/identity.lua errors, so the client
+-- half of the license check lives here too. StopResource is server-only.
+if type(GetCurrentResourceName) == 'function' then
+    local ok, name = pcall(GetCurrentResourceName)
+    if ok and type(name) == 'string' and name ~= 'cis_libs' then
+        local err = ('[cis_libs] FATAL: this resource is %q. The Cisoko Community Source & Identity License requires the folder name cis_libs. Rename the folder. Rebranding is not permitted.'):format(name)
+        print('^1' .. err .. '^7')
+        error(err, 0)
+    end
+end
+
 CisLibReady = false
 CisLibFailed = false
 

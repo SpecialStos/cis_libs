@@ -16,9 +16,12 @@ dependencies {
     '/server:4500',
 }
 
--- Load order is load-bearing: diagnostics before loops, defaults/registry
--- before config, init.lua last so it captures a complete exports table.
+-- Load order is load-bearing: identity before anything that could run as a
+-- rename, diagnostics before loops, defaults/registry before config, init.lua
+-- last so it captures a complete exports table.
+-- Folder name must stay cis_libs (LICENSE.md). Consumers never load identity.lua.
 shared_scripts {
+    'shared/identity.lua',
     'shared/diagnostics.lua',
     'shared/timing.lua',
     'shared/loopguard.lua',

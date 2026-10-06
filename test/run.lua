@@ -42,6 +42,7 @@ if not CIS_TEST_FILES then
     -- api.lua is not in the manifest, so the walk above never reaches it.
     CIS_TEST_FILES['api.lua'] = assert(readDisk('api.lua'))
     CIS_TEST_FILES['README.md'] = assert(readDisk('README.md'))
+    CIS_TEST_FILES['LICENSE.md'] = assert(readDisk('LICENSE.md'))
 end
 
 if not CIS_SUITE_MODE then
@@ -63,8 +64,10 @@ if not CIS_SUITE_MODE then
     -- point: a driver that gave every suite everything would be testing a
     -- configuration that never existed.
     local SHARED = {
-        -- First, like the manifest: the counters have to exist before the
-        -- first thing that counts one.
+        -- First, like the manifest: identity before anything that could run
+        -- as a rename, then the counters have to exist before the first
+        -- thing that counts one.
+        'shared/identity.lua',
         'shared/diagnostics.lua',
         'shared/timing.lua',
         -- Then loopguard, in the same order the manifest loads it: a guarded

@@ -522,7 +522,11 @@ Live harness: `test/LIVE.md`. Counts are not repeated here.
 
 ## Licence
 
-MIT. See `LICENSE.md`.
+Cisoko Community Source & Identity License 1.0. See `LICENSE.md`.
+
+The resource folder must remain named `cis_libs`. You may modify the code and
+run it on commercial servers. You may not rebrand it, claim authorship, or
+disable the identity check.
 
 **Author:** Cisoko · **Docs:** <https://docs.cisoko.net> ·
 **Discord:** <https://discord.gg/cisoko> ·

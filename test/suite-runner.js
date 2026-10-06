@@ -58,6 +58,8 @@ function injectFiles() {
   }
   lua.lua_pushstring(L, toLua(fs.readFileSync(path.join(root, 'README.md'), 'utf8')))
   lua.lua_setfield(L, -2, toLua('README.md'))
+  lua.lua_pushstring(L, toLua(fs.readFileSync(path.join(root, 'LICENSE.md'), 'utf8')))
+  lua.lua_setfield(L, -2, toLua('LICENSE.md'))
   lua.lua_setglobal(L, toLua('CIS_TEST_FILES'))
 }
 injectFiles()
@@ -88,8 +90,10 @@ function run(rel) {
 // state; everything else ran after. Preserving that split is the whole reason
 // this list is per-suite rather than "load everything, always".
 const SHARED = [
-  // First, like the manifest: the counters have to exist before the first
-  // thing that counts one.
+  // First, like the manifest: identity before anything that could run as a
+  // rename, then the counters have to exist before the first thing that
+  // counts one.
+  'shared/identity.lua',
   'shared/diagnostics.lua',
   'shared/timing.lua',
   // Then loopguard, in the manifest's order: a guarded loop counts into
