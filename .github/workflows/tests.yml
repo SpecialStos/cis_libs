@@ -1,0 +1,98 @@
+name: tests
+
+# Everything the repository gates on, in one script, so a local `npm run
+# test:all` and this workflow cannot drift. If a step here is not reachable
+# from that script, it is a step somebody has to remember to run.
+#
+# The mutation gate is the exception and runs in its own job, because it copies
+# the tree and runs the suite once per mutation: minutes rather than seconds,
+# which is too slow to sit in front of every push but too important to leave to
+# a nightly nobody reads.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  schedule:
+    # Nightly, so a FiveM release that changes the natives cannot sit unnoticed
+    # until the next unrelated change happens to touch a native.
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+# Superseded runs are cancelled rather than queued. Ten pushes to a branch
+# should cost the last one, not all ten.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned on purpose. `ubuntu-latest` moved under this file before and the
+  # failure mode was invisible: a different base image, different apt packages,
+  # a different Node. A workflow that reports green on two different systems is
+  # not evidence about either of them.
+  RUNNER: ubuntu-24.04
+  # luacheck 1.2.0 exactly. The lint result is part of the release gate, so a
+  # floating version means the gate means something different each month.
+  LUACHECK_VERSION: 1.2.0
+
+jobs:
+  test:
+    name: full gate (lint, realms, suites on two interpreters, api, generated files)
+    runs-on: ${{ env.RUNNER }}
+    steps:
+      # checkout v5+ and setup-node v5+ are the majors that run on Node 24;
+      # v4 still declared node20 and logs a deprecation on every run.
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Lua 5.4
+        # The suites run under BOTH fengari and a real interpreter. Task 1.7
+        # found a seeded-RNG defect that only exists on a real one, so this is
+        # a correctness gate rather than a belt-and-braces extra.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.4
+          lua5.4 -v
+
+      - name: Install luacheck
+        # luarocks, not apt: the apt package tracks whatever Ubuntu ships, and
+        # this repository's lint result is only meaningful at a known version.
+        run: |
+          sudo apt-get install -y -qq luarocks
+          sudo luarocks install luacheck "$LUACHECK_VERSION"
+          luacheck --version | head -1
+
+      - name: Run the full gate
+        # lint, generated-luacheck check, realm check, syntax, the suite under
+        # fengari, the same suite under Lua 5.4, the api validator and its own
+        # selftest, and the generated-file check.
+        run: npm run test:all
+
+  mutate:
+    name: mutation gate (every known defect must break the suite)
+    runs-on: ${{ env.RUNNER }}
+    # Not on every push: it copies the tree and runs the suite once per row.
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply every mutation and require the suite to fail
+        # A mutation that still passes is a SURVIVOR and means the check it was
+        # written for does not exist. A row whose find no longer matches is
+        # STALE and means it stopped testing anything. Both fail the build.
+        run: npm run test:mutate

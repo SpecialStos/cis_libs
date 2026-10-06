@@ -1,0 +1,608 @@
+{
+  "$comment": "Each row is one deliberate defect. tools/mutate.js applies it to a throwaway copy of the repository and runs the full suite. A mutation that still passes is a SURVIVOR and fails the build; a `find` that no longer matches exactly once is STALE and also fails, because it means the code moved and the row stopped describing anything. M44 was written and REMOVED as an equivalent mutation, not as a coverage hole: with no insertion at all, every record lands in the unindexed fallback and is still delivered, so the pass is slower and nothing is wrong. M43 (a one-metre AABB) is the row that proves the index is actually consulted, and it is killed.",
+  "mutations": [
+    {
+      "id": "M01",
+      "file": "server/security.lua",
+      "find": "        local src = source\n        if type(src) ~= 'number' or src <= 0 then\n            return\n        end\n",
+      "replace": "        local src = source\n        if type(src) ~= 'number' then\n            return\n        end\n",
+      "why": "Drop the `src <= 0` half of the guard. `source` is 0 for a server-side trigger and -1 for a scheduled one, so a net handler that accepts them can be invoked by anything that can raise the event locally, with no player behind it."
+    },
+    {
+      "id": "M02",
+      "file": "server/security.lua",
+      "find": "    maxHits = maxHits or 8\n",
+      "replace": "    maxHits = maxHits or 8000\n",
+      "why": "Make the default rate limit effectively unlimited. The limiter still exists and still works; it simply never refuses, which is the failure mode a limit that defaults to permissive always produces."
+    },
+    {
+      "id": "M03",
+      "file": "shared/grid.lua",
+      "find": "local CELL = CisGrid.CELL\nlocal STRIDE = CisGrid.STRIDE",
+      "replace": "local _MIGRATION = 'CREATE TABLE cis_libs_x (id INT)'\n\nlocal CELL = CisGrid.CELL\nlocal STRIDE = CisGrid.STRIDE",
+      "why": "A shipped file that creates a table. The whole zero-tables promise, and the thing that makes a free library safe to install. A string literal is the realistic form: this is what a convenience helper looks like after someone pastes in a schema."
+    },
+    {
+      "id": "M04",
+      "file": "client/utils.lua",
+      "find": "function DrawText3D(",
+      "replace": "local _SINK = exports.other:notify({})\n\nfunction DrawText3D(",
+      "why": "A shipped file calling a third-party resource by name. cis_libs reaches other resources only through the capability registry; a literal export call is the boundary being broken by a different route."
+    },
+    {
+      "id": "M05",
+      "file": "server/security.lua",
+      "find": "local RATE_BUCKET_CAP = 256",
+      "replace": "local _MARK = SaveResourceFile(GetCurrentResourceName(), 'marker.txt', 'x', -1)\n\nlocal RATE_BUCKET_CAP = 256",
+      "why": "A shipped file writing to disk outside the reviewed allow-list. Already allow-listed at two sites, so this also proves the allow-list is a list and not a blanket."
+    },
+    {
+      "id": "M06",
+      "file": "server/proxy.lua",
+      "find": "    if src ~= 0 then\n        print('cis_libs: cis_force_unregister is a server console command. '",
+      "replace": "    if false then\n        print('cis_libs: cis_force_unregister is a server console command. '",
+      "why": "Remove the source check from the one console command that removes a capability. The restricted flag stays, so this is precisely the belt surviving the braces: anything that can get a player id in front of the handler -- a console that forwards a src, or a restricted flag that is not what it was assumed to be -- can strip `security`, `database` or `framework` from a running server."
+    },
+    {
+      "id": "M10",
+      "file": "server/proxy.lua",
+      "find": "        return forward('framework', nil, 'Notify', src, message, kind)\n    end\n    -- No framework: cis_libs delivers the notification itself rather than dropping it.\n    return deliverNotification(src, message, kind)",
+      "replace": "        return forward('framework', nil, 'Notify', src, message, kind)\n    end\n    -- No framework: cis_libs delivers the notification itself rather than dropping it.\n    TriggerClientEvent('cis_libs:client:showNotification', src, message, kind)",
+      "why": "Skip the shared guard on the fallback path. `Notify` with no framework behind it and `NotifyClient` are the same act, and this is the shape they had before: the bounded path was the rarer one, so a server with no framework installed had the unbounded one."
+    },
+    {
+      "id": "M21",
+      "file": "server/proxy.lua",
+      "find": "    if not GetPlayerName(src) then\n        return false, ('src %d is not connected'):format(src)\n    end\n",
+      "replace": "",
+      "why": "Remove the connected-player check from the shared notify guard. A plausible server id is not a player, so without this the export reports success and fires at somebody who has already left -- the worst of both, because it looks delivered and reaches nobody."
+    },
+    {
+      "id": "M20",
+      "file": "server/callback.lua",
+      "find": "        if item.payload.target == src then\n            doomed[#doomed + 1] = key\n        end\n    end\n    for i = 1, #doomed do\n        local item = pending.items[doomed[i]]",
+      "replace": "        if false then\n            doomed[#doomed + 1] = key\n        end\n    end\n    for i = 1, #doomed do\n        local item = pending.items[doomed[i]]",
+      "why": "Remove the playerDropped rejection. Every server-to-client await aimed at a player who has just left then waits out the full CallbackTimeout -- 10 seconds and a parked live coroutine per outstanding call -- and is reported as a generic 'timeout', so the caller is told the client was slow about a client that is gone."
+    },
+    {
+      "id": "M14",
+      "file": "server/security.lua",
+      "find": "    if allowAnyResource() then\n        applyPosture('permissive', 'Security.AllowAnyResource is set')\n        return\n    end\n",
+      "replace": "",
+      "why": "Make an empty AuthorizedResources permissive again -- the exact behaviour 2.2 removes. Every resource on the server regains the right to add, break and rewrite every door and every synced entity, on a server whose operator was told the gate was closed. The refusal itself is unchanged, so nothing about the shape of the answer gives it away."
+    },
+    {
+      "id": "M12",
+      "file": "server/sync.lua",
+      "find": "    for key, record in pairs(records) do\n        if record.owner == resource then\n            remove(key)\n        end\n    end\nend)",
+      "replace": "    for key, record in pairs(records) do\n        if true then\n            remove(key)\n        end\n    end\nend)",
+      "why": "Remove the owner check on the stop sweep, so any resource stopping takes every OTHER resource's records with it. This is the stop-wipes-everything P0 in its current form: not a silent table wipe this time, but the same player-visible harm -- every synced prop on the server disappears the moment any one consumer restarts, and every client that was told about one is left holding it."
+    },
+    {
+      "id": "M22",
+      "file": "server/sync.lua",
+      "find": "local function recordKey(owner, id)\n    return owner .. '\\0' .. id\nend",
+      "replace": "local function recordKey(owner, id)\n    return id\nend",
+      "why": "Collapse the namespace and put every resource's records back in one flat table keyed on the caller's own id. This is the collision the namespacing removed, and it is silent in both directions: the second resource to use an id OVERWRITES the first's record -- taking its model, its position and its ownership -- and the first resource's remove then deletes the second resource's entity. Nothing raises and nothing is logged, because from the library's side both calls were well formed."
+    },
+    {
+      "id": "M23",
+      "file": "server/sync.lua",
+      "find": "    local normalized = normalizeId(id)\n    if type(normalized) ~= 'string' then\n        return false, ('sync id must be a string or a number, got %s'):format(type(id))\n    end",
+      "replace": "    local normalized = normalizeId(id)\n    if false then\n        return false, ('sync id must be a string or a number, got %s'):format(type(id))\n    end",
+      "why": "Let SyncRemove build a key from an id that is not a string. A table reaches `owner .. '\\0' .. id` and raises inside the export, which a consumer cannot catch across the export boundary: one bad argument turns into a failed call with no answer at all, instead of the false the contract promises."
+    },
+    {
+      "id": "M24",
+      "file": "client/sync.lua",
+      "find": "    if type(record) ~= 'table' or type(record.key) ~= 'string' then\n        return\n    end\n    record.id = record.key",
+      "replace": "    if type(record) ~= 'table' or type(record.id) ~= 'string' then\n        return\n    end",
+      "why": "Fall back to the caller's own id when a payload carries no key. On any server running a cis_libs without the field, two resources that both name a record 'door1' land in ONE slot on every client: the second payload overwrites the first, so the prop the player is looking at silently belongs to someone else's data and one of the two entities never exists."
+    },
+    {
+      "id": "M18",
+      "file": "client/callback.lua",
+      "find": "    TriggerServerEvent('cis_libs:cb:serverRes', key, true,\n        table.unpack(result, 2, result.n))",
+      "replace": "    TriggerServerEvent('cis_libs:cb:serverRes', key, true,\n        table.unpack(result, 2, math.min(result.n, 7)))",
+      "why": "Truncate the client's reply back to six handler values -- the shape this code had before it was packed. A client handler returning seven values loses the seventh, with no error and nothing in the reply to say the answer was short, so the server cannot tell a short answer from a complete one."
+    },
+    {
+      "id": "M17",
+      "file": "server/selfcheck.lua",
+      "find": "                if GetResourceState and GetResourceState(name) == 'started' then",
+      "replace": "                if GetResourceState and GetResourceState(name) ~= 'started' then",
+      "why": "Re-invert the started check. This is the exact defect the plan describes: the branch that ran was for resources that were NOT running, so the boot block reported on resources nobody cared about and stayed silent about every consumer it exists to check. The check did not become wrong here -- it had always been wrong, and nothing noticed because its output was never read."
+    },
+    {
+      "id": "M15",
+      "file": "shared/defaults.lua",
+      "find": "    { path = 'Sync.Enabled', ok = boolean },",
+      "replace": "",
+      "why": "Delete the validator for one key. The code reads `Config.Sync.Enabled` in several places and each of them takes a truthy value, so `Sync.Enabled = 'false'` -- a string, from a config file, where it looks correct -- turns the whole entity-sync subsystem ON for an operator who wrote it off. Nothing raises; synced props simply appear. A validator list nobody checks for completeness is a list that is already out of date, which is why test/contracts.lua now scans the shipped source for reads."
+    },
+    {
+      "id": "M13",
+      "file": "server/sync.lua",
+      "find": "    if heldByAnotherOwner(normalized) then\n        return false, ('sync id %q belongs to another resource: ids are scoped to '\n            .. 'the resource that created them, so create and remove under your '\n            .. 'own'):format(normalized)\n    end\n",
+      "replace": "    for otherKey, otherRecord in pairs(records) do\n        if otherRecord.id == normalized then\n            return remove(otherKey)\n        end\n    end\n",
+      "why": "Answer a request for somebody else's record by removing it. The namespace is what stops one resource reaching another's entity, and this is the mutation that removes the stop: any resource that can guess an id -- and `door1`, `prop_1` and a raw counter are all guessable -- can delete another resource's synced entity. The caller is told `true` and told why by nothing, because a library that hands back success has nothing left to report."
+    },
+    {
+      "id": "M25",
+      "file": "server/sync.lua",
+      "find": "    if heldByAnotherOwner(normalized) then\n",
+      "replace": "    if true then\n",
+      "why": "Report \"belongs to another resource\" for every id the caller does not hold, including ids that never existed. The answer would be wrong in the exact direction that wastes an operator's time: a stale handle and a permissions problem are different bugs with different fixes, and this sends every one of them to the same place."
+    },
+    {
+      "id": "M07",
+      "file": "server/callback.lua",
+      "find": "    if peeked.payload.target ~= src then\n        return\n    end\n",
+      "replace": "",
+      "why": "Take the pending callback entry without the ownership check. Keys are sequential integers, so a client can name any of them; without this the caller destroys someone else's pending request."
+    },
+    {
+      "id": "M08",
+      "file": "shared/registry.lua",
+      "find": "    local owner = invokingResource()\n        or (type(provider) == 'table' and provider.resource)\n        or 'cis_libs'",
+      "replace": "    local owner = (type(provider) == 'table' and provider.resource)\n        or (type(provider) == 'string' and provider)\n        or 'cis_libs'",
+      "why": "Take the capability owner from an argument instead of the invoker, which lets a resource claim ownership of a slot it did not register."
+    },
+    {
+      "id": "M09",
+      "file": "server/proxy.lua",
+      "find": "    if type(message) == 'string' and #message > MAX_NOTIFY_LENGTH then\n",
+      "replace": "    if false then\n",
+      "why": "Remove the length cap on a client notification. An unbounded string crossing to every client is the cheapest way to make every player pay for one caller's mistake."
+    },
+    {
+      "id": "M26",
+      "file": "server/sync.lua",
+      "find": "entity = CreateObjectNoOffset(hash, c.x, c.y, c.z, true, true, false)",
+      "replace": "entity = CreateObject(hash, c.x, c.y, c.z, true, true, false)",
+      "why": "Create a networked prop with the client-side object native instead of the server RPC one. A server file calling CreateObject gets nothing back, so the record survives, the client still resolves an id, and no entity exists -- the whole failure being silent."
+    },
+    {
+      "id": "M27",
+      "file": "server/sync.lua",
+      "find": "entity = CreateVehicleServerSetter(hash, vehicleType, c.x, c.y, c.z, heading)",
+      "replace": "entity = CreateObjectNoOffset(hash, c.x, c.y, c.z, true, true, false)",
+      "why": "Create a networked vehicle through the object native. The vehicle setter exists precisely because the server has to tell clients which vehicle archetype to build; handing the object call a vehicle model produces no vehicle at all."
+    },
+    {
+      "id": "M28",
+      "file": "server/sync.lua",
+      "find": "entity = CreatePed(0, hash, c.x, c.y, c.z, heading, true, true)",
+      "replace": "entity = CreateObjectNoOffset(hash, c.x, c.y, c.z, true, true, false)",
+      "why": "Create a networked ped through the object native, so kind = ped never produces a ped. A kind that names an entity the code cannot make has to be refused with a reason instead of answering with a record that claims one exists."
+    },
+    {
+      "id": "M29",
+      "file": "server/sync.lua",
+      "find": "        SetEntityRoutingBucket(entity, record.bucket or 0)",
+      "replace": "        SetEntityRoutingBucket(entity, 0)",
+      "why": "Always put a networked entity in the main world. The streaming pass already refuses to tell players about a record from another bucket, so the entity itself would be in a world the clients were never told about and nobody could despawn it."
+    },
+    {
+      "id": "M30",
+      "file": "server/sync.lua",
+      "find": "local ORPHAN_KEEP = 2",
+      "replace": "local ORPHAN_KEEP = 0",
+      "why": "Use the default orphan mode instead of KeepEntity. DeleteWhenNotRelevant reaps the entity the moment the server decides nobody needs it, while the record survives and still streams to whoever walks back into range."
+    },
+    {
+      "id": "M31",
+      "file": "server/sync.lua",
+      "find": "            and modelHashOf(previous.model) == modelHashOf(stored.model)",
+      "replace": "            and false",
+      "why": "Treat every re-upsert as a new shape, so moving a networked record spawns a second entity instead of moving the one already there. The first is left on the network owned by nobody, which no client can see and no client can clean up."
+    },
+    {
+      "id": "M32",
+      "file": "server/sync.lua",
+      "find": "    local entity = handles[key]\n    if entity then\n        destroyEntity(entity)\n        handles[key] = nil\n    end\n",
+      "replace": "    local entity = handles[key]\n    if entity then\n        handles[key] = nil\n    end\n",
+      "why": "Remove the record without deleting the entity it owns. A networked entity belongs to the server, so telling clients to despawn it only asks them to drop a reference to something still standing in the world, owned by nobody, for the rest of the session."
+    },
+    {
+      "id": "M33",
+      "file": "server/sync.lua",
+      "find": "            if unsupported then",
+      "replace": "            if false then",
+      "why": "Stop refusing a kind the server has no creation native for, and store the record anyway. The caller asked for one shared entity and would get one per player, with nothing in any log saying the request could not be met."
+    },
+    {
+      "id": "M34",
+      "file": "client/sync.lua",
+      "find": "    if entry and entry ~= 0 and not (tracked and tracked.networked)\n        and DoesEntityExist(entry) then\n",
+      "replace": "    if entry and entry ~= 0 and\n        DoesEntityExist(entry) then\n",
+      "why": "Delete a networked entity from the client. The handle was resolved from the server's netId, so this is a request to delete something the server still owns; when it is honoured the entity vanishes from a world this client was never entitled to change, and when it is not the client and the server stop agreeing about what exists."
+    },
+    {
+      "id": "M35",
+      "file": "client/sync.lua",
+      "find": "    if spawning[id] then\n        return\n    end\n\n    local record = wanted[id]",
+      "replace": "    if spawning[id] then\n        wanted[id] = nil\n        return\n    end\n\n    local record = wanted[id]",
+      "why": "Drop the newest wanted state when a spawn is in flight, which is the exact defect this replaced. The server had already decided where the entity belongs and the client keeps the position it superseded; nothing re-sends a static record, so the prop sits wrong until a player walks out of range and back."
+    },
+    {
+      "id": "M36",
+      "file": "client/sync.lua",
+      "find": "        entity = CreateObject(modelHash, coords.x, coords.y, coords.z, record.networked ~= false, true, false)\n        SetModelAsNoLongerNeeded(modelHash)\n",
+      "replace": "        entity = CreateObject(modelHash, coords.x, coords.y, coords.z, record.networked ~= false, true, false)\n",
+      "why": "Release the model only when the create succeeded. A model that loaded and then produced nothing stays loaded for the rest of the session, which on a server streaming hundreds of props is a stream-out budget spent on models nothing is using any more."
+    },
+    {
+      "id": "M37",
+      "file": "client/sync.lua",
+      "find": "        scheduleRetry(id)\n        return\n",
+      "replace": "        return\n",
+      "why": "Give up on the first model timeout instead of retrying. A prop synced a second before its model streams in then never appears at all, for the rest of the session, with one error line to explain it."
+    },
+    {
+      "id": "M38",
+      "file": "client/sync.lua",
+      "find": "    local newest = wanted[id]\n    if newest and newest ~= record then\n        drive(id)\n    end\n",
+      "replace": "    local newest = wanted[id]\n    if false then\n        drive(id)\n    end\n",
+      "why": "Finish the in-flight spawn without reconciling against the newest wanted state. The entity exists, so nothing looks broken, and it is at a position the server has already superseded."
+    },
+    {
+      "id": "M39",
+      "file": "client/sync.lua",
+      "find": "    wanted[id] = nil\n    retries[id] = nil\n    -- Bumped whether or not",
+      "replace": "    retries[id] = nil\n    -- Bumped whether or not",
+      "why": "Leave the newest wanted state standing when a record is removed. A retry already scheduled then finds something to do and resurrects a record the server has forgotten -- the permanent leak the whole generation mechanism exists to prevent."
+    },
+    {
+      "id": "M40",
+      "file": "server/sync.lua",
+      "find": "    return nearByDistance(p, record.coords,\n        (record.scope or DEFAULT_SCOPE) * HYSTERESIS)",
+      "replace": "    return nearByDistance(p, record.coords,\n        (record.scope or DEFAULT_SCOPE))",
+      "why": "Use ONE radius for entering and leaving range. A player standing on the boundary is then sent a record on one pass and removed from it on the next, forever, without moving: one extra event each way per second, and on the client a spawn and a despawn of the same prop."
+    },
+    {
+      "id": "M41",
+      "file": "server/sync.lua",
+      "find": "        local ok, err = pcall(function()\n            local set = has[p.src]",
+      "replace": "        local ok, err = (function()\n            local set = has[p.src]",
+      "why": "Run each player's work unguarded. One raise anywhere in one player's pass aborts the whole pass, so every later player misses every update -- silently, because a loop that dies mid-pass has already sent a prefix and looks like it worked."
+    },
+    {
+      "id": "M42",
+      "file": "server/sync.lua",
+      "find": "                local okRecord, recordErr = pcall(function()",
+      "replace": "                local okRecord, recordErr = (function()",
+      "why": "Run each record unguarded inside a player's pass. One record whose payload cannot be built then costs every other record on the server its update for that player."
+    },
+    {
+      "id": "M43",
+      "file": "server/sync.lua",
+      "find": "    local r = (record.scope or DEFAULT_SCOPE) * HYSTERESIS",
+      "replace": "    local r = 1.0",
+      "why": "Index a record with a radius of one metre. The grid still answers for a player standing on the record and goes silent for every other player, so a synced door streams to whoever happens to be within a metre of it and to nobody else. Nothing raises and nothing is logged."
+    },
+    {
+      "id": "M45",
+      "file": "server/sync.lua",
+      "find": "            CisGrid.queryPoint(streamGrid, p.x, p.y, nil, consider)\n            for key in pairs(unindexed) do\n                consider(key)\n            end",
+      "replace": "            CisGrid.queryPoint(streamGrid, p.x, p.y, nil, consider)\n",
+      "why": "Drop the fallback walk over records the index REFUSED. CisGrid.insert refuses an inverted, NaN or oversized AABB, and without this set a refused record is in neither place: it streams to nobody, forever, with nothing in any log."
+    },
+    {
+      "id": "M46",
+      "file": "server/sync.lua",
+      "find": "    has[src] = nil\n    snapshotFor(src)",
+      "replace": "    snapshotFor(src)",
+      "why": "Answer a snapshot request without forgetting what the server believed the player held. The answer is then filtered by the very bookkeeping the request exists to clear, so a restarted client is sent nothing and every synced entity on the server stays invisible to it with nothing logged."
+    },
+    {
+      "id": "M47",
+      "file": "server/sync.lua",
+      "find": "    if type(src) ~= 'number' or src <= 0 then\n        return\n    end\n    -- FORGET",
+      "replace": "    -- FORGET",
+      "why": "Drop the source guard on a client-to-server request. `source` is 0 for a server-side trigger and -1 for a scheduled one, so a snapshot could be triggered with no player behind it and would clear and rebuild bookkeeping for a source that is not a player."
+    },
+    {
+      "id": "M48",
+      "file": "server/sync.lua",
+      "find": "    for k in pairs(CLIENT_FIELDS) do\n        local v = record[k]\n        if v ~= nil then\n            out[k] = v\n        end\n    end",
+      "replace": "    for k, v in pairs(record) do\n        out[k] = v\n    end",
+      "why": "Go back to sending every field on a record. That is the defect: a deny-list grows by accident, so any field a consumer hangs on a record is copied to every client in range on every pass, with no size check and nobody having decided that it should."
+    },
+    {
+      "id": "M49",
+      "file": "server/sync.lua",
+      "find": "local MAX_CLIENT_DATA_NODES = 256",
+      "replace": "local MAX_CLIENT_DATA_NODES = 1000000",
+      "why": "Remove the size cap on caller data. A record carrying a whole inventory table is then copied to every client in range, on every pass the record is dynamic, with nothing limiting it."
+    },
+    {
+      "id": "M50",
+      "file": "server/sync.lua",
+      "find": "    if type(value) ~= 'table' or depth > 4 then\n        return nil\n    end",
+      "replace": "    if depth > 4 then\n        return nil\n    end",
+      "why": "Stop refusing a clientData that is not a table. A string or a number in that slot then reaches every client in range as whatever the caller felt like putting there, bypassing every per-entry check the copy applies."
+    },
+    {
+      "id": "M51",
+      "file": "client/sync.lua",
+      "find": "    if t ~= 'string' and t ~= 'number' then\n        return false, ('model must be a name or a hash, got a %s'):format(t)\n    end",
+      "replace": "    if false then\n        return false, \"unreachable\"\n    end",
+      "why": "Accept a model of any type. A table used to pass, because tostring turns it into text and joaat hashes that text into a plausible hash that resolves to nothing -- so the record spawned nothing and said nothing."
+    },
+    {
+      "id": "M52",
+      "file": "client/sync.lua",
+      "find": "        CisLog('error', ('sync: ignoring a malformed record %s: %s')\n            :format(tostring(record.id), why))\n        return\n    end\n    ok, why = validModel(record.model)",
+      "replace": "        return\n    end\n    ok, why = validModel(record.model)",
+      "why": "Refuse a malformed coords field silently, the way the code did before. The refusal still happens, and the person whose door never appears still has nothing in the console to act on -- a silent refusal and a record that was never meant to arrive look identical."
+    },
+    {
+      "id": "M53",
+      "file": "server/sync.lua",
+      "find": "    return owner .. '\\0' .. kind .. '\\29' .. print_",
+      "replace": "    return kind .. '\u00029' .. print_",
+      "why": "Drop the owner from the content key, which is the ONLY thing separating two resources records. res_a and res_b both asking idless for a prop of the same model at the same place resolve to one index entry: the loser gets back the winner id, its own record is never created, its entity never spawns, and the id it holds names a record it does not own, so removing it is refused as another resources. One resources prop silently replaces anothers -- the overwrite the owner\u0000id namespace exists to prevent, one layer up."
+    },
+    {
+      "id": "M54",
+      "file": "server/sync.lua",
+      "find": "            probe[k] = { x = coordKey(v.x), y = coordKey(v.y), z = coordKey(v.z) }",
+      "replace": "            probe[k] = { x = tostring(v.x), y = tostring(v.y), z = tostring(v.z) }",
+      "why": "Fingerprint coordinates unrounded, which is what the code did. A coordinate computed by a caller differs in its last decimal place between two calls describing one place, and unrounded they are two records for one entity -- the duplicate the content index exists to prevent, reintroduced by float noise on the path callers hit most."
+    },
+    {
+      "id": "M55",
+      "file": "server/sync.lua",
+      "find": "exports('SyncList', function()\n    if not CisInvokingAllowed() then\n        return nil, 'this resource is not in Security.AuthorizedResources'\n    end\n    local owner = GetInvokingResource() or 'cis_libs'\n    local out = {}\n    for _, record in pairs(records) do\n        if record.owner == owner then",
+      "replace": "        if true then\n            -- The CALLERS OWN ID, never the namespaced key.",
+      "why": "List every resource records instead of the callers own. A list that names another resources entities is a map of every prop on the server handed to whichever resource asked."
+    },
+    {
+      "id": "M56",
+      "file": "server/sync.lua",
+      "find": "        if record.owner == owner then\n            doomed[#doomed + 1] = key\n        end",
+      "replace": "        doomed[#doomed + 1] = key\n        if false then\n        end",
+      "why": "Clear every record on the server rather than the callers own. One resource reloading its map would delete every other resources world -- the defect the storage namespace prevents, reached through the bulk path."
+    },
+    {
+      "id": "M57",
+      "file": "server/sync.lua",
+      "find": "exports('SyncList', function()\n    if not CisInvokingAllowed() then\n        return nil, 'this resource is not in Security.AuthorizedResources'\n    end",
+      "replace": "exports('SyncList', function()\n    if false then\n        return nil, 'this resource is not in Security.AuthorizedResources'\n    end",
+      "why": "Drop the allow-list from SyncList. The list exists to keep an unapproved resource out of the sync system, and a read path that ignores it is the way past it."
+    },
+    {
+      "id": "M58",
+      "file": "server/sync.lua",
+      "find": "exports('SyncClear', function()\n    if not CisInvokingAllowed() then\n        return nil, 'this resource is not in Security.AuthorizedResources'\n    end",
+      "replace": "exports('SyncClear', function()\n    if false then\n        return nil, 'this resource is not in Security.AuthorizedResources'\n    end",
+      "why": "Drop the allow-list from SyncClear. SyncCreate refuses an unapproved resource, so this path would be the one that does not -- and it is the one that deletes."
+    },
+    {
+      "id": "M59",
+      "file": "client/sync.lua",
+      "find": "        local ok, err = pcall(list[i], ...)",
+      "replace": "        local ok, err = true, nil\n        list[i](...)",
+      "why": "Call a consumer hook bare instead of under pcall. A raising hook then takes the spawn with it -- and on the despawn side it takes the DELETE, so a client-local entity stays in the world with nothing left in the library that will ever remove it. The most permanent leak this half of the file can produce, reachable by one bad line of consumer code."
+    },
+    {
+      "id": "M60",
+      "file": "client/sync.lua",
+      "find": "exports('AddSyncSpawnHandler', function(fn)\n    if type(fn) ~= 'function' then",
+      "replace": "exports('AddSyncSpawnHandler', function(fn)\n    if false then",
+      "why": "Accept a spawn hook that is not a function. Stored, it is a nil call on the spawn path -- one step later than the refusal, and with no name attached to what went wrong."
+    },
+    {
+      "id": "M61",
+      "file": "client/sync.lua",
+      "find": "    if held then\n        fireDespawn(id)\n    end",
+      "replace": "    fireDespawn(id)",
+      "why": "Fire the despawn hook for every remove, including one for a key this client never held. That is the routine case -- the player walked out of range and came back and the server forgot the record in between -- and telling a consumer to clean up an entity it was never given is worse than saying nothing."
+    },
+    {
+      "id": "M62",
+      "file": "init.lua",
+      "find": "function Cis.sync.prop(data)\n    if not IS_SERVER then return serverOnly() end",
+      "replace": "function Cis.sync.prop(data)\n    if false then return serverOnly() end",
+      "why": "Remove the client-side realm guard from Cis.sync.prop, which is how the call reached exports[resource].SyncCreate on a client where that export does not exist and raised attempt to call a nil value inside the CONSUMERS thread."
+    },
+    {
+      "id": "M63",
+      "file": "server/sync.lua",
+      "find": "        if record.dynamic then out.dynamic = out.dynamic + 1 end",
+      "replace": "        if false then out.dynamic = out.dynamic + 1 end",
+      "why": "Never count the dynamic records in the syncRecords probe. This is 4.11 in one line: the tally used to be a counter maintained across the upsert and remove paths, and a path that forgot to decrement produced an operator reading a number that was confidently and silently wrong. Counting it on the walk the probe already makes cannot drift, and this row proves the count is actually observed -- not merely present in the output for someone to trust."
+    },
+    {
+      "id": "M64",
+      "file": "shared/util/table.lua",
+      "find": "if ... ~= 'cis_require' then",
+      "replace": "if true then",
+      "why": "Install the legacy global unconditionally, which is what every module did before 5.1. Cis.require is the mechanism that stops a module cis_libs never asked for from appearing in the global namespace of every realm -- and a module that installs one while sandboxed has also defeated the environment that raises on a global write, because the assignment lands in the sandbox table instead of erroring. That is the whole guard, gone, while every other test still passes."
+    },
+    {
+      "id": "M65",
+      "file": "init.lua",
+      "find": "        __newindex = function(_, key)",
+      "replace": "        __newindex = nil,",
+      "why": "Give the module environment no __newindex, so a module may assign globals freely. The allow-list bounds WHICH file runs; nothing else bounds what it does, and an assignment inside a sandbox shadows a FiveM native for every later reader in that VM -- including cis_libs own code."
+    },
+    {
+      "id": "M66",
+      "file": "init.lua",
+      "find": "    local spec = REQUIRE_MODULES[name]\n    if not spec then\n        error(('Cis.require: no module named %q. Valid names: %s'):format(",
+      "replace": "    local spec = REQUIRE_MODULES[name] or { path = name }\n    if not spec then\n        error(('Cis.require: no module named %q. Valid names: %s'):format(",
+      "why": "Fall back to treating the caller name as a path, so any name resolves. That turns a closed set of fifteen into arbitrary file execution inside the resource, and it is the one direction the allow-list exists to prevent. The first anchor matched three places -- Cis.require, Cis.moduleInfo and Cis.moduleProbe all read that table the same way -- and an anchor that is not unique is not an anchor. The first anchor was the bare lookup line, which occurs three times: Cis.require, Cis.moduleInfo and Cis.moduleProbe all read that table the same way. An anchor that is not unique is not an anchor, and the tool refusing it was right."
+    },
+    {
+      "id": "M67",
+      "file": "init.lua",
+      "find": "    if requireCache[name] then",
+      "replace": "    if false then",
+      "why": "Never answer from the cache, so every require re-runs the module and hands back a FRESH table. Anything with state in it -- an id counter, a rate limiter window, an LRU -- is then duplicated per caller, and two callers holding \"the same module\" hold two of them."
+    },
+    {
+      "id": "M69",
+      "file": "server/security.lua",
+      "find": "    if not bucket or now - bucket.started >= windowMs then",
+      "replace": "    if not bucket or now - bucket.started >= (windowMs / 1000) then",
+      "why": "Treat the window as SECONDS while the clock is still GetGameTimer MILLISECONDS, which is the exact mistake 5.2 warns about in a comment: every rate limit on the server becomes a thousand times looser, silently, and nothing logs. The plan says the security limiter and CisRate differ, and rate.lua itself says they differ \"in ONE thing that matters -- what happens at the window boundary\". They differ in three, and the unit is one of them. A reader who believed that header would write exactly this row, which is why the comparison against CisRate is pinned in contracts."
+    },
+    {
+      "id": "M70",
+      "file": "server/security.lua",
+      "find": "        if not bucket and (rateCounts[src] or 0) >= RATE_BUCKET_CAP then",
+      "replace": "        if not bucket and (rateCounts[src] or 0) >= 100000000 then",
+      "why": "Raise the per-source bucket cap out of reach. Event names arrive off the wire, so an unbounded map is a memory growth rate a client controls: one source sending a few hundred thousand distinct event names would grow the table without limit, and the resource that reads it -- a server under attack -- is the one paying."
+    },
+    {
+      "id": "M71",
+      "file": "init.lua",
+      "find": "function Cis.player.ped()\n    return false, 'client only'\nend\n",
+      "replace": "-- the refusal removed: Cis.player.ped is absent on the server again, and\n-- calling it from a server-side consumer is \"attempt to call a nil value\".\nfunction Cis.player.ped()\n    return nil\nend",
+      "why": "Answer nil instead of `false, 'client only'` for the opposite realm. This is the silent no-op the original comment was arguing against, and it is worse than the raise it replaced: a raise names itself in the console and sends someone to look, while a nil is indistinguishable from \"the player has no vehicle\" and is silently absorbed by every caller that treats nil as data. The contract suite scans init.lua and would report the refusal missing, and E070 reports the same absence as a missing stub. Two gates, one defect: the second was added with the rule, and `check: api` is what puts the mutation runner in a position to see it.",
+      "check": "api"
+    },
+    {
+      "id": "M72",
+      "file": "client/points.lua",
+      "find": "local function sweepExits(coords)\n    for id in pairs(inside) do",
+      "replace": "local function sweepExits(coords)\n    -- M72: departures are left to the candidate query, which cannot see a point\n    -- the player has walked clear of.\n    return\n    for id in pairs(inside) do",
+      "why": "Stop sweeping the points the player is inside, leaving departure to the grid candidate query. The candidate box is centred on the POINT, not the player, so a player who walks away from a point is no longer a candidate and the point never fires onExit -- a point that can be entered and never left. The 7.1 test that steps the player well clear is the only one that sees it; a test that merely crosses the boundary still passes, because the point is still a candidate there."
+    },
+    {
+      "id": "M73",
+      "file": "client/streaming.lua",
+      "find": "        request(spec.requestArgs(hash or name))\n    else\n        request(hash or name)\n    end",
+      "replace": "    else\n        -- M73: the and/or form. A call in the middle of an\n        -- \"a and f(p, q) or b\" is truncated to its first value, so the\n        -- streamed flag never reaches RequestStreamedTextureDict.\n        request(spec.requestArgs and spec.requestArgs(hash or name) or (hash or name))\n    end",
+      "why": "Restore the `spec.requestArgs and spec.requestArgs(x) or x` form that this branch replaced. In `a and f(p, q) or b` a call in the middle is truncated to its FIRST value, so the streamed flag is never passed. The native then reads a nil where a BOOL belongs -- which is false -- and quietly requests a NON-streamed dictionary. It compiles, lints, and is correct on the six kinds whose request native takes one argument, so nothing else in the file notices. The 7.2 test that COUNTS the arguments is the only thing that sees it, which is why this row counts too: the first attempt at it renamed the branch but kept the correct call, and the runner reported it as a survivor -- a row that describes no defect is worth catching as loudly as one the suite misses."
+    },
+    {
+      "id": "M74",
+      "file": "shared/registry.lua",
+      "find": "    local contractOk, contractReason = checkContract(slot, contract)\n    if not contractOk then\n        return false, contractReason\n    end\n",
+      "replace": "    local contractOk, contractReason = checkContract(slot, contract)\n    if not contractOk and false then\n        return false, contractReason\n    end\n",
+      "why": "Stop enforcing a provider DECLARED contract. The doc promised this argument since CIS_LIBS_API_CONTRACT.md §3 and no code implemented it, so a provider passing { api=1, requiredMethods={...} } believed itself checked while it was silently ignored. This is what happens if it regresses: a provider demanding a method the slot does not declare registers successfully and then answers nil to every caller for the life of the process."
+    },
+    {
+      "id": "M75",
+      "file": "shared/registry.lua",
+      "find": "            if type(method) ~= 'string' then\n                return false, ('contract.requiredMethods entries must be strings, got %s')\n                    :format(type(method))\n            end\n",
+      "replace": "",
+      "why": "Drop the string check on requiredMethods entries. A non-string entry then reaches the slot lookup, declared[method] with a table key answers nil, and the provider is refused with a message naming a TABLE rather than the field -- or, if the key collides with a real method, it passes validation on a contract nobody wrote."
+    },
+    {
+      "id": "M76",
+      "file": "shared/registry.lua",
+      "find": "    local recorded = contract or (held and held.contract) or nil",
+      "replace": "    local recorded = contract or nil",
+      "why": "Lose the contract on a bare re-registration. A provider restarting its resource re-registers with no contract, the recorded promise is dropped, and cis_libs goes back to enforcing nothing. This is the same defect as never having had a contract, and it appears at exactly the moment a provider is least able to notice -- a resource restart."
+    },
+    {
+      "id": "M77",
+      "file": "shared/registry.lua",
+      "find": "                return false, ('capability %q has no method %q; declared methods are %s')\n                    :format(slot, method, table.concat(sortedMethodNames(slot), ', '))",
+      "replace": "                return false, ('capability %q has no method %q')\n                    :format(slot, method)",
+      "why": "Shorten the refusal so it no longer lists what the slot DOES declare. The message still says which method was wrong, but an operator staring at a framework slot with eleven methods has to go and read shared/registry.lua to learn the eleven real names. A refusal that does not say its own fix generates a support thread."
+    },
+    {
+      "id": "M78",
+      "file": "client/raycast.lua",
+      "find": "local PENDING = 0\n",
+      "replace": "local PENDING = 2\n",
+      "why": "Treat GetShapeTestResultIncludingMaterial's DONE value (2) as pending. 1 and 2 both mean done; 0 is the only pending state. Treating 2 as pending makes a resolved probe look unfinished until the timeout, so every hit becomes a timeout."
+    },
+    {
+      "id": "M79",
+      "file": "client/keybind.lua",
+      "find": "    RegisterKeyMapping(handle.command, options.description or name, mapper or 'keyboard', key or '')\n",
+      "replace": "    RegisterKeyMapping(name, options.description or name, mapper or 'keyboard', key or '')\n",
+      "why": "Register the mapping against the bare name instead of +name. RegisterKeyMapping's first argument is the command string the engine fires; without the plus, the +name command we registered is never the one the key runs, so the binding appears in the settings menu and does nothing."
+    },
+    {
+      "id": "M80",
+      "file": "server/command.lua",
+      "find": "        if restricted and src ~= 0 then\n",
+      "replace": "        if false then\n",
+      "why": "Skip the ACE check on a restricted command. RegisterCommand's restricted flag is one half; without this, a source that reached the handler -- a console that forwards a src, or a restricted flag the platform did not honour -- runs as anyone."
+    },
+    {
+      "id": "M81",
+      "file": "shared/statebag.lua",
+      "find": "    if IsDuplicityVersion() then\n        return id\n    end\n",
+      "replace": "    if not IsDuplicityVersion() then\n        return id\n    end\n",
+      "why": "Wait for the entity on the SERVER and skip the wait on the client. That is the inverted realm: the client is the one whose entity may not have streamed in, and a handler that then calls GetEntityCoords raises."
+    },
+    {
+      "id": "M82",
+      "file": "client/ui.lua",
+      "find": "    nativeNotify(text)\n    return true\n",
+      "replace": "    return true\n",
+      "why": "Skip the native GTA feed when no ui provider is registered. Notify then answers true and shows nothing -- the same silent no-op the ui slot exists to prevent, and the 7.9 test that counts BeginTextCommandThefeedPost is the thing that sees it."
+    },
+    {
+      "id": "M83",
+      "file": "client/ui.lua",
+      "find": "local function noProvider()\n    return false, 'no ui provider'\nend\n",
+      "replace": "local function noProvider()\n    return true\nend\n",
+      "why": "Make progress/confirm/input succeed without a ui provider. Those three forward only and answer false, 'no ui provider' without one -- a true here is a fake dialog that never ran, and every caller waiting on confirm hangs or proceeds as if the player agreed."
+    },
+    {
+      "id": "M84",
+      "file": "client/ui.lua",
+      "find": "    EndTextCommandDisplayHelp(0, true, false, -1)\n",
+      "replace": "    EndTextCommandDisplayHelp(0, false, false, -1)\n",
+      "why": "Draw help text with loop=false. The native then flashes once and vanishes, so isOpen stays true while nothing is on screen. Native help must stay until hide; loop=true is the documented way (natives_gta.json END_TEXT_COMMAND_DISPLAY_HELP)."
+    },
+    {
+      "id": "M85",
+      "file": "init.lua",
+      "find": "        if value ~= nil and value ~= false then\n            return value\n        end\n",
+      "replace": "        if value ~= nil then\n            return value\n        end\n",
+      "why": "Treat false as success. A predicate `return loaded` that is still false then returns immediately, and the wait never waits. The 7.8 test that polls false twice then answers is the thing that sees it."
+    },
+    {
+      "id": "M86",
+      "file": "init.lua",
+      "find": "            return nil, ('waitFor timed out after %dms'):format(timeout)\n                .. (msg and (' (' .. tostring(msg) .. ')') or '')\n",
+      "replace": "            error(('waitFor timed out after %dms'):format(timeout)\n                .. (msg and (' (' .. tostring(msg) .. ')') or ''), 2)\n",
+      "why": "Raise on timeout. Callers that cannot wrap the wait in pcall then crash a thread, and the 7.8 test that pcalls a timeout and requires it NOT to raise is the thing that sees it."
+    },
+    {
+      "id": "M87",
+      "file": "init.lua",
+      "find": "        timeout = 10000\n",
+      "replace": "        timeout = 1000\n",
+      "why": "Default the timeout to 1000. The api.lua contract says 10000, and a caller who writes waitFor(fn) expecting ten seconds gets one. The 7.8 test that lets the default run and asserts the clock crossed 10000 is the thing that sees it."
+    },
+    {
+      "id": "M88",
+      "file": "client/vehicle.lua",
+      "find": "        lockState = GetVehicleDoorLockStatus(vehicle),\n",
+      "replace": "        lockState = nil,\n",
+      "why": "Drop lockState from the getter. A garage that round-trips properties then leaves every door unlocked or locked wrongly. The 7.10 test that reads lockState is the thing that sees it."
+    },
+    {
+      "id": "M89",
+      "file": "client/vehicle.lua",
+      "find": "    for i = 0, 7 do\n        if not IsVehicleWindowIntact(vehicle, i) then\n",
+      "replace": "    for i = 0, 7 do\n        RollUpWindow(vehicle, i)\n        if not IsVehicleWindowIntact(vehicle, i) then\n",
+      "why": "Roll up every window while reading properties. A getter that mutates the vehicle is not a getter, and a player whose windows were down has them slammed shut by a sync snapshot. The 7.10 test that counts RollUpWindow is the thing that sees it."
+    },
+    {
+      "id": "M90",
+      "file": "server/security.lua",
+      "find": "        if live.opts.schema ~= nil then\n",
+      "replace": "        if live.opts.schema ~= nil and false then\n",
+      "why": "Skip the schema check. A client can then send count=999999 or a string where a table belongs and the handler still runs. 7.11 exists so a typed payload is a boundary, not a comment."
+    },
+    {
+      "id": "M91",
+      "file": "shared/timing.lua",
+      "find": "function CisTiming.observe(name, ms)\n    if type(name) ~= 'string' or not SERIES[name] then\n        return false, ('unknown timing series %q'):format(tostring(name))\n    end\n",
+      "replace": "function CisTiming.observe(name, ms)\n    if type(name) ~= 'string' then\n        return false, ('unknown timing series %q'):format(tostring(name))\n    end\n",
+      "why": "Accept any series name. GetDiagnostics.timings would then grow keys 8.2 cannot attribute, and a typo in observe() would look like a missing pass."
+    }
+  ]
+}

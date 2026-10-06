@@ -1,0 +1,67 @@
+{
+  "_comment": [
+    "Lua Language Server configuration for CONTRIBUTORS working on cis_libs itself.",
+    "A CONSUMER does not use this file -- a consumer adds types/ to their own",
+    ".luarc.json workspace.library. The difference matters: this file also lints",
+    "the resource's own server files, and the platform globals it declares are",
+    "the ones cis_libs calls.",
+    "",
+    "types/ IS THE WORKSPACE LIBRARY, and it is listed twice on purpose:",
+    "  * workspace.library is what LuaLS offers as a completion source, and",
+    "  * the path itself is what makes the annotations resolve when a file in",
+    "    this resource references a declared class.",
+    "One is enough for a consumer; both are needed here, and the second entry is",
+    "what stopped a class defined in types/ from reading as an undefined global",
+    "in this repository's own files."
+  ],
+  "runtime.version": "LuaJIT",
+  "runtime.path": [
+    "?.lua",
+    "?/init.lua",
+    "server/?.lua",
+    "client/?.lua",
+    "shared/?.lua",
+    "test/?.lua"
+  ],
+  "workspace.library": [
+    "types/cis_libs.lua",
+    "server",
+    "client",
+    "shared"
+  ],
+  "workspace.checkThirdParty": false,
+  "diagnostics.globals": [
+    "Cis",
+    "CisLibs",
+    "CisConfigUtil",
+    "CisDefaults",
+    "CisDiagnostics",
+    "CisGrid",
+    "CisHistogram",
+    "CisLoopGuard",
+    "CisNotify",
+    "CisOwned",
+    "CisPending",
+    "CisRateLimit",
+    "CisReadyState",
+    "CisRegistry",
+    "CisSecurityReport",
+    "CisShared",
+    "Citizen",
+    "CreateThread",
+    "GetGameTimer",
+    "GetCurrentResourceName",
+    "GetResourceState",
+    "GetInvokingResource",
+    "IsDuplicityVersion",
+    "LoadResourceFile"
+  ],
+  "diagnostics.disable": [
+    "undefined-field",
+    "duplicate-set-field"
+  ],
+  "hint.enable": false,
+  "hint.setHint": false,
+  "format.enable": false,
+  "type.checkTableShape": true
+}

@@ -1,0 +1,38 @@
+{
+  "name": "cis_libs",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FiveM library. Tests run under fengari; no FiveM server required.",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "scripts": {
+    "test": "node test/run.js",
+    "test:api": "node tools/validate-api.js --api api.lua --resource .",
+    "test:api-selftest": "node tools/validate-api.js --selftest",
+    "test:all": "npm run lint && npm run check:luacheck && npm run check-realms && npm run test:syntax && npm run test && npm run test:lua54 && npm run test:scanner && npm run test:api-selftest && npm run test:api && npm run gen-types:check && npm run docs-check && npm run package",
+    "docs-check": "node tools/docs-check.js",
+    "package": "node tools/check-package.js",
+    "test:syntax": "node tools/syntax-check.js",
+    "lint": "node tools/lint.js",
+    "check-realms": "node tools/check-realms.js",
+    "gen-luacheck": "node tools/gen-luacheck.js",
+    "gen-natives": "node tools/natives/build-natives.js && node tools/natives/build-libglobals.js",
+    "scan:consumers": "node tools/scan-consumers.js",
+    "bench": "node bench/run.js",
+    "gen-types": "node tools/gen-types.js",
+    "gen-types:check": "node tools/gen-types.js --check",
+    "test:mutate": "node tools/mutate.js",
+    "test:lua54": "node tools/run-lua54.js",
+    "check:luacheck": "node tools/gen-luacheck.js --check",
+    "live:deploy": "node tools/live-deploy.js",
+    "live:run": "node tools/live-run.js",
+    "live:client": "node tools/client.js",
+    "test:scanner": "node test/api/scanner-selftest.js",
+    "strip-compare": "node tools/strip-compare.js"
+  },
+  "devDependencies": {
+    "fengari": "0.1.5"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

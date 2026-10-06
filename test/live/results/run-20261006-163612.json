@@ -1,0 +1,1044 @@
+{
+  "cases": [
+    {
+      "case": "a second return value survives UNLESS the first is nil",
+      "checks": 3,
+      "ev": "case",
+      "ms": 0,
+      "notes": [
+        {
+          "detail": "value was true",
+          "msg": "a reason survives behind a `true` (reason-after-true)"
+        },
+        {
+          "detail": "value was true",
+          "msg": "and behind a `false` (reason-after-false)"
+        },
+        {
+          "detail": "value was true",
+          "msg": "but is LOST behind a `nil` (nil) -- the return list is truncated at the nil, so any export answering `nil, reason` hands the caller no reason at all"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "boundary",
+      "tier": "server"
+    },
+    {
+      "case": "every slot resolves against the fakes",
+      "checks": 2,
+      "ev": "case",
+      "ms": 0,
+      "notes": [
+        {
+          "detail": "table: 4f1bbcdcbfa53e09",
+          "msg": "every server-owned slot has a provider installed"
+        },
+        {
+          "detail": "table: 1e3779b97f4a7c12",
+          "msg": "every provider answers its whole contract"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "registry",
+      "tier": "server"
+    },
+    {
+      "case": "a capability forwards its arguments exactly",
+      "checks": 5,
+      "ev": "case",
+      "ms": 3,
+      "notes": [
+        {
+          "detail": "table: 6d5336963eefba1b",
+          "msg": "the provider saw exactly one query"
+        },
+        {
+          "detail": "table: 3c6ef372fe94f824",
+          "msg": "the sql arrived intact"
+        },
+        {
+          "detail": "value was true",
+          "msg": "the params arrived as a table"
+        },
+        {
+          "detail": "expected 7 +/- 1e-09, got 7",
+          "msg": "and the first param value is right"
+        },
+        {
+          "detail": "value was true",
+          "msg": "and the provider answer came back to the caller"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "registry",
+      "tier": "server"
+    },
+    {
+      "case": "an empty result and a nil result are different",
+      "checks": 3,
+      "ev": "case",
+      "ms": 2,
+      "notes": [
+        {
+          "detail": "table: 0b8ab04fbe3a362d",
+          "msg": "a nil answer stays nil"
+        },
+        {
+          "detail": "value was true",
+          "msg": "an empty answer stays a table"
+        },
+        {
+          "detail": "table: 5aa66d2c7ddf7436",
+          "msg": "with zero rows, not nil"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "registry",
+      "tier": "server"
+    },
+    {
+      "case": "no provider means a refusal, not a raise",
+      "checks": 4,
+      "ev": "case",
+      "ms": 2,
+      "notes": [
+        {
+          "detail": "value was true",
+          "msg": "the slot was released"
+        },
+        {
+          "detail": "table: 29c22a093d84b23f",
+          "msg": "a call with no provider answers nothing at all"
+        },
+        {
+          "detail": "value was true",
+          "msg": "and the reason is readable from GetLastRefusal (got no provider registered for \"database\")"
+        },
+        {
+          "detail": "value was true",
+          "msg": "and it names the capability that is missing (no provider registered for \"database\")"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "registry",
+      "tier": "server"
+    },
+    {
+      "case": "a provider that raises never escapes into the consumer",
+      "checks": 1,
+      "ev": "case",
+      "ms": 1,
+      "notes": [
+        {
+          "detail": "value was true",
+          "msg": "a raising provider does not raise into the caller"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "registry",
+      "tier": "server"
+    },
+    {
+      "case": "the revoke command still works from the console",
+      "checks": 3,
+      "ev": "case",
+      "ms": 2,
+      "notes": [
+        {
+          "detail": "value was true",
+          "msg": "a fake holds discord before the command runs"
+        },
+        {
+          "detail": "table: 78dde6e5fd29f048",
+          "msg": "the console revoked it"
+        },
+        {
+          "detail": "table: 47f9a3c2bccf2e51",
+          "msg": "and the provider took it straight back (ok=true why=nil)"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "registry",
+      "tier": "server"
+    },
+    {
+      "case": "a refused source is refused WITH a reason",
+      "checks": 6,
+      "ev": "case",
+      "ms": 1,
+      "notes": [
+        {
+          "detail": "table: 1715609f7c746c5a",
+          "msg": "src 0 is refused"
+        },
+        {
+          "detail": "value was true",
+          "msg": "src 0 names the reason"
+        },
+        {
+          "detail": "table: 66311d7c3c19aa63",
+          "msg": "src -1 is refused"
+        },
+        {
+          "detail": "value was true",
+          "msg": "src -1 names the reason"
+        },
+        {
+          "detail": "table: 354cda58fbbee86c",
+          "msg": "src 1 is refused"
+        },
+        {
+          "detail": "value was true",
+          "msg": "src 1 names the reason"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "notify",
+      "tier": "server"
+    },
+    {
+      "case": "a disconnected src is refused",
+      "checks": 2,
+      "ev": "case",
+      "ms": 0,
+      "notes": [
+        {
+          "detail": "table: 04689735bb642675",
+          "msg": "a src that is not connected is refused"
+        },
+        {
+          "detail": "value was true",
+          "msg": "with a reason"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "notify",
+      "tier": "server"
+    },
+    {
+      "case": "waitFor answers a value, and times out with a reason instead of raising",
+      "checks": 6,
+      "ev": "case",
+      "ms": 64,
+      "notes": [
+        {
+          "detail": "value was true",
+          "msg": "cis_test includes init.lua, so Cis.waitFor exists in this VM"
+        },
+        {
+          "detail": "table: 538454127b09647e",
+          "msg": "a truthy first poll answers the value"
+        },
+        {
+          "detail": "table: 22a010ef3aaea287",
+          "msg": "and does not poll again"
+        },
+        {
+          "detail": "table: 71bbcdcbfa53e090",
+          "msg": "a timeout does not raise"
+        },
+        {
+          "detail": "table: 40d78aa8b9f91e99",
+          "msg": "timeout answers nil"
+        },
+        {
+          "detail": "value was true",
+          "msg": "and the reason names the wait (got waitFor timed out after 20ms (live-timeout))"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "waitfor",
+      "tier": "server"
+    },
+    {
+      "case": "a server box contains the centre and not a far point",
+      "checks": 4,
+      "ev": "case",
+      "ms": 1,
+      "notes": [
+        {
+          "detail": "value was true",
+          "msg": "box id (1 nil)"
+        },
+        {
+          "detail": "table: 0ff34785799e5ca2",
+          "msg": "centre is inside"
+        },
+        {
+          "detail": "table: 5f0f046239439aab",
+          "msg": "50m is outside"
+        },
+        {
+          "detail": "table: 2e2ac13ef8e8d8b4",
+          "msg": "remove"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "serverzones",
+      "tier": "server"
+    },
+    {
+      "case": "a hook can allow and can veto",
+      "checks": 5,
+      "ev": "case",
+      "ms": 17,
+      "notes": [
+        {
+          "detail": "value was true",
+          "msg": "HookOn cookie (1 nil)"
+        },
+        {
+          "detail": "table: 7d467e1bb88e16bd",
+          "msg": "direct colon veto (denied)"
+        },
+        {
+          "detail": "table: 4c623af8783354c6",
+          "msg": "allow"
+        },
+        {
+          "detail": "table: 1b7df7d537d892cf",
+          "msg": "veto (denied)"
+        },
+        {
+          "detail": "value was 1",
+          "msg": "reason"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "hooks",
+      "tier": "server"
+    },
+    {
+      "case": "a snapshot is a table and carries no player data",
+      "checks": 5,
+      "ev": "case",
+      "ms": 0,
+      "notes": [
+        {
+          "detail": "table: 6a99b4b1f77dd0d8",
+          "msg": "GetDiagnostics answers a table"
+        },
+        {
+          "detail": "table: 39b5718eb7230ee1",
+          "msg": "and says which realm it is"
+        },
+        {
+          "detail": "value was true",
+          "msg": "with an uptime"
+        },
+        {
+          "detail": "value was true",
+          "msg": "and a memory figure"
+        },
+        {
+          "detail": "value was true",
+          "msg": "and the probes"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "diagnostics",
+      "tier": "server"
+    },
+    {
+      "case": "two snapshots of an idle server agree",
+      "checks": 2,
+      "ev": "case",
+      "ms": 209,
+      "notes": [
+        {
+          "detail": "table: 08d12e6b76c84cea",
+          "msg": "no error appeared while idle"
+        },
+        {
+          "detail": "table: 57eceb48366d8af3",
+          "msg": "the net handler count did not move"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "diagnostics",
+      "tier": "server"
+    },
+    {
+      "case": "self-check answers ok and names nothing when there is nothing",
+      "checks": 3,
+      "ev": "case",
+      "ms": 0,
+      "notes": [
+        {
+          "detail": "table: 2708a824f612c8fc",
+          "msg": "GetSelfCheck answers a table"
+        },
+        {
+          "detail": "table: 76246501b5b80705",
+          "msg": "with an ok flag"
+        },
+        {
+          "detail": "value was true",
+          "msg": "and a problems list"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "diagnostics",
+      "tier": "server"
+    },
+    {
+      "case": "two resources can both own an id, and both records survive",
+      "checks": 7,
+      "detail": "value was false",
+      "ev": "case",
+      "ms": 4,
+      "msg": "which it really owns (why=nil)",
+      "notes": [
+        {
+          "detail": "table: 454021de755d450e",
+          "msg": "cis_test_c holds the same id string under its own namespace"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "FAIL",
+      "suite": "syncids",
+      "tier": "server"
+    },
+    {
+      "case": "a numeric id becomes a string and removes as one",
+      "checks": 4,
+      "detail": "value was nil",
+      "ev": "case",
+      "ms": 0,
+      "msg": "a numeric id is accepted (why=nil)",
+      "run": "run-20261006-163612",
+      "status": "FAIL",
+      "suite": "syncids",
+      "tier": "server"
+    },
+    {
+      "case": "a networked prop really exists on this server",
+      "checks": 3,
+      "detail": "value was nil",
+      "ev": "case",
+      "ms": 0,
+      "msg": "cis_test created a networked prop (why=nil)",
+      "notes": [
+        {
+          "detail": "table: 145bdebb35028317",
+          "msg": "4.5: no networked record was left without an entity (0 refused)"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "FAIL",
+      "suite": "syncnetwork",
+      "tier": "server"
+    },
+    {
+      "case": "a networked vehicle really exists on this server",
+      "checks": 3,
+      "detail": "value was nil",
+      "ev": "case",
+      "ms": 1,
+      "msg": "cis_test created a networked vehicle (why=nil)",
+      "notes": [
+        {
+          "detail": "table: 63779b97f4a7c120",
+          "msg": "4.5: no networked record was left without an entity (0 refused)"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "FAIL",
+      "suite": "syncnetwork",
+      "tier": "server"
+    },
+    {
+      "case": "a networked ped really exists on this server",
+      "checks": 3,
+      "detail": "value was nil",
+      "ev": "case",
+      "ms": 0,
+      "msg": "cis_test created a networked ped (why=nil)",
+      "notes": [
+        {
+          "detail": "table: 32935874b44cff29",
+          "msg": "4.5: no networked record was left without an entity (0 refused)"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "FAIL",
+      "suite": "syncnetwork",
+      "tier": "server"
+    },
+    {
+      "case": "remove takes the entity with it",
+      "checks": 4,
+      "detail": "value was nil",
+      "ev": "case",
+      "ms": 1,
+      "msg": "a networked prop to remove",
+      "notes": [
+        {
+          "detail": "table: 01af155173f23d32",
+          "msg": "4.5: the entity is gone with the record, not orphaned on the network"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "FAIL",
+      "suite": "syncnetwork",
+      "tier": "server"
+    },
+    {
+      "case": "a kind the server cannot make is refused, not downgraded",
+      "checks": 2,
+      "ev": "case",
+      "ms": 1,
+      "notes": [
+        {
+          "detail": "table: 50cad22e33977b3b",
+          "msg": "an unsupported networked kind gets no record"
+        },
+        {
+          "detail": "table: 1fe68f0af33cb944",
+          "msg": "4.5: and nothing was created for it"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "syncnetwork",
+      "tier": "server"
+    },
+    {
+      "case": "every client suite runs, and the player is left as found",
+      "checks": 30,
+      "ev": "case",
+      "ms": 7141,
+      "notes": [
+        {
+          "detail": "table: 6f024be7b2e1f74d",
+          "msg": "the player was restored after \"exports\""
+        },
+        {
+          "detail": "all 29 probes reached; onClientResourceStop is nil",
+          "msg": "exports / the client can reach the exports the other suites call"
+        },
+        {
+          "detail": "table: 3e1e08c472873556",
+          "msg": "the player was restored after \"zones\""
+        },
+        {
+          "detail": "onEnter for a STANDING player: fired=true insideCount=1 inside=[z_standing] passMs=0",
+          "msg": "zones / a zone created AROUND a standing player fires onEnter"
+        },
+        {
+          "detail": "onEnter fired exactly once while walking in: 1 time(s), insideCount=1 inside=[z_walk] passMs=0 | ZoneContains(player)=true at 241.7,-849.6,30.0 | removed=true, inside AFTER removal=[]",
+          "msg": "zones / stepping into a small zone fires onEnter exactly once"
+        },
+        {
+          "detail": "one onExit on removal: 1, coords 229.7, -861.6, 30.0 (removed=true, library had inside=[z_remove])",
+          "msg": "zones / removing a zone the player is inside fires ONE onExit with the player coords"
+        },
+        {
+          "detail": "a zone 400 m up does not contain the player: false",
+          "msg": "zones / a zone 400 m above the player does not contain them"
+        },
+        {
+          "detail": "table: 0d39c5a1322c735f",
+          "msg": "the player was restored after \"debugtext\""
+        },
+        {
+          "detail": "did not raise",
+          "msg": "debugtext / DrawText3D does not raise"
+        },
+        {
+          "detail": "table: 5c55827df1d1b168",
+          "msg": "the player was restored after \"points\""
+        },
+        {
+          "detail": "exactly one enter and one exit: 1 in, 1 out",
+          "msg": "points / crossing a point radius gives one enter and one exit"
+        },
+        {
+          "detail": "table: 2b713f5ab176ef71",
+          "msg": "the player was restored after \"stage3\""
+        },
+        {
+          "detail": "answered a table with 10 method(s)",
+          "msg": "stage3 / GetFramework answers the method table on the client too"
+        },
+        {
+          "detail": "RequestState reached the provider 1 time(s), identifier carried: true",
+          "msg": "stage3 / a door state request reaches the doorsClient provider"
+        },
+        {
+          "detail": "onExit x offset from origin: 20.0 (the zone centre would be 6.0), handed as vector3",
+          "msg": "stage3 / onExit hands over the coordinates the player actually stands at"
+        },
+        {
+          "detail": "a later zone still fires: true",
+          "msg": "stage3 / a zone callback that raises does not stop the zone loop"
+        },
+        {
+          "detail": "debug thread: idle=false during=true after=false",
+          "msg": "stage3 / the debug draw thread starts and stops with the debug zone"
+        },
+        {
+          "detail": "ped is 0.00 m from origin in x and 0.00 m in z, bucket 0",
+          "msg": "stage3 / the player is back where the harness found them"
+        },
+        {
+          "detail": "table: 7a8cfc37711c2d7a",
+          "msg": "the player was restored after \"synchygiene\""
+        },
+        {
+          "detail": "model prop_roadcone02a streams here",
+          "msg": "synchygiene / this client can stream a model, or the rest proves nothing"
+        },
+        {
+          "detail": "spawned=true and let go of afterwards=true",
+          "msg": "synchygiene / a valid record spawns, so the refusals below are not refusing everything"
+        },
+        {
+          "detail": "nothing spawned from a string in place of coords",
+          "msg": "synchygiene / a record with unusable coords is ignored"
+        },
+        {
+          "detail": "nothing spawned from a table in place of a model",
+          "msg": "synchygiene / a record whose model is neither a name nor a hash is ignored"
+        },
+        {
+          "detail": "table: 49a8b91430c16b83",
+          "msg": "the player was restored after \"ui\""
+        },
+        {
+          "detail": "native feed accepted",
+          "msg": "ui / native notify answers true and does not raise"
+        },
+        {
+          "detail": "show/isOpen/hide",
+          "msg": "ui / textUI show, isOpen, hide round trip"
+        },
+        {
+          "detail": "no ui provider",
+          "msg": "ui / progress without a ui provider refuses by name"
+        },
+        {
+          "detail": "table: 18c475f0f066a98c",
+          "msg": "the player was restored after \"cache\""
+        },
+        {
+          "detail": "on foot playerId=128 seat=nil",
+          "msg": "cache / playerId is a number; seat is nil on foot or a seat index in a vehicle"
+        },
+        {
+          "detail": "value was true",
+          "msg": "at least one client suite answered"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "player",
+      "tier": "player"
+    },
+    {
+      "case": "one consumer stopping does not wipe another's sync records",
+      "checks": 7,
+      "detail": "value was false",
+      "ev": "case",
+      "ms": 547,
+      "msg": "cis_test_c owns its record (why=nil)",
+      "notes": [
+        {
+          "detail": "table: 67e032cdb00be795",
+          "msg": "cis_test_c took its own records with it"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "FAIL",
+      "suite": "lifecycle",
+      "tier": "lifecycle"
+    },
+    {
+      "case": "stopping the providers turns every call into a refusal",
+      "checks": 4,
+      "ev": "case",
+      "ms": 572,
+      "notes": [
+        {
+          "detail": "value was true",
+          "msg": "db query does not RAISE with no provider"
+        },
+        {
+          "detail": "value was true",
+          "msg": "db query answers a refusal rather than a value"
+        },
+        {
+          "detail": "value was true",
+          "msg": "framework check does not RAISE with no provider"
+        },
+        {
+          "detail": "value was true",
+          "msg": "framework check answers a refusal rather than a value"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "lifecycle",
+      "tier": "lifecycle"
+    },
+    {
+      "case": "the providers re-register and their calls work again",
+      "checks": 4,
+      "ev": "case",
+      "ms": 2073,
+      "notes": [
+        {
+          "detail": "value was true",
+          "msg": "cis_libs is up"
+        },
+        {
+          "detail": "value was true",
+          "msg": "cis_test_providers is up"
+        },
+        {
+          "detail": "value was true",
+          "msg": "the fakes re-claimed the slots (10 owned)"
+        },
+        {
+          "detail": "value was true",
+          "msg": "and every one resolves again (10 resolved)"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "lifecycle",
+      "tier": "lifecycle"
+    },
+    {
+      "case": "a resource with a mismatched contract is refused, and the install survives",
+      "checks": 4,
+      "ev": "case",
+      "ms": 715,
+      "notes": [
+        {
+          "detail": "value was true",
+          "msg": "its capability claim was REFUSED rather than registered (attempts recorded: 1)"
+        },
+        {
+          "detail": "table: 36fbefaa6fb1259e",
+          "msg": "and cis_libs' own self-check verdict is unchanged by it"
+        },
+        {
+          "detail": "table: 0617ac872f5663a7",
+          "msg": "and it owns no capability: "
+        },
+        {
+          "detail": "value was true",
+          "msg": "cis_test_badmeta stopped again"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "lifecycle",
+      "tier": "lifecycle"
+    },
+    {
+      "case": "stopping a consumer releases its callbacks and nobody else's",
+      "checks": 7,
+      "ev": "case",
+      "ms": 559,
+      "notes": [
+        {
+          "detail": "value was true",
+          "msg": "cis_test_c registered a callback"
+        },
+        {
+          "detail": "value was true",
+          "msg": "cis_test registers one of its own"
+        },
+        {
+          "detail": "table: 55336963eefba1b0",
+          "msg": "cis_test_c's callback answers before the stop (ok=true value=answered by its owner name=cis_test_c_pending)"
+        },
+        {
+          "detail": "table: 244f2640aea0dfb9",
+          "msg": "and so does ours (ok=true value=from cis_test)"
+        },
+        {
+          "detail": "table: 736ae31d6e461dc2",
+          "msg": "the stopped resource's callback is released"
+        },
+        {
+          "detail": "value was true",
+          "msg": "and answers \"unknown\", not \"error\" (callback \"cis_test_c_pending\": unknown)"
+        },
+        {
+          "detail": "table: 42869ffa2deb5bcb",
+          "msg": "while cis_test kept its own"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "lifecycle",
+      "tier": "lifecycle"
+    },
+    {
+      "case": "cis_libs installs none of its fifteen module globals",
+      "checks": 2,
+      "ev": "case",
+      "ms": 0,
+      "notes": [
+        {
+          "detail": "table: 11a25cd6ed9099d4",
+          "msg": "no module global exists on the server realm ([])"
+        },
+        {
+          "detail": "table: 60be19b3ad35d7dd",
+          "msg": "and the probe knows about all fifteen, so an empty answer is a real one and not a probe that found nothing (got 15)"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "modules",
+      "tier": "lifecycle"
+    },
+    {
+      "case": "a consumer that includes a module directly still gets it",
+      "checks": 4,
+      "ev": "case",
+      "ms": 1,
+      "notes": [
+        {
+          "detail": "table: 2fd9d6906cdb15e6",
+          "msg": "the directly-included module installed its global (table)"
+        },
+        {
+          "detail": "table: 7ef5936d2c8053ef",
+          "msg": "and it works: an LRU was built, written and read back"
+        },
+        {
+          "detail": "value was true",
+          "msg": "the vararg a manifest include passes is NOT the marker, which is the whole branch condition (got count=1 value=2)"
+        },
+        {
+          "detail": "value was true",
+          "msg": "and the global IS installed, so a direct include still works despite the platform passing an argument nobody documented"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "modules",
+      "tier": "lifecycle"
+    },
+    {
+      "case": "ModuleInfo answers what a module is without handing it over",
+      "checks": 9,
+      "ev": "case",
+      "ms": 2,
+      "notes": [
+        {
+          "detail": "table: 4e115049ec2591f8",
+          "msg": "lru is a known module (nil)"
+        },
+        {
+          "detail": "table: 1d2d0d26abcad001",
+          "msg": "asking without opts.load does not load it, and says no functions"
+        },
+        {
+          "detail": "table: 6c48ca036b700e0a",
+          "msg": "and it loads on request (nil)"
+        },
+        {
+          "detail": "table: 3b6486e02b154c13",
+          "msg": "which is what it reports"
+        },
+        {
+          "detail": "table: 0a8043bceaba8a1c",
+          "msg": "with a function list a consumer can act on (n=12)"
+        },
+        {
+          "detail": "table: 599c0099aa5fc825",
+          "msg": "and loading it STILL installs no global -- the whole point of 5.1"
+        },
+        {
+          "detail": "table: 28b7bd766a05062e",
+          "msg": "an unknown name is refused"
+        },
+        {
+          "detail": "value was true",
+          "msg": "and the refusal names what was asked for (no module named not_a_module)"
+        },
+        {
+          "detail": "value was true",
+          "msg": "and it lists the valid names, so the caller can fix the call"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "modules",
+      "tier": "lifecycle"
+    },
+    {
+      "case": "conditions for this run",
+      "checks": 3,
+      "ev": "case",
+      "ms": 2,
+      "notes": [
+        {
+          "detail": "value was true",
+          "msg": "commit"
+        },
+        {
+          "detail": "value was true",
+          "msg": "players=1"
+        },
+        {
+          "detail": "value was true",
+          "msg": "onesync=on gameBuild=3751 artifact=FXServer-master SERVER v1.0.0.35245 win32 at=2026-10-06T16:36:25Z hardware=Windows VPS, no GPU; game client is remote commit=9dbc18a"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "perf",
+      "tier": "perf"
+    },
+    {
+      "case": "client zone/export/callback scenarios",
+      "checks": 6,
+      "ev": "case",
+      "ms": 3793,
+      "notes": [
+        {
+          "detail": "table: 77d37a5329aa4437",
+          "msg": "player restored after perf"
+        },
+        {
+          "detail": "idle zonePass last=0 n=321 mean=0.0 le002=321 (budget 0.02)",
+          "msg": "perf / idle, no zones: zone pass under 0.02 ms"
+        },
+        {
+          "detail": "created=100 last=0 n=323 mean=0.0 containsHere=false (budget 0.05)",
+          "msg": "perf / 100 mixed zones, player outside all: under 0.05 ms"
+        },
+        {
+          "detail": "created=1000 last=0 mean=0.0 insideCount=3 (budget 0.15)",
+          "msg": "perf / 1000 zones, player inside 3: under 0.15 ms"
+        },
+        {
+          "detail": "GetDiagnostics 200 calls in 0.000 ms = 0.0000 ms/call clock=GetGameTimer \u2014 clock did not move; published, not a budget fail",
+          "msg": "perf / export crossing: GetDiagnostics loop, publish ms/call"
+        },
+        {
+          "detail": "answered=true ok=true rttMs=272 timings.last=272 n=1",
+          "msg": "perf / callback round trip: cis_test:perfPing"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "perf",
+      "tier": "perf"
+    },
+    {
+      "case": "1000 server zones, contains loop under 0.15 ms/call",
+      "checks": 2,
+      "ev": "case",
+      "ms": 2078,
+      "notes": [
+        {
+          "detail": "value was true",
+          "msg": "created 1000 server boxes"
+        },
+        {
+          "detail": "value was true",
+          "msg": "500 contains in 33.000 ms = 0.0660 ms/call (budget 0.15) created=1000"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "perf",
+      "tier": "perf"
+    },
+    {
+      "case": "200 sync records, server pass under 0.20 ms",
+      "checks": 1,
+      "detail": "value was false",
+      "ev": "case",
+      "ms": 0,
+      "msg": "first SyncCreate refused: nil",
+      "run": "run-20261006-163612",
+      "status": "FAIL",
+      "suite": "perf",
+      "tier": "perf"
+    },
+    {
+      "case": "export crossing: GetDiagnostics loop (server)",
+      "checks": 1,
+      "ev": "case",
+      "ms": 10,
+      "notes": [
+        {
+          "detail": "value was true",
+          "msg": "GetDiagnostics 200 calls in 10.000 ms = 0.0500 ms/call"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "perf",
+      "tier": "perf"
+    },
+    {
+      "case": "README lua example fences run",
+      "checks": 5,
+      "ev": "case",
+      "ms": 20,
+      "notes": [
+        {
+          "detail": "value was true",
+          "msg": "README.md is in the deployed resource"
+        },
+        {
+          "detail": "value was true",
+          "msg": "example 1 parses: nil"
+        },
+        {
+          "detail": "value was true",
+          "msg": "example 1 runs: nil"
+        },
+        {
+          "detail": "value was true",
+          "msg": "at least one lua example fence (1)"
+        },
+        {
+          "detail": "value was true",
+          "msg": "every example ran (1/1)"
+        }
+      ],
+      "run": "run-20261006-163612",
+      "status": "PASS",
+      "suite": "examples",
+      "tier": "server"
+    }
+  ],
+  "commit": "9dbc18a",
+  "players": 1,
+  "run": "run-20261006-163612",
+  "server": "private",
+  "tally": {
+    "error": 0,
+    "fail": 8,
+    "manual": 0,
+    "ms": 18585,
+    "pass": 29,
+    "skip": 0
+  }
+}

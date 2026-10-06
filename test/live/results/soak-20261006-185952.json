@@ -1,0 +1,5761 @@
+{
+  "commit": "9dbc18a",
+  "done": true,
+  "minutesPlanned": 30,
+  "missedClient": 0,
+  "players": 1,
+  "run": "soak-20261006-185952",
+  "samples": [
+    {
+      "at": "2026-10-06T18:59:53Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 2702.2080078125,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 1,
+              "last": 263,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 263,
+              "min": 263,
+              "n": 1,
+              "sum": 263
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 514,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 514,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 253891
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 255019,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 0,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 31
+          },
+          "memoryKb": 2047.4560546875,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 4,
+              "last": 0,
+              "le002": 70,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 1,
+              "mean": 0.054054054054054,
+              "min": 0,
+              "n": 74,
+              "sum": 4
+            }
+          },
+          "uptimeMs": 393354
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:00:53Z",
+      "client": {
+        "collected": true,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 961.2099609375,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 2,
+              "last": 208,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 235.5,
+              "min": 208,
+              "n": 2,
+              "sum": 471
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 751,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 751,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 314136
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 315224,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 1,
+      "players": 1,
+      "server": {
+        "collected": true,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 1732.4482421875,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 9,
+              "last": 0,
+              "le002": 124,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 1.0000000000582,
+              "mean": 0.067669172932768,
+              "min": 0,
+              "n": 133,
+              "sum": 9.0000000000582
+            }
+          },
+          "uptimeMs": 453600
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:01:53Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1010.765625,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 3,
+              "last": 210,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 227,
+              "min": 208,
+              "n": 3,
+              "sum": 681
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 989,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 989,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 374380
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 375650,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 2,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 1769.900390625,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 10,
+              "last": 0,
+              "le002": 183,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 1.0000000000582,
+              "mean": 0.051813471502892,
+              "min": 0,
+              "n": 193,
+              "sum": 10.000000000058
+            }
+          },
+          "uptimeMs": 513841
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:02:53Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1052.6103515625,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 4,
+              "last": 200,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 220.25,
+              "min": 200,
+              "n": 4,
+              "sum": 881
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 1226,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 1226,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 434606
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 435739,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 3,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 1801.9755859375,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 19,
+              "last": 0,
+              "le002": 233,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 1.0000000000582,
+              "mean": 0.075396825396594,
+              "min": 0,
+              "n": 252,
+              "sum": 18.999999999942
+            }
+          },
+          "uptimeMs": 574075
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:03:54Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1094.6103515625,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 5,
+              "last": 203,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 216.8,
+              "min": 200,
+              "n": 5,
+              "sum": 1084
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 1464,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 1464,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 494868
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 496152,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 4,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 1826.8017578125,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 23,
+              "last": 0,
+              "le002": 289,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 1.0000000000582,
+              "mean": 0.073717948717762,
+              "min": 0,
+              "n": 312,
+              "sum": 22.999999999942
+            }
+          },
+          "uptimeMs": 634333
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:04:54Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1135.6728515625,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 6,
+              "last": 204,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 214.66666666667,
+              "min": 200,
+              "n": 6,
+              "sum": 1288
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 1701,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 1701,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 555090
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 556266,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 5,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 1850.8857421875,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 27,
+              "last": 0,
+              "le002": 344,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 1.0000000000582,
+              "mean": 0.072776280322979,
+              "min": 0,
+              "n": 371,
+              "sum": 26.999999999825
+            }
+          },
+          "uptimeMs": 694559
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:05:54Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 982.7041015625,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 7,
+              "last": 200,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 212.57142857143,
+              "min": 200,
+              "n": 7,
+              "sum": 1488
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 1938,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 1938,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 615319
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 616400,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 6,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 1875.7119140625,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 31,
+              "last": 0,
+              "le002": 400,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.078886310904467,
+              "min": 0,
+              "n": 431,
+              "sum": 33.999999999825
+            }
+          },
+          "uptimeMs": 754776
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:06:54Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1025.556640625,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 8,
+              "last": 204,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 211.5,
+              "min": 200,
+              "n": 8,
+              "sum": 1692
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 2176,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 2176,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 675601
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 676863,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 7,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 1910.466796875,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 35,
+              "last": 0,
+              "le002": 456,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.07739307535606,
+              "min": 0,
+              "n": 491,
+              "sum": 37.999999999825
+            }
+          },
+          "uptimeMs": 815061
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:07:55Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1067.361328125,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 9,
+              "last": 195,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 209.66666666667,
+              "min": 195,
+              "n": 9,
+              "sum": 1887
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 2413,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 2413,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 735915
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 737048,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 8,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 1934.03515625,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 37,
+              "last": 0,
+              "le002": 513,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.072727272726744,
+              "min": 0,
+              "n": 550,
+              "sum": 39.999999999709
+            }
+          },
+          "uptimeMs": 875373
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:08:55Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1108.908203125,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 10,
+              "last": 195,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 208.2,
+              "min": 195,
+              "n": 10,
+              "sum": 2082
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 2650,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 2650,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 796126
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 797193,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 9,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 1965.8994140625,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 41,
+              "last": 0,
+              "le002": 568,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.072249589490682,
+              "min": 0,
+              "n": 609,
+              "sum": 43.999999999825
+            }
+          },
+          "uptimeMs": 935592
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:09:55Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1150.337890625,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 11,
+              "last": 205,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 207.90909090909,
+              "min": 195,
+              "n": 11,
+              "sum": 2287
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 2888,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 2888,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 856361
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 857616,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 10,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 1991.0224609375,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 44,
+              "last": 0,
+              "le002": 625,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.070254110612594,
+              "min": 0,
+              "n": 669,
+              "sum": 46.999999999825
+            }
+          },
+          "uptimeMs": 995819
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:10:55Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 998.041015625,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 12,
+              "last": 205,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 207.66666666667,
+              "min": 195,
+              "n": 12,
+              "sum": 2492
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3125,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3125,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 916580
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 917781,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 11,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 2003.224609375,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 53,
+              "last": 0,
+              "le002": 675,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.076923076922837,
+              "min": 0,
+              "n": 728,
+              "sum": 55.999999999825
+            }
+          },
+          "uptimeMs": 1056049
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:11:56Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1040.0029296875,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 13,
+              "last": 214,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 208.15384615385,
+              "min": 195,
+              "n": 13,
+              "sum": 2706
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3362,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3362,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 976835
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 977896,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 12,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 2038.556640625,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 56,
+              "last": 0,
+              "le002": 732,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.074873096446479,
+              "min": 0,
+              "n": 788,
+              "sum": 58.999999999825
+            }
+          },
+          "uptimeMs": 1116300
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:12:56Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1081.5966796875,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 14,
+              "last": 195,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 207.21428571429,
+              "min": 195,
+              "n": 14,
+              "sum": 2901
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3599,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3599,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 1037092
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 1038149,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 13,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 2051.0009765625,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 60,
+              "last": 0,
+              "le002": 787,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.074380165289325,
+              "min": 0,
+              "n": 847,
+              "sum": 63.000000000058
+            }
+          },
+          "uptimeMs": 1176560
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:13:56Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1123.3544921875,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 15,
+              "last": 205,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 207.06666666667,
+              "min": 195,
+              "n": 15,
+              "sum": 3106
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3837,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3837,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 1097362
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 1098443,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 14,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 2075.1630859375,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 64,
+              "last": 0,
+              "le002": 843,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.073869900771326,
+              "min": 0,
+              "n": 907,
+              "sum": 66.999999999593
+            }
+          },
+          "uptimeMs": 1236820
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:14:56Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 972.458984375,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 16,
+              "last": 195,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 206.3125,
+              "min": 195,
+              "n": 16,
+              "sum": 3301
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 4075,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 4075,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 1157668
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 1158786,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 15,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 1756.8916015625,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 68,
+              "last": 0,
+              "le002": 898,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.073498964802891,
+              "min": 0,
+              "n": 966,
+              "sum": 70.999999999593
+            }
+          },
+          "uptimeMs": 1297140
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:15:57Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1014.1591796875,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 17,
+              "last": 208,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 206.41176470588,
+              "min": 195,
+              "n": 17,
+              "sum": 3509
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 4313,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 4313,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 1217933
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 1219126,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 16,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 1772.783203125,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 76,
+              "last": 0,
+              "le002": 950,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.07699805068141,
+              "min": 0,
+              "n": 1026,
+              "sum": 78.999999999127
+            }
+          },
+          "uptimeMs": 1357401
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:16:57Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1056.14453125,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 18,
+              "last": 200,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 206.05555555556,
+              "min": 195,
+              "n": 18,
+              "sum": 3709
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 4550,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 4550,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 1278171
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 1279274,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 17,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 1806.3271484375,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 82,
+              "last": 0,
+              "le002": 1003,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.078341013823651,
+              "min": 0,
+              "n": 1085,
+              "sum": 84.999999998661
+            }
+          },
+          "uptimeMs": 1417636
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:17:57Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1098.19140625,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 19,
+              "last": 215,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 206.52631578947,
+              "min": 195,
+              "n": 19,
+              "sum": 3924
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 4788,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 4788,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 1338404
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 1339612,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 18,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 1831.2001953125,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 85,
+              "last": 0,
+              "le002": 1060,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.076855895195744,
+              "min": 0,
+              "n": 1145,
+              "sum": 87.999999999127
+            }
+          },
+          "uptimeMs": 1477871
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:18:57Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1140.33203125,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 20,
+              "last": 203,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 206.35,
+              "min": 195,
+              "n": 20,
+              "sum": 4127
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 5026,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 5026,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 1398663
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 1399934,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 19,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 1864.501953125,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 91,
+              "last": 0,
+              "le002": 1113,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.078073089700272,
+              "min": 0,
+              "n": 1204,
+              "sum": 93.999999999127
+            }
+          },
+          "uptimeMs": 1538132
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:19:58Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 987.72265625,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 21,
+              "last": 205,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 206.28571428571,
+              "min": 195,
+              "n": 21,
+              "sum": 4332
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 5264,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 5264,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 1458935
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 1460214,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 20,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 1878.0244140625,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 93,
+              "last": 0,
+              "le002": 1171,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.075949367087733,
+              "min": 0,
+              "n": 1264,
+              "sum": 95.999999998894
+            }
+          },
+          "uptimeMs": 1598395
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:20:58Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1030.5595703125,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 22,
+              "last": 197,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 205.86363636364,
+              "min": 195,
+              "n": 22,
+              "sum": 4529
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 5501,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 5501,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 1519216
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 1520297,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 21,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 1912.068359375,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 96,
+              "last": 0,
+              "le002": 1228,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.074773413896446,
+              "min": 0,
+              "n": 1324,
+              "sum": 98.999999998894
+            }
+          },
+          "uptimeMs": 1658684
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:21:58Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1072.8330078125,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 23,
+              "last": 205,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 205.82608695652,
+              "min": 195,
+              "n": 23,
+              "sum": 4734
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 5739,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 5739,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 1579458
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 1580604,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 22,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 1924.5126953125,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 105,
+              "last": 0,
+              "le002": 1278,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.078091106290546,
+              "min": 0,
+              "n": 1383,
+              "sum": 107.99999999983
+            }
+          },
+          "uptimeMs": 1718931
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:22:59Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1114.7080078125,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 24,
+              "last": 209,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 205.95833333333,
+              "min": 195,
+              "n": 24,
+              "sum": 4943
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 5977,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 5977,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 1639734
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 1640938,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 23,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 1957.814453125,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 112,
+              "last": 0,
+              "le002": 1331,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.07969507969512,
+              "min": 0,
+              "n": 1443,
+              "sum": 115.00000000006
+            }
+          },
+          "uptimeMs": 1779204
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:23:59Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1156.4423828125,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 25,
+              "last": 201,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 205.76,
+              "min": 195,
+              "n": 25,
+              "sum": 5144
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 6215,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 6215,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 1699989
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 1701234,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 24,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 1971.2109375,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 116,
+              "last": 0,
+              "le002": 1386,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.079227696404522,
+              "min": 0,
+              "n": 1502,
+              "sum": 118.99999999959
+            }
+          },
+          "uptimeMs": 1839456
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:24:59Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1002.8095703125,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 26,
+              "last": 207,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 205.80769230769,
+              "min": 195,
+              "n": 26,
+              "sum": 5351
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 6453,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 6453,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 1760294
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 1761472,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 25,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 1995.802734375,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 120,
+              "last": 0,
+              "le002": 1442,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.079385403328804,
+              "min": 0,
+              "n": 1562,
+              "sum": 123.99999999959
+            }
+          },
+          "uptimeMs": 1899767
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:25:59Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1045.552734375,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 27,
+              "last": 213,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 206.07407407407,
+              "min": 195,
+              "n": 27,
+              "sum": 5564
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 6691,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 6691,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 1820629
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 1821753,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 26,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 2027.7685546875,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 125,
+              "last": 0,
+              "le002": 1496,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.079580505860329,
+              "min": 0,
+              "n": 1621,
+              "sum": 128.99999999959
+            }
+          },
+          "uptimeMs": 1960090
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:27:00Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1087.701171875,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 28,
+              "last": 196,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 205.71428571429,
+              "min": 195,
+              "n": 28,
+              "sum": 5760
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 6929,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 6929,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 1880862
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 1882060,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 27,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 2041.244140625,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 128,
+              "last": 0,
+              "le002": 1553,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.078524687685659,
+              "min": 0,
+              "n": 1681,
+              "sum": 131.99999999959
+            }
+          },
+          "uptimeMs": 2020324
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:28:00Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 1129.787109375,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 29,
+              "last": 191,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 205.20689655172,
+              "min": 191,
+              "n": 29,
+              "sum": 5951
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 7167,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 7167,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 1941123
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 1942314,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 28,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 2066.1875,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 132,
+              "last": 0,
+              "le002": 1608,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.078160919539862,
+              "min": 0,
+              "n": 1740,
+              "sum": 135.99999999936
+            }
+          },
+          "uptimeMs": 2080590
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:29:00Z",
+      "client": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 979.1142578125,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 30,
+              "last": 205,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 205.2,
+              "min": 191,
+              "n": 30,
+              "sum": 6156
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 7405,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 7405,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 2001388
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 2002645,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 29,
+      "players": 1,
+      "server": {
+        "collected": false,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 2100.7470703125,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 141,
+              "last": 0,
+              "le002": 1659,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.080555555555329,
+              "min": 0,
+              "n": 1800,
+              "sum": 144.99999999959
+            }
+          },
+          "uptimeMs": 2140853
+        }
+      }
+    },
+    {
+      "at": "2026-10-06T19:30:00Z",
+      "client": {
+        "collected": true,
+        "diagnostics": {
+          "counters": {
+            "errors": 3,
+            "warnings": 9
+          },
+          "memoryKb": 961.4453125,
+          "probes": {
+            "keybinds": {
+              "byOwner": [],
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [],
+              "present": []
+            },
+            "pendingCallbacks": {
+              "toServer": 1,
+              "total": 1
+            },
+            "points": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            },
+            "streaming": {
+              "allComplete": false,
+              "pending": 0
+            },
+            "syncEntities": {
+              "entities": 0,
+              "records": 0,
+              "recordsByOwner": [],
+              "spawning": 0
+            },
+            "targets": {
+              "total": 0
+            },
+            "ui": {
+              "hasProvider": false,
+              "nativeOpen": false
+            },
+            "zones": {
+              "byOwner": {
+                "cis_test": 20
+              },
+              "total": 20
+            }
+          },
+          "realm": "client",
+          "timings": {
+            "callbackRtt": {
+              "gt05": 31,
+              "last": 198,
+              "le002": 0,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 263,
+              "mean": 204.96774193548,
+              "min": 191,
+              "n": 31,
+              "sum": 6354
+            },
+            "clientSyncPass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 3,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 3,
+              "sum": 0
+            },
+            "zonePass": {
+              "gt05": 0,
+              "last": 0,
+              "le002": 7642,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 0,
+              "mean": 0,
+              "min": 0,
+              "n": 7642,
+              "sum": 0
+            }
+          },
+          "uptimeMs": 2061645
+        },
+        "pointsDebug": {
+          "insideCount": 0,
+          "insideIds": [],
+          "lastPassAt": 0,
+          "lastPassMs": 0
+        },
+        "zoneDebug": {
+          "debugDrawing": false,
+          "insideCount": 0,
+          "insideNames": [],
+          "lastPassAt": 2062803,
+          "lastPassMs": 0
+        }
+      },
+      "clientMissing": false,
+      "minute": 30,
+      "players": 1,
+      "server": {
+        "collected": true,
+        "diagnostics": {
+          "counters": {
+            "errors": 18,
+            "warnings": 33
+          },
+          "memoryKb": 1726.9169921875,
+          "probes": {
+            "commands": {
+              "byOwner": [],
+              "restricted": 0,
+              "total": 0
+            },
+            "modules": {
+              "known": 15,
+              "loaded": [
+                "lru"
+              ],
+              "present": []
+            },
+            "netHandlers": {
+              "byOwner": {
+                "cis_electricity": 13,
+                "cis_libs": 4
+              },
+              "total": 17
+            },
+            "pendingCallbacks": {
+              "byOwner": [],
+              "toClient": 0,
+              "total": 0
+            },
+            "rateBuckets": {
+              "cap": 256,
+              "srcs": 1
+            },
+            "syncRecords": {
+              "byOwner": {
+                "cis_test": 201,
+                "cis_test_c": 2
+              },
+              "clientLocal": 203,
+              "dynamic": 0,
+              "entities": 0,
+              "networked": 0,
+              "refused": 0,
+              "total": 203
+            }
+          },
+          "realm": "server",
+          "timings": {
+            "serverSyncPass": {
+              "gt05": 146,
+              "last": 0,
+              "le002": 1713,
+              "le005": 0,
+              "le015": 0,
+              "le05": 0,
+              "max": 4,
+              "mean": 0.080688542227286,
+              "min": 0,
+              "n": 1859,
+              "sum": 150.00000000052
+            }
+          },
+          "uptimeMs": 2201116
+        }
+      }
+    }
+  ],
+  "verdict": {
+    "clientMemoryDeltaKb": 0.2353515625,
+    "fromMinute": 1,
+    "ok": true,
+    "serverMemoryDeltaKb": -5.53125,
+    "toMinute": 30,
+    "why": "pass"
+  },
+  "verdict30": {
+    "clientMemoryDeltaKb": 0.2353515625,
+    "fromMinute": 1,
+    "ok": true,
+    "serverMemoryDeltaKb": -5.53125,
+    "toMinute": 30,
+    "why": "pass"
+  }
+}

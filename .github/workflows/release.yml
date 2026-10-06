@@ -1,0 +1,61 @@
+# Prepared, not triggered. Do not push a tag from an agent session.
+#
+# A tag matching v* runs the full gate and the mutation gate, builds
+# dist/cis_libs-<version>.zip, and attaches it to a *draft* GitHub release.
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RUNNER: ubuntu-24.04
+  LUACHECK_VERSION: 1.2.0
+
+jobs:
+  release:
+    name: draft release
+    runs-on: ${{ env.RUNNER }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Lua 5.4 and luacheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.4 luarocks
+          sudo luarocks install luacheck "$LUACHECK_VERSION"
+          lua5.4 -v
+
+      - name: Full gate
+        run: npm run test:all
+
+      - name: Mutation gate
+        run: npm run test:mutate
+
+      - name: Attach draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          ZIP="dist/cis_libs-${VERSION}.zip"
+          test -f "$ZIP"
+          gh release create "${GITHUB_REF_NAME}" "$ZIP" \
+            --draft \
+            --title "cis_libs ${VERSION}" \
+            --notes "Draft. Contract api=1. See CHANGELOG.md."

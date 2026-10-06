@@ -1,0 +1,7 @@
+PASS  B1 a provider declaring a different contract MAJOR is refused   
+PASS  B2 and the reason names the field that has to change   
+PASS  B3 and names WHICH resource to update   
+PASS  B4 and nothing was registered -- the refusal happens first   
+PASS  B5 and the refusal is in the audit log -- the half an operator wants later   
+PASS  B6 recording WHICH kind of refusal it was   
+RESULT: 6 passed, 0 failed

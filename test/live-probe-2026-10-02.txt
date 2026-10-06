@@ -1,0 +1,55 @@
+===================== cis_libs native probe =====================
+Await(resolve(a,b,c)) -> n=1  [1]=first [2]=nil [3]=nil
+PASS  Q1 Await returns exactly ONE value (the first resolve arg)   n=1
+Await(rejected) -> pcall ok=false err=refused
+PASS  Q2 a rejection RAISES, carrying the reason (pcall catches it)   ok=false err=refused
+GetInvokingResource() called internally -> nil
+PASS  Q3 GetInvokingResource is nil for an in-VM call   got nil
+GetCurrentResourceName() -> cisprobe
+GetPlayerRoutingBucket exists = true
+PASS  Q4 GetPlayerRoutingBucket is a callable server native   
+GetPlayerRoutingBucket(1) with nobody online -> ok=true value=0
+PASS  Q5 invalid-src behaviour recorded (not asserted)   ok=true value=0
+cis_libs resource state = started
+PASS  Q6 cis_libs is started   started
+exports[cis_libs]:GetCapabilities() -> ok=true type=table
+PASS  Q7 a cis_libs export is callable from another resource   ok=true type=table
+RegisterCapability("discord","cisprobe:Evil") -> ok=true why=nil
+recorded owner of slot "discord" = cisprobe
+PASS  Q8 the slot owner is the CALLING resource, not the provider string   recorded cisprobe, claimed cisprobe (the string says cisprobe, so this cannot distinguish the two -- the forged-claim case is Q9
+RegisterCapability("migration","cis_core:FakeMigrate") -> ok=true
+recorded owner of slot "migration" = cisprobe  (the string CLAIMED cis_core)
+PASS  Q9 a forged provider string does NOT become the owner   recorded cisprobe -- before the fix this would read "cis_core"
+--- raw GetCapabilities() ---
+  ok=true type=table
+  [dataProbe] type=table owner=nil resolved=false
+  [database] type=table owner=nil resolved=false
+  [discord] type=table owner=cisprobe resolved=false
+  [doors] type=table owner=nil resolved=false
+  [doorsClient] type=table owner=nil resolved=false
+  [framework] type=table owner=nil resolved=false
+  [inventory] type=table owner=nil resolved=false
+  [inventoryProvider] type=table owner=nil resolved=false
+  [migration] type=table owner=nil resolved=false
+  [security] type=table owner=nil resolved=false
+  [target] type=table owner=nil resolved=false
+GetDiscordConfig() from cisprobe -> 0 key(s)
+PASS  Q10 a foreign caller gets an EMPTY webhook table (S2)   0 keys
+SetConfig from cisprobe -> false
+PASS  Q11 a bad config is refused by the validator (H1)   got false -- note: as the first supplier this one is allowed to supply, so a false here means the value check fired
+--- audit.log ---
+  readable=true lines=7
+PASS  Q12 the audit log is written where an operator can read it   
+PASS  Q13 and it HOLDS EVERY LINE, not just the last (lines=7) -- SaveResourceFile has no append mode, so this is the whole trap   
+PASS  Q14 and it records the registrations   
+--- audit.log contents ---
+  2026-10-02T17:03:45 cis_libs capability-refused slot=doors caller=cisprobebad reason=contract-mismatch
+  2026-10-02T17:03:46 cis_libs capability-registered slot=discord owner=cisprobe provider=cisprobe:Evil
+  2026-10-02T17:03:46 cis_libs capability-registered slot=migration owner=cisprobe provider=cis_core:FakeMigrate
+  2026-10-02T17:03:46 cis_libs capability-released slot=discord owner=cisprobe
+  2026-10-02T17:03:46 cis_libs capability-released slot=migration owner=cisprobe
+  2026-10-02T17:03:46 cis_libs capability-registered slot=discord owner=cisprobe provider=cisprobe:Evil
+  2026-10-02T17:03:46 cis_libs capability-released slot=discord owner=cisprobe
+=============================================================
+RESULT: 14 passed, 0 failed
+=============================================================

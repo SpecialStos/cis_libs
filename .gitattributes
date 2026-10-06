@@ -1,0 +1,30 @@
+# Normalise line endings in the repository, not just in the working tree.
+#
+# Without this file a Windows checkout with core.autocrlf=true checks Lua,
+# Markdown and JSON out with CRLF, and every tool that compares generated
+# output against its committed file starts failing on a byte that git itself
+# considers insignificant. That is not a cosmetic problem: it means the
+# generated-file check reports "stale" on a tree where nothing is stale, so
+# the check gets disabled or ignored, and then it stops catching the drift it
+# exists to catch.
+#
+# `* text=auto eol=lf` makes LF the form in the repository AND in the working
+# tree on every platform. Generated output is then byte-comparable everywhere.
+* text=auto eol=lf
+
+# Binary assets must never be line-ending translated.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.pdf binary
+
+# Source archives from a tag must not include the harness, tools, or 1.x docs.
+# types/ is not listed: it ships.
+test/ export-ignore
+tools/ export-ignore
+bench/ export-ignore
+.github/ export-ignore
+docs/archive/ export-ignore
