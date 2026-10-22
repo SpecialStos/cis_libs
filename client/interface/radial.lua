@@ -13,7 +13,8 @@
 local I = CisInterface
 
 local COMMAND = '+cis_libs_radial'
-local DISABLED_WHILE_OPEN = { 1, 2, 14, 15, 16, 17, 24, 25, 37, 140, 141, 142, 199, 200, 257, 263 }
+-- 22 (jump, Space): a click on a slot was also a jump while walking.
+local DISABLED_WHILE_OPEN = { 1, 2, 14, 15, 16, 17, 22, 24, 25, 37, 140, 141, 142, 199, 200, 257, 263 }
 local MAX_ITEMS = 64
 
 local items = {}   -- ordered global items
@@ -36,7 +37,7 @@ local function readItem(item, owner)
     return {
         id = item.id,
         label = I.str(item.label, 64) or '',
-        icon = I.str(item.icon, 256),
+        icon = I.icon(item.icon),
         iconColor = I.color(item.iconColor),
         menu = type(item.menu) == 'string' and item.menu or nil,
         onSelect = item.onSelect,
@@ -152,11 +153,21 @@ local function addRadialItem(data)
         end
         clean[#clean + 1] = it
     end
+    -- ALL OR NOTHING. The cap used to be checked item by item, so a list that
+    -- overflowed was half added (and a replaced item half removed) before the
+    -- error came back.
+    local incoming, count = {}, 0
+    for _, it in ipairs(clean) do
+        if not incoming[it.id] then incoming[it.id] = true; count = count + 1 end
+    end
+    for _, it in ipairs(items) do
+        if not incoming[it.id] then count = count + 1 end
+    end
+    if count > MAX_ITEMS then
+        return false, ('at most %d radial items'):format(MAX_ITEMS)
+    end
     for _, it in ipairs(clean) do
         removeItem(it.id)
-        if #items >= MAX_ITEMS then
-            return false, ('at most %d radial items'):format(MAX_ITEMS)
-        end
         items[#items + 1] = it
         CisOwned.track(owned, owner, 'radialItem', it.id)
     end
@@ -217,7 +228,7 @@ local function disableRadial(state)
     return true
 end
 
-I.on('radial', { token = 'integer', action = 'string', index = '?integer' }, function(data)
+I.on('radial', { token = 'string', action = 'string', index = '?integer' }, function(data)
     if not open or open.token ~= data.token then
         return
     end

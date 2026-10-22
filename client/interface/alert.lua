@@ -81,7 +81,7 @@ local function closeAlertDialog()
     return settle(current, 'cancel')
 end
 
-I.on('alert', { id = 'integer', result = 'string' }, function(data)
+I.on('alert', { id = 'string', result = 'string' }, function(data)
     if current and current.id == data.id then
         settle(current, data.result == 'confirm' and 'confirm' or 'cancel')
     end

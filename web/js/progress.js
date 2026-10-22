@@ -1,11 +1,14 @@
 import { h, svg, on, setting, t, leave, layer, reducedMotion } from './core.js'
 
-// The fill is a CSS animation; only the circle's % uses rAF, while shown.
+// The fill is a CSS animation. The circle's % follows it each frame; the bar,
+// or anything under reduced motion, updates aria-valuenow four times a second,
+// so a screen reader is not stuck at 0 for the whole action.
 let current = null
 
 function stop() {
   if (!current) return
   cancelAnimationFrame(current.raf)
+  clearTimeout(current.timer)
   leave(current.el)
   current = null
 }
@@ -29,7 +32,7 @@ on('progress:start', (d) => {
     style: { '--cis-duration': `${duration}ms` }, role: 'progressbar', 'aria-label': label || 'progress', 'aria-valuemin': 0, 'aria-valuemax': 100,
   }, label && h('div', { class: 'cis-shadowtext', text: label }), body, d.canCancel && h('div', { class: 'cis-hint cis-shadowtext', text: t('progressCancel') }))
   layer('cis-progress').appendChild(el)
-  const self = { el, raf: 0 }
+  const self = { el, raf: 0, timer: 0 }
   current = self
   const started = performance.now()
   const tick = () => {
@@ -37,7 +40,9 @@ on('progress:start', (d) => {
     const p = duration ? Math.min(100, Math.floor(((performance.now() - started) / duration) * 100)) : 100
     el.setAttribute('aria-valuenow', String(p))
     if (text) text.textContent = `${p}%`
-    if (p < 100 && text && !reducedMotion()) self.raf = requestAnimationFrame(tick)
+    if (p >= 100) return
+    if (text && !reducedMotion()) self.raf = requestAnimationFrame(tick)
+    else self.timer = setTimeout(tick, 250)
   }
   tick()
 })

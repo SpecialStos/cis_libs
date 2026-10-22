@@ -2738,6 +2738,261 @@
       "find": "        reportGaveUp(id)\n        return",
       "replace": "        TriggerServerEvent('cis_libs:server:syncGaveUp', id)\n        return",
       "why": "Send one give-up event per key. Nine bad models exceed the 8-a-second limit and the rest are dropped."
+    },
+    {
+      "id": "M398",
+      "file": "client/interface/nui.lua",
+      "find": "    return ('%x-%08x%08x'):format(nextId, math.random(0, 0x3fffffff), math.random(0, 0x3fffffff))",
+      "replace": "    return tostring(nextId)",
+      "why": "NUI ids are a bare counter again. Any frame can count from 1 and answer the open dialog."
+    },
+    {
+      "id": "M399",
+      "file": "shared/utf8.lua",
+      "find": "    return s:sub(1, cut - 1)",
+      "replace": "    return s:sub(1, maxBytes)",
+      "why": "Clip cuts on a byte, not a character. A Cyrillic title arrives with half a character at the end."
+    },
+    {
+      "id": "M400",
+      "file": "shared/utf8.lua",
+      "find": "    if c >= 0xC2 and c <= 0xDF then",
+      "replace": "    if c >= 0xC0 and c <= 0xDF then",
+      "why": "Accept overlong two-byte sequences. json.encode then raises on a string clean() passed."
+    },
+    {
+      "id": "M401",
+      "file": "server/interface.lua",
+      "find": "    return CisUtf8.clip(CisUtf8.clean(v), max)",
+      "replace": "    return v:sub(1, max)",
+      "why": "NotifyPlayer sends raw bytes cut anywhere. An invalid byte reaches the client's json.encode."
+    },
+    {
+      "id": "M402",
+      "file": "client/interface/input.lua",
+      "find": "    local o = row.options[v]\n    return o and o.value or nil",
+      "replace": "    return row.options[v] and v or nil",
+      "why": "Return the page's index instead of the caller's value. A select answers 2, not 'b'."
+    },
+    {
+      "id": "M403",
+      "file": "client/interface/input.lua",
+      "find": "            if value == nil or seen[x] then return false end",
+      "replace": "            if value == nil then return false end",
+      "why": "Allow a multi-select to name the same option twice. The caller gets a duplicate pick."
+    },
+    {
+      "id": "M404",
+      "file": "client/interface/input.lua",
+      "find": "        if row.maxSelectedValues and #out > row.maxSelectedValues then return false end\n",
+      "replace": "",
+      "why": "Skip maxSelectedValues in Lua. A post picks every option where the row allows one."
+    },
+    {
+      "id": "M405",
+      "file": "client/interface/input.lua",
+      "find": "        if s.allowCancel then settle(s, nil) end",
+      "replace": "        settle(s, nil)",
+      "why": "Honour a posted cancel on a dialog opened with allowCancel = false."
+    },
+    {
+      "id": "M406",
+      "file": "client/interface/input.lua",
+      "find": "    return d <= ((m == 2 and leap) and 29 or DAYS[m])",
+      "replace": "    return d <= 31",
+      "why": "Accept any day up to 31 in any month. 2024-02-30 is returned as a date."
+    },
+    {
+      "id": "M407",
+      "file": "client/interface/input.lua",
+      "find": "    if kind == 'input' then\n        minLength = minLength or count(minv)",
+      "replace": "    if kind == 'input' or kind == 'textarea' then\n        minLength = minLength or count(minv)",
+      "why": "Read a textarea's min/max as lengths again. { min = 3, max = 10 } caps the text at ten characters."
+    },
+    {
+      "id": "M408",
+      "file": "client/interface/input.lua",
+      "find": "        local n = CisUtf8.units(v)",
+      "replace": "        local n = utf8.len(v)",
+      "why": "Count code points, not UTF-16 units. Lua accepts emoji text the page counted as too long."
+    },
+    {
+      "id": "M409",
+      "file": "client/interface/input.lua",
+      "find": "    if row.disabled then\n        return true, disabledValue(row)\n    end",
+      "replace": "    if row.disabled then\n        return true, v\n    end",
+      "why": "Take a disabled field's value from the page. A post changes a field the player cannot edit."
+    },
+    {
+      "id": "M410",
+      "file": "client/interface/input.lua",
+      "find": "            I.send('input:invalid', { id = s.id, index = i })\n",
+      "replace": "",
+      "why": "Refuse an answer without telling the page. The dialog sits there with nothing to say."
+    },
+    {
+      "id": "M411",
+      "file": "client/interface/input.lua",
+      "find": "        return inBounds(row, v), v",
+      "replace": "        return true, v",
+      "why": "Skip number min/max in Lua. A post returns 121 for an age capped at 120."
+    },
+    {
+      "id": "M412",
+      "file": "client/interface/skillcheck.lua",
+      "find": "    local slack = round.degPerMs * math.min(math.max(frameMs, 0), MAX_FRAME_MS)",
+      "replace": "    local slack = round.degPerMs * math.max(frameMs, 0)",
+      "why": "Widen the zone by the whole frame time. A hitch turns a late press into a hit."
+    },
+    {
+      "id": "M413",
+      "file": "client/interface/skillcheck.lua",
+      "find": "    if angle > round.start + round.size + slack then\n        return 'miss'\n    end\n    return nil",
+      "replace": "    return nil",
+      "why": "Never fail a round with no press. The thread disables attack and aim until something cancels it."
+    },
+    {
+      "id": "M414",
+      "file": "client/interface/skillcheck.lua",
+      "find": "        if key ~= round.key then return 'miss' end\n",
+      "replace": "",
+      "why": "Accept any of the check's keys in the zone. The wrong key passes."
+    },
+    {
+      "id": "M415",
+      "file": "client/interface/skillcheck.lua",
+      "find": "    local verdict = judge(round, (now - s.t0) * round.degPerMs, slack, pressed)",
+      "replace": "    local verdict = judge(round, (now - s.t0) * round.degPerMs, 0, pressed)",
+      "why": "No frame slack. A press seen one frame after the zone, at 30 fps, is a miss."
+    },
+    {
+      "id": "M416",
+      "file": "client/interface/radial.lua",
+      "find": "    if count > MAX_ITEMS then",
+      "replace": "    if false then",
+      "why": "Drop the radial item cap. A list adds a 65th item."
+    },
+    {
+      "id": "M417",
+      "file": "client/interface/radial.lua",
+      "find": "local DISABLED_WHILE_OPEN = { 1, 2, 14, 15, 16, 17, 22, 24,",
+      "replace": "local DISABLED_WHILE_OPEN = { 1, 2, 14, 15, 16, 17, 24,",
+      "why": "Leave jump enabled while the radial is open. A click on a slot is also a jump."
+    },
+    {
+      "id": "M418",
+      "file": "client/interface/menu.lua",
+      "find": "local BACK = { [194] = 'Backspace',",
+      "replace": "local BACK = { [177] = 'Backspace', [194] = 'Backspace',",
+      "why": "Treat control 177 as back. It is also the right mouse button, so aiming closes the menu."
+    },
+    {
+      "id": "M419",
+      "file": "client/interface/theme.lua",
+      "find": "            if not COLOR_KEYS[k] then",
+      "replace": "            if type(k) ~= 'string' then",
+      "why": "Accept any colours key. A theme overwrites --cis-place or --cis-p and breaks a component."
+    },
+    {
+      "id": "M420",
+      "file": "client/interface/progress.lua",
+      "find": "    if not DoesAnimDictExist(dict) then",
+      "replace": "    if false then",
+      "why": "Request a dictionary the game does not have. The ped is frozen for the whole load timeout."
+    },
+    {
+      "id": "M421",
+      "file": "client/interface/progress.lua",
+      "find": "    if not I.waitReady() then\n        return false, 'ui not ready'\n    end\n    if current then\n        return false, 'a progress is already running'",
+      "replace": "    if current then\n        return false, 'a progress is already running'",
+      "why": "Start a progress before the page loads. The ped is frozen with nothing on screen."
+    },
+    {
+      "id": "M422",
+      "file": "client/interface/nui.lua",
+      "find": "    if type(value) == 'table' then\n        local last",
+      "replace": "    if false then\n        local last",
+      "why": "Ignore an icon given as a list ({ 'fas', 'box' }, the ox_lib shape). The slot is empty."
+    },
+    {
+      "id": "M423",
+      "file": "web/js/core.js",
+      "check": "web",
+      "find": "  if (!fromGame(e)) return\n",
+      "replace": "",
+      "why": "Take messages from any frame. Another resource's page draws a fake dialog."
+    },
+    {
+      "id": "M424",
+      "file": "web/js/core.js",
+      "check": "web",
+      "find": " && !/[\\u0000-\\u007f]/.test(name)",
+      "replace": "",
+      "why": "Draw a short ASCII icon name as text again. An unknown name such as 'van2' shows the word."
+    },
+    {
+      "id": "M425",
+      "file": "web/js/core.js",
+      "check": "web",
+      "find": "    if (COLOR_KEYS.has(k) && typeof v === 'string' && COLOR.test(v)) css(k, v)",
+      "replace": "    if (/^[a-z][a-z0-9-]{0,30}$/.test(k) && typeof v === 'string' && COLOR.test(v)) css(k, v)",
+      "why": "Set any token name from a theme. --cis-place is overwritten with a colour."
+    },
+    {
+      "id": "M426",
+      "file": "web/js/app.js",
+      "check": "web",
+      "find": "    if (!e.repeat) post('escape', {})",
+      "replace": "    post('escape', {})",
+      "why": "Report every key repeat of a held Escape. One press closes every layer."
+    },
+    {
+      "id": "M427",
+      "file": "web/js/context.js",
+      "check": "web",
+      "find": "    onclick: (e) => !(e && e.target && e.target.closest && e.target.closest('a[href]')) && usable(i) && send('select', i),",
+      "replace": "    onclick: () => usable(i) && send('select', i),",
+      "why": "A click on a link in an option's description also picks the option."
+    },
+    {
+      "id": "M428",
+      "file": "web/js/progress.js",
+      "check": "web",
+      "find": "    else self.timer = setTimeout(tick, 250)\n",
+      "replace": "",
+      "why": "Update a bar's aria-valuenow only once. A screen reader hears 0% for the whole action."
+    },
+    {
+      "id": "M429",
+      "file": "web/style.css",
+      "check": "web",
+      "find": "[data-pos=\"top\"], [data-pos=\"bottom\"] {left:50%;--cis-place:translate(-50%,0);transform:var(--cis-place)}",
+      "replace": "[data-pos=\"top\"], [data-pos=\"bottom\"] {left:50%;translate:-50% 0}",
+      "why": "Centre with the standalone translate property. CEF 103 ignores it and the toasts sit off centre."
+    },
+    {
+      "id": "M430",
+      "file": "web/js/dialog.js",
+      "check": "web",
+      "find": "  if (cur.before && cur.before.isConnected !== false && typeof cur.before.focus === 'function') cur.before.focus()\n",
+      "replace": "",
+      "why": "Leave focus on a removed dialog. Keyboard input goes nowhere until the player clicks."
+    },
+    {
+      "id": "M431",
+      "file": "web/js/dialog.js",
+      "check": "web",
+      "find": "  f.target?.setAttribute('aria-invalid', 'true')\n  f.target?.focus()\n",
+      "replace": "",
+      "why": "Ignore Lua's refusal on the page. The field is not marked and the dialog gives no reason."
+    },
+    {
+      "id": "M432",
+      "file": "web/js/validate.js",
+      "check": "web",
+      "find": "  return days !== undefined && d >= 1 && d <= days",
+      "replace": "  return d >= 1 && d <= 31",
+      "why": "Accept day 31 in every month. 2024-02-30 is a valid date on the page."
     }
   ]
 }

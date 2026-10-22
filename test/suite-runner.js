@@ -101,7 +101,7 @@ const SHARED = [
   'shared/loopguard.lua',
   'shared/defaults.lua', 'shared/registry.lua', 'shared/grid.lua',
   'shared/zonegeom.lua', 'shared/hooks.lua',
-  'shared/pending.lua', 'shared/owned.lua', 'shared/config.lua',
+  'shared/pending.lua', 'shared/utf8.lua', 'shared/owned.lua', 'shared/config.lua',
   'shared/ready.lua', 'shared/histogram.lua', 'shared/detect.lua',
 ]
 const ALGO_UTIL = [

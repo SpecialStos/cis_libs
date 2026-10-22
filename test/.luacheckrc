@@ -27,7 +27,7 @@ self = false
 -- In shipped code an unused parameter is a real smell and stays reported.
 unused_args = false
 
--- 521 names writable in this directory.
+-- 522 names writable in this directory.
 globals = {
     "AddCommand", "AddDoorToSystem", "AddEventHandler", "AddStateBagChangeHandler",
     "AddTextComponentString", "AddTextComponentSubstringPlayerName", "AttachEntityToEntity",
@@ -56,10 +56,10 @@ globals = {
     "CisTestControl", "CisTestJson", "CisTestPlayer", "CisTestReport", "CisTestRing",
     "CisTestRunner", "CisTestSoak", "CisTestStatus", "CisTime", "CisTimer", "CisTiming",
     "CisUiConfirm", "CisUiInput", "CisUiNotify", "CisUiProgress", "CisUiTextUIHide",
-    "CisUiTextUIIsOpen", "CisUiTextUIShow", "CisValidate", "CisWindow", "CisWorldClosest",
-    "CisWorldNearby", "CisZoneGeom", "CisZonesContains", "CisZonesCreate", "CisZonesGetAll",
-    "CisZonesGetCurrent", "CisZonesGetNearby", "CisZonesRemove", "Citizen",
-    "ClearAllHelpMessages", "ClearPedTasks", "ClearTimeout",
+    "CisUiTextUIIsOpen", "CisUiTextUIShow", "CisUtf8", "CisValidate", "CisWindow",
+    "CisWorldClosest", "CisWorldNearby", "CisZoneGeom", "CisZonesContains",
+    "CisZonesCreate", "CisZonesGetAll", "CisZonesGetCurrent", "CisZonesGetNearby",
+    "CisZonesRemove", "Citizen", "ClearAllHelpMessages", "ClearPedTasks", "ClearTimeout",
     "ClearVehicleCustomPrimaryColour", "ClearVehicleCustomSecondaryColour", "Config",
     "CreateDui", "CreateObject", "CreateObjectNoOffset", "CreatePed",
     "CreateRuntimeTextureFromDuiHandle", "CreateRuntimeTxd", "CreateThread",

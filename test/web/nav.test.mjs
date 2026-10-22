@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { step, first, last, keyIntent, trapTab, angleToIndex, pointToAngle, paginate } from '../../web/js/nav.js'
-import { resolveDifficulty, makeRound, angleAt, judge, expired, PRESETS } from '../../web/js/skill.js'
+import { angleAt } from '../../web/js/skill.js'
 
 test('step wraps and skips disabled items', () => {
   const disabled = new Set([1, 2])
@@ -69,26 +69,8 @@ test('paginate: a full page reserves its last slot for "more" and wraps', () => 
   assert.equal(paginate(20, 8, 3).start, 0, 'wraps to the first page')
 })
 
-test('skill: difficulty resolution clamps custom values and rejects junk', () => {
-  assert.deepEqual(resolveDifficulty('easy'), PRESETS.easy)
-  assert.equal(resolveDifficulty('impossible'), null)
-  assert.deepEqual(resolveDifficulty({ areaSize: 1000, speedMultiplier: 0 }), { areaSize: 180, speedMultiplier: 0.25 })
-  assert.equal(resolveDifficulty({ areaSize: 'x', speedMultiplier: 1 }), null)
-})
-
-test('skill: rounds place the zone after the first quarter and judge hits, misses, wrong keys', () => {
-  const lo = makeRound(PRESETS.hard, ['w', 'a'], () => 0)
-  const hi = makeRound(PRESETS.hard, ['w', 'a'], () => 0.999)
-  assert.equal(lo.start, 90)
-  assert.ok(hi.start + hi.size <= 350)
-  assert.equal(lo.key, 'w')
-  assert.equal(hi.key, 'a')
-  const r = makeRound({ areaSize: 40, speedMultiplier: 1 }, ['e'], () => 0.5)
-  assert.equal(judge(r, r.start + 1, 'e'), 'hit')
-  assert.equal(judge(r, r.start - 1, 'e'), 'fail')
-  assert.equal(judge(r, r.start + 1, 'q'), 'fail')
-  assert.equal(expired(r, r.start + r.size + 0.1), true)
-  assert.equal(expired(r, r.start), false)
+test('skill: the page draws the needle from the round Lua sends (Lua judges it)', () => {
+  const r = { degPerMs: 360 / 2000 }
   assert.equal(angleAt(r, 2000), 360, 'one turn in 2s at speed 1')
   assert.equal(angleAt(r, -5), 0)
 })

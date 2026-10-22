@@ -45,7 +45,14 @@ local function interrupted(s, ped)
     return nil
 end
 
+-- A dictionary that is not in the game (a typo, or one from a pack that is
+-- not streamed) is refused at once: RequestAnimDict on it never loads, and the
+-- action used to sit on a frozen ped for the whole LOAD_TIMEOUT.
 local function loadDict(dict)
+    if not DoesAnimDictExist(dict) then
+        I.log('warn', ('progress: animation dictionary %s does not exist'):format(dict))
+        return false
+    end
     RequestAnimDict(dict)
     local deadline = GetGameTimer() + LOAD_TIMEOUT
     while not HasAnimDictLoaded(dict) and GetGameTimer() < deadline do
@@ -233,6 +240,11 @@ local function run(kind, data)
     local duration = I.num(data.duration, 0, 3600000)
     if not duration then
         return false, 'progress needs a duration in milliseconds'
+    end
+    -- The bar is the only sign an action is running: without the page it would
+    -- freeze the ped for the whole duration with nothing on screen.
+    if not I.waitReady() then
+        return false, 'ui not ready'
     end
     if current then
         return false, 'a progress is already running'

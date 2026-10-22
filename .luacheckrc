@@ -143,7 +143,7 @@ read_globals = {
 -- reach its neighbour through a global. That is the design, not a leak,
 -- and it is the reason these names are declared at all.
 --
--- 126 names, read out of the source by build-libglobals.js.
+-- 127 names, read out of the source by build-libglobals.js.
 globals = {
     "CIS_DUMP_TARGET", "Cis", "CisArray", "CisCache", "CisCallable", "CisCallbackLimits",
     "CisCheckNetSchema", "CisClass", "CisCommandAdd", "CisCommandList", "CisCommandNames",
@@ -164,8 +164,8 @@ globals = {
     "CisServerZoneSphere", "CisSet", "CisSparse", "CisStatebagOnEntity",
     "CisStatebagOnPlayer", "CisString", "CisSyncEnabled", "CisTable", "CisTime", "CisTimer",
     "CisTiming", "CisUiConfirm", "CisUiInput", "CisUiNotify", "CisUiProgress",
-    "CisUiTextUIHide", "CisUiTextUIIsOpen", "CisUiTextUIShow", "CisValidate", "CisWindow",
-    "CisWorldClosest", "CisWorldNearby", "CisZoneGeom", "CisZonesContains",
+    "CisUiTextUIHide", "CisUiTextUIIsOpen", "CisUiTextUIShow", "CisUtf8", "CisValidate",
+    "CisWindow", "CisWorldClosest", "CisWorldNearby", "CisZoneGeom", "CisZonesContains",
     "CisZonesCreate", "CisZonesGetAll", "CisZonesGetCurrent", "CisZonesGetNearby",
     "CisZonesRemove", "Config", "DebugLog", "DiscordConfig", "DrawText3D",
     "GetCurrentWeaponData", "GetPlayerVehicleSeat", "GetTableSize", "GetVehicleProperties",

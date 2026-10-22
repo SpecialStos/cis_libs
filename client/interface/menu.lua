@@ -11,7 +11,8 @@
 local I = CisInterface
 
 local KEY = { up = 172, down = 173, left = 174, right = 175, enter = 191 }
-local BACK = { [177] = 'Backspace', [194] = 'Backspace', [200] = 'Escape', [202] = 'Escape' }
+-- Not 177: it is also the RIGHT MOUSE BUTTON, so aiming closed the menu.
+local BACK = { [194] = 'Backspace', [200] = 'Escape', [202] = 'Escape' }
 -- Navigation, pause, phone, weapon wheel scroll: ours while a menu is open.
 local ALWAYS_DISABLED = { 14, 15, 16, 17, 27, 172, 173, 174, 175, 176, 177, 191, 194, 199, 200, 201, 202 }
 local INPUT_DISABLED = { 1, 2, 21, 22, 24, 25, 30, 31, 36, 37, 44 }
@@ -51,7 +52,7 @@ local function readOption(o)
     return {
         label = I.str(o.label, 256) or '',
         description = I.str(o.description, 1024),
-        icon = I.str(o.icon, 256),
+        icon = I.icon(o.icon),
         iconColor = I.color(o.iconColor),
         values = readValues(o.values),
         defaultIndex = math.floor(I.num(o.defaultIndex, 1, 128, 1)),

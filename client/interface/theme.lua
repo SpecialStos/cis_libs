@@ -3,7 +3,8 @@
 --
 -- Both are validated here rather than trusted to the page: a theme value ends
 -- up in style.setProperty, and a value like url(...) would make the UI fetch
--- from the network, which this library never does.
+-- from the network. (The page does load an icon or image a consumer names by
+-- URL; a theme is never a way in.)
 
 local I = CisInterface
 
@@ -18,6 +19,13 @@ local NOTIFY_POSITIONS = {
 local TEXTUI_POSITIONS = { ['right-center'] = true, ['left-center'] = true, ['top-center'] = true, ['bottom-center'] = true }
 local PROGRESS_POSITIONS = { bottom = true, middle = true }
 local MENU_POSITIONS = { ['top-left'] = true, ['top-right'] = true, ['bottom-left'] = true, ['bottom-right'] = true }
+-- The colour tokens style.css reads. Any other key was accepted and set as a
+-- --cis-<key> property, so a theme could overwrite --cis-place or --cis-p (the
+-- layout and progress variables) with a colour and break a component.
+local COLOR_KEYS = {
+    accent = true, ['accent-fg'] = true, bg = true, surface = true, hover = true, border = true,
+    fg = true, muted = true, backdrop = true, inform = true, success = true, warning = true, error = true,
+}
 local LOCALE_KEYS = {
     'confirm', 'cancel', 'close', 'back', 'more', 'notifications', 'progressCancel',
     'required', 'invalid', 'invalidNumber', 'min', 'max', 'minLength', 'maxLength',
@@ -82,8 +90,8 @@ local function setUiTheme(data)
         local colors = {}
         for k, v in pairs(next_.colors or {}) do colors[k] = v end
         for k, v in pairs(data.colors) do
-            if type(k) ~= 'string' or not k:match('^[a-z][a-z0-9%-]*$') or #k > 31 then
-                return false, ('colors key %s is not a token name'):format(tostring(k))
+            if not COLOR_KEYS[k] then
+                return false, ('colors key %s is not a colour token'):format(tostring(k))
             end
             local c = I.color(v)
             if not c then return false, ('colors.%s is not a CSS colour'):format(k) end

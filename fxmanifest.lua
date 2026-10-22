@@ -50,6 +50,7 @@ shared_scripts {
     'shared/zonegeom.lua',
     'shared/hooks.lua',
     'shared/pending.lua',
+    'shared/utf8.lua',
     'shared/owned.lua',
     'shared/config.lua',
     'shared/histogram.lua',

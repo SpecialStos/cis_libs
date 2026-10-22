@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { normalizeRow, initialValue, coerce, validateField, validateAll, resultValues, roundTo } from '../../web/js/validate.js'
+import { normalizeRow, initialValue, coerce, validateField, validateAll, resultValues, roundTo, realDate, MAX_TEXT } from '../../web/js/validate.js'
 
 const v = (row, raw) => {
   const r = normalizeRow(row)
@@ -44,7 +44,22 @@ test('number: parse, min/max, precision', () => {
 
 test('text length limits', () => {
   assert.deepEqual(v({ type: 'input', min: 3 }, 'ab'), { key: 'minLength', params: { n: 3 } })
-  assert.deepEqual(v({ type: 'textarea', max: 3 }, 'abcd'), { key: 'maxLength', params: { n: 3 } })
+  assert.deepEqual(v({ type: 'textarea', maxLength: 3 }, 'abcd'), { key: 'maxLength', params: { n: 3 } })
+  // A textarea's min/max are ROW counts, as in ox_lib: they used to reject
+  // "ab" with "At least 3 characters" and cap the text at ten.
+  assert.equal(v({ type: 'textarea', min: 3, max: 10, autosize: true }, 'ab'), null)
+  assert.equal(v({ type: 'textarea', min: 3, max: 10 }, 'x'.repeat(50)), null)
+  // With no maxLength, text is capped at MAX_TEXT, the number Lua checks too.
+  assert.equal(normalizeRow({ type: 'textarea' }).maxLength, MAX_TEXT)
+  assert.equal(v({ type: 'input' }, 'x'.repeat(MAX_TEXT + 1)).key, 'maxLength')
+})
+
+test('a date is a real calendar day', () => {
+  assert.equal(realDate('2024-02-29'), true)
+  assert.equal(realDate('2023-02-29'), false)
+  assert.equal(realDate('2024-02-30'), false, 'Date.parse alone takes this as March 1')
+  assert.equal(realDate('2024-04-31'), false)
+  assert.equal(v({ type: 'date' }, '2024-02-30').key, 'invalidDate')
 })
 
 test('select and multi-select only accept offered values', () => {

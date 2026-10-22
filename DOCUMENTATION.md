@@ -979,7 +979,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `TargetAvailable` | client | `()` | 1.0.0 | no proxy equivalent; true when a configured target provider is started |
 | `TargetExists` | client | `(name)` | 1.0.0 | Cis.target.exists(name) |
 | `TextureDict` | client | `(name, timeout?)` | 1.0.0 | Cis.streaming.textureDict(name, timeout) |
-| `Toast` | client | `(data)` | 1.1.0 | exports.cis_libs:Toast(data). The library's own NUI notification; Cis.ui.notify routes here once wired. Not Notify: that export is the framework notify, a different signature |
+| `Toast` | client | `(data)` | 1.1.0 | exports.cis_libs:Toast(data). The library's own NUI notification; Cis.ui.notify routes here when no ui provider is registered. Not Notify: that export is the framework notify, a different signature |
 | `TriggerLibCallback` | client | `(name, cb?, ...)` | 1.0.0 | the client-to-server round trip whose callback receives only the results |
 | `TryAwaitCallback` | both | `()` | 1.0.0 | Cis.callback.tryAwait(name, ...) -> ok, ... on success; false, reason on a refusal |
 | `TryAwaitCallbackWithin` | client | `(name, timeoutMs, ...)` | 1.1.0 | Cis.callback.tryAwaitWithin(name, timeoutMs, ...) -> ok, ... ; a per-call timeout instead of Config.CallbackTimeout |
@@ -1194,7 +1194,6 @@ The `getData` payload carries no `DoorData`.
 |---|---|---|
 | `Cis.callback.await` returns at most 6 values across the wire | `server/callback.lua` | Widening it is a wire change. |
 | Sync has no hysteresis | `server/sync.lua` | One radius for enter and leave. A second radius is a behaviour change. |
-| No NUI ships here | `ui` slot | `progress` / `confirm` / `input` need a ui provider. notify and textUI fall back to native GTA. |
 
 Client `Cis.framework.notify(message, kind)` sends the **message** in the
 message slot. Pinned in `test/contracts.lua`. Do not “fix” the kind into that
@@ -1244,7 +1243,8 @@ Live harness: `test/LIVE.md`. Counts are not repeated here.
 
 ## Limitations
 
-- No NUI page. `Cis.ui.progress`, `confirm`, and `input` need a ui provider.
+- The built-in NUI targets FiveM's CEF (Chromium 103). A ui provider replaces
+  it per call; there is no way to replace one component and keep the rest.
 - Empty `Security.AuthorizedResources` refuses mutating exports.
 - A handler that crosses the exports boundary arrives as a funcref, and each
   call is another crossing. Zones, points and keybinds made through `init.lua`

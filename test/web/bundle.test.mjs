@@ -8,7 +8,11 @@ import { fileURLToPath } from 'node:url'
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const web = path.join(root, 'web')
-const BUDGET = 60 * 1024
+// Raised from 60 KB for the NUI re-audit: about 7 KB of it is the icon set
+// (ox_lib callers name Font Awesome icons, and an unknown name now draws
+// nothing), the rest Lua-parity validation and the skill-check renderer.
+// Still unminified and loaded from disk; the budget catches a library pulled in.
+const BUDGET = 80 * 1024
 
 function files(dir) {
   const out = []

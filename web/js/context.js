@@ -21,7 +21,9 @@ on('context:open', (d) => {
     class: 'cis-item', type: 'button', role: 'menuitem', tabindex: -1,
     'data-scheme': o.colorScheme,
     'aria-disabled': o.disabled && 'true', 'aria-haspopup': o.hasMenu && 'menu',
-    onclick: () => usable(i) && send('select', i),
+    // A markdown link in the description opens externally (core.js); it is
+    // not also a pick of the option it sits in.
+    onclick: (e) => !(e && e.target && e.target.closest && e.target.closest('a[href]')) && usable(i) && send('select', i),
     onmouseenter: () => items[i].focus(),
     onfocus: () => {
       active = i

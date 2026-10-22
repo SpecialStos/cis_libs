@@ -1373,9 +1373,9 @@ function HookRun(name, payload) end
 
 --- exports.cis_libs:InputDialog(heading, rows, options)
 ---@param heading string #the dialog title
----@param rows table #a list of rows: { type = input|number|checkbox|select|multi-select|slider|color|date|date-range|time|textarea, label, description, placeholder, icon, required, disabled, default, min, max, step, precision, options, maxSelectedValues, password, autosize }, or a plain string for a text input
+---@param rows table #a list of rows: { type = input|number|checkbox|select|multi-select|slider|color|date|date-range|time|textarea, label, description, placeholder, icon, required, disabled, default, min, max, step, precision, options, maxSelectedValues, password, autosize, minLength, maxLength }, or a plain string for a text input. For input, min/max are its length; for textarea they are ROW counts (as in ox_lib) and minLength/maxLength bound the text, capped at 16384 UTF-16 units. For number and slider they bound the value, for date the day
 ---@param options? table #{ allowCancel = true, size, labels = { confirm, cancel } }
----@return table|nil, string|nil #YIELDS. One value per row (nil for an empty optional field; date is YYYY-MM-DD, date-range a two-string list, time HH:MM, color #rrggbb), or nil on cancel. Values are checked against the rows before they are returned
+---@return table|nil, string|nil #YIELDS. One value per row (nil for an empty optional field; date is YYYY-MM-DD, date-range a two-string list, time HH:MM, color #rgb or #rrggbb; a select gives the option value exactly as passed, a Steam64 integer included), or nil on cancel. Every rule the page shows is checked again in Lua; an answer that fails keeps the dialog open and marks the field. A disabled row returns its default
 --- realm: client
 function InputDialog(heading, rows, options) end
 
@@ -1954,7 +1954,7 @@ function ShowTextUI(text, options) end
 --- exports.cis_libs:SkillCheck(difficulty, inputs)
 ---@param difficulty string|table #'easy' | 'medium' | 'hard', { areaSize, speedMultiplier }, or a list of those (one round each)
 ---@param inputs? table #key names to pick from per round (e, q, r, f, g, w, a, s, d, 1-4); default { e }
----@return boolean, string|nil #YIELDS. true when every round was hit; false on a miss, a wrong key, CancelSkillCheck, the caller stopping, or a refusal
+---@return boolean, string|nil #YIELDS. true when every round was hit; false on a miss, a wrong key, CancelSkillCheck, the caller stopping, or a refusal. Lua places each zone and judges each press against GetGameTimer; the page only draws, and nothing it posts can pass or fail a check. A round with no press fails once the needle passes the zone
 --- realm: client
 function SkillCheck(difficulty, inputs) end
 
@@ -2020,8 +2020,8 @@ function TargetExists(name) end
 --- realm: client
 function TextureDict(name, timeout) end
 
---- exports.cis_libs:Toast(data). The library's own NUI notification; Cis.ui.notify routes here once wired. Not Notify: that export is the framework notify, a different signature
----@param data table|string #{ id, title, description, type = inform|success|warning|error, icon, iconColor, duration, position, showDuration, sound = { name, set } }. A string is the description. description renders a safe markdown subset
+--- exports.cis_libs:Toast(data). The library's own NUI notification; Cis.ui.notify routes here when no ui provider is registered. Not Notify: that export is the framework notify, a different signature
+---@param data table|string #{ id, title, description, type = inform|success|warning|error, icon, iconColor, duration, position, showDuration, sound = { name, set } }. A string is the description. description renders a safe markdown subset. icon is a built-in or Font Awesome name ('house', 'fa-solid fa-gear', { 'fas', 'box' }), an image URL, or an emoji; an unknown name draws nothing and is logged once. Strings are capped in bytes and cut on a character
 ---@return boolean, string|nil #true once queued for the page (buffered until it loads); false plus a reason when there is no title and no description
 --- realm: client
 function Toast(data) end
@@ -3167,7 +3167,7 @@ function Cis.ui.radial.remove(id) end
 ---@field forwardsTo string SkillCheck
 ---@param difficulty string|table #'easy' | 'medium' | 'hard', { areaSize, speedMultiplier }, or a list of those (one round each)
 ---@param inputs? table #key names to pick from per round (e, q, r, f, g, w, a, s, d, 1-4); default { e }
----@return boolean, string|nil #YIELDS. true when every round was hit; false on a miss, a wrong key, CancelSkillCheck, the caller stopping, or a refusal
+---@return boolean, string|nil #YIELDS. true when every round was hit; false on a miss, a wrong key, CancelSkillCheck, the caller stopping, or a refusal. Lua places each zone and judges each press against GetGameTimer; the page only draws, and nothing it posts can pass or fail a check. A round with no press fails once the needle passes the zone
 function Cis.ui.skillCheck(difficulty, inputs) end
 
 ---@class Cis.ui.skillCheckActive

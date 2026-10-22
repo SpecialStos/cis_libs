@@ -3,12 +3,19 @@ import { normalizeRow, initialValue, coerce, validateAll, resultValues } from '.
 import { trapTab, step, keyIntent } from './nav.js'
 
 // Alert and input dialogs: modal, focus-trapped, Escape handled by Lua.
-const open = new Map() // kind -> { id, el }
+//
+// A DIALOG CLOSES WHEN LUA SAYS SO (alert:close / input:close), never on its
+// own button: Lua may refuse an answer, and a fetch may be lost, and either one
+// used to leave focus and the cursor up over a dialog that was already gone.
+// Pressing the button again simply posts again.
+const open = new Map() // kind -> { id, el, before, fields }
 const label = (labels, key) => (typeof labels?.[key] === 'string' && labels[key]) || t(key)
 const btn = (text, onclick, primary) => h('button', { class: primary ? 'cis-btn cis-primary' : 'cis-btn', type: 'button', onclick }, text)
 
 function modal(kind, d, title, body, buttons) {
   close(kind)
+  // What had focus before (a context menu under the dialog), given back on close.
+  const before = document.activeElement
   const tid = `cis-${kind}-title`
   const size = ['xs', 'sm', 'lg', 'xl'].includes(d.size) ? ` cis-size-${d.size}` : ''
   const dialog = h('div', {
@@ -23,7 +30,7 @@ function modal(kind, d, title, body, buttons) {
   }, h('h2', { id: tid, text: title }), body, h('div', { class: 'cis-actions' }, buttons))
   const el = h('div', { class: 'cis-backdrop' }, dialog)
   layer('cis-dialogs').appendChild(el)
-  open.set(kind, { id: d.id, el })
+  open.set(kind, { id: d.id, el, before })
 }
 
 function close(kind, id) {
@@ -31,10 +38,11 @@ function close(kind, id) {
   if (!cur || (id !== undefined && cur.id !== id)) return
   open.delete(kind)
   cur.el.remove()
+  if (cur.before && cur.before.isConnected !== false && typeof cur.before.focus === 'function') cur.before.focus()
 }
 
 on('alert:open', (d) => {
-  const answer = (result) => { close('alert', d.id); post('alert', { id: d.id, result }) }
+  const answer = (result) => post('alert', { id: d.id, result })
   const ok = btn(label(d.labels, 'confirm'), () => answer('confirm'), true)
   modal('alert', d, String(d.header ?? ''), markdown(h('div', { class: 'cis-body cis-md' }), d.content),
     [d.cancel && btn(label(d.labels, 'cancel'), () => answer('cancel')), ok])
@@ -105,13 +113,15 @@ function control(r, id, value, set) {
       return h('div', { class: 'cis-range' }, part(0), part(1))
     }
     case 'textarea': {
-      const rows = Math.max(1, Math.min(20, Number(r.min) || 3))
+      // min / max are ROW counts here, as in ox_lib; the length is maxLength.
+      const rows = Math.max(1, Math.min(20, typeof r.min === 'number' ? r.min : 3))
+      const most = Math.max(rows, Math.min(20, typeof r.max === 'number' ? r.max : 20))
       return h('textarea', {
-        ...base, rows, placeholder: r.placeholder, maxlength: !r.autosize && typeof r.max === 'number' && r.max,
-        oninput: (e) => { if (r.autosize) e.target.rows = Math.max(rows, Math.min(20, e.target.value.split('\n').length)); set(e.target.value) },
+        ...base, rows, placeholder: r.placeholder, maxlength: r.maxLength,
+        oninput: (e) => { if (r.autosize) e.target.rows = Math.max(rows, Math.min(most, e.target.value.split('\n').length)); set(e.target.value) },
       }, value)
     }
-    default: return input({ type: r.password ? 'password' : 'text', value, placeholder: r.placeholder, maxlength: typeof r.max === 'number' && r.max })
+    default: return input({ type: r.password ? 'password' : 'text', value, placeholder: r.placeholder, maxlength: r.maxLength })
   }
 }
 
@@ -144,7 +154,6 @@ on('input:open', (d) => {
       fields[res.errors[0].index].target?.focus()
       return
     }
-    close('input', d.id)
     post('input', { id: d.id, values: resultValues(rows, coerced) })
   }
   form.addEventListener('submit', submit)
@@ -152,9 +161,19 @@ on('input:open', (d) => {
   const opts = d.options && typeof d.options === 'object' ? d.options : {}
   const ok = btn(label(opts.labels, 'confirm'), submit, true)
   modal('input', { id: d.id, size: opts.size }, String(d.heading ?? ''), form, [
-    opts.allowCancel !== false && btn(label(opts.labels, 'cancel'), () => { close('input', d.id); post('input', { id: d.id, cancelled: true }) }),
+    opts.allowCancel !== false && btn(label(opts.labels, 'cancel'), () => post('input', { id: d.id, cancelled: true })),
     ok,
   ])
+  open.get('input').fields = fields
   ;(focusables(form)[0] || ok).focus()
 })
 on('input:close', (d) => close('input', d.id))
+// Lua refused the answer: say which field, and leave the dialog up.
+on('input:invalid', (d) => {
+  const cur = open.get('input')
+  const f = cur && cur.id === d.id && cur.fields && cur.fields[(Number(d.index) || 0) - 1]
+  if (!f) return
+  f.err.textContent = t('invalid')
+  f.target?.setAttribute('aria-invalid', 'true')
+  f.target?.focus()
+})

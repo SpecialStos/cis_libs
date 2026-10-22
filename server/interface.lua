@@ -11,7 +11,10 @@ local TYPES = { inform = true, info = true, success = true, warning = true, erro
 local function bounded(v, max)
     if type(v) == 'number' then v = tostring(v) end
     if type(v) ~= 'string' or v == '' then return nil end
-    return #v > max and v:sub(1, max) or v
+    -- Cleaned and cut on a character, not a byte: a cut through a character
+    -- was invalid UTF-8 on arrival, and the client then turned every
+    -- non-ASCII character in the string into '?'.
+    return CisUtf8.clip(CisUtf8.clean(v), max)
 end
 
 --- @param src integer  a player server id, or -1 for everyone

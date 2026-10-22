@@ -82,7 +82,7 @@ local function view(ctx)
         out[i] = {
             title = I.str(o.title, 256) or '',
             description = I.str(o.description, 1024),
-            icon = I.str(o.icon, 256),
+            icon = I.icon(o.icon),
             iconColor = I.color(o.iconColor),
             arrow = o.arrow == true,
             hasMenu = type(o.menu) == 'string',
@@ -231,7 +231,7 @@ local function choose(option)
     end
 end
 
-I.on('context', { token = 'integer', action = 'string', index = '?integer' }, function(data)
+I.on('context', { token = 'string', action = 'string', index = '?integer' }, function(data)
     if not open or open.token ~= data.token then
         return
     end

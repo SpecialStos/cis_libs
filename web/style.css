@@ -1,5 +1,9 @@
 /* cis_libs interface. Tokens first; SetUiTheme overrides them at runtime.
-   System fonts only, nothing loaded from the network. */
+   System fonts only. CEF here is Chromium 103: nothing newer is used
+   (test/web/compat.test.mjs). A centred element's offset is --cis-place,
+   applied through `transform` (standalone translate/rotate arrived in 104 and
+   were ignored, leaving every centred panel off by half its size); the enter
+   and leave animations keep it, and every other element resets it. */
 :root {
   --cis-accent: #4c8dff; --cis-accent-fg: #fff; --cis-radius: 8px; --cis-scale: 1;
   --cis-font: system-ui, "Segoe UI", Roboto, Arial, sans-serif;
@@ -13,7 +17,7 @@
   --cis-border: rgba(0,0,0,.12); --cis-fg: #1c2030; --cis-muted: #5b6273; --cis-backdrop: rgba(20,24,34,.35);
   --cis-shadow: 0 8px 28px rgba(20,24,34,.18);
 }
-* {box-sizing:border-box}
+* {box-sizing:border-box;--cis-place:translate(0)}
 html, body {margin:0;height:100%;overflow:hidden;background:transparent;user-select:none;font:calc(15px * var(--cis-scale)) / 1.4 var(--cis-font);color:var(--cis-fg)}
 body > div {position:fixed;inset:0;pointer-events:none}
 body > div > * {pointer-events:auto}
@@ -27,8 +31,8 @@ button {font:inherit;color:inherit;cursor:pointer}
 .cis-icon {width:1.25em;height:1.25em;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;object-fit:contain}
 .cis-key {display:inline-grid;place-items:center;min-width:1.9em;height:1.9em;padding:0 .45em;font:700 .9em var(--cis-font);border-radius:calc(var(--cis-radius) * .6);background:var(--cis-accent);color:var(--cis-accent-fg)}
 .cis-shadowtext {color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.7)}
-@keyframes cis-in { from {opacity:0;transform:translateY(6px) scale(.98)} }
-@keyframes cis-out { to {opacity:0;transform:scale(.97)} }
+@keyframes cis-in { from {opacity:0;transform:var(--cis-place) translateY(6px) scale(.98)} }
+@keyframes cis-out { to {opacity:0;transform:var(--cis-place) scale(.97)} }
 .cis-anim {animation:cis-in .18s ease-out}
 .cis-leave {animation:cis-out .18s ease-out forwards}
 @media (prefers-reduced-motion: reduce) { .cis-anim, .cis-leave {animation:none} }
@@ -37,8 +41,8 @@ button {font:inherit;color:inherit;cursor:pointer}
 /* notify */
 .cis-toasts {position:fixed;display:flex;flex-direction:column;gap:8px;width:min(360px, calc(100vw - 32px));padding:16px}
 [data-pos^="top"] {top:0} [data-pos^="bottom"] {bottom:0} [data-pos$="right"] {right:0} [data-pos$="left"] {left:0}
-[data-pos="top"], [data-pos="bottom"] {left:50%;translate:-50% 0}
-[data-pos^="center"] {top:50%;translate:0 -50%}
+[data-pos="top"], [data-pos="bottom"] {left:50%;--cis-place:translate(-50%,0);transform:var(--cis-place)}
+[data-pos^="center"] {top:50%;--cis-place:translate(0,-50%);transform:var(--cis-place)}
 .cis-toast {position:relative;display:flex;gap:10px;padding:12px 14px;overflow:hidden;overflow-wrap:anywhere;--cis-tone:var(--cis-inform)}
 .cis-type-success {--cis-tone:var(--cis-success)} .cis-type-warning {--cis-tone:var(--cis-warning)} .cis-type-error {--cis-tone:var(--cis-error)}
 .cis-toast > .cis-icon {color:var(--cis-tone);margin-top:1px}
@@ -49,21 +53,21 @@ button {font:inherit;color:inherit;cursor:pointer}
 /* text UI */
 .cis-textui {position:fixed;display:flex;align-items:center;gap:10px;max-width:min(420px, 40vw);padding:10px 14px;overflow-wrap:anywhere}
 .cis-textui[data-pos="right-center"] {right:2vw} .cis-textui[data-pos="left-center"] {left:2vw}
-.cis-textui[data-pos$="-center"] {top:50%;translate:0 -50%}
-.cis-textui[data-pos="top-center"] {top:3vh;left:50%;translate:-50% 0}
-.cis-textui[data-pos="bottom-center"] {top:auto;bottom:6vh;left:50%;translate:-50% 0}
+.cis-textui[data-pos$="-center"] {top:50%;--cis-place:translate(0,-50%);transform:var(--cis-place)}
+.cis-textui[data-pos="top-center"] {top:3vh;left:50%;--cis-place:translate(-50%,0);transform:var(--cis-place)}
+.cis-textui[data-pos="bottom-center"] {top:auto;bottom:6vh;left:50%;--cis-place:translate(-50%,0);transform:var(--cis-place)}
 .cis-textui-minimal {background:none;border-color:transparent;box-shadow:none}
 .cis-textui-accent {border-left:4px solid var(--cis-accent)}
 .cis-textui > .cis-icon {color:var(--cis-accent)}
 
 /* progress */
-.cis-progress {position:fixed;left:50%;bottom:9vh;translate:-50% 0;display:grid;justify-items:center;gap:6px;font-weight:600}
-.cis-progress[data-pos="middle"] {bottom:auto;top:50%;translate:-50% -50%}
+.cis-progress {position:fixed;left:50%;bottom:9vh;--cis-place:translate(-50%,0);transform:var(--cis-place);display:grid;justify-items:center;gap:6px;font-weight:600}
+.cis-progress[data-pos="middle"] {bottom:auto;top:50%;--cis-place:translate(-50%,-50%);transform:var(--cis-place)}
 .cis-track {width:min(340px, 60vw);height:10px;border-radius:9px;background:var(--cis-bg);overflow:hidden}
 .cis-fill {height:100%;background:var(--cis-accent);transform-origin:left;transform:scaleX(0);animation:cis-grow var(--cis-duration) linear forwards}
 @keyframes cis-grow { to {transform:scaleX(1)} }
 .cis-ring {position:relative;width:88px;height:88px;display:grid;place-items:center}
-.cis-ring svg {position:absolute;inset:0;rotate:-90deg}
+.cis-ring svg {position:absolute;inset:0;transform:rotate(-90deg)}
 .cis-ring circle, .cis-skill circle {fill:none;stroke-width:9;stroke:var(--cis-bg)}
 .cis-ring .cis-fill {stroke:var(--cis-accent);stroke-linecap:round;stroke-dasharray:100;stroke-dashoffset:100;animation-name:cis-ring}
 @keyframes cis-ring { to {stroke-dashoffset:0} }
@@ -148,7 +152,7 @@ button {font:inherit;color:inherit;cursor:pointer}
 .cis-center {width:64px;height:64px;margin:-32px;border:1px solid var(--cis-border);background:var(--cis-surface)}
 
 /* skill check */
-.cis-skill {position:fixed;left:50%;bottom:18vh;translate:-50% 0;width:120px;height:120px;display:grid;place-items:center}
+.cis-skill {position:fixed;left:50%;bottom:18vh;--cis-place:translate(-50%,0);transform:var(--cis-place);width:120px;height:120px;display:grid;place-items:center}
 .cis-skill svg {position:absolute;inset:0}
 .cis-skill circle {stroke-width:7}
 .cis-skill .cis-zone {stroke:var(--cis-accent)}

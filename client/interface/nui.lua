@@ -39,13 +39,20 @@ function I.caller()
     return GetInvokingResource() or GetCurrentResourceName() or 'cis_libs'
 end
 
+-- AN ID IS A TOKEN, NOT A COUNTER. Every NUI callback is reachable by a fetch
+-- from ANY resource's page, so a script running in another frame (an XSS in a
+-- chat or phone resource) could count from 1 and confirm whatever alert was
+-- open, pick a context option or fill an input dialog. The counter keeps ids
+-- unique; the 60 random bits beside it make the open one unguessable. A string,
+-- because the page only ever echoes it back.
 function I.nextId()
     nextId = nextId + 1
-    return nextId
+    return ('%x-%08x%08x'):format(nextId, math.random(0, 0x3fffffff), math.random(0, 0x3fffffff))
 end
 
--- A UTF-8 safe, bounded copy of a string, or nil. json.encode raises on an
--- invalid byte sequence, and one bad string would drop the whole message.
+-- A UTF-8 safe copy of a string of at most `max` BYTES, or nil. json.encode
+-- raises on an invalid byte sequence, and one bad string would drop the whole
+-- message. Only the bad bytes become '?', and the cut lands on a character.
 function I.str(value, max)
     if type(value) == 'number' then
         value = tostring(value)
@@ -53,17 +60,20 @@ function I.str(value, max)
     if type(value) ~= 'string' or value == '' then
         return nil
     end
-    max = max or MAX_STRING
-    if utf8.len(value) == nil then
-        value = value:gsub('[\128-\255]', '?')
-    end
-    if #value > max then
-        local cut = utf8.offset(value, max + 1)
-        if cut then
-            value = value:sub(1, cut - 1)
+    return CisUtf8.clip(CisUtf8.clean(value), max or MAX_STRING)
+end
+
+-- An icon: a name, 'fa-solid fa-box', or ox_lib's { 'fas', 'box' } pair (the
+-- last string wins). A table used to be dropped and drew nothing.
+function I.icon(value)
+    if type(value) == 'table' then
+        local last
+        for i = 1, math.min(#value, 4) do
+            if type(value[i]) == 'string' then last = value[i] end
         end
+        value = last
     end
-    return value
+    return I.str(value, 256)
 end
 
 function I.num(value, lo, hi, default)
@@ -234,6 +244,12 @@ end
 I.on('error', { message = 'string' }, function(data)
     I.stats.errors = I.stats.errors + 1
     I.log('error', 'page: ' .. data.message)
+end)
+
+-- Not an error: a consumer named an icon the page does not have, so the slot
+-- is left empty. The page reports each name once.
+I.on('warn', { message = 'string' }, function(data)
+    I.log('warn', 'page: ' .. (I.str(data.message, 200) or ''))
 end)
 
 AddEventHandler('onResourceStop', function(resource)

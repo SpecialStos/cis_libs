@@ -62,7 +62,7 @@ test('XSS: <img onerror> in every user-supplied string of every component render
   item.dispatch('focus')
   dom.send('menu:open', { title: P, position: P, options: [{ label: P, description: P, icon: P, colorScheme: P, values: [{ label: P, description: P }] }] })
   dom.send('radial:open', { token: 3, items: [{ label: P, icon: P }] })
-  dom.send('skill:start', { id: 4, rounds: ['easy'], keys: [P, 'e'] })
+  dom.send('skill:round', { id: '4', start: 120, size: 40, degPerMs: 0.18, key: P })
   const hits = assertInert()
   assert.ok(hits >= 20, `the payload is visible as text (${hits} text nodes carry it)`)
   dom.send('skill:stop', {})
@@ -96,7 +96,11 @@ test('alert: confirm posts the id and closes; the dialog traps Tab', () => {
   buttons[1].dispatch('click')
   const last = dom.posts.at(-1)
   assert.deepEqual(last, { name: 'alert', body: { id: 21, result: 'confirm' } })
-  assert.equal(dialog.parentNode.parentNode, null, 'removed from the page')
+  // Still up until Lua settles it: a refused or lost answer must not leave
+  // focus over a dialog that is gone. Lua's alert:close removes it.
+  assert.ok(dialog.parentNode.parentNode !== null, 'kept until Lua closes it')
+  dom.send('alert:close', { id: 21 })
+  assert.ok(dialog.parentNode.parentNode === null, 'removed from the page')
 })
 
 test('input: client-side validation blocks submit, then posts one value per row', () => {
@@ -166,4 +170,80 @@ test('idle: nothing on screen after everything closes', () => {
   dom.send('skill:stop', {})
   const left = Object.entries(dom.doc.layers).filter(([id, l]) => id !== 'cis-notify' && l.childNodes.some((c) => !(c.className || '').includes('cis-leave')))
   assert.deepEqual(left.map(([id]) => id), [])
+})
+
+test('a message from another frame is dropped (only the NUI root speaks for the game)', () => {
+  dom.sendFrom({ other: true }, 'alert:open', { id: 'forged', header: 'Give me your bank PIN', content: 'x' })
+  assert.ok(!everything().some((n) => n.nodeType === 3 && n.data === 'Give me your bank PIN'))
+})
+
+test('a dialog gives focus back to what had it when it closes', () => {
+  const before = document.createElement('button')
+  dom.doc.activeElement = before
+  dom.send('alert:open', { id: 'f1', header: 'h', content: 'c' })
+  assert.notEqual(dom.doc.activeElement, before)
+  dom.send('alert:close', { id: 'f1' })
+  assert.equal(dom.doc.activeElement, before)
+})
+
+test('input: a field Lua refused is marked and focused', () => {
+  dom.send('input:open', { id: 'v1', heading: 'F', rows: [{ type: 'input', label: 'A' }, { type: 'input', label: 'B' }] })
+  const dialog = everything().find((n) => n.nodeType === 1 && n.getAttribute('role') === 'dialog')
+  const [, b] = dialog.querySelectorAll('input')
+  dom.send('input:invalid', { id: 'v1', index: 2 })
+  assert.equal(b.getAttribute('aria-invalid'), 'true')
+  assert.equal(dom.doc.activeElement, b)
+  dom.send('input:invalid', { id: 'other', index: 1 })
+  assert.notEqual(dialog.querySelectorAll('input')[0].getAttribute('aria-invalid'), 'true', 'another dialog\'s id is ignored')
+  dom.send('input:close', { id: 'v1' })
+})
+
+test('a held Escape reports one press, not one per repeat', () => {
+  const before = dom.posts.length
+  dom.keydown('Escape', { repeat: true })
+  assert.equal(dom.posts.length, before)
+})
+
+test('context: clicking a link inside an option opens the link, it does not pick the option', () => {
+  dom.send('context:open', { token: 'L', title: 'M', options: [{ title: 'a', description: '[docs](https://example.com)' }] })
+  const item = everything().find((n) => n.nodeType === 1 && n.getAttribute('role') === 'menuitem')
+  const before = dom.posts.length
+  item.dispatch('click', { target: { closest: (sel) => (sel === 'a[href]' ? {} : null) } })
+  assert.equal(dom.posts.length, before)
+  item.dispatch('click')
+  assert.deepEqual(dom.posts.at(-1).body, { token: 'L', action: 'select', index: 1 })
+  dom.send('context:close', {})
+})
+
+test('icons: Font Awesome names resolve, an unknown word draws nothing and is reported once', async () => {
+  const { icon } = await import('../../web/js/core.js')
+  for (const name of ['house', 'fa-solid fa-gear', 'fas fa-box', 'magnifying-glass', 'circle-check', 'hand']) {
+    const el = icon(name)
+    assert.ok(el && el.tagName === 'SVG', `${name} is a built-in icon`)
+  }
+  assert.equal(icon('OK'), null, 'a short ASCII word is not drawn as text')
+  const before = dom.posts.filter((p) => p.name === 'warn').length
+  assert.equal(icon('spaceship'), null)
+  assert.equal(icon('fa-spaceship'), null)
+  const warns = dom.posts.filter((p) => p.name === 'warn')
+  assert.equal(warns.length, before + 1, 'reported once per name')
+  assert.match(warns.at(-1).body.message, /spaceship/)
+  const emoji = icon('🔧')
+  assert.ok(emoji && emoji.tagName === 'SPAN', 'an emoji is still drawn')
+})
+
+test('theme: a colour key that is not a colour token is ignored', () => {
+  dom.send('theme', { colors: { place: '#fff', p: '#000', surface: '#123456' } })
+  const style = dom.doc.documentElement.style._map
+  assert.equal(style.has('--cis-place'), false)
+  assert.equal(style.has('--cis-p'), false)
+  assert.equal(style.get('--cis-surface'), '#123456')
+})
+
+test('progress: a bar reports how far it is, not 0 until it ends', async () => {
+  dom.send('progress:start', { kind: 'bar', label: 'Work', duration: 400 })
+  const bar = everything().find((n) => n.nodeType === 1 && n.getAttribute('role') === 'progressbar' && !(n.className || '').includes('cis-leave'))
+  await new Promise((r) => setTimeout(r, 300))
+  assert.ok(Number(bar.getAttribute('aria-valuenow')) > 0, `aria-valuenow is ${bar.getAttribute('aria-valuenow')}`)
+  dom.send('progress:stop', {})
 })

@@ -6,6 +6,10 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/
 const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
+const count = (v) => (num(v) !== undefined && v >= 0 ? Math.floor(v) : undefined)
+// The longest text a field takes when its row sets no maxLength. Lua checks
+// the same number, in the same units (UTF-16, which is what .length counts).
+export const MAX_TEXT = 16384
 const str = (v) => (typeof v === 'string' ? v : undefined)
 const prim = (v) => typeof v === 'string' || typeof v === 'number'
 
@@ -18,6 +22,11 @@ export function normalizeRow(row) {
   if (!row || typeof row !== 'object') row = {}
   const type = FIELD_TYPES.includes(row.type) ? row.type : 'input'
   const slider = type === 'slider'
+  // An input's min/max are its length; a textarea's are ROW counts (ox_lib),
+  // and either takes an explicit minLength / maxLength.
+  const text = type === 'input' || type === 'textarea'
+  const minLength = count(row.minLength) ?? (type === 'input' ? count(row.min) : undefined)
+  const maxLength = count(row.maxLength) ?? (type === 'input' ? count(row.max) : undefined)
   return {
     type,
     label: str(row.label) ?? '',
@@ -34,6 +43,8 @@ export function normalizeRow(row) {
     password: row.password === true,
     checked: row.checked === true,
     options: normalizeOptions(row.options),
+    minLength,
+    maxLength: text ? Math.min(maxLength ?? MAX_TEXT, MAX_TEXT) : undefined,
     maxSelectedValues: num(row.maxSelectedValues),
     autosize: row.autosize === true,
   }
@@ -86,8 +97,17 @@ const isEmpty = (r, v) => v === null || v === undefined || v === ''
 const range = (v, r, lo, hi, n = v) => (typeof r.min === 'number' && n < r.min ? { key: lo, params: { n: r.min } }
   : typeof r.max === 'number' && n > r.max ? { key: hi, params: { n: r.max } } : null)
 
+// A real calendar day. Date.parse alone takes 2024-02-30 and means March 1.
+export function realDate(v) {
+  if (typeof v !== 'string' || !DATE.test(v)) return false
+  const [y, m, d] = v.split('-').map(Number)
+  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1]
+  return days !== undefined && d >= 1 && d <= days
+}
+
 function checkDate(r, v) {
-  if (!DATE.test(v) || Number.isNaN(Date.parse(v))) return { key: 'invalidDate' }
+  if (!realDate(v)) return { key: 'invalidDate' }
   if (DATE.test(r.min ?? '') && v < r.min) return { key: 'minDate', params: { n: r.min } }
   if (DATE.test(r.max ?? '') && v > r.max) return { key: 'maxDate', params: { n: r.max } }
   return null
@@ -102,7 +122,9 @@ export function validateField(r, v) {
   switch (r.type) {
     case 'number': case 'slider':
       return typeof v !== 'number' || Number.isNaN(v) ? { key: 'invalidNumber' } : range(v, r, 'min', 'max')
-    case 'input': case 'textarea': return range(v, r, 'minLength', 'maxLength', v.length)
+    case 'input': case 'textarea':
+      return typeof r.minLength === 'number' && v.length < r.minLength ? { key: 'minLength', params: { n: r.minLength } }
+        : typeof r.maxLength === 'number' && v.length > r.maxLength ? { key: 'maxLength', params: { n: r.maxLength } } : null
     case 'select': return offered(r, v) ? null : { key: 'invalid' }
     case 'multi-select':
       if (!v.every((x) => offered(r, x))) return { key: 'invalid' }

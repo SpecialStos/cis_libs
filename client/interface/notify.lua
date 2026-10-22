@@ -38,7 +38,7 @@ local function build(data)
         title = title,
         description = description,
         type = TYPES[data.type] or 'inform',
-        icon = I.str(data.icon, 256),
+        icon = I.icon(data.icon),
         iconColor = I.color(data.iconColor),
         duration = math.floor(I.num(data.duration, 500, 60000, 3000)),
         position = POSITIONS[data.position] and data.position or nil,

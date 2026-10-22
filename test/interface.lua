@@ -76,7 +76,7 @@ local STUBBED = {
     'RegisterNetEvent', 'AddEventHandler', 'RegisterCommand', 'RegisterKeyMapping',
     'TriggerEvent', 'TriggerServerEvent', 'TriggerClientEvent', 'PlaySoundFrontend',
     'PlayerPedId', 'PlayerId', 'IsEntityDead', 'IsPedRagdoll', 'IsPedCuffed', 'IsPedFalling',
-    'IsPedSwimming', 'RequestAnimDict', 'HasAnimDictLoaded', 'RemoveAnimDict', 'TaskPlayAnim',
+    'IsPedSwimming', 'RequestAnimDict', 'HasAnimDictLoaded', 'DoesAnimDictExist', 'RemoveAnimDict', 'TaskPlayAnim',
     'StopAnimTask', 'IsEntityPlayingAnim', 'TaskStartScenarioInPlace', 'ClearPedTasks',
     'IsModelValid', 'RequestModel', 'HasModelLoaded', 'SetModelAsNoLongerNeeded',
     'GetEntityCoords', 'CreateObject', 'AttachEntityToEntity', 'GetPedBoneIndex',
@@ -296,6 +296,7 @@ local function newEnv()
     function IsPedSwimming() return env.flags.swimming == true end
     function RequestAnimDict() end
     function HasAnimDictLoaded() return env.flags.dictMissing ~= true end
+    function DoesAnimDictExist() return env.flags.dictUnknown ~= true end
     function RemoveAnimDict(dict) env.removedDict = dict end
     function TaskPlayAnim(ped, dict, clip, blendIn, blendOut, duration, flag)
         env.anims[#env.anims + 1] = { ped = ped, dict = dict, clip = clip, flag = flag, duration = duration }
@@ -457,14 +458,15 @@ do
         check(reply and reply.ok == false, ('bridge: a %s body is rejected'):format(type(bad)))
     end
     local before = CisInterface.stats.rejected
-    check(env.post('alert', { id = 'x', result = 'confirm' }).ok == false, 'bridge: a string id is rejected')
+    -- An id is a token the page echoes back, never a number to count from.
+    check(env.post('alert', { id = 1, result = 'confirm' }).ok == false, 'bridge: a numeric id is rejected')
     check(env.post('alert', { id = 1.5, result = 'confirm' }).ok == false, 'bridge: a fractional id is rejected')
     check(env.post('alert', { result = 'confirm' }).ok == false, 'bridge: a missing id is rejected')
-    check(env.post('alert', { id = 1, result = {} }).ok == false, 'bridge: a mistyped field is rejected')
-    check(env.post('context', { token = 1, action = 'select', index = 'one' }).ok == false,
+    check(env.post('alert', { id = 'x', result = {} }).ok == false, 'bridge: a mistyped field is rejected')
+    check(env.post('context', { token = 'x', action = 'select', index = 'one' }).ok == false,
         'bridge: an optional field with the wrong type is rejected')
     check(CisInterface.stats.rejected == before + 5, 'bridge: every rejection is counted')
-    check(env.post('alert', { id = 999, result = 'confirm' }).ok == true,
+    check(env.post('alert', { id = '999', result = 'confirm' }).ok == true,
         'bridge: a well-formed payload for an unknown id is accepted and ignored')
     local long = string.rep('x', 5000)
     check(env.post('error', { message = long }).ok == false, 'bridge: an over-long string is rejected')
@@ -472,8 +474,22 @@ do
     -- I.str keeps strings UTF-8 safe, so json.encode cannot raise on them.
     local s = CisInterface.str('\255\254abc')
     check(s == '??abc', 'bridge: invalid UTF-8 bytes are replaced, not sent')
-    local cut = CisInterface.str('ééé', 2)
-    check(cut == 'éé', 'bridge: truncation counts characters, never splits one')
+    -- The cap is in BYTES (what a payload limit means) and never splits a
+    -- character: it used to count characters, so 'max 256' let 1024 bytes by.
+    check(CisInterface.str('ééé', 2) == 'é', 'bridge: the cap is bytes')
+    check(CisInterface.str('ééé', 3) == 'é', 'bridge: truncation never splits a character')
+    local ch = string.char
+    check(CisUtf8.clean(ch(192, 175)) == '??', 'bridge: an overlong encoding is invalid')
+    check(CisUtf8.clean(ch(237, 160, 128)) == '???', 'bridge: a UTF-16 surrogate is invalid')
+    check(CisUtf8.clean(ch(244, 144, 128, 128)) == '????', 'bridge: a code point past U+10FFFF is invalid')
+    check(CisUtf8.clean('ok ' .. ch(240, 159, 152, 128)) == 'ok ' .. ch(240, 159, 152, 128), 'bridge: valid four-byte UTF-8 is kept')
+    local title = CisInterface.str(string.rep('д', 260), 257)
+    check(#title == 256 and utf8.len(title) == 128, 'bridge: a Cyrillic title is clipped to whole characters')
+    check(CisUtf8.units('a😀') == 3, 'bridge: units counts UTF-16, as the page does')
+    local a, b = CisInterface.nextId(), CisInterface.nextId()
+    check(type(a) == 'string' and a ~= b and #a >= 18 and a:match('^%x+%-%x+$'), 'bridge: an id is a counter plus 60 random bits')
+    check(CisInterface.icon({ 'fas', 'box' }) == 'box', 'bridge: an icon list gives its last name')
+    check(CisInterface.icon({ {}, 'gear', 5 }) == 'gear', 'bridge: an icon list skips what is not a string')
     env.reset()
 end
 
@@ -493,9 +509,11 @@ do
     env.spawn(function() again = { env.X.AlertDialog({ header = 'second' }) } end)
     check(again[1] == nil and again[2] == 'an alert dialog is already open', 'alert: a second one is refused, not stacked')
 
-    env.post('alert', { id = open.id + 1, result = 'confirm' })
+    check(type(open.id) == 'string', 'alert: its id is a token')
+    env.post('alert', { id = open.id .. '0', result = 'confirm' })
+    env.post('alert', { id = open.id:match('^(%x+)%-'), result = 'confirm' })
     env.step()
-    check(got == nil, 'alert: an answer for another id does not settle it')
+    check(got == nil, 'alert: an answer for another id (or the bare counter) does not settle it')
     env.post('alert', { id = open.id, result = 'confirm' })
     env.step()
     check(got and got[1] == 'confirm', 'alert: confirm resolves the caller with "confirm"')
@@ -558,29 +576,85 @@ do
     check(open and #open.rows == 6, 'input: every row is sent')
     check(open.rows[1].type == 'input' and open.rows[1].label == 'Name', 'input: a string row becomes a text input')
     check(open.rows[4].onSelect == nil and open.rows[4].options[2].label == 'b', 'input: rows are copied field by field (no functions cross)')
+    check(open.rows[4].options[1].value == 1 and open.rows[4].options[2].value == 2,
+        'input: the page is sent option indexes, never the caller values')
 
     local function answer(values)
+        local n = #env.msgs('input:invalid')
         env.post('input', { id = open.id, values = values })
         env.step()
+        local bad = env.msgs('input:invalid')
+        return #bad > n and bad[#bad].index or nil
     end
-    answer({ 'Bob', 'thirty', false, 'a', {}, { '2026-01-01', '2026-01-02' } })
-    check(got == nil, 'input: a value of the wrong type is ignored and the dialog stays open')
-    answer({ 'Bob', nil, false, 'a', {}, nil })
-    check(got == nil, 'input: a missing required value is ignored')
-    answer({ 'Bob', 30, false, 'zzz', {}, nil })
-    check(got == nil, 'input: a select value that was not offered is ignored')
-    answer({ 'Bob', 30, false, 'a', { 'x', 'nope' }, nil })
-    check(got == nil, 'input: a multi-select value that was not offered is ignored')
-    answer({ 'Bob', 30, true, 'b', { 'y' }, { '2026-01-01', '2026-01-02' } })
+    check(answer({ 'Bob', 'thirty', false, 1, {}, { '2026-01-01', '2026-01-02' } }) == 2 and got == nil,
+        'input: a value of the wrong type is refused, and the page is told which field')
+    check(answer({ 'Bob', nil, false, 1, {}, nil }) == 2 and got == nil, 'input: a missing required value is refused')
+    check(answer({ 'Bob', 121, false, 1, {}, nil }) == 2, 'input: a number above max is refused')
+    check(answer({ 'Bob', 0 / 0, false, 1, {}, nil }) == 2, 'input: NaN is refused')
+    check(answer({ 'Bob', 30, false, 3, {}, nil }) == 4, 'input: a select index that was not offered is refused')
+    check(answer({ 'Bob', 30, false, 'a', {}, nil }) == 4, 'input: a select answered by value, not index, is refused')
+    check(answer({ 'Bob', 30, false, 1.5, {}, nil }) == 4, 'input: a fractional index is refused')
+    check(answer({ 'Bob', 30, false, 1, { 1, 3 }, nil }) == 5, 'input: a multi-select index that was not offered is refused')
+    check(answer({ 'Bob', 30, false, 1, { 1, 1 }, nil }) == 5, 'input: a multi-select that repeats an index is refused')
+    check(answer({ 'Bob', 30, false, 1, {}, { '2026-02-01', '2026-01-01' } }) == 6, 'input: a range that ends before it starts is refused')
+    check(answer({ '\255', 30, false, 1, {}, nil }) == 1, 'input: text that is not UTF-8 is refused')
+    check(got == nil and CisInterface.focus.top() == 'input', 'input: still open after every refusal')
+    answer({ 'Bob', 30, true, 2, { 2 }, { '2026-01-01', '2026-01-02' } })
     check(got and got[1] and got[1][1] == 'Bob' and got[1][2] == 30 and got[1][3] == true
         and got[1][4] == 'b' and got[1][5][1] == 'y' and got[1][6][2] == '2026-01-02',
-        'input: a valid answer resolves the caller with one value per row')
-    check(lastFocus(env).focus == false, 'input: focus released on submit')
+        'input: a valid answer resolves the caller with its own values, one per row')
+    check(lastFocus(env).focus == false and env.last('input:close').id == open.id, 'input: focus released and the page told to close')
+
+    -- Every rule the page checks, checked again here.
+    -- Two Steam64 ids further apart than a double's spacing, so they stay
+    -- distinct where integers are 32-bit (fengari) as well as in CfxLua.
+    local STEAM = 76561197960265985
+    local rows2 = {
+        { type = 'input', label = 'Code', minLength = 2, maxLength = 4 },
+        { type = 'date', label = 'Day', min = '2026-01-01' },
+        { type = 'checkbox', label = 'Must', required = true },
+        { type = 'multi-select', label = 'One', options = { 'a', 'b', 'c' }, maxSelectedValues = 1 },
+        { type = 'select', label = 'Who', options = { { value = 76561197960265729, label = 'A' }, { value = STEAM, label = 'B' } }, default = STEAM },
+        { type = 'input', label = 'Locked', disabled = true, default = 'fixed' },
+        { type = 'textarea', label = 'Notes', min = 3, max = 10 },
+        { type = 'color', label = 'Colour' },
+    }
+    got = nil
+    env.spawn(function() got = { env.X.InputDialog('Rules', rows2, { allowCancel = false }) } end)
+    open = env.last('input:open')
+    check(open.rows[5].default == 2, 'input: a default is sent as the index it names')
+    check(open.rows[7].min == 3 and open.rows[7].max == 10 and open.rows[7].maxLength == 16384,
+        'input: a textarea keeps min/max as rows and gets the text cap')
+    local ok = { 'ab', '2026-02-01', true, { 3 }, 2, 'hacked', string.rep('x', 50), '#ff8800' }
+    local function with(i, v) local t = {}; for k = 1, #ok do t[k] = ok[k] end; t[i] = v; return t end
+    check(answer(with(1, 'a')) == 1, 'input: text shorter than minLength is refused')
+    check(answer(with(1, 'abcde')) == 1, 'input: text longer than maxLength is refused')
+    check(answer(with(1, '\240\159\152\128\240\159\152\128\240\159\152\128')) == 1,
+        'input: length is counted in UTF-16 units, as the page counts it (3 emoji are 6)')
+    check(answer(with(2, '2026-02-30')) == 2, 'input: a date that is not on the calendar is refused (after min, so only the calendar refuses it)')
+    check(answer(with(2, '2026-04-31')) == 2, 'input: day 31 of a 30-day month is refused')
+    check(answer(with(2, '2025-12-31')) == 2, 'input: a date before min is refused')
+    check(answer(with(3, false)) == 3, 'input: a required checkbox must be ticked')
+    check(answer(with(4, { 1, 2 })) == 4, 'input: more than maxSelectedValues is refused')
+    check(answer(with(8, 'red;x:url(y)')) == 8, 'input: a colour must be #rgb or #rrggbb')
+    env.post('input', { id = open.id, cancelled = true })
+    env.step()
+    check(got == nil and CisInterface.focus.top() == 'input', 'input: a posted cancel is ignored when allowCancel is false')
+    answer(ok)
+    check(got and got[1] and got[1][1] == 'ab' and got[1][3] == true and got[1][4][1] == 'c',
+        'input: the valid answer resolves')
+    check(got[1][5] == STEAM and math.type(got[1][5]) == math.type(STEAM), 'input: a Steam64 value comes back exact (it never crossed to the page)')
+    check(got[1][6] == 'fixed', 'input: a disabled field keeps its default, whatever the page sends')
+    check(#got[1][7] == 50, 'input: textarea min/max do not limit the text length')
+
+    got = nil
 
     env.spawn(function() got = { env.X.InputDialog('Form', { 'a' }) } end)
     env.post('input', { id = env.last('input:open').id, cancelled = true })
     env.step()
     check(got[1] == nil and lastFocus(env).focus == false, 'input: cancel resolves nil and releases focus')
+
+    got = nil
 
     env.spawn(function() got = { env.X.InputDialog('Form', { 'a' }, { allowCancel = false }) } end)
     env.post('escape', {})
@@ -641,6 +715,18 @@ do
     check(env.stoppedAnims[1] and env.stoppedAnims[1].clip == 'idle' and env.removedDict == 'amb@x',
         'progress: the animation is stopped and its dictionary released')
     check(env.last('progress:stop').completed == true, 'progress: the page is told it completed')
+
+    -- A dictionary the game does not have is skipped at once. It used to be
+    -- requested and waited on for the whole load timeout, ped frozen.
+    env.flags.dictUnknown, env.flags.dictMissing = true, true
+    local starts = #env.msgs('progress:start')
+    got = nil
+    env.spawn(function() got = { env.X.ProgressBar({ duration = 100, anim = { dict = 'not@real', clip = 'x' } }) } end)
+    check(#env.msgs('progress:start') == starts + 1, 'progress: an unknown dictionary does not hold up the start')
+    check(env.logged[#env.logged] and env.logged[#env.logged].message:find('not@real', 1, true), 'progress: and is logged by name')
+    env.flags.dictUnknown, env.flags.dictMissing = nil, nil
+    env.X.CancelProgress()
+    env.step()
 
     -- cancel key
     env.created, env.deleted, env.stoppedAnims = {}, {}, {}
@@ -706,29 +792,92 @@ do
     local env = newEnv()
     env.load()
     local got
+    local KEY = { w = 32, a = 34, e = 38 }
+    local function mid(r, t0) return t0 + math.floor((r.start + r.size / 2) / r.degPerMs) end
+    local function past(r) return math.ceil((r.start + r.size) / r.degPerMs) end
+
+    check(env.nui.skill == nil, 'skill: there is no NUI callback that could report a result')
     env.spawn(function() got = { env.X.SkillCheck({ 'easy', { areaSize = 30, speedMultiplier = 2 } }, { 'w', 'A' }) } end)
-    local start = env.last('skill:start')
-    check(start and #start.rounds == 2 and start.rounds[1] == 'easy' and start.rounds[2].areaSize == 30,
-        'skill: the rounds are sent')
-    check(start.keys[2] == 'a', 'skill: key names are normalised to lower case')
+    local t0 = env.clock
+    local r1 = env.last('skill:round')
+    check(r1 and r1.index == 1 and r1.count == 2 and r1.size == 50 and (r1.key == 'w' or r1.key == 'a'),
+        'skill: Lua makes the round and sends it, with a key from the list (lower-cased)')
+    check(r1.start >= 90 and r1.start + r1.size <= 350, 'skill: the zone sits between a quarter turn and the last 10 degrees')
     check(env.X.SkillCheckActive() == true and env.live() == 2, 'skill: active, with one input thread')
     check(#env.focusCalls == 0, 'skill: the game keeps focus (no NUI focus taken)')
-    env.pressed[34] = true
     env.step()
-    check(env.last('skill:key') and env.last('skill:key').key == 'a', 'skill: a press is forwarded to the page')
     check((env.disabled[32] or 0) >= 1 and (env.disabled[24] or 0) >= 1, 'skill: its keys and attack are disabled while active')
-    env.post('skill', { id = start.id + 7, success = true })
+    check(got == nil, 'skill: nothing is decided before a press or the needle passing')
+
+    env.clock = mid(r1, t0)
+    env.pressed[KEY[r1.key]] = true
     env.step()
-    check(got == nil, 'skill: a result for another id is ignored')
-    env.post('skill', { id = start.id, success = true })
+    local r2 = env.last('skill:round')
+    check(r2.index == 2 and r2.size == 30 and math.abs(r2.degPerMs - 0.36) < 1e-9, 'skill: a hit in the zone starts the next round')
+    check(got == nil, 'skill: one round of two is not a result')
+    env.clock = mid(r2, env.clock)
+    env.pressed[KEY[r2.key]] = true
     env.step(2)
-    check(got and got[1] == true, 'skill: success resolves true')
+    check(got and got[1] == true, 'skill: hitting every round resolves true')
+    check(env.last('skill:stop').id == r1.id, 'skill: the page is told to stop')
     check(env.live() == 0, 'skill: the input thread is gone afterwards')
 
+    got = nil
+
+    env.spawn(function() got = { env.X.SkillCheck('easy', { 'w', 'a' }) } end)
+    local r = env.last('skill:round')
+    env.clock = mid(r, env.clock)
+    env.pressed[KEY[r.key == 'w' and 'a' or 'w']] = true
+    env.step(2)
+    check(got[1] == false and env.live() == 0, 'skill: the wrong key fails')
+
+    got = nil
+
+    env.spawn(function() got = { env.X.SkillCheck('easy') } end)
+    env.clock = env.clock + 10
+    env.pressed[KEY.e] = true
+    env.step(2)
+    check(got[1] == false, 'skill: a press before the zone fails')
+
+    t0 = env.clock
+    got = nil
     env.spawn(function() got = { env.X.SkillCheck('hard') } end)
-    env.post('skill', { id = env.last('skill:start').id, success = false })
+    r = env.last('skill:round')
     env.step()
-    check(got[1] == false, 'skill: failure resolves false')
+    check(got == nil, 'skill: still going while the needle is short of the zone')
+    env.clock = t0 + past(r) + 200
+    env.step(2)
+    check(got[1] == false and env.live() == 0, 'skill: the needle passing the zone with no press fails it, and the thread ends by itself')
+
+    -- A press is seen at the next frame. One frame late is still a hit; a
+    -- hitch is not a free one.
+    t0 = env.clock
+    got = nil
+    env.spawn(function() got = { env.X.SkillCheck('medium') } end)
+    r = env.last('skill:round')
+    env.clock = t0 + past(r) - 16
+    env.step()
+    env.clock = t0 + past(r) + 10
+    env.pressed[KEY.e] = true
+    env.step(2)
+    check(got[1] == true, 'skill: a press seen one frame after the zone is still a hit')
+    t0 = env.clock
+    got = nil
+    env.spawn(function() got = { env.X.SkillCheck('medium') } end)
+    r = env.last('skill:round')
+    env.step()
+    env.clock = t0 + past(r) + 100
+    env.pressed[KEY.e] = true
+    env.step(2)
+    check(got[1] == false, 'skill: a long frame widens the zone by at most MAX_FRAME_MS')
+
+    local judge = CisInterface.skillCheck.judge
+    local zone = { start = 100, size = 40, key = 'e' }
+    check(judge(zone, 99, 2, 'e') == 'hit' and judge(zone, 141, 2, 'e') == 'hit', 'skill: judge widens each edge by the slack')
+    check(judge(zone, 97, 2, 'e') == 'miss' and judge(zone, 143, 2, 'e') == 'miss', 'skill: and no further')
+    check(judge(zone, 142, 2, nil) == nil and judge(zone, 142.5, 2, nil) == 'miss', 'skill: no press misses only once past the widened zone')
+
+    got = nil
 
     env.spawn(function() got = { env.X.SkillCheck('medium') } end)
     check(env.X.CancelSkillCheck() == true, 'skill: CancelSkillCheck cancels it')
@@ -741,6 +890,7 @@ do
     check(badKey[1] == false, 'skill: an unsupported key is refused')
 
     env.invoking = 'res_k'
+    got = nil
     env.spawn(function() got = { env.X.SkillCheck('easy') } end)
     env.invoking = nil
     env.fire('onResourceStop', 'res_k')
@@ -822,7 +972,7 @@ do
     env.post('context', { token = open.token, action = 'select', index = 3 })
     check(#env.events == 0, 'context: a read-only option fires nothing')
     env.post('context', { token = open.token, action = 'select', index = 99 })
-    env.post('context', { token = open.token + 50, action = 'select', index = 1 })
+    env.post('context', { token = open.token .. '0', action = 'select', index = 1 })
     env.post('context', { token = open.token, action = 'select', index = 1, event = 'evil:event', serverEvent = 'evil:server' })
     check(#selected == 1 and selected[1].n == 1, 'context: a valid select runs onSelect with args; bad index and stale token do not')
     local server = {}
@@ -934,6 +1084,12 @@ do
     check(env.last('menu:state').selected == sel - 1, 'menu: a held key repeats after the delay')
     env.held[172] = nil
 
+    -- 177 is also the right mouse button: aiming must not close the menu.
+    env.pressed[177] = true
+    env.step()
+    check(env.X.GetOpenMenu() ~= nil, 'menu: the right mouse button does not close it')
+    env.pressed[177] = nil
+
     env.pressed[200] = true -- escape
     env.step(2)
     check(env.X.GetOpenMenu() == nil and log[#log] == 'close:Escape', 'menu: Escape closes it and calls onClose with the key')
@@ -989,6 +1145,7 @@ do
     check(env.live() == 1, 'radial: one control thread while open')
     env.step()
     check((env.disabled[1] or 0) >= 1 and (env.disabled[200] or 0) >= 1, 'radial: looking and pause are disabled while open')
+    check((env.disabled[22] or 0) >= 1, 'radial: jump is disabled while open (a click on a slot was also a jump)')
 
     env.post('radial', { token = open.token, action = 'select', index = 1 })
     local sub = env.last('radial:open')
@@ -1017,6 +1174,20 @@ do
     check(lastFocus(env).focus == false, 'radial: removing the last item closes it')
     env.step()
     check(env.live() == 0, 'radial: no thread left behind')
+
+    -- The cap is all or nothing: a list that would pass it changes nothing.
+    local many = {}
+    for i = 1, 64 do many[i] = { id = 'i' .. i, label = tostring(i), icon = { 'fas', 'box' } } end
+    check(env.X.AddRadialItem(many) == true, 'radial: 64 items fit')
+    local over = { env.X.AddRadialItem({ { id = 'i1', label = 'replaced' }, { id = 'extra', label = 'x' } }) }
+    check(over[1] == false and type(over[2]) == 'string', 'radial: a list that would pass the cap is refused')
+    env.commands['+cis_libs_radial']()
+    local now = env.last('radial:open')
+    check(#now.items == 64 and now.items[1].label == '1', 'radial: and none of it was applied (the item it would replace is untouched)')
+    check(now.items[1].icon == 'box', 'radial: an icon given as a list is sent as its name')
+    check(env.X.AddRadialItem({ id = 'i1', label = 'one' }) == true, 'radial: replacing an item at the cap is allowed')
+    env.post('escape', {})
+    env.step()
     env.reset()
 end
 
@@ -1026,6 +1197,8 @@ do
     env.load()
     check(env.X.SetUiTheme({ accent = 'url(https://evil/x.png)' }) == false, 'theme: a url() accent is refused')
     check(env.X.SetUiTheme({ colors = { bg = 'red;background:url(x)' } }) == false, 'theme: an injected colour token is refused')
+    check(env.X.SetUiTheme({ colors = { place = '#fff' } }) == false, 'theme: a colour key that is not a colour token is refused')
+    check(env.X.SetUiTheme({ colors = { p = '#fff' } }) == false, 'theme: it could overwrite a layout variable such as --cis-p')
     check(env.X.SetUiTheme({ radius = 'big' }) == false, 'theme: a non-number radius is refused')
     check(env.X.SetUiTheme({ notifyPosition = 'moon' }) == false, 'theme: an unknown position is refused')
     check(env.last('theme') == nil, 'theme: nothing is sent for a refused theme')
@@ -1033,6 +1206,10 @@ do
     local th = env.last('theme')
     check(th.radius == 32 and th.mode == 'light', 'theme: numbers are clamped and sent')
     check(env.X.SetUiTheme({ fontScale = 1.0 }) == true and env.last('theme').accent == '#4c8dff', 'theme: later calls merge')
+    check(env.X.SetUiTheme({ colors = { bg = '#000', ['accent-fg'] = '#fff' } }) == true, 'theme: a known colour token applies')
+    local nlog = #env.logged
+    check(env.post('warn', { message = 'unknown icon spaceship' }).ok == true, 'ui: the page can report a warning')
+    check(#env.logged == nlog + 1 and env.logged[#env.logged].level == 'warn', 'ui: logged as a warning, not an error')
     env.X.ShowTextUI('x')
     check(env.last('textui:show').position == 'top-center', 'theme: the default position is used by components')
     check(env.X.SetUiLocale({ confirm = 'Bestätigen', bogus = 'x', cancel = 5 }) == true, 'locale: accepted')
@@ -1052,6 +1229,12 @@ do
     local p = e.args[1]
     check(#p.description == 2048 and p.sound == nil and p.junk == nil, 'server: the payload is rebuilt, bounded, known fields only')
     check(env.X.NotifyPlayer(-1, 'everyone') == true and env.events[2].target == -1, 'server: -1 broadcasts')
+    -- A 2-byte script cut at a byte cap used to end on half a character, and
+    -- the client then turned every non-ASCII character in it into '?'.
+    check(env.X.NotifyPlayer(7, { title = string.rep('д', 260), description = 'ok' .. string.char(255) }) == true, 'server: a long Cyrillic title is sent')
+    local cy = env.events[#env.events].args[1]
+    check(#cy.title == 256 and utf8.len(cy.title) == 128, 'server: clipped to 256 bytes on a character boundary')
+    check(cy.description == 'ok?', 'server: an invalid byte is replaced, not sent')
     check(env.X.NotifyPlayer(8, 'x') == false, 'server: an unknown player is refused')
     check(env.X.NotifyPlayer(0, 'x') == false and env.X.NotifyPlayer('abc', 'x') == false, 'server: a bad id is refused')
     check(env.X.NotifyPlayer(7, {}) == false, 'server: an empty notification is refused')
@@ -1099,6 +1282,13 @@ do
     end
     check(got and got[1] == nil and got[2] == 'ui not ready', 'not ready: an alert gives up after the wait instead of holding focus forever')
     check(#env.focusCalls == 0, 'not ready: and never took focus')
+    local prog
+    env.spawn(function() prog = { env.X.ProgressBar({ duration = 600000, disable = { move = true } }) } end)
+    for _ = 1, 80 do
+        env.step()
+    end
+    check(prog and prog[1] == false and prog[2] == 'ui not ready', 'not ready: a progress gives up rather than freezing the ped with nothing drawn')
+    check(env.disabled[30] == nil, 'not ready: and never disabled a control')
     check(env.X.ShowContext('missing') == false, 'not ready: an unknown context is still refused')
     env.reset()
 end

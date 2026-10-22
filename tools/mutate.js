@@ -115,8 +115,13 @@ function main() {
         // Additive, not alternative: a row is killed when EITHER gate fails,
         // because the question is "does anything catch this", not "which gate
         // was written for it".
+        //
+        // 'web' is the page's own suite (test/web): a defect in web/ is
+        // invisible to every Lua suite, so without it a page-side fix could
+        // only ever be asserted, never shown to be caught.
         if (m.check) {
-          const c = spawnSync(process.execPath, ['tools/validate-api.js', '--api', 'api.lua', '--resource', '.'], {
+          const args = m.check === 'web' ? ['test/web/run.mjs'] : ['tools/validate-api.js', '--api', 'api.lua', '--resource', '.']
+          const c = spawnSync(process.execPath, args, {
             cwd: tmpRoot,
             encoding: 'utf8',
             maxBuffer: 64 * 1024 * 1024,

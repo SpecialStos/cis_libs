@@ -24,7 +24,7 @@ local function showTextUI(text, options)
         payload = {
             text = value,
             position = POSITIONS[options.position] and options.position or I.defaults.textUIPosition,
-            icon = I.str(options.icon, 256),
+            icon = I.icon(options.icon),
             iconColor = I.color(options.iconColor),
             style = STYLES[options.style] and options.style or nil,
             key = I.str(options.key, 8),

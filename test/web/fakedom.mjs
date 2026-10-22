@@ -107,6 +107,8 @@ export function installDom() {
     matchMedia: () => ({ matches: false }),
     GetParentResourceName: () => 'cis_libs',
   }
+  // The NUI root posts into this frame: `parent` is where game messages come from.
+  globalThis.window.parent = { root: true }
   globalThis.requestAnimationFrame = () => 0
   globalThis.cancelAnimationFrame = () => {}
   globalThis.fetch = (url, init) => {
@@ -116,7 +118,9 @@ export function installDom() {
   return {
     doc,
     posts,
-    send(action, data) { for (const fn of listeners.message || []) fn({ data: { action, data } }) },
+    send(action, data) { for (const fn of listeners.message || []) fn({ data: { action, data }, source: globalThis.window.parent }) },
+    // A message from somewhere that is not the game: another resource's frame.
+    sendFrom(source, action, data) { for (const fn of listeners.message || []) fn({ data: { action, data }, source }) },
     keydown(key, extra = {}) {
       const e = { key, preventDefault() {}, ...extra }
       for (const fn of doc.listeners.keydown || []) fn(e)

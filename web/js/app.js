@@ -21,7 +21,8 @@ on('locale', (d) => setLocale(d))
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     e.preventDefault()
-    post('escape', {})
+    // A held key repeats: one press must close one layer, not the whole stack.
+    if (!e.repeat) post('escape', {})
   }
 })
 

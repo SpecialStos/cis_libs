@@ -109,6 +109,33 @@ under **Changed** so nobody upgrades into them blind.
   `false, reason` without network control.
 - **`Cis.ui.*` uses the built-in NUI** when no `ui` provider answers; the GTA
   feed and native help remain only as a fallback when the NUI is not loaded.
+- **`InputDialog` textarea `min` / `max` are row counts**, as in ox_lib
+  (default 3 and 20). They were character limits, so `{ min = 3, max = 10,
+  autosize = true }` refused "ab" and cut the text at ten characters. Text
+  length is `minLength` / `maxLength` on input and textarea (an input's
+  `min` / `max` still mean its length), capped at 16384 UTF-16 units.
+- **`InputDialog` checks every rule again in Lua** (bounds, lengths,
+  `maxSelectedValues`, repeated picks, calendar dates, `#rgb`/`#rrggbb`) and a
+  refused answer keeps the dialog open with the field marked; a disabled row
+  returns its default. Select options cross to the page as indexes, so a
+  value is returned exactly as passed (a Steam64 integer used to come back
+  rounded and strand the dialog). A posted cancel is ignored when
+  `allowCancel = false`.
+- **`SkillCheck` is judged in Lua.** Lua places each zone, owns the clock and
+  reads the keys; the page only draws. A press seen one frame late still
+  counts (up to 34 ms); a round with no press fails once the needle passes.
+- **NUI ids and tokens are opaque strings** (a counter plus 60 random bits).
+  Any frame can post to `https://cis_libs/<callback>`, and ids counted from 1,
+  so another resource's page could answer an open dialog.
+- **An icon name that is not a built-in draws nothing** (and is logged once)
+  where it drew the word. The built-in set is 63 icons, and about a hundred
+  more Font Awesome names used by ox_lib callers (`home`, `cog`,
+  `fa-solid fa-box-open`, `{ 'fas', 'box' }`) resolve to them.
+- **`SetUiTheme` `colors` takes only the colour tokens** style.css reads
+  (`accent`, `accent-fg`, `bg`, `surface`, `hover`, `border`, `fg`, `muted`,
+  `backdrop`, `inform`, `success`, `warning`, `error`).
+- **UI strings are capped in bytes and cut on a character** (client and
+  `NotifyPlayer`); only invalid bytes become `?`.
 - **The cache refreshes every 100-250 ms** (was 1 s) and emits `heading` and
   `shooting` changes.
 
@@ -310,6 +337,30 @@ under **Changed** so nobody upgrades into them blind.
   (`RemoveNearWatcher` had no owner check, and ids count from 1). Both now
   refuse a foreign owner with `false, reason`; the client `RegisterCallback`
   returns its reason on every refusal (was a bare `false`).
+- **Exploitable:** any resource's page could drive the cis_libs NUI. A
+  `postMessage` into its frame drew a fake dialog or stopped a skill check (the
+  page now takes messages only from the NUI root), and a fetch could confirm
+  an alert, pick a context or radial option, fill an input dialog or pass a
+  skill check by counting ids from 1.
+- Every centred NUI panel (top and bottom toasts, centred text UI, progress,
+  skill check) sat half its size off centre in FiveM: the standalone
+  `translate` / `rotate` properties are Chromium 104, and CEF is 103. They are
+  `transform` now, and `test/web/compat.test.mjs` fails on any CSS or JS
+  feature newer than 103.
+- A dialog closed on submit before Lua answered, so a refused or lost answer
+  left focus and the cursor over nothing; it now closes when Lua says so, and
+  gives focus back to what had it.
+- A date like 2024-02-30 was accepted as 1 March.
+- `AddRadialItem` with a list that passed the 64-item cap added part of it.
+- The radial menu let Space jump through a click; the list menu closed on the
+  right mouse button (control 177 is also RMB); a held Escape closed every
+  layer at once.
+- `ProgressBar` with an animation dictionary the game does not have froze the
+  ped for the whole load timeout; it now skips the animation and logs the
+  name. A progress started before the page loaded ran with nothing on screen;
+  it now waits for the page, like the dialogs. The bar's `aria-valuenow`
+  stayed at 0.
+- A click on a link inside a context option also picked the option.
 - `AwaitCallbackClient` hung forever when the target player dropped.
 - Points never fired (the thread ran once); a stopping resource removed other
   resources' points; world queries used pool names that do not exist and

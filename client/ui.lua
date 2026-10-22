@@ -1,10 +1,12 @@
 -- The `ui` slot.
 --
--- cis_libs ships no NUI. A provider that does toasts, a textUI overlay,
--- progress, a confirm dialog, an input dialog registers this slot and every
--- call below forwards to it. Without one, notify and textUI still work: the
--- GTA feed and the help-text native. progress, confirm and input have
--- nothing honest to draw, so they answer `false, 'no ui provider'`.
+-- A provider that does toasts, a textUI overlay, progress, a confirm dialog,
+-- an input dialog registers this slot and every call below forwards to it.
+-- Without one, each call uses cis_libs' own NUI (client/interface/*, the
+-- Toast / ProgressBar / AlertDialog / InputDialog exports). Only if that is
+-- missing too do notify and textUI fall back to the GTA feed and the
+-- help-text native, while progress, confirm and input, with nothing honest to
+-- draw, answer `false, 'no ui provider'`.
 --
 -- THIS IS NOT Cis.framework.notify. That export is player-targeted, lives
 -- on both realms, is rate-limited, and goes through the framework slot
