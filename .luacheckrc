@@ -29,7 +29,7 @@ std = "lua54"
 -- both lists would be read-only here and writable below, and luacheck
 -- resolves that to read-only.
 --
--- 281 names, from 188 natives in use.
+-- 282 names, from 190 natives in use.
 read_globals = {
     "AddCommand", "AddDoorToSystem", "AddEventHandler", "AddStateBagChangeHandler",
     "AddTextComponentString", "AddTextComponentSubstringPlayerName",
@@ -72,20 +72,20 @@ read_globals = {
     "HasPedGotWeaponComponent", "HasScaleformMovieLoaded", "HasStreamedTextureDictLoaded",
     "HasWeaponAssetLoaded", "HaveAllStreamingRequestsCompleted", "InvalidateIdleCam",
     "InvalidateVehicleIdleCam", "IsDuplicityVersion", "IsEntityPositionFrozen",
-    "IsEntityVisible", "IsModelInCdimage", "IsPedArmed", "IsPedInAnyVehicle",
-    "IsPedShooting", "IsPlayerFreeAiming", "IsPrincipalAceAllowed", "IsToggleModOn",
-    "IsVehicleDoorDamaged", "IsVehicleExtraTurnedOn", "IsVehicleNeonLightEnabled",
-    "IsVehicleTyreBurst", "IsVehicleWindowIntact", "Load", "LoadResourceFile",
-    "LoadResourceFileAsync", "NetworkGetEntityFromNetworkId", "NetworkGetEntityIsNetworked",
-    "NetworkGetEntityOwner", "NetworkGetNetworkIdFromEntity", "PerformHttpRequest",
-    "PerformHttpRequestAsync", "Player", "PlayerId", "PlayerPed", "PlayerPedId",
-    "RegisterCommand", "RegisterKeyMapping", "RegisterNUICallback", "RegisterNetEvent",
-    "ReleaseScriptAudioBank", "RemoveAnimDict", "RemoveAnimSet", "RemoveCommand",
-    "RemoveEventHandler", "RemoveNamedPtfxAsset", "RemoveStateBagChangeHandler",
-    "RemoveVehicleWindow", "RemoveWeaponAsset", "RequestAnimDict", "RequestAnimSet",
-    "RequestModel", "RequestNamedPtfxAsset", "RequestScaleformMovie",
-    "RequestScriptAudioBank", "RequestStreamedTextureDict", "RequestWeaponAsset",
-    "RestartResource", "SaveResourceFile", "SendNuiMessage",
+    "IsEntityVisible", "IsModelInCdimage", "IsPedAPlayer", "IsPedArmed",
+    "IsPedInAnyVehicle", "IsPedShooting", "IsPlayerFreeAiming", "IsPrincipalAceAllowed",
+    "IsToggleModOn", "IsVehicleDoorDamaged", "IsVehicleExtraTurnedOn",
+    "IsVehicleNeonLightEnabled", "IsVehicleTyreBurst", "IsVehicleWindowIntact", "Load",
+    "LoadResourceFile", "LoadResourceFileAsync", "NetworkGetEntityFromNetworkId",
+    "NetworkGetEntityIsNetworked", "NetworkGetEntityOwner", "NetworkGetNetworkIdFromEntity",
+    "PerformHttpRequest", "PerformHttpRequestAsync", "Player", "PlayerId", "PlayerPed",
+    "PlayerPedId", "RegisterCommand", "RegisterKeyMapping", "RegisterNUICallback",
+    "RegisterNetEvent", "ReleaseScriptAudioBank", "RemoveAnimDict", "RemoveAnimSet",
+    "RemoveCommand", "RemoveEventHandler", "RemoveNamedPtfxAsset",
+    "RemoveStateBagChangeHandler", "RemoveVehicleWindow", "RemoveWeaponAsset",
+    "RequestAnimDict", "RequestAnimSet", "RequestModel", "RequestNamedPtfxAsset",
+    "RequestScaleformMovie", "RequestScriptAudioBank", "RequestStreamedTextureDict",
+    "RequestWeaponAsset", "RestartResource", "SaveResourceFile", "SendNuiMessage",
     "SetBlockingOfNonTemporaryEvents", "SetDriftTyresEnabled", "SetEntityCollision",
     "SetEntityCoords", "SetEntityCoordsNoOffset", "SetEntityHeading", "SetEntityHealth",
     "SetEntityInvincible", "SetEntityOrphanMode", "SetEntityRoutingBucket",

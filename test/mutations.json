@@ -645,6 +645,34 @@
       "find": "    if caller ~= 'cis_libs' and caller ~= point.owner then\n",
       "replace": "    if false and caller ~= point.owner then\n",
       "why": "Drop the owner check on RemovePoint. Ids are 1, 2, 3..., so any resource can remove every other resource's points by counting."
+    },
+    {
+      "id": "M98",
+      "file": "client/world.lua",
+      "find": "    ped = 'CPed',\n",
+      "replace": "    ped = 'CPoolablePed',\n",
+      "why": "Restore the made-up pool name. GET_GAME_POOL answers an empty table for a name it does not know, so every ped query finds nothing in game. The 7.3 GetGamePool stub refuses unknown pool names, which is what sees it."
+    },
+    {
+      "id": "M99",
+      "file": "client/world.lua",
+      "find": "            if usable(ped) and (includeSelf or indices[i] ~= selfIndex) then\n",
+      "replace": "            if usable(ped) then\n",
+      "why": "Drop the self-exclusion from player queries. ClosestPlayer then answers the local player at 0 m for every caller, which is never the question being asked."
+    },
+    {
+      "id": "M100",
+      "file": "client/world.lua",
+      "find": "                    elseif not includePlayers and IsPedAPlayer(handle) then\n",
+      "replace": "                    elseif false then\n",
+      "why": "Let player peds into ped queries. The CPed pool holds them too, so closestPed near another player answers that player instead of an NPC."
+    },
+    {
+      "id": "M101",
+      "file": "client/world.lua",
+      "find": "    if not CisCallable(filter) then return true end\n",
+      "replace": "    if type(filter) ~= 'function' then return true end\n",
+      "why": "Ignore funcref filters. A consumer's filter crosses exports as a callable table, so the query silently returns unfiltered results."
     }
   ]
 }

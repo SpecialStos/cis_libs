@@ -5,14 +5,14 @@
     "gta": "https://runtime.fivem.net/doc/natives.json"
   },
   "counts": {
-    "shippedFiles": 43,
-    "nativesUsed": 188,
+    "shippedFiles": 45,
+    "nativesUsed": 190,
     "byRealm": {
       "client": 117,
-      "server": 4,
-      "shared": 67
+      "server": 5,
+      "shared": 68
     },
-    "unresolvedPascalCaseGlobals": 64
+    "unresolvedPascalCaseGlobals": 65
   },
   "natives": {
     "AddDoorToSystem": {
@@ -809,7 +809,8 @@
         "shared/loopguard.lua",
         "shared/ready.lua",
         "shared/registry.lua",
-        "shared/statebag.lua"
+        "shared/statebag.lua",
+        "shared/timing.lua"
       ]
     },
     "GetGameplayCamCoord": {
@@ -2032,6 +2033,26 @@
         "client/streaming.lua"
       ]
     },
+    "IsPedAPlayer": {
+      "realm": "shared",
+      "evidence": [
+        "client",
+        "server"
+      ],
+      "sources": [
+        "gta",
+        "cfx"
+      ],
+      "namespaces": [
+        "PED"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/world.lua"
+      ]
+    },
     "IsPedArmed": {
       "realm": "client",
       "evidence": [
@@ -2344,6 +2365,7 @@
       "files": [
         "client/cache.lua",
         "client/vehicle.lua",
+        "client/world.lua",
         "init.lua"
       ]
     },
@@ -2366,6 +2388,7 @@
         "client/cache.lua",
         "client/vehicle.lua",
         "client/weapon.lua",
+        "client/world.lua",
         "client/zones.lua",
         "init.lua"
       ]
@@ -3522,6 +3545,22 @@
         "client/vehicle.lua"
       ]
     },
+    "StopResource": {
+      "realm": "server",
+      "evidence": [
+        "server"
+      ],
+      "sources": [
+        "cfx"
+      ],
+      "namespaces": [],
+      "usedIn": [
+        "server"
+      ],
+      "files": [
+        "server/initialize.lua"
+      ]
+    },
     "TaskStartScenarioInPlace": {
       "realm": "client",
       "evidence": [
@@ -3595,6 +3634,7 @@
   },
   "unresolvedGlobals": [
     "AddEventHandler",
+    "CisCallable",
     "CisCommandAdd",
     "CisCommandList",
     "CisCommandNames",

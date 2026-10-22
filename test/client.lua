@@ -3315,8 +3315,14 @@ local function worldEnv()
         [103] = { x = 30.0, y = 0.0, z = 0.0, alive = true },
         [104] = { x = 5.0, y = 0.0, z = 0.0, alive = false },
     }
-    env.pools = { CPoolablePed = {}, CPoolableVehicle = {}, CPoolableObject = {} }
+    -- THE REAL POOL NAMES. These were `CPoolablePed` and friends, matching the
+    -- library's own wrong names, so the suite certified queries that find nothing
+    -- in game. GET_GAME_POOL knows CPed, CVehicle, CObject and CPickup.
+    env.pools = { CPed = {}, CVehicle = {}, CObject = {}, CPickup = {} }
     env.activePlayers = { 0, 1 }
+    -- PlayerId() is 0 in the base harness, so player 0 / ped 201 is the local
+    -- player.
+    env.ped = 201
     env.playerPeds = { [0] = 201, [1] = 202 }
     env.playerPedCoords = {
         [201] = { x = 8.0, y = 0.0, z = 0.0 },
@@ -3333,7 +3339,10 @@ local function worldEnv()
         return env.entities[e] or env.playerPedCoords[e]
     end
     function GetGamePool(name)
-        local pool = env.pools[name] or {}
+        -- A name the game does not know is a test failure, not an empty pool: the
+        -- empty answer is exactly how the wrong names went unnoticed.
+        local pool = env.pools[name]
+        if pool == nil then error(('GetGamePool: no pool named %s'):format(tostring(name)), 2) end
         local snapshot = {}
         for i = 1, #pool do snapshot[i] = pool[i] end
         return snapshot
@@ -3342,6 +3351,7 @@ local function worldEnv()
     function GetPlayerPed(i) return env.playerPeds[i] end
     function GetPlayers() return { '1', '2' } end
     function IsDuplicityVersion() return false end
+    function IsPedAPlayer(ped) return env.playerPedCoords[ped] ~= nil end
 
     loadModule('client/world.lua')
     return env
@@ -3350,9 +3360,10 @@ end
 -- Written out so a kind that stops being scanned shows up as a missing key
 -- rather than as a silently shorter list.
 local function seed(env)
-    env.pools.CPoolablePed = { 101, 102, 103, 104 }
-    env.pools.CPoolableVehicle = { 101, 102 }
-    env.pools.CPoolableObject = { 101 }
+    -- The ped pool holds PLAYER peds too, as the real one does.
+    env.pools.CPed = { 101, 102, 103, 104, 201, 202 }
+    env.pools.CVehicle = { 101, 102 }
+    env.pools.CObject = { 101 }
 end
 
 do
@@ -3464,13 +3475,45 @@ end
 -- PLAYERS, whose arity differs from everything else on purpose.
 do
     local env = worldEnv(); seed(env)
+    -- YOU ARE NOT THE CLOSEST PLAYER TO YOURSELF. Player 0 (ped 201, 8 m) is the
+    -- local player; without the exclusion every caller standing anywhere got
+    -- themselves back.
     local ped, coords, playerId = exports.ClosestPlayer({ x = 0.0, y = 0.0, z = 0.0 }, 100)
-    check(ped == 201, ('7.3: closestPlayer answers the PED (got %s)'):format(tostring(ped)))
+    check(ped == 202, ('7.3: closestPlayer answers ANOTHER player ped, never your own (got %s)'):format(tostring(ped)))
     check(coords ~= nil, '7.3: closestPlayer answers the coords')
-    check(playerId ~= nil, ('7.3: closestPlayer answers WHICH player in slot 3 (got %s)'):format(tostring(playerId)))
+    check(playerId == 1, ('7.3: closestPlayer answers WHICH player in slot 3 (got %s)'):format(tostring(playerId)))
+    local mine = exports.ClosestPlayer({ x = 0.0, y = 0.0, z = 0.0 }, 100, nil, { includeSelf = true })
+    check(mine == 201, ('7.3: includeSelf puts the local player back (got %s)'):format(tostring(mine)))
     local list = exports.NearbyPlayers({ x = 0.0, y = 0.0, z = 0.0 }, 100)
-    check(type(list) == 'table' and #list == 2,
-        ('7.3: nearbyPlayers lists every connected player (got %s)'):format(tostring(list and #list)))
+    check(type(list) == 'table' and #list == 1 and list[1].player == 1,
+        ('7.3: nearbyPlayers lists every OTHER connected player (got %s)'):format(tostring(list and #list)))
+    local all = exports.NearbyPlayers({ x = 0.0, y = 0.0, z = 0.0 }, 100, nil, { includeSelf = true })
+    check(#all == 2, ('7.3: and includeSelf lists all of them (got %d)'):format(#all))
+    env.reset()
+end
+
+-- A PED QUERY MEANS NPCs. Player peds sit in the same pool, so without the
+-- exclusion `closestPed` near another player answered that player.
+do
+    local env = worldEnv(); seed(env)
+    local near = exports.NearbyPeds({ x = 0.0, y = 0.0, z = 0.0 }, 100)
+    local sawPlayer = false
+    for _, e in ipairs(near) do
+        if e.entity == 201 or e.entity == 202 then sawPlayer = true end
+    end
+    check(not sawPlayer and #near == 3, ('7.3: nearbyPeds excludes player peds (got %d entries)'):format(#near))
+    local withPlayers = exports.NearbyPeds({ x = 0.0, y = 0.0, z = 0.0 }, 100, nil, { includePlayers = true })
+    check(#withPlayers == 4, ('7.3: includePlayers adds OTHER players, not yourself (got %d)'):format(#withPlayers))
+    env.reset()
+end
+
+-- A FILTER FROM ANOTHER RESOURCE IS A FUNCREF TABLE, and it must filter.
+do
+    local env = worldEnv(); seed(env)
+    local got = exports.ClosestPed({ x = 0.0, y = 0.0, z = 0.0 }, 100, funcref(function(entity)
+        return entity ~= 101
+    end))
+    check(got == 102, ('7.3: a funcref filter is applied (got %s)'):format(tostring(got)))
     env.reset()
 end
 

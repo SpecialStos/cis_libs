@@ -27,7 +27,7 @@ self = false
 -- In shipped code an unused parameter is a real smell and stays reported.
 unused_args = false
 
--- 437 names writable in this directory.
+-- 438 names writable in this directory.
 globals = {
     "AddCommand", "AddDoorToSystem", "AddEventHandler", "AddStateBagChangeHandler",
     "AddTextComponentString", "AddTextComponentSubstringPlayerName",
@@ -95,8 +95,8 @@ globals = {
     "HasWeaponAssetLoaded", "HaveAllStreamingRequestsCompleted", "InvalidateIdleCam",
     "InvalidateVehicleIdleCam", "IsDuplicityVersion", "IsEntityAMissionEntity",
     "IsEntityDead", "IsEntityPositionFrozen", "IsEntityVisible", "IsModelInCdimage",
-    "IsPedArmed", "IsPedInAnyVehicle", "IsPedShooting", "IsPlayerFreeAiming",
-    "IsPrincipalAceAllowed", "IsToggleModOn", "IsVehicleDoorDamaged",
+    "IsPedAPlayer", "IsPedArmed", "IsPedInAnyVehicle", "IsPedShooting",
+    "IsPlayerFreeAiming", "IsPrincipalAceAllowed", "IsToggleModOn", "IsVehicleDoorDamaged",
     "IsVehicleExtraTurnedOn", "IsVehicleNeonLightEnabled", "IsVehicleTyreBurst",
     "IsVehicleWindowIntact", "Load", "LoadResourceFile", "LoadResourceFileAsync", "Logging",
     "NetworkDoesNetworkIdExist", "NetworkGetEntityFromNetworkId",

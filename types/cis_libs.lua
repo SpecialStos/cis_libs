@@ -605,37 +605,41 @@ function CallCallback.client(name, cb, ...) end
 --- realm: server
 function CallCallbackClient(name, target, cb, ...) end
 
---- Cis.world.closestObject(coords, maxDistance, filter)
+--- Cis.world.closestObject(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
+---@param opts table #reserved; accepted and ignored for this kind
 ---@return integer|false, vector3|string|nil #the handle and its coords, or false plus a reason
 --- realm: client
-function ClosestObject(coords, maxDistance, filter) end
+function ClosestObject(coords, maxDistance, filter, opts) end
 
---- Cis.world.closestPed(coords, maxDistance, filter)
+--- Cis.world.closestPed(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
+---@param opts table #`{ includePlayers = true }` adds the peds of OTHER players and `{ includeSelf = true }` your own. Both off by default: the pool holds player peds too, and a ped query means NPCs
 ---@return integer|false, vector3|string|nil #the handle and its coords, or false plus a reason. A dead pool entity is never a candidate
 --- realm: client
-function ClosestPed(coords, maxDistance, filter) end
+function ClosestPed(coords, maxDistance, filter, opts) end
 
---- Cis.world.closestPlayer(coords, maxDistance, filter)
+--- Cis.world.closestPlayer(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
+---@param opts table #`{ includeSelf = true }` puts the LOCAL player back in. Off by default: the closest player to where you stand is otherwise always you, at 0 m
 ---@return integer|false, vector3|string|nil, integer|nil #the PLAYER PED and its coords, plus WHICH player in slot 3 -- the arity differs from the other three on purpose, because reading slot 2 as a player id gives a server id
 --- realm: client
-function ClosestPlayer(coords, maxDistance, filter) end
+function ClosestPlayer(coords, maxDistance, filter, opts) end
 
---- Cis.world.closestVehicle(coords, maxDistance, filter)
+--- Cis.world.closestVehicle(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
+---@param opts table #reserved; accepted and ignored for this kind
 ---@return integer|false, vector3|string|nil #the handle and its coords, or false plus a reason
 --- realm: client
-function ClosestVehicle(coords, maxDistance, filter) end
+function ClosestVehicle(coords, maxDistance, filter, opts) end
 
 --- Cis.command.add(name, { params, restricted, help }, handler)
 ---@param name string #letters, digits, underscore or hyphen only
@@ -1146,37 +1150,41 @@ function LogWarn.client(message) end
 --- realm: both
 function ModuleInfo(name, opts) end
 
---- Cis.world.nearbyObjects(coords, maxDistance, filter)
+--- Cis.world.nearbyObjects(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
+---@param opts table #reserved; accepted and ignored for this kind
 ---@return CisWorldEntry[]|false, string #SORTED by distance so element 1 is the closest, and NEVER nil: nothing in range is an empty list, which is a real answer and not the same as a missing provider
 --- realm: client
-function NearbyObjects(coords, maxDistance, filter) end
+function NearbyObjects(coords, maxDistance, filter, opts) end
 
---- Cis.world.nearbyPeds(coords, maxDistance, filter)
+--- Cis.world.nearbyPeds(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
+---@param opts table #`{ includePlayers = true }` adds the peds of OTHER players and `{ includeSelf = true }` your own. Both off by default: the pool holds player peds too, and a ped query means NPCs
 ---@return CisWorldEntry[]|false, string #sorted by distance, never nil
 --- realm: client
-function NearbyPeds(coords, maxDistance, filter) end
+function NearbyPeds(coords, maxDistance, filter, opts) end
 
---- Cis.world.nearbyPlayers(coords, maxDistance, filter)
+--- Cis.world.nearbyPlayers(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
+---@param opts table #`{ includeSelf = true }` puts the LOCAL player back in. Off by default: the closest player to where you stand is otherwise always you, at 0 m
 ---@return CisWorldEntry[]|false, string #sorted by distance, never nil. Each entry carries the player id as well
 --- realm: client
-function NearbyPlayers(coords, maxDistance, filter) end
+function NearbyPlayers(coords, maxDistance, filter, opts) end
 
---- Cis.world.nearbyVehicles(coords, maxDistance, filter)
+--- Cis.world.nearbyVehicles(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
+---@param opts table #reserved; accepted and ignored for this kind
 ---@return CisWorldEntry[]|false, string #sorted by distance, never nil
 --- realm: client
-function NearbyVehicles(coords, maxDistance, filter) end
+function NearbyVehicles(coords, maxDistance, filter, opts) end
 
 ---@overload fun(...)
   ---@param src integer #a connected player id above 0; console and broadcast included, anything else refuses
