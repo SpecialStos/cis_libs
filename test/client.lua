@@ -1114,6 +1114,18 @@ do
             ("C1: carrying the server's reason: %s"):format(tostring(errCall)))
     end
 
+    -- The server sends up to SIX values and the docs promise six. AwaitCallback
+    -- read `local ok, a, b` and returned `a, b`, so the third onwards vanished.
+    do
+        env.serverEvents = {}
+        replyWith(true, 'one', 'two', 'three', nil, 'five', 'six')
+        local packed = table.pack(env.EXPORTS.AwaitCallback('ask'))
+        check(packed.n == 6 and packed[1] == 'one' and packed[3] == 'three'
+                and packed[4] == nil and packed[6] == 'six',
+            ('C1: AwaitCallback returns all six values, a nil among them (n=%d, third=%s, sixth=%s)')
+                :format(packed.n, tostring(packed[3]), tostring(packed[6])))
+    end
+
     -- The callback form is untouched by all of this, and is asserted anyway: it
     -- is the form a consumer uses when it does not want a promise, and a fix
     -- to the await path must not change what it delivers.

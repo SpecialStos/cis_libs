@@ -4269,6 +4269,248 @@ do
     env.reset()
 end
 
+-- A callback env, and the last reply each src got: (key, ok, ...).
+local function callbackEnv(opts)
+    local env = newEnv(opts or {})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+    loadModule('server/callback.lua')
+    function env.replies(src)
+        local out = {}
+        for _, e in ipairs(env.sentTo(src, 'cis_libs:cb:res')) do
+            out[#out + 1] = e.args
+        end
+        return out
+    end
+    function env.lastReply(src)
+        local all = env.replies(src)
+        return all[#all]
+    end
+    function env.drop(src)
+        local saved = rawget(_G, 'source')
+        source = src
+        local ok, err = pcall(env.fire, 'playerDropped')
+        _G.source = saved
+        return ok, err
+    end
+    return env
+end
+
+-- ============================ CB1. a dropped player answers every waiter
+--
+-- playerDropped removed the pending entries for the player and told the
+-- callback-style callers -- but a PROMISE (AwaitCallbackClient) was removed and
+-- never rejected, so the coroutine parked on it waited forever. And the first
+-- callback that raised aborted the loop, leaving every caller after it hanging.
+do
+    local env = callbackEnv({ players = { [7] = {} } })
+
+    env.awaitHook = function()
+        env.drop(7)
+    end
+    local ok, reason = env.EXPORTS.AwaitCallbackClient('ask', 7)
+    env.awaitHook = nil
+    check(ok == false and tostring(reason):find('player dropped', 1, true) ~= nil,
+        ('CB1: an await on a player who leaves is REJECTED with the reason (got %s, %s)')
+            :format(tostring(ok), tostring(reason)))
+
+    local told = {}
+    env.EXPORTS.CallCallbackClient('first', 7, function() error('consumer callback exploded') end)
+    env.EXPORTS.CallCallbackClient('second', 7, function(cbOk, why) told[#told + 1] = { cbOk, why } end)
+    local fired = env.drop(7)
+    check(fired, 'CB1: a callback that raises does not take the drop handler with it')
+    check(#told == 1 and told[1][1] == false and told[1][2] == 'player dropped',
+        ('CB1: and the caller after it is still told (told=%d)'):format(#told))
+    env.reset()
+end
+
+-- ============================ CB2. registration options
+--
+-- Every server callback was reachable from every client, unbounded in string
+-- size, with no permission check and no shape check. A callback that exists for
+-- other server code to call had no way to say so.
+do
+    local env = callbackEnv({})
+    local reached = {}
+    local function handler(name)
+        return function(src, payload)
+            reached[name] = (reached[name] or 0) + 1
+            return 'ok', payload
+        end
+    end
+    check(env.EXPORTS.RegisterCallback('cb2:local', handler('local'), { remote = false }) == true,
+        'CB2: a local-only callback registers')
+    check(env.EXPORTS.RegisterCallback('cb2:admin', handler('admin'), { ace = 'cis.admin' }) == true,
+        'CB2: an ACE-gated callback registers')
+    check(env.EXPORTS.RegisterCallback('cb2:shaped', handler('shaped'),
+        { schema = { amount = { type = 'number', min = 1, max = 10 } } }) == true,
+        'CB2: a schema-checked callback registers')
+    check(env.EXPORTS.RegisterCallback('cb2:open', handler('open')) == true,
+        'CB2: no options is still remote, as in 1.0.0')
+    check(env.EXPORTS.RegisterCallback('cb2:long', handler('long'), { maxStringLen = 10000 }) == true,
+        'CB2: a callback may raise its own string cap')
+    local refused, why = env.EXPORTS.RegisterCallback('cb2:typo', handler('typo'), { remote = 'yes' })
+    check(refused == false and tostring(why):find('remote', 1, true) ~= nil,
+        ('CB2: a malformed option is refused by name, not ignored (got %s)'):format(tostring(why)))
+
+    -- Local-only: unreachable from the network, and indistinguishable from a
+    -- name that does not exist.
+    env.emit('cis_libs:cb', 1, 'cb2:local', 1)
+    check(not reached['local'] and env.lastReply(1)[3] == 'unknown',
+        ('CB2: a local-only callback is UNKNOWN to a client (reached=%s, reply=%s)')
+            :format(tostring(reached['local']), tostring(env.lastReply(1)[3])))
+    check(env.EXPORTS.AwaitCallback('cb2:local', 'x') == 'ok',
+        'CB2: and still answers server-side callers')
+
+    -- ACE.
+    env.saved[#env.saved + 1] = { name = 'IsPrincipalAceAllowed', value = rawget(_G, 'IsPrincipalAceAllowed') }
+    local asked
+    function IsPrincipalAceAllowed(principal, object)
+        asked = principal .. ' ' .. object
+        return principal == 'player.2'
+    end
+    env.emit('cis_libs:cb', 1, 'cb2:admin', 2)
+    check(not reached.admin and env.lastReply(1)[3] == 'denied',
+        ('CB2: a player without the ACE is refused (asked %s)'):format(tostring(asked)))
+    env.emit('cis_libs:cb', 2, 'cb2:admin', 3)
+    check(reached.admin == 1 and env.lastReply(2)[2] == true, 'CB2: a player with it is answered')
+
+    -- Schema.
+    env.emit('cis_libs:cb', 1, 'cb2:shaped', 4, { amount = 999999 })
+    check(not reached.shaped and env.lastReply(1)[3] == 'bad payload',
+        'CB2: a payload outside the schema never reaches the handler')
+    env.emit('cis_libs:cb', 1, 'cb2:shaped', 5, { amount = 5 })
+    check(reached.shaped == 1, 'CB2: a payload inside it does')
+
+    -- The default string cap applies to EVERY remote call, keys and values.
+    local big = string.rep('x', 5000)
+    env.emit('cis_libs:cb', 3, 'cb2:open', 6, { note = big })
+    check(not reached.open and env.lastReply(3)[3] == 'too large',
+        'CB2: a 5000-character string is refused by default')
+    env.emit('cis_libs:cb', 3, 'cb2:open', 7, { [big] = true })
+    check(not reached.open, 'CB2: so is a 5000-character KEY')
+    env.emit('cis_libs:cb', 3, 'cb2:open', 8, 'short')
+    check(reached.open == 1, 'CB2: an ordinary string is not')
+    env.emit('cis_libs:cb', 3, 'cb2:long', 9, big)
+    check(reached.long == 1, 'CB2: and a callback that raised its cap takes the long one')
+    env.reset()
+end
+
+-- ============================ CB3. flood handling
+--
+-- An unknown name was answered before any limiter ran, so a client spraying
+-- made-up names got an answer per request at whatever rate it could send. There
+-- was no budget across names at all, and no bound on how many handler
+-- coroutines one player could have parked.
+do
+    local env = callbackEnv({})
+    for i = 1, 100 do
+        env.emit('cis_libs:cb', 1, ('cb3:nope:%d'):format(i), i)
+    end
+    local unknown, rate = 0, 0
+    for _, r in ipairs(env.replies(1)) do
+        if r[3] == 'unknown' then unknown = unknown + 1 end
+        if r[3] == 'rate' then rate = rate + 1 end
+    end
+    check(unknown == 60 and rate == 40,
+        ('CB3: made-up names are rate-limited BEFORE they are answered (unknown=%d rate=%d)')
+            :format(unknown, rate))
+    check(CisRateBucketCount(1) == 0, 'CB3: and the budget allocated no per-name bucket')
+
+    -- The budget is per player and per window.
+    env.emit('cis_libs:cb', 2, 'cb3:nope', 1)
+    check(env.lastReply(2)[3] == 'unknown', 'CB3: another player has their own budget')
+    env.clock = env.clock + 1000
+    env.emit('cis_libs:cb', 1, 'cb3:nope', 1)
+    check(env.lastReply(1)[3] == 'unknown', 'CB3: and it refills with the window')
+
+    -- Configurable: three per name.
+    Config.CallbackLimits.PerName = 3
+    Config.CallbackLimits.MaxInFlight = 1
+    CisSecurityRebuild()
+    env.EXPORTS.RegisterCallback('cb3:real', function() return true end)
+    for i = 1, 4 do env.emit('cis_libs:cb', 4, 'cb3:real', i) end
+    check(env.lastReply(4)[3] == 'rate', 'CB3: Config.CallbackLimits.PerName is honoured')
+
+    -- In flight: a handler still running counts. Re-entering from inside it is
+    -- the harness's stand-in for a second request arriving while the first is
+    -- parked on a database await.
+    local nested
+    env.EXPORTS.RegisterCallback('cb3:slow', function(src)
+        env.emit('cis_libs:cb', src, 'cb3:slow', 'inner')
+        nested = env.lastReply(src)
+        return 'done'
+    end)
+    env.emit('cis_libs:cb', 5, 'cb3:slow', 'outer')
+    check(nested and nested[1] == 'inner' and nested[3] == 'busy',
+        ('CB3: a second request while one is in flight is answered busy (got %s)')
+            :format(tostring(nested and nested[3])))
+    check(env.lastReply(5)[1] == 'outer' and env.lastReply(5)[2] == true,
+        'CB3: and the first one still completes')
+    env.emit('cis_libs:cb', 5, 'cb3:slow', 'again')
+    check(env.lastReply(5)[1] == 'again' and env.lastReply(5)[2] == true,
+        'CB3: the slot is released when the handler returns')
+    env.reset()
+end
+
+-- ============================ CB4. replies, handlers and funcrefs
+do
+    local env = callbackEnv({})
+
+    -- A closure another resource passes to CallCallback arrives as a callable
+    -- reference table; type() == 'function' refused every one of them.
+    env.EXPORTS.RegisterCallback('cb4:get', function(_, v) return v * 2 end)
+    local got
+    local ref = setmetatable({ __cfx_functionReference = 'consumer:1:1' }, {
+        __call = function(_, ok, v) got = { ok, v } end,
+    })
+    env.EXPORTS.CallCallback('cb4:get', ref, 21)
+    check(got and got[1] == true and got[2] == 42,
+        'CB4: CallCallback accepts a cross-resource callback')
+
+    -- A later registration REPLACES an earlier one of the other kind. The
+    -- function used to win forever, because it was checked first.
+    exports.cb4_res = { Answer = function(_, src) return 'from the export' end }
+    env.EXPORTS.RegisterCallback('cb4:swap', function() return 'stale function' end)
+    env.EXPORTS.RegisterCallback('cb4:swap', 'cb4_res:Answer')
+    check(env.EXPORTS.AwaitCallback('cb4:swap') == 'from the export',
+        'CB4: re-registering a name as resource:export replaces the function')
+
+    -- A consumer's stop empties the ledger, not just the table.
+    env.invoking = 'cb4_consumer'
+    env.EXPORTS.RegisterCallback('cb4:owned', function() return 1 end)
+    env.invoking = nil
+    local function owned()
+        local probe = (env.EXPORTS.GetDiagnostics().probes or {}).callbacks
+        return probe and probe.owned
+    end
+    local before = owned()
+    env.fire('onResourceStop', 'cb4_consumer')
+    check(before and owned() == before - 1,
+        ('CB4: a stop forgets what it released (owned %s -> %s)'):format(tostring(before), tostring(owned())))
+
+    -- Replies: fifty in one second to one client all land (40 used to be the cap),
+    -- and an oversized one is refused WITH an answer.
+    local resolved = 0
+    for i = 1, 50 do
+        env.EXPORTS.CallCallbackClient('cb4:ui', 9, function() resolved = resolved + 1 end, i)
+    end
+    for _, e in ipairs(env.sentTo(9, 'cis_libs:cb')) do
+        env.emit('cis_libs:cb:serverRes', 9, e.args[2], true, 'ok')
+    end
+    check(resolved == 50, ('CB4: fifty replies in one window are all delivered (%d)'):format(resolved))
+
+    local answer
+    local key = env.EXPORTS.CallCallbackClient('cb4:big', 9, function(ok, why) answer = { ok, why } end)
+    env.emit('cis_libs:cb:serverRes', 9, key, true, string.rep('y', 100000))
+    check(answer and answer[1] == false and answer[2] == 'too large',
+        ('CB4: an oversized reply reaches the caller as a refusal (got %s, %s)')
+            :format(tostring(answer and answer[1]), tostring(answer and answer[2])))
+    env.reset()
+end
+
 -- ==================================================================== report
 -- Named, not just counted. A suite that reports "failed=3" and exits tells you
 -- something broke and nothing about what, and the fix is to re-run with a print

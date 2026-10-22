@@ -560,7 +560,7 @@ function AutoLogError.client(err, context) end
 ---@overload
   ---@param name string #a previously registered name, stringified into the raise message
   ---@param ... ... #the unbounded tail, forwarded bare
-  ---@return any, any #ONLY the handler's FIRST TWO results -- a third is dropped with no error, and that is a real defect rather than a documented cap. A refusal RAISES 
+  ---@return any #every value the server sent -- up to six, unpacked with their count so a nil in the middle survives. A refusal RAISES 
 -- Why `any`: the handler's own result list, whose arity and types the handler alone decides
 ---@overload
 function AwaitCallback.server(name, ...) end
@@ -584,7 +584,7 @@ function BreakDoor(identifier) end
 
 ---@overload fun(...)
   ---@param name string #a previously registered name
-  ---@param cb? function #invoked with the whole reply; a non-function refuses and calls nothing at all
+  ---@param cb? function #invoked with the whole reply; a function passed from another resource (a callable reference table) is accepted. Anything not callable refuses and calls nothing at all
   ---@param ... ... #the unbounded tail, packed then forwarded whole -- nothing past N is dropped
   ---@return nil #nothing comes back on any path; the outcome only ever arrives as cb(false, 'unknown') or cb(false, 'error')
 ---@overload
@@ -1273,14 +1273,15 @@ function RaycastFromCoords(origin, target, flags, ignore, timeoutMs) end
 
 ---@overload fun(...)
   ---@param name string #a non-empty handler name, the key everything else is filed under
-  ---@param handler function|string|table #a function, a callable reference table, or a "resource:Export" string; nil fails all three
-  ---@return boolean #true once bound; a refusal's reason goes to the log and is NOT returned
+  ---@param handler function|string|table #a function, a callable reference table (a function passed from another resource; released when that resource stops), or a "resource:Export" string; nil fails all three. A later registration of the same name REPLACES the earlier one, whatever its kind
+  ---@param opts? table #{ remote = true|false, ace = 'object', schema = { field = { type, min, max, maxLen, optional } }, maxStringLen = n }. remote defaults to TRUE (1.0.0 behaviour); remote = false makes the callback unreachable from any client, which is answered 'unknown' exactly as for a missing name. ace is checked with IsPrincipalAceAllowed('player.<src>', ace) and refused 'denied'. schema checks the FIRST argument and refuses 'bad payload' (and reports the player). maxStringLen replaces the default string cap (Config.CallbackLimits.MaxStringLen, 4096) for this callback; every remote call is capped, keys and values. A malformed option is refused, never ignored
+  ---@return boolean, string|nil #true once bound; false plus the reason (also logged) on a refusal
 ---@overload
   ---@param name string #a non-empty handler name; a non-string or "" is refused before anything is stored
   ---@param fn function|string #a callable, or a "resource:Export" string
   ---@return boolean #true once stored; a refusal is a bare false with the reason only in the log
 ---@overload
-function RegisterCallback.server(name, handler) end
+function RegisterCallback.server(name, handler, opts) end
 function RegisterCallback.client(name, fn) end
 
 ---@overload fun(...)
@@ -1688,7 +1689,7 @@ function Cis.callback.callClient(src, name, cb, ...) end
 ---@field forwardsTo string RegisterCallback
 ---@param name string #a non-empty handler name
 ---@param handler function|string #a function -- cis_libs itself only -- or a 'resource:Export' string, which is the form that works from a consumer
----@return boolean #true once bound. A refusal's reason goes to the log, NOT to the caller
+---@return boolean, string|nil #true once bound; false plus the reason on a refusal. Registration options (remote, ace, schema, maxStringLen) are taken by the RegisterCallback export
 function Cis.callback.register(name, handler) end
 
 ---@class Cis.callback.tryAwait

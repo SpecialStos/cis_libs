@@ -659,6 +659,76 @@
       "find": "    elseif CisCallable(fn) then\n",
       "replace": "    elseif type(fn) == 'function' then\n",
       "why": "Refuse a funcref handler. A function passed by another resource arrives as a callable reference table, so every consumer that hands SecureNetOn a function registers nothing."
+    },
+    {
+      "id": "M100",
+      "file": "server/callback.lua",
+      "find": "        elseif payload and payload.promise then\n            payload.promise:reject('player dropped')\n",
+      "replace": "        elseif false then\n            payload.promise:reject('player dropped')\n",
+      "why": "Leave a promise unsettled when its player drops. The pending entry is removed, so nothing will ever settle it, and the coroutine parked in AwaitCallbackClient waits forever."
+    },
+    {
+      "id": "M101",
+      "file": "server/callback.lua",
+      "find": "    if not entry or not entry.remote then\n",
+      "replace": "    if not entry then\n",
+      "why": "Let a client reach a callback registered remote = false. A callback that exists for other server code -- a payout, an admin action -- becomes callable by any modded client that knows its name."
+    },
+    {
+      "id": "M102",
+      "file": "server/callback.lua",
+      "find": "    if kind == 'string' then\n        return #value <= maxLen\n    end\n",
+      "replace": "    if kind == 'string' then\n        return true\n    end\n",
+      "why": "Drop the string-length cap. A client can send a multi-megabyte string as one argument, which every other bound counts as a single value, and every handler that logs or stores it pays for it."
+    },
+    {
+      "id": "M103",
+      "file": "server/callback.lua",
+      "find": "    if not playerBudgetOk(src, limits) then\n",
+      "replace": "    if false then\n",
+      "why": "Remove the per-player budget in front of the name lookup. A client spraying made-up callback names is answered 'unknown' as fast as it can send them, with no limiter anywhere on that path."
+    },
+    {
+      "id": "M104",
+      "file": "server/callback.lua",
+      "find": "    if slot.n >= limits.maxInFlight then\n",
+      "replace": "    if false then\n",
+      "why": "Uncap handlers in flight. A client can park any number of handler coroutines that are each waiting on a database, holding their memory and their connections."
+    },
+    {
+      "id": "M105",
+      "file": "client/callback.lua",
+      "find": "    return table.unpack(reply, 2, reply.n)\n",
+      "replace": "    return reply[2], reply[3]\n",
+      "why": "Return two values from the client await again. The server sends up to six and the docs promise six; the third onwards disappears with no error."
+    },
+    {
+      "id": "M106",
+      "file": "server/callback.lua",
+      "find": "    if not payloadWithinLimits(packed, MAX_CALLBACK_ARGS, CisCallbackLimits().maxStringLen) then\n",
+      "replace": "    if false then\n",
+      "why": "Accept any reply payload. A client's answer to a server callback is client data like any request, and an unbounded one is handed straight to the waiting server code."
+    },
+    {
+      "id": "M107",
+      "file": "server/callback.lua",
+      "find": "            CisOwned.forget(callbackOwned, 'callback', freed[i].id)\n",
+      "replace": "",
+      "why": "Release without forgetting. release() only lists what the owner held, so the ownership ledger keeps every stopped consumer's callback names for the life of the server."
+    },
+    {
+      "id": "M108",
+      "file": "server/callback.lua",
+      "find": "    if not CisCallable(cb) then\n        Logging.Error('Cis.callback.call needs a callback function')\n",
+      "replace": "    if type(cb) ~= 'function' then\n        Logging.Error('Cis.callback.call needs a callback function')\n",
+      "why": "Refuse a funcref callback. A closure passed to CallCallback by another resource arrives as a callable reference table, so every consumer's call is refused."
+    },
+    {
+      "id": "M109",
+      "file": "server/callback.lua",
+      "find": "    if entry.ace and not IsPrincipalAceAllowed(('player.%d'):format(src), entry.ace) then\n",
+      "replace": "    if false then\n",
+      "why": "Skip the ACE check. A callback registered with ace = 'cis.admin' answers any client."
     }
   ]
 }

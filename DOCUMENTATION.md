@@ -185,6 +185,15 @@ provider is registered, and `GetLibsPrefix()` reports it.
   one threshold for enter and leave.
 - **Callbacks** across the wire return at most 6 values. `Cis.callback.await`
   errors on refusal by design; a translation layer must not inherit that.
+  `RegisterCallback(name, handler, opts?)` takes `{ remote, ace, schema,
+  maxStringLen }`; `remote = false` makes a callback server-only (a client is
+  told `'unknown'`). Every client request is checked, in order: the player's
+  budget across all names (`PerPlayer`), the name, the per-name rate
+  (`PerName`), the ACE, payload size and string length (`MaxStringLen`), the
+  schema, and handlers in flight (`MaxInFlight`). Refusals reach the client as
+  `'rate'`, `'unknown'`, `'denied'`, `'too large'`, `'bad payload'` or `'busy'`.
+  A player who drops rejects every await still waiting on them with
+  `'player dropped'`.
 - **Zones / points / hooks:** event names, not functions. Server zones exist
   (`Cis.zones.server.*`) and do not draw.
 
