@@ -42,7 +42,7 @@ function CisDiagnostics.ResetCounters()
     counters = {}
 end
 
--- Registers a probe. `realm` is 'server' or 'client'; a probe only runs when the realm
+-- Registers a probe. `realm` is 'server', 'client' or 'both'; a probe only runs when the realm
 function CisDiagnostics.Register(realm, name, fn)
     probes[#probes + 1] = { realm = realm, name = name, fn = fn }
 end
@@ -51,7 +51,7 @@ end
 function CisDiagnostics.ProbeNames(realm)
     local out = {}
     for _, p in ipairs(probes) do
-        if p.realm == realm then out[#out + 1] = p.name end
+        if p.realm == realm or p.realm == 'both' then out[#out + 1] = p.name end
     end
     table.sort(out)
     return out
@@ -90,7 +90,7 @@ function CisDiagnostics.Collect(realm, opts)
     end
     for k, v in pairs(counters) do out.counters[k] = v end
     for _, p in ipairs(probes) do
-        if p.realm == realm then runProbe(p, out.probes) end
+        if p.realm == realm or p.realm == 'both' then runProbe(p, out.probes) end
     end
     -- Sibling of probes, not a probe.
     if CisTiming and type(CisTiming.snapshot) == 'function' then

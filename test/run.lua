@@ -1069,6 +1069,19 @@ do
     CisTiming.reset()
 end
 
+-- 8.1a A probe registered for 'both' realms runs in either. It used to be listed
+-- and collected in neither, so the loopguard and world probes never reported.
+do
+    CisDiagnostics.Register('both', 'probe_both_test', function() return { ok = 1 } end)
+    local names = CisDiagnostics.ProbeNames('client')
+    local listed = false
+    for i = 1, #names do if names[i] == 'probe_both_test' then listed = true end end
+    expect(listed, '8.1a: a both-realm probe is listed for the client realm')
+    local d = CisDiagnostics.Collect('server')
+    expect(type(d.probes) == 'table' and d.probes.probe_both_test ~= nil,
+        '8.1a: a both-realm probe runs in a server Collect')
+end
+
 -- 8.1b THE CLOCK IS A WALL CLOCK, AND A YIELD IS NOT WORK.
 --
 -- os.clock is process CPU time: on a Linux server, every FXServer thread added
