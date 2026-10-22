@@ -8,11 +8,38 @@ The **contract** is versioned separately and is still `api = 1`.
 
 ## [Unreleased]
 
-Correctness work on the fifteen `Cis.require` modules, the loader, CI and
-packaging. Several fixes change a documented answer; they are listed under
-**Changed** so nobody upgrades into them blind.
+Correctness, security and performance work across every layer, plus a
+first-party NUI. Several fixes change a documented answer; they are listed
+under **Changed** so nobody upgrades into them blind.
 
 ### Changed
+
+- **Security posture is read from convars first.** `cis_authorized_resources`,
+  `cis_allow_any_resource`, `cis_config_supplier`, `cis_check_version` and the
+  `cis_cb_*` callback limits outrank `SetConfig`; a `convar_category` shows
+  them in txAdmin. Without convars, `SetConfig` behaves as before.
+- **Door mutators (`BreakDoor`, `FixDoor`, `LockDoors`, `UnlockDoors`),
+  `PublishPlayerLoaded` and `SetDropPlayerHandler` are allow-list gated**, like
+  their siblings. A refusal keeps the old return shape plus a reason.
+- **`RegisterCallback` answers `false, reason`** on refusal (was a bare
+  `false`) and takes `opts = { remote, ace, schema, maxStringLen }`. Every
+  remote call's strings are capped (default 4096).
+- **Sync wire events are one batch.** `cis_libs:client:syncUpsert` and
+  `syncRemove` are replaced by `cis_libs:client:syncBatch` `(n, upserts,
+  removes)`; clients report a give-up with `cis_libs:server:syncGaveUp`.
+  Networked records are never streamed over sync events: the server creates
+  the one entity and its metadata rides the `cis_sync` entity state bag.
+- **Server zones belong to one routing bucket** (`opts.bucket`, default 0).
+- **World queries exclude the local player** (and player peds from ped
+  queries) unless `opts.includeSelf` / `opts.includePlayers`.
+- **Vehicle properties follow ox_lib field names and semantics**, including
+  `bulletProofTyres = not canBurst`, extras 0..20 and tyres 45/47.
+  `SetVehicleProperties` no longer diffs against a snapshot and returns
+  `false, reason` without network control.
+- **`Cis.ui.*` uses the built-in NUI** when no `ui` provider answers; the GTA
+  feed and native help remain only as a fallback when the NUI is not loaded.
+- **The cache refreshes every 100-250 ms** (was 1 s) and emits `heading` and
+  `shooting` changes.
 
 - **`interp.headingToVector` / `vectorToHeading` follow GTA.** Heading 0 faces
   +Y and 90 faces −X, the vector `GetEntityForwardVector` answers:
@@ -43,6 +70,19 @@ packaging. Several fixes change a documented answer; they are listed under
 
 ### Added
 
+- **First-party NUI** with no build step and no dependencies: `Toast`,
+  `ProgressBar`/`ProgressCircle`, text UI, `AlertDialog`, `InputDialog`
+  (11 field types), context menus, list menus, a radial menu, `SkillCheck`,
+  themes and locale. One focus stack owns NUI focus; every blocking call has
+  a single exit that releases focus, including when the caller stops.
+  `NotifyPlayer(src, data)` sends a toast from the server.
+- **Callback hardening**: per-player aggregate budget before any lookup,
+  per-name rate, in-flight cap, ACE and schema options.
+- **Keybind id exports** (`KeybindDisable`, `KeybindEnable`, `KeybindRemove`,
+  `KeybindIsPressed`) and `RemovePlayerCacheListener`, because handle methods
+  cannot cross exports.
+- **`ReadyState`** export, so `Cis.isReady` / `Cis.isFailed` are correct in
+  consumer resources.
 - **`Cis.require` loads your own modules**: `'folder.file'`, `'folder/file'`
   and `'./file'` from the calling resource, `'@resource/folder/file'` from any
   resource. Read once per Lua state, text-only, in a private environment; see
@@ -55,6 +95,25 @@ packaging. Several fixes change a documented answer; they are listed under
 
 ### Fixed
 
+- **Exploitable:** a net event handler was registered again on every consumer
+  restart, so one client event ran N+1 times. The rate limiter counted window
+  rolls as buckets and locked active players out of new events for the
+  session.
+- `AwaitCallbackClient` hung forever when the target player dropped.
+- Points never fired (the thread ran once); a stopping resource removed other
+  resources' points; world queries used pool names that do not exist and
+  returned nothing; keybinds, cache listeners, commands, hooks, statebag
+  watchers and sync spawn hooks refused handlers from other resources.
+- Statebag watchers handed the bag's netId to handlers as an entity, so they
+  never fired on clients.
+- Networked sync records lost their netId on update, so clients spawned and
+  leaked their own networked copies; driven vehicles were teleported back;
+  client retries never stopped; removals were broadcast per record to every
+  player.
+- Rotated box zones were cut off by an unrotated bounding box; scaleform
+  requests always timed out; `DrawText3D` drew no text; raycasts hit the
+  player's own ped and read status codes wrongly; help text split UTF-8.
+- Diagnostics probes registered for both realms never ran.
 - `Cis.require`: a circular require raised a stack overflow naming nothing; it
   now raises at once with the chain. `Cis.moduleInfo` handed out the loader's
   live `deps` list. `Cis.require('lru')` was typed as `table`.
