@@ -1457,6 +1457,172 @@ do
     env.reset()
 end
 
+-- ============================================ 5b. the cache pass itself
+--
+-- A world the test controls: which vehicle, which seat, armed, shooting,
+-- heading. GetPedInVehicleSeat answers from `env.seat`, so a shuffle is a test
+-- writing one number.
+local function cacheEnv(opts)
+    opts = opts or {}
+    local env = newEnv({})
+    env.ped = 7
+    env.vehicle, env.seat = 0, nil
+    env.armed, env.shooting, env.heading = false, false, 0.0
+    env.save('CisReadyState')
+    env.save('GetWeaponAttachments')
+    CisReadyState = opts.ready or { wait = function() return true end, ready = true, failed = false }
+    Config = opts.config
+    Globals = {}
+    function GetPlayerServerId() return 12 end
+    function GetEntityHeading() return env.heading end
+    function IsPedInAnyVehicle() return env.vehicle ~= 0 end
+    function GetVehiclePedIsIn() return env.vehicle end
+    function GetPedInVehicleSeat(veh, i)
+        env.seatReads = (env.seatReads or 0) + 1
+        return (veh == env.vehicle and i == env.seat) and env.ped or 0
+    end
+    function GetVehicleMaxNumberOfPassengers() return 3 end
+    function IsPedArmed() return env.armed end
+    function GetSelectedPedWeapon() return 0x1234 end
+    function GetAmmoInPedWeapon() return 30 end
+    function GetWeaponAttachments() return {} end
+    function IsPlayerFreeAiming() return false end
+    function IsPedShooting() return env.shooting end
+    loadModule('client/cache.lua')
+    return env
+end
+
+-- Drive the MAIN cache thread for `n` passes. `between(i)` runs at each Wait,
+-- so a test changes the world between passes; the waits are recorded.
+local CACHE_DONE = {}
+local function cachePasses(env, n, between)
+    local waits = {}
+    local realWait = Wait
+    Wait = function(ms)
+        waits[#waits + 1] = ms
+        env.clock = env.clock + (tonumber(ms) or 0)
+        if #waits >= n then error(CACHE_DONE, 0) end
+        if between then between(#waits) end
+    end
+    local ok, err = pcall(env.threads[1])
+    Wait = realWait
+    if not ok and err ~= CACHE_DONE then error(err, 0) end
+    return waits
+end
+
+-- A SEAT SHUFFLE IS SEEN, and the vehicle listener sees the NEW seat.
+do
+    local env = cacheEnv()
+    local seenSeats, seatAtVehicle = {}, nil
+    CisCache.on('seat', function(seat) seenSeats[#seenSeats + 1] = seat end)
+    CisCache.on('vehicle', function() seatAtVehicle = CisCache.seat end)
+    env.vehicle, env.seat = 50, 1
+    cachePasses(env, 3, function(i)
+        if i == 1 then env.seat = -1 end
+    end)
+    check(seatAtVehicle == 1,
+        ('cache: a vehicle listener sees the seat that came WITH the vehicle (got %s)'):format(tostring(seatAtVehicle)))
+    check(CisCache.seat == -1 and seenSeats[#seenSeats] == -1,
+        ('cache: a shuffle to the driver seat is seen on the next pass (seat=%s)'):format(tostring(CisCache.seat)))
+    env.reset()
+end
+
+-- THE CADENCE. The config default is 1000 ms, which made the pass a 1 Hz poll:
+-- a shot (`IsPedShooting` true for a frame or two) was never seen. Clamped to
+-- 100..250 with or without a config.
+do
+    local env = cacheEnv({ config = CisDefaults.config() })
+    local waits = cachePasses(env, 2)
+    check(waits[1] ~= nil and waits[1] >= 100 and waits[1] <= 250,
+        ('cache: the pass runs at 100-250 ms even when the config says 1000 (waited %s)'):format(tostring(waits[1])))
+    env.reset()
+    local env2 = cacheEnv({ config = nil })
+    local waits2 = cachePasses(env2, 2)
+    check(waits2[1] ~= nil and waits2[1] >= 100 and waits2[1] <= 250,
+        ('cache: and with no config at all (waited %s)'):format(tostring(waits2[1])))
+    env2.reset()
+end
+
+-- SHOOTING AND HEADING EMIT, like every other key.
+do
+    local env = cacheEnv()
+    local shots, headings = {}, {}
+    local _, sid = CisCache.on('shooting', function(v) shots[#shots + 1] = v end)
+    CisCache.on('heading', function(v) headings[#headings + 1] = v end)
+    check(type(sid) == 'number', 'cache: on() answers an id in slot two')
+    cachePasses(env, 4, function(i)
+        if i == 1 then env.shooting = true; env.heading = 90.0 end
+        if i == 2 then env.shooting = false end
+    end)
+    check(#shots == 2 and shots[1] == true and shots[2] == false,
+        ('cache: shooting emits on and off (events=%d)'):format(#shots))
+    check(headings[#headings] == 90.0, 'cache: heading emits its change')
+    local bad, why = CisCache.on('coords', function() end)
+    check(bad == nil and type(why) == 'string' and why:find('unknown', 1, true),
+        'cache: an unknown key is refused with a reason, not silently never fired')
+    env.reset()
+end
+
+-- LISTENERS FROM OTHER RESOURCES: funcrefs, owned, removable by id, released on stop.
+do
+    local env = cacheEnv()
+    env.save('GetInvokingResource')
+    GetInvokingResource = function() return 'res_a' end
+    local got = 0
+    local unsub, id = exports.OnPlayerCache('armed', funcref(function() got = got + 1 end))
+    check(type(id) == 'number', ('cache: a funcref listener is accepted (id=%s)'):format(tostring(id)))
+    local _, id2 = exports.OnPlayerCache('armed', funcref(function() got = got + 100 end))
+    cachePasses(env, 2, function() env.armed = true end)
+    check(got == 101, ('cache: both funcref listeners fire (got=%d)'):format(got))
+    GetInvokingResource = function() return 'res_b' end
+    local stolen = exports.RemovePlayerCacheListener(id)
+    check(stolen == false, 'cache: another resource cannot remove the listener')
+    GetInvokingResource = function() return 'res_a' end
+    check(exports.RemovePlayerCacheListener(id) == true, 'cache: its owner removes it by id')
+    env.fire('onResourceStop', 'res_a')
+    got = 0
+    cachePasses(env, 2, function() env.armed = false end)
+    check(got == 0, ('cache: a stopped owner\'s listeners are released (got=%d)'):format(got))
+    check(exports.RemovePlayerCacheListener(id2) == false, 'cache: and the released id is gone')
+    check(type(unsub) == 'function', 'cache: the in-realm unsubscribe is still returned in slot one')
+    env.reset()
+end
+
+-- THE CACHE LOOP NEVER GIVES UP ON READINESS.
+do
+    local calls = 0
+    local env = cacheEnv({ ready = {
+        wait = function() calls = calls + 1; return calls > 1 end, ready = false, failed = false,
+    } })
+    env.vehicle, env.seat = 50, 0
+    cachePasses(env, 2)
+    check(calls >= 2 and CisCache.vehicle == 50,
+        ('cache: a first ready wait that times out is retried, and the loop runs (waits=%d vehicle=%s)')
+            :format(calls, tostring(CisCache.vehicle)))
+    env.reset()
+end
+
+-- THE VEHICLE EVENT CANNOT BE FORGED. gameEventTriggered for ANOTHER player, or
+-- a hand-raised 'CEventNetworkPlayerEnteredVehicle', must not rewrite the cache.
+do
+    local env = cacheEnv()
+    cachePasses(env, 1)
+    check(env.handlers['CEventNetworkPlayerEnteredVehicle'] == nil,
+        'cache: no handler on the bare CEventNetworkPlayerEnteredVehicle name, which the game never raises')
+    env.fire('gameEventTriggered', 'CEventNetworkPlayerEnteredVehicle', { 5, 999 })
+    check(CisCache.vehicle == 0,
+        ('cache: another player entering a vehicle does not change ours (vehicle=%s)'):format(tostring(CisCache.vehicle)))
+    env.fire('gameEventTriggered', 'CEventNetworkPlayerEnteredVehicle', { 0, 999, -1 })
+    check(CisCache.vehicle == 0,
+        'cache: even our own event cannot write a vehicle the natives do not confirm')
+    env.vehicle, env.seat = 60, 2
+    env.fire('gameEventTriggered', 'CEventNetworkPlayerEnteredVehicle', { 0, 60 })
+    check(CisCache.vehicle == 60 and CisCache.seat == 2,
+        ('cache: our own event triggers an immediate re-read (vehicle=%s seat=%s)')
+            :format(tostring(CisCache.vehicle), tostring(CisCache.seat)))
+    env.reset()
+end
+
 -- ============================================ 6. a dead cached ped ()
 --
 -- `GetCachedPed` answered `CisCache.ped ~= 0 and CisCache.ped or PlayerPedId()`,

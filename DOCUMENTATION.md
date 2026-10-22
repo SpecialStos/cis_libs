@@ -261,7 +261,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `NearbyVehicles` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.nearbyVehicles(coords, maxDistance, filter, opts) |
 | `Notify` | both | `()` | 1.0.0 | Cis.framework.notify(...). With a framework provider registered the call passes through to it untouched; with none, cis_libs delivers it itself through the same guards NotifyClient uses, so a server with no framework does not go mute and does not become the unbounded path. The two-argument client form sends `kind` in the message slot; this is pinned as a known defect in test/contracts.lua and is a MAJOR change to correct |
 | `NotifyClient` | server | `(src, message, kind?)` | 1.0.0 | Called by a product to show a notification to one client, without hardcoding the event name owned by this library. Answers `false, reason` for a src that is not a connected player, truncates a message past 512 characters, and allows 10 a second per (src, calling resource) |
-| `OnPlayerCache` | client | `(key, cb)` | 1.0.0 | Cis.player.on(key, cb). The cb cannot cross the boundary; use a net event |
+| `OnPlayerCache` | client | `(key, cb)` | 1.0.0 | Cis.player.on(key, cb); stop it with RemovePlayerCacheListener(id) |
 | `Ptfx` | client | `(name, timeout?)` | 1.0.0 | Cis.streaming.ptfx(name, timeout) |
 | `PublishInventory` | server | `(src)` | 1.0.0 | Called by the inventory service. Pushes cis_libs:client:inventory to one player |
 | `PublishJobUpdate` | server | `(job, src?)` | 1.0.0 | Called by cis_core when a player changes job. Fires cis_libs:jobUpdated, so the event name stays owned by this library |
@@ -273,6 +273,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `RegisterCallback` | both | `()` | 1.0.0 | Cis.callback.register(name, handler) |
 | `RegisterCapability` | both | `()` | 1.0.0 | Called by cis_core, cis_bridge and cis_keys with (slot, "resource:Export"). First registration wins |
 | `RemoveNearWatcher` | client | `(id)` | 1.0.0 | Cis.player.nearStop(id); the id WatchNear returns as its second value |
+| `RemovePlayerCacheListener` | client | `(id)` | 1.0.0 | no proxy equivalent; the id OnPlayerCache returns as its second value |
 | `RemovePoint` | client | `(id)` | 1.0.0 | Cis.points.remove(id) |
 | `RemoveStatebagHandler` | both | `(cookie)` | 1.0.0 | Cis.statebag.remove(cookie) |
 | `RemoveTarget` | client | `(name, isPed?)` | 1.0.0 | Cis.target.remove(name, isPed) |

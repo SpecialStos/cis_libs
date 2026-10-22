@@ -757,6 +757,69 @@
       "find": "    local rad = math.rad(zone.heading or 0.0)\n    local c, s = math.cos(rad), math.sin(rad)\n    local hx, hy = zone.hx, zone.hy\n",
       "replace": "    local rad = 0.0\n    local c, s = math.cos(rad), math.sin(rad)\n    local hx, hy = zone.hx, zone.hy\n",
       "why": "Draw a box's debug outline unrotated. The outline then disagrees with the containment test for every box with a heading, which is the opposite of what a debug view is for."
+    },
+    {
+      "id": "M114",
+      "file": "client/cache.lua",
+      "find": "    if vehicle ~= CisCache.vehicle or type(seat) ~= 'number'\n        or GetPedInVehicleSeat(vehicle, seat) ~= ped then\n",
+      "replace": "    if vehicle ~= CisCache.vehicle or type(seat) ~= 'number' then\n",
+      "why": "Re-derive the seat only when the cached one is missing. A shuffle or warp to another seat in the same vehicle then stays stale for as long as the player is in it."
+    },
+    {
+      "id": "M115",
+      "file": "client/cache.lua",
+      "find": "    CisCache.vehicle = vehicle\n    CisCache.seat = seat\n    if prevVehicle ~= vehicle then\n        emit('vehicle', vehicle, prevVehicle)\n    end\n",
+      "replace": "    CisCache.vehicle = vehicle\n    if prevVehicle ~= vehicle then\n        emit('vehicle', vehicle, prevVehicle)\n    end\n    CisCache.seat = seat\n",
+      "why": "Emit the vehicle change before the seat is written. A vehicle listener then reads the previous seat alongside the new vehicle."
+    },
+    {
+      "id": "M116",
+      "file": "client/cache.lua",
+      "find": "local PASS_MAX_MS = 250\n",
+      "replace": "local PASS_MAX_MS = 10000\n",
+      "why": "Let the config's 1000 ms default through as the pass interval. The cache becomes a 1 Hz poll again: seat changes are a second stale and IsPedShooting, true for a frame or two per shot, is never seen."
+    },
+    {
+      "id": "M117",
+      "file": "client/cache.lua",
+      "find": "    setField('shooting', IsPedShooting(ped) and true or false)\n",
+      "replace": "    CisCache.shooting = IsPedShooting(ped)\n",
+      "why": "Write shooting without emitting. A listener on 'shooting' then never fires, which was the original state of the key."
+    },
+    {
+      "id": "M118",
+      "file": "client/cache.lua",
+      "find": "    if not CisCallable(cb) then\n        return nil, ('a listener must be a function, got %s'):format(type(cb))\n",
+      "replace": "    if type(cb) ~= 'function' then\n        return nil, ('a listener must be a function, got %s'):format(type(cb))\n",
+      "why": "Accept only plain Lua functions as cache listeners. A consumer's listener arrives as a funcref table and is refused, so no consumer can subscribe."
+    },
+    {
+      "id": "M119",
+      "file": "client/cache.lua",
+      "find": "    if caller ~= 'cis_libs' and caller ~= owner then\n",
+      "replace": "    if false then\n",
+      "why": "Drop the owner check on RemovePlayerCacheListener. Listener ids are 1, 2, 3..., so any resource can unsubscribe every other resource."
+    },
+    {
+      "id": "M120",
+      "file": "client/cache.lua",
+      "find": "        if dropListener(freedListeners[i].id) then\n",
+      "replace": "        if freedListeners[i].id == nil then\n",
+      "why": "Keep a stopped resource's cache listeners. Each holds a dead funcref and raises on every change for the rest of the session."
+    },
+    {
+      "id": "M121",
+      "file": "client/cache.lua",
+      "find": "local function awaitReady()\n    while not CisReadyState.wait(15000) do\n        if CisReadyState.failed then\n            return\n        end\n    end\nend\n",
+      "replace": "local function awaitReady()\n    if not CisReadyState.wait(15000) then\n        error('cis_libs never became ready', 0)\n    end\nend\n",
+      "why": "End the cache threads when the first ready wait times out. initialize.lua marks ready at the same 15 s, so losing the race ends the cache for the session."
+    },
+    {
+      "id": "M122",
+      "file": "client/cache.lua",
+      "find": "    refreshVehicle(refreshPed())\nend)\n",
+      "replace": "    refreshPed()\n    setVehicleSeat(args[2], nil)\nend)\n",
+      "why": "Trust the vehicle handle in gameEventTriggered's arguments. Any client resource can TriggerEvent that name and write whatever vehicle it likes into the cache."
     }
   ]
 }

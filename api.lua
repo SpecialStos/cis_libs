@@ -780,10 +780,17 @@ return {
         },
         OnPlayerCache = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Cis.player.on(key, cb). The cb cannot cross the boundary; use a net event',
+            use = 'Cis.player.on(key, cb); stop it with RemovePlayerCacheListener(id)',
             realm = 'client',
-            params = { { name = 'key', type = 'string', doc = 'a listener key: ped, vehicle, seat, weapon, armed or aiming. NEVER type-checked here, and the same file lists the keys' }, { name = 'cb', type = 'function', doc = 'a non-function returns immediately with no subscription at all' } },
-            returns = { { type = 'function|nil', doc = 'the unsubscribe closure, in-realm only. A LISTENER ARGUMENT IS DROPPED across the boundary -- the teardown arrives and the listener never fires -- so gate on your own flag and drop it in onResourceStop' } },
+            params = { { name = 'key', type = 'string', doc = 'one of aiming, armed, heading, ped, seat, shooting, vehicle, weapon. Anything else is refused with a reason. Coordinates are not a key: Cis.player.coords() is memoised per frame' }, { name = 'cb', type = 'function', doc = '`fun(current, previous)`, called under pcall on every change. A consumer function arrives as a funcref and is accepted; a stopped owner takes its listeners with it' } },
+            returns = { { type = 'function|nil, integer|string', doc = 'the in-realm unsubscribe and the listener id, or nil plus a reason. The unsubscribe cannot be called from another resource; feed the id to RemovePlayerCacheListener. Vehicle and seat are both updated before either listener runs' } },
+        },
+        RemovePlayerCacheListener = {
+            since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'no proxy equivalent; the id OnPlayerCache returns as its second value',
+            realm = 'client',
+            params = { { name = 'id', type = 'integer', doc = 'the id OnPlayerCache returned in slot two' } },
+            returns = { { type = 'boolean, string|nil', doc = 'false plus a reason for an unknown id or a listener owned by another resource' } },
         },
         WatchNear = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -1530,8 +1537,8 @@ return {
         since = '1.0.0',
         realm = 'client',
         forwardsTo = 'OnPlayerCache',
-        params = { { name = 'key', type = 'string', doc = 'a cache key: ped, vehicle, seat, weapon, armed or aiming. mount is RedM-only and is not a key here -- this game is gta5' }, { name = 'cb', type = 'function', doc = "the listener, called pcall'd under the library's loop guard" } },
-        returns = { { type = 'function|nil', doc = 'the unsubscribe, which DOES cross as a callable reference. The LISTENER does not: a function argument is dropped, so from a consumer this call delivers a teardown and a listener that never fires. Gate the listener on your own flag and drop it in onResourceStop' } },
+        params = { { name = 'key', type = 'string', doc = 'a cache key: aiming, armed, heading, ped, seat, shooting, vehicle or weapon. mount is RedM-only and is not a key here -- this game is gta5' }, { name = 'cb', type = 'function', doc = "the listener, `fun(current, previous)`, called pcall'd on every change; it arrives in cis_libs as a funcref" } },
+        returns = { { type = 'function|nil, integer|string', doc = 'slot one is the in-realm unsubscribe and does not survive the boundary; slot two is the id for RemovePlayerCacheListener. Nil plus a reason for an unknown key or a non-callable listener' } },
     },
     ['Cis.player.ped'] = {
         since = '1.0.0',

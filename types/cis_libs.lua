@@ -481,7 +481,7 @@ local CisZoneDebug = {}
 ---@field rotation? number an alias for the box heading
 local CisZoneOptions = {}
 
--- ================================================= RAW EXPORTS (159)
+-- ================================================= RAW EXPORTS (160)
 
 ---@overload fun(...)
   ---@param groupData table #the group record handed to the provider's addGroup
@@ -1235,10 +1235,10 @@ function Notify.client(message, kind) end
 --- realm: server
 function NotifyClient(src, message, kind) end
 
---- Cis.player.on(key, cb). The cb cannot cross the boundary; use a net event
----@param key string #a listener key: ped, vehicle, seat, weapon, armed or aiming. NEVER type-checked here, and the same file lists the keys
----@param cb function #a non-function returns immediately with no subscription at all
----@return function|nil #the unsubscribe closure, in-realm only. A LISTENER ARGUMENT IS DROPPED across the boundary -- the teardown arrives and the listener never fires -- so gate on your own flag and drop it in onResourceStop
+--- Cis.player.on(key, cb); stop it with RemovePlayerCacheListener(id)
+---@param key string #one of aiming, armed, heading, ped, seat, shooting, vehicle, weapon. Anything else is refused with a reason. Coordinates are not a key: Cis.player.coords() is memoised per frame
+---@param cb function #`fun(current, previous)`, called under pcall on every change. A consumer function arrives as a funcref and is accepted; a stopped owner takes its listeners with it
+---@return function|nil, integer|string #the in-realm unsubscribe and the listener id, or nil plus a reason. The unsubscribe cannot be called from another resource; feed the id to RemovePlayerCacheListener. Vehicle and seat are both updated before either listener runs
 --- realm: client
 function OnPlayerCache(key, cb) end
 
@@ -1335,6 +1335,12 @@ function RegisterCapability.client(slot, provider, contract) end
 ---@return boolean, string #true on success; false plus a reason for a non-number id or an unknown one
 --- realm: client
 function RemoveNearWatcher(id) end
+
+--- no proxy equivalent; the id OnPlayerCache returns as its second value
+---@param id integer #the id OnPlayerCache returned in slot two
+---@return boolean, string|nil #false plus a reason for an unknown id or a listener owned by another resource
+--- realm: client
+function RemovePlayerCacheListener(id) end
 
 --- Cis.points.remove(id)
 ---@param id integer #the id CreatePoint returned
@@ -2038,9 +2044,9 @@ function Cis.player.near(coords, distance, onEnter, onExit, onEnterEvent, onExit
 ---@field since string 1.0.0
 ---@field realm "client"
 ---@field forwardsTo string OnPlayerCache
----@param key string #a cache key: ped, vehicle, seat, weapon, armed or aiming. mount is RedM-only and is not a key here -- this game is gta5
----@param cb function #the listener, called pcall'd under the library's loop guard
----@return function|nil #the unsubscribe, which DOES cross as a callable reference. The LISTENER does not: a function argument is dropped, so from a consumer this call delivers a teardown and a listener that never fires. Gate the listener on your own flag and drop it in onResourceStop
+---@param key string #a cache key: aiming, armed, heading, ped, seat, shooting, vehicle or weapon. mount is RedM-only and is not a key here -- this game is gta5
+---@param cb function #the listener, `fun(current, previous)`, called pcall'd on every change; it arrives in cis_libs as a funcref
+---@return function|nil, integer|string #slot one is the in-realm unsubscribe and does not survive the boundary; slot two is the id for RemovePlayerCacheListener. Nil plus a reason for an unknown key or a non-callable listener
 function Cis.player.on(key, cb) end
 
 ---@class Cis.player.ped
