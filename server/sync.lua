@@ -42,15 +42,24 @@ local inflightContent = {}
 
 local stats = { networkedFailed = 0, respawned = 0, truncated = 0, snapshotsRefused = 0 }
 
--- Server-issued, and never taken from the caller unless the caller supplied one.
-local function nextId(kind)
-    seq = seq + 1
-    return ('%s_%s'):format(kind, seq)
-end
-
 -- THE NAMESPACE. Every record is stored and streamed under owner plus id.
 local function recordKey(owner, id)
     return owner .. '\0' .. id
+end
+
+-- Server-issued, and never taken from the caller unless the caller supplied one.
+-- COLLISION-PROOF: an explicit `prop_1` used to be overwritten by the next
+-- idless upsert, which generated the same id. A taken or in-flight key is
+-- skipped. Takes the owner because the key is owner plus id.
+local function nextId(kind, owner)
+    while true do
+        seq = seq + 1
+        local id = ('%s_%s'):format(kind, seq)
+        local key = recordKey(owner, id)
+        if records[key] == nil and inflight[key] == nil then
+            return id
+        end
+    end
 end
 
 -- The caller-facing half: its own id, as a string.
@@ -120,9 +129,13 @@ local MAX_HELD_CLAIMS = 512
 -- A client that gave up on a model is not re-sent that revision for this long.
 local REFUSED_BACKOFF_MS = 30000
 
--- entityRemoved re-creations allowed per record per window before it is dropped.
+-- entityRemoved re-creations allowed per record per window before re-creation
+-- BACKS OFF. Dropping the record after three let any client that could delete
+-- the entity (KeepEntity does not stop a client delete) remove it for good.
 local RESPAWN_MAX = 3
 local RESPAWN_WINDOW_MS = 60000
+local RESPAWN_BACKOFF_MS = 5000
+local RESPAWN_BACKOFF_MAX_MS = 300000
 
 -- The only distance question this file asks.
 local function nearByDistance(p, coords, radius)
@@ -441,6 +454,11 @@ local function createEntity(record)
         local ticks = 0
         while not DoesEntityExist(entity) do
             if GetGameTimer() >= deadline or ticks >= ENTITY_WAIT_TICKS then
+                -- The handle is deleted, not dropped: an entity that turns up
+                -- later would otherwise be in the world with no record behind it.
+                if type(DeleteEntity) == 'function' then
+                    pcall(DeleteEntity, entity)
+                end
                 return nil, ('the server created %s %s but it never came into existence')
                     :format(tostring(record.kind), tostring(record.model))
             end
@@ -591,20 +609,63 @@ end
 -- Tell every player who holds the key, or who is in range of it now. Holders are
 -- told even from the hysteresis band, where the pass would not have SENT it but
 -- would also not have taken it away.
-local function push(key, record)
+--
+-- BATCHED. Each upsert used to read every player's position and send one event
+-- per record per player, so 300 upserts in a loop were 300 events to one
+-- player. Keys are queued and flushed on the next tick: one position read, one
+-- batch per player, each record at its latest revision, and a record removed
+-- before the flush is not sent at all.
+local pushQueued, pushOrder, pushArmed = {}, {}, false
+
+local function flushPushes()
+    pushArmed = false
+    if #pushOrder == 0 then
+        return
+    end
+    local order = pushOrder
+    pushOrder, pushQueued = {}, {}
     local positions = playerPositions()
     for i = 1, #positions do
         local p = positions[i]
         local set = has[p.src]
-        local held = set and set[key] ~= nil
-        if (held and stillNear(p, record)) or isNear(p, record) then
-            if not set then
-                set = {}
-                has[p.src] = set
+        local ups = nil
+        for j = 1, #order do
+            local key = order[j]
+            local record = records[key]
+            if record then
+                local held = set and set[key] ~= nil
+                if (held and stillNear(p, record)) or isNear(p, record) then
+                    if not set then
+                        set = {}
+                        has[p.src] = set
+                    end
+                    set[key] = record.rev
+                    ups = ups or {}
+                    ups[#ups + 1] = record.wire
+                end
             end
-            set[key] = record.rev
-            send(p.src, { record.wire }, nil)
         end
+        if ups then
+            send(p.src, ups, nil)
+        end
+    end
+end
+
+local function push(key)
+    if not pushQueued[key] then
+        pushQueued[key] = true
+        pushOrder[#pushOrder + 1] = key
+    end
+    if pushArmed then
+        return
+    end
+    -- SetTimeout(0) runs on the next tick. Without it (a bare test VM) the queue
+    -- is flushed at once, which is the old timing.
+    if type(SetTimeout) == 'function' then
+        pushArmed = true
+        SetTimeout(0, flushPushes)
+    else
+        flushPushes()
     end
 end
 
@@ -744,7 +805,7 @@ local function upsertLocked(rec, key, print_)
     records[key] = rec
     indexRecord(key, rec)
     gridInsert(key, rec)
-    push(key, rec)
+    push(key)
     return rec.id
 end
 
@@ -840,7 +901,7 @@ local function upsert(kind, data)
         if existing and records[existing] then
             return records[existing].id
         end
-        rec.id = nextId(kind)
+        rec.id = nextId(kind, rec.owner)
         contentLock = ckey
         inflightContent[ckey] = true
     end
@@ -1078,8 +1139,8 @@ end)
 -- forgets that it holds the record -- so it is not removed from a client that
 -- never had it -- and holds back that revision for a while, so a missing asset
 -- is not a resend loop. A new revision, or the backoff ending, sends it again.
-CisNetOn('cis_libs:server:syncGaveUp', function(src, key)
-    if type(src) ~= 'number' or src <= 0 or type(key) ~= 'string' then
+local function gaveUp(src, key)
+    if type(key) ~= 'string' then
         return
     end
     local set = has[src]
@@ -1095,6 +1156,27 @@ CisNetOn('cis_libs:server:syncGaveUp', function(src, key)
             refused[src] = mine
         end
         mine[key] = { rev = record.rev, untilMs = GetGameTimer() + REFUSED_BACKOFF_MS }
+    end
+end
+
+-- The most keys one give-up event may carry; the client sends at most this many.
+local MAX_GAVEUP_KEYS = 256
+
+-- One key (an older client) or a LIST of them: a client batches its give-ups,
+-- because one event per key ran into this event's rate limit.
+CisNetOn('cis_libs:server:syncGaveUp', function(src, keys)
+    if type(src) ~= 'number' or src <= 0 then
+        return
+    end
+    if type(keys) == 'string' then
+        gaveUp(src, keys)
+        return
+    end
+    if type(keys) ~= 'table' then
+        return
+    end
+    for i = 1, math.min(#keys, MAX_GAVEUP_KEYS) do
+        gaveUp(src, keys[i])
     end
 end)
 
@@ -1136,19 +1218,30 @@ AddEventHandler('entityRemoved', function(entity)
     if not record then
         return
     end
-    local now = GetGameTimer()
-    local window = record.respawns
-    if not window or now - window.since >= RESPAWN_WINDOW_MS then
-        window = { since = now, n = 0 }
-        record.respawns = window
-    end
-    if not record.respawn or window.n >= RESPAWN_MAX then
-        Logging.Error(('Cis.sync: networked record %s lost its entity%s; the record is dropped')
-            :format(tostring(record.id), record.respawn and ' too often' or ''))
+    if not record.respawn then
+        Logging.Error(('Cis.sync: networked record %s lost its entity; the record is dropped')
+            :format(tostring(record.id)))
         removeMany({ key })
         return
     end
+    local now = GetGameTimer()
+    local window = record.respawns
+    if not window or now - window.since >= RESPAWN_WINDOW_MS then
+        window = { since = now, n = 0, backoff = nil }
+        record.respawns = window
+    end
     window.n = window.n + 1
+    if window.n > RESPAWN_MAX then
+        -- Too often for this window: wait, doubling each time, and keep the record.
+        local delay = window.backoff and math.min(window.backoff * 2, RESPAWN_BACKOFF_MAX_MS) or RESPAWN_BACKOFF_MS
+        window.backoff = delay
+        Logging.Warn(('Cis.sync: networked record %s lost its entity %d times; re-created in %d ms')
+            :format(tostring(record.id), window.n, delay))
+        Wait(delay)
+        if records[key] ~= record or handles[key] then
+            return
+        end
+    end
     if not awaitFree(inflight, key) then
         return
     end

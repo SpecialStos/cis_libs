@@ -25,6 +25,9 @@ local usageWarned = {}
 -- LIVE entry: a removed command finds no entry and does nothing, and a re-added
 -- one is reached through the same closure rather than a second one beside it.
 local registered = {}
+-- The `restricted` flag each name was registered with. RegisterCommand takes it
+-- once and cannot change it, so a re-add that asks for the other one is refused.
+local registeredRestricted = {}
 
 local PARAM_TYPES = { string = true, number = true, playerId = true, longString = true }
 
@@ -35,10 +38,11 @@ local PARAM_TYPES = { string = true, number = true, playerId = true, longString 
 --
 -- Characters go into a BUFFER and are joined once per argument: appending to a
 -- string copied the whole argument per character, quadratic in its length.
-function CisCommandParse(raw)
-    if type(raw) ~= 'string' then
-        return {}
-    end
+--
+-- A SINGLE QUOTE GROUPS ONLY AT THE START OF A WORD. Inside one it is an
+-- apostrophe: `me I'm sure it's fine` used to come out as `Im sure its|fine`.
+-- One left open to the end of the line is read as a plain character too.
+local function parseLine(raw, singleQuotes)
     local args = {}
     local buf, n = {}, 0
     local open = false
@@ -53,7 +57,7 @@ function CisCommandParse(raw)
                 n = n + 1
                 buf[n] = raw:sub(i, i)
             end
-        elseif c == 34 or c == 39 then -- " or '
+        elseif c == 34 or (c == 39 and singleQuotes and not open) then -- " or a leading '
             quote = c
             open = true
         elseif c == 32 or (c >= 9 and c <= 13) then
@@ -70,6 +74,17 @@ function CisCommandParse(raw)
     end
     if open then
         args[#args + 1] = table.concat(buf, '', 1, n)
+    end
+    return args, quote
+end
+
+function CisCommandParse(raw)
+    if type(raw) ~= 'string' then
+        return {}
+    end
+    local args, unclosed = parseLine(raw, true)
+    if unclosed == 39 then
+        args = parseLine(raw, false)
     end
     return args
 end
@@ -193,8 +208,16 @@ local function typedArgs(entry, src, parsed)
     return parsed
 end
 
+-- ONLY A GROUP. cis_libs' own `add_ace` right is lent to whichever resource
+-- calls CommandAdd, so the principal it writes is held to `group.<name>`:
+-- `builtin.everyone` or a `player.` / `identifier.` principal would open the
+-- command to everyone or hand one player a right the operator never gave.
+local function provisionableGroup(restricted)
+    return type(restricted) == 'string' and restricted:match('^group%.[%w_%-]+$') ~= nil
+end
+
 local function provisionAce(entry)
-    if type(entry.restricted) ~= 'string' or type(ExecuteCommand) ~= 'function' then
+    if not provisionableGroup(entry.restricted) or type(ExecuteCommand) ~= 'function' then
         return false
     end
     local self = 'resource.' .. GetCurrentResourceName()
@@ -244,7 +267,9 @@ local function dispatch(name, src, args, rawCommand)
     local parsed
     if type(rawCommand) == 'string' and rawCommand ~= '' then
         parsed = CisCommandParse(rawCommand)
-        if parsed[1] == name then
+        -- Without regard to case, as the platform matched it: `/GIVE 5 bread`
+        -- passed GIVE as the first argument.
+        if type(parsed[1]) == 'string' and parsed[1]:lower() == name:lower() then
             table.remove(parsed, 1)
         end
     else
@@ -305,6 +330,26 @@ local function readParams(params)
     return params, required
 end
 
+-- Who already holds a command of this name, or nil. GET_REGISTERED_COMMANDS
+-- (CFX, shared) lists { name, resource, arity }; a builtin has no resource.
+local function existingHolder(name)
+    local list = GetRegisteredCommands()
+    if type(list) ~= 'table' then
+        return nil
+    end
+    local want = name:lower()
+    for _, c in ipairs(list) do
+        if type(c) == 'table' and type(c.name) == 'string' and c.name:lower() == want then
+            local res = c.resource
+            if type(res) ~= 'string' or res == '' then
+                return 'a server builtin'
+            end
+            return ('registered by %s'):format(res)
+        end
+    end
+    return nil
+end
+
 function CisCommandAdd(name, options, handler)
     if type(name) ~= 'string' or not name:match('^[%w_%-]+$') then
         return false, ('command name must be letters, digits, underscore or hyphen; got %s'):format(tostring(name))
@@ -338,6 +383,22 @@ function CisCommandAdd(name, options, handler)
         return false, required
     end
 
+    -- A NAME THE SERVER ALREADY KNOWS IS NOT TAKEN. Registering over another
+    -- resource's command, or a builtin like `add_principal`, would route it here
+    -- and, with a restriction, have cis_libs grant its ACE. Command names match
+    -- without regard to case.
+    if registered[name] then
+        if registeredRestricted[name] ~= (restricted and true or false) then
+            return false, ('command %q was first registered %s, and FiveM cannot change that until a restart')
+                :format(name, registeredRestricted[name] and 'restricted' or 'unrestricted')
+        end
+    else
+        local holder = existingHolder(name)
+        if holder then
+            return false, ('a command named %q already exists (%s); pick a different name'):format(name, holder)
+        end
+    end
+
     local entry = {
         name = name,
         params = params,
@@ -356,6 +417,7 @@ function CisCommandAdd(name, options, handler)
     -- splits on every space and cannot group.
     if not registered[name] then
         registered[name] = true
+        registeredRestricted[name] = restricted and true or false
         RegisterCommand(name, function(src, args, rawCommand)
             dispatch(name, src, args, rawCommand)
         end, restricted and true or false)
@@ -363,6 +425,10 @@ function CisCommandAdd(name, options, handler)
 
     if restricted then
         entry.provisioned = provisionAce(entry)
+        if not entry.provisioned and CisLog and type(restricted) == 'string' and not provisionableGroup(restricted) then
+            CisLog('warn', ('cis_libs: %q names %s, which is not a group; cis_libs grants only group.* principals')
+                :format(name, restricted))
+        end
         if not entry.provisioned and CisLog then
             CisLog('info', ('cis_libs: %q is restricted. Grant it with: add_ace %s command.%s allow')
                 :format(name, aceGroup(entry), name))

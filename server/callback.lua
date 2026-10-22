@@ -77,8 +77,17 @@ local function invoke(name, src, ...)
     end
     local fn, self = entry.fn, nil
     if not fn then
-        local target = exports[entry.resource]
-        fn = target and target[entry.export]
+        -- UNDER pcall: a stopped resource, or a name it does not export, RAISES on
+        -- the lookup in FiveM. Raised here it skipped the in-flight release and
+        -- locked the player out of every callback after eight of them.
+        local found, target, got = pcall(function()
+            local t = exports[entry.resource]
+            return t, t and t[entry.export]
+        end)
+        if not found then
+            target, got = nil, nil
+        end
+        fn = got
         -- MEASURED, not inferred: `exports[res][name]` is an UNBOUND method.
         self = target
         if not CisCallable(fn) then
@@ -173,12 +182,22 @@ function CisRegisterCallback(name, handler, opts)
     entry.ace = options.ace
     entry.schema = options.schema
     entry.maxStringLen = options.maxStringLen
-    -- REPLACES whatever held the name, function or reference, and drops the
-    -- reference to it -- a funcref kept alive here is a closure in another
-    -- resource that is never collected.
-    callbacks[name] = entry
     -- the owner is read HERE, while the export is executing.
-    CisOwned.track(callbackOwned, GetInvokingResource() or 'cis_libs', 'callback', name)
+    local owner = GetInvokingResource() or 'cis_libs'
+    entry.owner = owner
+    -- A NAME ANOTHER RESOURCE HOLDS IS REFUSED, as net events refuse theirs.
+    -- Replacing it let any resource answer another's callback in its place.
+    local held = callbacks[name]
+    if held and held.owner ~= owner and owner ~= GetCurrentResourceName() then
+        why = ('RegisterCallback: %s is already registered by %s'):format(name, tostring(held.owner))
+        Logging.Error(why)
+        return false, why
+    end
+    -- REPLACES whatever the same owner held under the name, function or
+    -- reference, and drops the reference to it -- a funcref kept alive here is a
+    -- closure in another resource that is never collected.
+    callbacks[name] = entry
+    CisOwned.track(callbackOwned, owner, 'callback', name)
     return true
 end
 
@@ -258,6 +277,22 @@ AddEventHandler('playerDropped', function()
     end
 end)
 
+-- A HANDLER THAT NEVER RESUMES (a driver restarted mid-await) held its slot
+-- for the session. Past three callback timeouts the client gave up on it long
+-- ago, so its slot is reclaimed; if it ever finishes, it is not counted twice.
+local function reclaimStuck(slot)
+    local now = GetGameTimer()
+    local limit = 3 * timeoutMs()
+    for token, at in pairs(slot.started) do
+        if now - at > limit then
+            slot.started[token] = nil
+            slot.n = slot.n - 1
+            Logging.Warn(('cis_libs: reclaimed a callback slot held for %d ms by a handler that never finished')
+                :format(now - at))
+        end
+    end
+end
+
 local function answer(src, key, ...)
     TriggerClientEvent('cis_libs:cb:res', src, key, ...)
 end
@@ -335,16 +370,30 @@ RegisterNetEvent('cis_libs:cb', function(name, key, ...)
     -- mid-call cannot have the newcomer's count decremented.
     local slot = inflight[src]
     if not slot then
-        slot = { n = 0 }
+        slot = { n = 0, seq = 0, started = {} }
         inflight[src] = slot
+    end
+    if slot.n >= limits.maxInFlight then
+        reclaimStuck(slot)
     end
     if slot.n >= limits.maxInFlight then
         answer(src, key, false, 'busy')
         return
     end
+    slot.seq = slot.seq + 1
+    local token = slot.seq
+    slot.started[token] = GetGameTimer()
     slot.n = slot.n + 1
-    local ok, results, trapped = invoke(name, src, table.unpack(args, 1, args.n))
-    slot.n = slot.n - 1
+    -- UNDER pcall, so the slot is released however the call ends.
+    local called, ok, results, trapped = pcall(invoke, name, src, table.unpack(args, 1, args.n))
+    if not called then
+        ok, results, trapped = false, tostring(ok), ok
+    end
+    -- A reclaimed call has already been counted out.
+    if slot.started[token] then
+        slot.started[token] = nil
+        slot.n = slot.n - 1
+    end
     if slot.n <= 0 and inflight[src] == slot then
         inflight[src] = nil
     end

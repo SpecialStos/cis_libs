@@ -14,6 +14,27 @@ under **Changed** so nobody upgrades into them blind.
 
 ### Changed
 
+- **`CommandAdd` refuses a name the server already knows**, another
+  resource's command or a builtin (matched without regard to case), and a
+  re-add that changes `restricted`. cis_libs provisions `add_ace` only for
+  `group.*` principals; `builtin.everyone`, `player.*` and `identifier.*` are
+  printed for the operator instead.
+- **A net event's owner is always the caller.** `SecureNetOn` refuses a
+  resource that binds another resource's export (`'bank:Withdraw'` from
+  `thief`). The rate limit runs before the schema, and a bad payload is
+  reported once per player and event, not once per event.
+- **Server callback names are owned.** `RegisterCallback` refuses a name
+  another resource holds (cis_libs may replace any).
+- **The rate limiter evicts expired buckets** instead of refusing every new
+  name once a player holds 256, and a refusal at that cap is never escalated
+  to a report or a kick. `RateOk` answers `false, 'cap'` for it. A string
+  `src` is the same player as its number.
+- **A networked record is not dropped when its entity keeps being deleted.**
+  Past three re-creations a minute it backs off (5 s, doubling to 5 min) and
+  keeps the record.
+- **Sync upserts are batched**: a burst in one tick is one `syncBatch` per
+  nearby player on the next tick. `cis_libs:server:syncGaveUp` takes a list
+  of keys (up to 256); clients batch their give-ups.
 - **cis_libs' own zone, point and near-watcher threads run on demand**, as a
   consumer's always did: started by the first zone, point or watcher and
   ended by the last. A client with none runs no loop (they woke about nine
@@ -222,6 +243,25 @@ under **Changed** so nobody upgrades into them blind.
 
 ### Fixed
 
+- **Exploitable:** with the documented `add_ace resource.cis_libs
+  command.add_ace allow` grant, any resource could have cis_libs run
+  `add_ace builtin.everyone command.<any> allow`, opening another resource's
+  admin command, or a builtin, to every player.
+- **Exploitable:** any resource could replace another's net binding by naming
+  that resource in a `'resource:export'` string, stripping its schema and
+  rate limit; and could replace another's server callback by name.
+- A `'resource:export'` callback whose export was missing raised past the
+  in-flight release: after eight such requests the player got `busy` from
+  every callback until they reconnected. The lookup is guarded, the slot is
+  always released, and a slot held past three timeouts is reclaimed.
+  `TryAwaitCallback` no longer raises on it, and the client answers instead
+  of leaving the server to time out.
+- An idless sync upsert could generate an id an explicit record already
+  had, and replace it. A networked spawn that timed out left its entity
+  handle behind.
+- An enter handler that removed a zone aborted the server zone pass for the
+  remaining players. `/GIVE` passed `GIVE` as the first argument; an
+  apostrophe opened a quote (`I'm` became `Im`).
 - A saved vehicle with a window rolled down came back with that window
   removed: `IsVehicleWindowIntact` is false for both. The getter now rolls a
   not-intact window up, records it only if it is still not intact, and rolls

@@ -394,7 +394,11 @@ local function playerPass(src)
     if entered then
         table.sort(entered)
         for i = 1, #entered do
-            enter(zones[entered[i]], passSrc)
+            -- Looked up again: an earlier enter handler may have removed it.
+            local zone = zones[entered[i]]
+            if zone then
+                enter(zone, passSrc)
+            end
         end
     end
 end

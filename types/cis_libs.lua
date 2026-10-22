@@ -915,7 +915,7 @@ function ClosestVehicle(coords, maxDistance, filter, opts) end
 ---@param name string #letters, digits, underscore or hyphen only
 ---@param options table #{ params, restricted, help }. params is an array of names, or of { name, help, type, optional } tables: type is 'string' (default), 'number', 'playerId' (a connected id, or 'me') or 'longString' (the rest of the line; must be last); optional params must come last. A line that does not fit is refused and the usage logged. restricted is true or an ACE principal like 'group.admin'
 ---@param handler function #called as (src, args, raw). src is INJECTED and is not a parameter, so no caller can name anyone. args holds the converted values by position AND by param name. A function passed from another resource is accepted, owned by it, and stops running when it stops
----@return boolean, string|nil #true once registered, or false plus a reason. A restricted command is checked by RegisterCommand and again by the handler. When restricted names a group and cis_libs has been granted command.add_ace, it runs add_ace <group> command.<name> allow itself (and remove_ace on removal); otherwise it prints that exact line. Chat suggestions reach players who join later
+---@return boolean, string|nil #true once registered, or false plus a reason: a name the server already knows (another resource command or a builtin, matched without regard to case) is refused, and so is a re-add that changes the restricted flag. A restricted command is checked by RegisterCommand and again by the handler. When restricted names a group.* principal and cis_libs has been granted command.add_ace, it runs add_ace <group> command.<name> allow itself (never for builtin.*, player.* or identifier.* principals) (and remove_ace on removal); otherwise it prints that exact line. Chat suggestions reach players who join later
 --- realm: server
 function CommandAdd(name, options, handler) end
 
@@ -1664,7 +1664,7 @@ function RandomFloat(lower, greater) end
 ---@param name string #the bucket key inside that src; the rate is per (src, name), never shared across names
 ---@param windowMs? integer #the window in ms, default 1000 -- a fixed window, not a sliding one
 ---@param maxHits? integer #the hits allowed inside it, default 8
----@return boolean #true on an allowed hit, and true is not free: it consumes a slot in the (src, name) window. false when the hit exceeds maxHits, or when the src already holds 256 buckets and this name is new
+---@return boolean #true on an allowed hit, and true is not free: it consumes a slot in the (src, name) window. false when the hit exceeds maxHits, or, with a second value cap, when the src holds 256 live buckets and this name is new (expired buckets are evicted first). A string src is the same player as its number
 --- realm: server
 function RateOk(src, name, windowMs, maxHits) end
 
@@ -1694,7 +1694,7 @@ function ReadyState() end
 
 ---@overload fun(...)
   ---@param name string #a non-empty handler name, the key everything else is filed under
-  ---@param handler function|string|table #a function, a callable reference table (a function passed from another resource; released when that resource stops), or a "resource:Export" string; nil fails all three. A later registration of the same name REPLACES the earlier one, whatever its kind
+  ---@param handler function|string|table #a function, a callable reference table (a function passed from another resource; released when that resource stops), or a "resource:Export" string; nil fails all three. A later registration of the same name by the SAME resource replaces the earlier one, whatever its kind; a name another resource holds is refused (cis_libs may replace any)
   ---@param opts? table #{ remote = true|false, ace = 'object', schema = { field = { type, min, max, maxLen, optional } }, maxStringLen = n }. remote defaults to TRUE (1.0.0 behaviour); remote = false makes the callback unreachable from any client, which is answered 'unknown' exactly as for a missing name. ace is checked with IsPrincipalAceAllowed('player.<src>', ace) and refused 'denied'. schema checks the FIRST argument and refuses 'bad payload' (and reports the player). maxStringLen replaces the default string cap (Config.CallbackLimits.MaxStringLen, 4096) for this callback; every remote call is capped, keys and values. A malformed option is refused, never ignored
   ---@return boolean, string|nil #true once bound; false plus the reason (also logged) on a refusal
 ---@overload
@@ -1825,7 +1825,7 @@ function Scaleform(name, timeout) end
 ---@param name string #the net event name, used verbatim with no prefix added
 ---@param fn function|string|table #a function -- including one passed from another resource, which arrives as a callable reference table and is released when that resource stops -- or a "resource:Export" string; anything else registers nothing
 ---@param opts? table #windowMs and maxHits default to 1000 and 8. schema, if present, is a map of field -> { type, min, max, maxLen, optional } checked against the FIRST payload table before the handler runs. Without schema nothing changes
----@return boolean #true once bound -- and true says nothing about rate limiting, which happens at dispatch. false when the handler cannot be resolved, with a reason naming the resource and export
+---@return boolean #true once bound -- and true says nothing about rate limiting, which happens at dispatch. false when the handler cannot be resolved, with a reason naming the resource and export, or when a resource binds another resource export: the owner is always the caller. The rate limit runs before the schema, and a bad payload is reported once per player and event
 --- realm: server
 function SecureNetOn(name, fn, opts) end
 
@@ -2269,7 +2269,7 @@ function Cis.callback.tryAwaitWithin(name, timeoutMs, ...) end
 ---@param name string #letters, digits, underscore or hyphen
 ---@param options table #params, restricted and help
 ---@param handler function #called (src, args, raw); REFUSED at registration from a consumer, because a function cannot cross the boundary
----@return boolean, string|nil #true once registered, or false plus a reason. A restricted command refuses and prints the exact add_ace line when nobody has granted it; cis_libs never grants ACL itself
+---@return boolean, string|nil #true once registered, or false plus a reason: a name the server already knows (another resource command or a builtin, matched without regard to case) is refused, and so is a re-add that changes the restricted flag. A restricted command refuses and prints the exact add_ace line when nobody has granted it; cis_libs never grants ACL itself
 function Cis.command.add(name, options, handler) end
 
 ---@class Cis.command.list

@@ -258,6 +258,31 @@ local function drive(id)
     end
 end
 
+-- GIVE-UPS GO IN ONE EVENT. One per key ran into the server's 8-a-second limit
+-- with nine bad models: the rest were dropped, and the server went on believing
+-- this client held them. With a hundred, the burst read as a flood.
+local GAVEUP_FLUSH_MS = 250
+local GAVEUP_MAX_PER_EVENT = 256
+local gaveUpQueue, gaveUpArmed = {}, false
+
+local function reportGaveUp(id)
+    gaveUpQueue[#gaveUpQueue + 1] = id
+    if gaveUpArmed then
+        return
+    end
+    gaveUpArmed = true
+    CreateThread(function()
+        Wait(GAVEUP_FLUSH_MS)
+        gaveUpArmed = false
+        local all = gaveUpQueue
+        gaveUpQueue = {}
+        for i = 1, #all, GAVEUP_MAX_PER_EVENT do
+            TriggerServerEvent('cis_libs:server:syncGaveUp',
+                { table.unpack(all, i, math.min(i + GAVEUP_MAX_PER_EVENT - 1, #all)) })
+        end
+    end)
+end
+
 function scheduleRetry(id)
     local attempt = (retries[id] or 0) + 1
     retries[id] = attempt
@@ -271,7 +296,7 @@ function scheduleRetry(id)
         wanted[id] = nil
         CisLog('error', 'sync gave up retrying an unavailable model after '
             .. tostring(RETRY_MAX) .. ' attempts')
-        TriggerServerEvent('cis_libs:server:syncGaveUp', id)
+        reportGaveUp(id)
         return
     end
     local delay = RETRY_BASE_MS * attempt

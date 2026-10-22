@@ -59,7 +59,7 @@ local function newEnv(opts)
         'SetNetworkedEntityLocallyVisible', 'SetNetworkedEntityLocallyInvisible',
         'TriggerLatentClientEvent', 'FreezeEntityPosition', 'CreateObjectNoOffset',
         'CreateVehicleServerSetter', 'CreatePed', 'SetEntityRoutingBucket', 'SetEntityOrphanMode',
-        'promise', 'Citizen', 'collectgarbage',
+        'promise', 'Citizen', 'collectgarbage', 'SetTimeout',
     }) do
         env.saved[#env.saved + 1] = { name = name, value = rawget(_G, name) }
     end
@@ -69,6 +69,11 @@ local function newEnv(opts)
     end
     function Wait(ms)
         env.clock = env.clock + (tonumber(ms) or 0)
+    end
+    -- The next tick, collapsed into now: a timer runs at once. A test that needs
+    -- the real ordering (a burst queued, then flushed) replaces this.
+    function SetTimeout(_, fn)
+        fn()
     end
 
     -- Run one of the collected threads for `passes` iterations of its loop.
@@ -1540,6 +1545,86 @@ do
     env.invoking = 'res_b'
     check(CisNetOn('ev:buy', 'res_b:OnBuy') == true,
         'after res_a stops, res_b CAN bind the name it was refused')
+    env.reset()
+end
+
+-- 10b. THE OWNER IS THE CALLER. A 'bank:export' string used to set the owner, so
+-- any resource could name bank's resource and replace bank's binding -- schema,
+-- rate limit and all. A flood of bad payloads is ONE report, not one per event.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    local paid = {}
+    exports.bank = { Withdraw = function(_, src, p) paid[#paid + 1] = p.amount end }
+    exports.thief = { Take = function() end }
+    loadModule('server/security.lua')
+    local reported = 0
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_G, 'CisSecurityReport') }
+    function CisSecurityReport() reported = reported + 1; return true end
+
+    env.invoking = 'bank'
+    check(CisNetOn('bank:withdraw', 'bank:Withdraw', {
+        schema = { amount = { type = 'number', min = 1, max = 1000 } }, maxHits = 2,
+    }) == true, '10b: bank binds its event with a schema')
+    env.invoking = 'thief'
+    check(CisNetOn('bank:withdraw', 'bank:Withdraw', {}) == false,
+        '10b: another resource naming bank:Withdraw cannot replace the binding')
+    check(CisNetOn('thief:ev', 'bank:Withdraw', {}) == false,
+        '10b: nor bind a new event to an export that is not its own')
+    env.emit('bank:withdraw', 5, { amount = 1e9 })
+    check(#paid == 0, '10b: and the schema still refuses amount=1e9')
+
+    reported = 0
+    env.clock = env.clock + 5000
+    for _ = 1, 50 do env.emit('bank:withdraw', 6, { amount = 'lots' }) end
+    check(reported == 1, ('10b: 50 bad payloads in a flood are reported once (reports=%d)'):format(reported))
+    -- The ledger is per connection: the next player to get id 6 is reported.
+    local savedSource = rawget(_G, 'source')
+    source = 6
+    env.fire('playerDropped', 'left')
+    _G.source = savedSource
+    env.clock = env.clock + 5000
+    env.emit('bank:withdraw', 6, { amount = 'lots' })
+    check(reported == 2, ('10b: and a drop clears it, so the next player on id 6 is reported (reports=%d)')
+        :format(reported))
+    env.reset()
+end
+
+-- 10c. THE BUCKET CAP. Buckets never expired, so a consumer using dynamic
+-- names filled 256 and every new name was refused for the session -- and a
+-- refusal at the cap then escalated like a flood and kicked the player. A string
+-- src (GetPlayers() ids) got buckets no drop ever freed.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    exports.cis_shop = { OnBuy = function() end }
+    loadModule('server/security.lua')
+    local reported = 0
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_G, 'CisSecurityReport') }
+    function CisSecurityReport() reported = reported + 1; return true end
+
+    for i = 1, 256 do CisRateOk(3, 'dyn:' .. i, 1000, 8) end
+    check(CisRateBucketCount(3) == 256, '10c: 256 names fill the cap')
+    local refused, why = CisRateOk(3, 'dyn:new', 1000, 8)
+    check(refused == false and why == 'cap', '10c: a new name inside the window is refused at the cap, and says so')
+    env.clock = env.clock + 1500
+    check(CisRateOk(3, 'dyn:later', 1000, 8) == true, '10c: once their windows pass, expired buckets make room')
+    check(CisRateBucketCount(3) == 1, ('10c: and they are gone (%d left)'):format(CisRateBucketCount(3)))
+
+    CisNetOn('cis_shop:buy', 'cis_shop:OnBuy', { maxHits = 4, windowMs = 1000 })
+    for i = 1, 256 do CisRateOk(7, 'full:' .. i, 1000, 8) end
+    for _ = 1, 200 do env.emit('cis_shop:buy', 7, 1) end
+    check(reported == 0, ('10c: refusals at the cap are never escalated to a report (reports=%d)'):format(reported))
+
+    CisRateOk('4', 'str', 1000, 8)
+    check(CisRateBucketCount(4) == 1, '10c: a string src shares the number src bucket set')
+    local saved = rawget(_G, 'source')
+    source = 4
+    env.fire('playerDropped', 'quit')
+    _G.source = saved
+    check(CisRateBucketCount(4) == 0, '10c: and the drop frees it')
     env.reset()
 end
 
@@ -4098,15 +4183,21 @@ do
             if bag and bag.value.id == id then return all[i].entity end
         end
     end
+    -- NOT DROPPED: a client that can delete the entity four times in a minute
+    -- used to remove the record for good. Past the budget, re-creation waits,
+    -- doubling: 5 s, 10 s, 20 s.
+    local clockBefore = env.clock
     for _ = 1, 5 do
         env.fire('entityRemoved', latestFor('gate'))
     end
     local total = #callsNamed(env, 'CreateObjectNoOffset')
     listed = {}
     for _, r in ipairs(env.EXPORTS.SyncList()) do listed[r.id] = true end
-    -- gate: 1 original + 3 budgeted re-creations; once: 1.
-    check(total == 5 and listed.gate == nil,
-        ('4.13: re-creation is budgeted, then the record is dropped (%d creates)'):format(total))
+    -- gate: 1 original + 1 earlier + 5 re-creations; once: 1.
+    check(total == 8 and listed.gate == true,
+        ('4.13: past the budget the record is kept and re-created (%d creates)'):format(total))
+    check(env.clock - clockBefore >= 35000,
+        ('4.13: and each re-creation past the budget waits longer (%d ms waited)'):format(env.clock - clockBefore))
 
     -- The server's OWN delete is not a loss.
     env.EXPORTS.SyncCreate('prop', {
@@ -4483,6 +4574,96 @@ do
         })
         check(made == nil, ('4.19: scope %s is refused'):format(tostring(bad)))
     end
+    env.reset()
+end
+
+-- ============================================ 4.20 · ids, batching, give-ups
+--
+-- An idless upsert generated prop_<seq> without looking, and replaced an
+-- explicit `prop_1`. Each upsert sent one event per record per player, so a
+-- loop of 300 was 300 events. A give-up arrived one key per event, into an
+-- 8-a-second limit. And a spawn that timed out left its handle behind.
+do
+    local env = newEnv({ players = { [1] = { coords = { x = 5.0, y = 0.0, z = 0.0 } } } })
+    loadSync(env)
+    check(env.EXPORTS.SyncCreate('prop', { id = 'prop_1', model = 'chair', coords = { x = 0.0, y = 0.0, z = 0.0 } })
+        == 'prop_1', '4.20: an explicit prop_1 is created')
+    local gen = env.EXPORTS.SyncCreate('prop', { model = 'table', coords = { x = 1.0, y = 0.0, z = 0.0 } })
+    local ids = {}
+    for _, r in ipairs(env.EXPORTS.SyncList()) do ids[r.id] = r.model end
+    check(gen ~= 'prop_1' and ids.prop_1 == 'chair' and ids[gen] == 'table',
+        ('4.20: a generated id skips one that is taken (%s), and the chair survives'):format(tostring(gen)))
+    env.reset()
+end
+
+do
+    local env = newEnv({ players = { [1] = { coords = { x = 5.0, y = 0.0, z = 0.0 } },
+        [2] = { coords = { x = 6.0, y = 0.0, z = 0.0 } } } })
+    loadSync(env)
+    local timers = {}
+    function SetTimeout(_, fn) timers[#timers + 1] = fn end
+    local rawBefore = #env.raw
+    for i = 1, 300 do
+        env.EXPORTS.SyncCreate('prop', { id = 'b' .. i, model = 'prop_barrel_01',
+            coords = { x = 0.0, y = 0.0, z = 0.0 } })
+    end
+    check(#env.raw == rawBefore and #timers == 1,
+        ('4.20: 300 upserts in one tick queue one flush and send nothing yet (sent=%d timers=%d)')
+            :format(#env.raw - rawBefore, #timers))
+    timers[1]()
+    local batches = {}
+    for i = rawBefore + 1, #env.raw do
+        local e = env.raw[i]
+        if e.name == 'cis_libs:client:syncBatch' then
+            batches[e.target] = (batches[e.target] or 0) + 1
+        end
+    end
+    check(batches[1] == 1 and batches[2] == 1,
+        ('4.20: and the flush is ONE batch per player (%s, %s)'):format(tostring(batches[1]), tostring(batches[2])))
+    check(env.upsertsTo(1, 'b300') == 1 and env.upsertsTo(2, 'b1') == 1, '4.20: carrying every record')
+
+    -- The holders now hold all 300; ten give up in one event.
+    local keys = {}
+    for _, e in ipairs(env.sentTo(1, 'cis_libs:client:syncUpsert')) do
+        if #keys < 10 then keys[#keys + 1] = e.args[1].key end
+    end
+    env.emit('cis_libs:server:syncGaveUp', 1, keys)
+    env.clock = env.clock + 1000
+    local before = env.upsertsTo(1, 'b1')
+    env.tick()
+    check(env.upsertsTo(1, 'b1') == before, '4.20: a batch of give-ups is honoured: those records are held back')
+    -- And EVERY key in the batch, not the first: past the backoff each one is
+    -- offered again, which only a record the server stopped believing held is.
+    local ids, counts = {}, {}
+    for _, e in ipairs(env.sentTo(1, 'cis_libs:client:syncUpsert')) do
+        for i = 1, #keys do
+            if e.args[1].key == keys[i] then ids[i] = e.args[1].id end
+        end
+    end
+    for i = 1, #keys do counts[i] = env.upsertsTo(1, ids[i]) end
+    env.clock = env.clock + 31000
+    env.tick()
+    local again = 0
+    for i = 1, #keys do
+        if env.upsertsTo(1, ids[i]) == counts[i] + 1 then again = again + 1 end
+    end
+    check(#keys == 10 and again == 10,
+        ('4.20: past the backoff all ten given-up records are offered again (%d of %d)'):format(again, #keys))
+    env.reset()
+end
+
+do
+    local env = newEnv({ players = {}, netOk = true })
+    loadSync(env)
+    env.saved[#env.saved + 1] = { name = 'DoesEntityExist', value = rawget(_G, 'DoesEntityExist') }
+    env.saved[#env.saved + 1] = { name = 'DeleteEntity', value = rawget(_G, 'DeleteEntity') }
+    local deleted = {}
+    function DoesEntityExist() return false end
+    function DeleteEntity(e) deleted[#deleted + 1] = e end
+    local made = env.EXPORTS.SyncCreate('prop', { id = 'ghost', model = 'prop_gate',
+        coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = true })
+    check(made == nil and #deleted == 1,
+        ('4.20: a spawn that never comes into existence deletes its handle (%d deletes)'):format(#deleted))
     env.reset()
 end
 
@@ -4942,6 +5123,91 @@ local function callbackEnv(opts)
     return env
 end
 
+-- ============================ CB7. a missing export, a stuck handler, a taken name
+--
+-- invoke looked up exports[res][name] outside any pcall. FiveM RAISES on a
+-- missing export, so the raise skipped the in-flight release: after eight such
+-- requests the player got 'busy' from every callback until they reconnected. A
+-- handler that never resumed held its slot for the session. And a second
+-- resource registering a taken name replaced the first one's handler.
+do
+    local env = callbackEnv({})
+    local realExports = exports
+    env.saved[#env.saved + 1] = { name = 'exports', value = realExports }
+    exports = setmetatable({}, { __index = function(_, res)
+        if res == 'ghost' then
+            error('No such export Nope in resource ghost', 2)
+        end
+        return realExports[res]
+    end, __call = function(_, ...) return realExports(...) end })
+    env.EXPORTS.RegisterCallback('cb7:ghost', 'ghost:Nope')
+    env.EXPORTS.RegisterCallback('cb7:ok', function() return 'fine' end)
+    for i = 1, 10 do
+        env.emit('cis_libs:cb', 9, 'cb7:ghost', i)
+    end
+    local errors = 0
+    for _, r in ipairs(env.replies(9)) do
+        if r[2] == false and r[3] == 'error' then errors = errors + 1 end
+    end
+    check(errors == 10, ('CB7: a missing export answers error every time, never busy (errors=%d)'):format(errors))
+    env.clock = env.clock + 1000
+    env.emit('cis_libs:cb', 9, 'cb7:ok', 'after')
+    check(env.lastReply(9)[2] == true and env.lastReply(9)[3] == 'fine',
+        'CB7: and the player can still reach a healthy callback')
+    local tried, tryWhy = pcall(env.EXPORTS.TryAwaitCallback, 'cb7:ghost')
+    check(tried, ('CB7: TryAwaitCallback on a missing export does not raise (%s)'):format(tostring(tryWhy)))
+    exports = realExports
+
+    -- ANY RAISE IN invoke, not only the lookup: the call runs under pcall, so the
+    -- slot is released whatever goes wrong between taking it and the reply.
+    exports.cb7res = { Fine = function() return 'x' end }
+    env.EXPORTS.RegisterCallback('cb7:raise', 'cb7res:Fine')
+    env.saved[#env.saved + 1] = { name = 'CisCallable', value = CisCallable }
+    local realCallable = CisCallable
+    function CisCallable() error('helper blew up') end
+    for i = 1, 10 do
+        pcall(env.emit, 'cis_libs:cb', 10, 'cb7:raise', i)
+    end
+    CisCallable = realCallable
+    local raised = 0
+    for _, r in ipairs(env.replies(10)) do
+        if r[2] == false and r[3] == 'error' then raised = raised + 1 end
+    end
+    env.clock = env.clock + 1000
+    env.emit('cis_libs:cb', 10, 'cb7:ok', 'after')
+    check(raised == 10 and env.lastReply(10)[3] == 'fine',
+        ('CB7: a raise inside invoke answers error and frees the slot (errors=%d, then %s)')
+            :format(raised, tostring(env.lastReply(10)[3])))
+
+    -- STUCK HANDLERS. Each request parks in its own coroutine and never resumes.
+    Config.CallbackLimits.MaxInFlight = 2
+    Config.CallbackLimits.PerName = 50
+    CisSecurityRebuild()
+    env.EXPORTS.RegisterCallback('cb7:hang', function() coroutine.yield() end)
+    for i = 1, 2 do
+        local co = coroutine.create(function() env.emit('cis_libs:cb', 11, 'cb7:hang', i) end)
+        coroutine.resume(co)
+    end
+    env.emit('cis_libs:cb', 11, 'cb7:ok', 'third')
+    check(env.lastReply(11)[3] == 'busy', 'CB7: two parked handlers fill the in-flight budget')
+    env.clock = env.clock + 3 * 10000 + 1
+    env.emit('cis_libs:cb', 11, 'cb7:ok', 'later')
+    check(env.lastReply(11)[2] == true and env.lastReply(11)[3] == 'fine',
+        ('CB7: past three timeouts their slots are reclaimed (got %s)'):format(tostring(env.lastReply(11)[3])))
+
+    -- A TAKEN NAME.
+    env.invoking = 'res_a'
+    check(env.EXPORTS.RegisterCallback('cb7:mine', function() return 'a' end) == true, 'CB7: res_a registers a name')
+    env.invoking = 'res_b'
+    local taken, takenWhy = env.EXPORTS.RegisterCallback('cb7:mine', function() return 'b' end)
+    check(taken == false and tostring(takenWhy):find('res_a', 1, true) ~= nil,
+        ('CB7: res_b cannot take it (%s)'):format(tostring(takenWhy)))
+    env.invoking = 'res_a'
+    check(env.EXPORTS.RegisterCallback('cb7:mine', function() return 'a2' end) == true, 'CB7: its owner can replace it')
+    env.invoking = nil
+    env.reset()
+end
+
 -- ============================ CB1. a dropped player answers every waiter
 --
 -- playerDropped removed the pending entries for the player and told the
@@ -5333,6 +5599,21 @@ local function commandEnv(opts)
         env.registrations[#env.registrations + 1] = name
         env.commands[name] = { fn = fn, restricted = restricted }
     end
+    -- GET_REGISTERED_COMMANDS as the server answers it: what this harness
+    -- registered (under cis_libs), a builtin with no resource, and a command
+    -- another resource owns.
+    env.saved[#env.saved + 1] = { name = 'GetRegisteredCommands', value = rawget(_G, 'GetRegisteredCommands') }
+    env.foreign = { add_principal = '', setjob = 'jobs' }
+    function GetRegisteredCommands()
+        local out = {}
+        for name in pairs(env.commands) do
+            out[#out + 1] = { name = name, resource = 'cis_libs', arity = -1 }
+        end
+        for name, res in pairs(env.foreign) do
+            out[#out + 1] = { name = name, resource = res, arity = -1 }
+        end
+        return out
+    end
     env.saved[#env.saved + 1] = { name = 'IsPrincipalAceAllowed', value = rawget(_G, 'IsPrincipalAceAllowed') }
     function IsPrincipalAceAllowed(principal, object)
         return env.aceGrants[principal .. ' ' .. object] == true
@@ -5451,6 +5732,68 @@ do
     check(inj == false and #env.executed == 2,
         ('K5: a group that is not a principal is refused before it reaches a console line (%s)')
             :format(tostring(injWhy)))
+    env.reset()
+end
+
+-- K6. cis_libs' add_ace right is lent only to group principals, and never to a
+-- name the server already holds. The parser keeps apostrophes, and the command
+-- name is stripped without regard to case.
+do
+    local env = commandEnv({ players = { [5] = {}, [6] = {} } })
+    env.aceGrants['resource.cis_libs command.add_ace'] = true
+    check(exports.CommandAdd('cis_open', { restricted = 'builtin.everyone' }, function() end) == true,
+        'K6: a non-group restriction still registers')
+    check(#env.executed == 0, ('K6: but cis_libs grants nothing for builtin.everyone (%s)'):format(tostring(env.executed[1])))
+    local b, bWhy = exports.CommandAdd('add_principal', { restricted = 'group.user' }, function() end)
+    check(b == false and tostring(bWhy):find('builtin', 1, true) ~= nil and #env.executed == 0,
+        ('K6: a builtin name is refused and nothing is granted (%s)'):format(tostring(bWhy)))
+    local f, fWhy = exports.CommandAdd('SetJob', { restricted = 'group.user' }, function() end)
+    check(f == false and tostring(fWhy):find('jobs', 1, true) ~= nil,
+        ('K6: another resource command is refused, whatever the case (%s)'):format(tostring(fWhy)))
+    exports.CommandAdd('cis_case', {}, function() end)
+    check(exports.CommandAdd('CIS_CASE', {}, function() end) == false, 'K6: a case variant of a live name is refused')
+    exports.CommandAdd('cis_flip', { restricted = 'group.admin' }, function() end)
+    exports.CommandRemove('cis_flip')
+    local flip, flipWhy = exports.CommandAdd('cis_flip', {}, function() end)
+    check(flip == false and tostring(flipWhy):find('restricted', 1, true) ~= nil,
+        ('K6: a re-add that changes the restriction is refused (%s)'):format(tostring(flipWhy)))
+
+    local words = exports.CommandParse("me I'm sure it's fine")
+    check(table.concat(words, '|') == "me|I'm|sure|it's|fine",
+        ('K6: an apostrophe inside a word is kept (%s)'):format(table.concat(words, '|')))
+    check(table.concat(exports.CommandParse("say 'hello world' x"), '|') == 'say|hello world|x',
+        'K6: a leading single quote still groups')
+    check(table.concat(exports.CommandParse("say 'tis fine"), '|') == "say|'tis|fine",
+        'K6: an unclosed single quote is read as a character')
+
+    local got
+    exports.CommandAdd('cis_case2', { params = { { name = 'n', type = 'number' } } }, function(_, args) got = args end)
+    env.run('cis_case2', 5, 'CIS_CASE2 7')
+    check(got and got.n == 7, ('K6: the command name is stripped whatever its case (n=%s)'):format(tostring(got and got.n)))
+    env.reset()
+end
+
+-- An enter handler that removes another zone the player was also entering
+-- used to abort the pass (enter(nil)), and every player after them missed it.
+do
+    local env = zonesEnv({
+        [1] = { coords = { x = 1.0, y = 1.0, z = 0.0 } },
+        [2] = { coords = { x = 1.0, y = 1.0, z = 0.0 } },
+    })
+    local first = env.EXPORTS.ServerZoneBox({ x = 0.0, y = 0.0, z = 0.0 }, 10.0, { onEnterEvent = 'z:in' })
+    local second = env.EXPORTS.ServerZoneBox({ x = 0.0, y = 0.0, z = 0.0 }, 10.0, { onEnterEvent = 'z:in' })
+    local realTrigger = TriggerEvent
+    TriggerEvent = function(name, id, src, ...)
+        realTrigger(name, id, src, ...)
+        if name == 'z:in' and id == first then
+            env.EXPORTS.ServerZoneRemove(second)
+        end
+    end
+    local ok, err = pcall(env.tick)
+    TriggerEvent = realTrigger
+    check(ok, ('zones: a handler that removes a zone mid-pass does not abort it (%s)'):format(tostring(err)))
+    check(env.count('z:in', 1, first) == 1 and env.count('z:in', 2, first) == 1,
+        'zones: and every player still gets the enter for the zone that is left')
     env.reset()
 end
 

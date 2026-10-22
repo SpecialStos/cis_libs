@@ -229,9 +229,29 @@ end
 -- A fixed window, not a sliding one, and not a token bucket.
 local RATE_BUCKET_CAP = 256
 
+-- Buckets whose window has passed hold nothing a fresh bucket would not, so
+-- they are dropped to make room. Answers how many were dropped.
+local function evictExpired(src, perSrc, now)
+    local dropped = 0
+    for key, bucket in pairs(perSrc) do
+        if now - bucket.started >= bucket.windowMs then
+            perSrc[key] = nil
+            dropped = dropped + 1
+        end
+    end
+    rateCounts[src] = (rateCounts[src] or 0) - dropped
+    return dropped
+end
+
+-- Answers allowed, and 'cap' when a NEW name was refused only because this src
+-- holds RATE_BUCKET_CAP live buckets: that is the limiter's own bound, not the
+-- player flooding the event, and is never escalated as one.
 local function rateOk(src, name, windowMs, maxHits)
     windowMs = windowMs or 1000
     maxHits = maxHits or 8
+    -- ONE KEY PER PLAYER. GetPlayers() hands out ids as strings, and a string
+    -- src got buckets that playerDropped (which clears the number) never freed.
+    src = tonumber(src) or src
     local now = GetGameTimer()
     local perSrc = rates[src]
     if not perSrc then
@@ -243,15 +263,21 @@ local function rateOk(src, name, windowMs, maxHits)
         -- The cap is checked only when a NEW name appears, and only a new name is
         -- COUNTED: the count is how many buckets this src holds, not how many
         -- windows have rolled, or a long session runs into the cap by playing.
+        -- Buckets never expired, so a consumer using dynamic names filled the cap
+        -- and every new name was refused for the session; expired ones go first.
+        if (rateCounts[src] or 0) >= RATE_BUCKET_CAP then
+            evictExpired(src, perSrc, now)
+        end
         if (rateCounts[src] or 0) >= RATE_BUCKET_CAP then
             -- Refuse rather than allocate.
             CisDiagnostics.Inc(CisDiagnostics.NAMES.RATE_LIMITED)
-            return false
+            return false, 'cap'
         end
-        perSrc[name] = { started = now, hits = 1 }
+        perSrc[name] = { started = now, hits = 1, windowMs = windowMs }
         rateCounts[src] = (rateCounts[src] or 0) + 1
         return true
     end
+    bucket.windowMs = windowMs
     if now - bucket.started >= windowMs then
         -- The window rolled: the SAME table, refilled. No allocation, no count.
         bucket.started = now
@@ -275,7 +301,7 @@ end
 --- @param src number
 --- @return number
 function CisRateBucketCount(src)
-    return rateCounts[src] or 0
+    return rateCounts[tonumber(src) or src] or 0
 end
 
 -- A FLOOD IS REPORTED BY ITS SHAPE, not by its seconds. One line when it starts
@@ -348,11 +374,15 @@ local function warnRateLimited(src, name)
     end
 end
 
+-- src -> name -> true once a bad payload of that event has been reported.
+local schemaReported = {}
+
 -- A player who drops takes their rate buckets, their bucket COUNT and their warning
 AddEventHandler('playerDropped', function()
     rates[source] = nil
     rateCounts[source] = nil
     rateWarned[source] = nil
+    schemaReported[source] = nil
 end)
 
 -- `fn` may be a function OR a `'resource:export'` reference string.
@@ -428,9 +458,14 @@ local function dispatch(name, ...)
     local target = live.handler
     local exportsTable = live.self
     if live.exportName then
-        exportsTable = exports[live.resource]
-        target = exportsTable and exportsTable[live.exportName]
-        if not CisCallable(target) then
+        -- UNDER pcall: indexing a stopped resource's exports, or a name it does
+        -- not export, RAISES in FiveM rather than answering nil.
+        local found, et, fn = pcall(function()
+            local t = exports[live.resource]
+            return t, t and t[live.exportName]
+        end)
+        exportsTable, target = et, fn
+        if not found or not CisCallable(target) then
             -- The owning resource is gone, or has not finished restarting.
             return
         end
@@ -438,19 +473,35 @@ local function dispatch(name, ...)
     if not CisCallable(target) then
         return
     end
+    -- THE RATE LIMIT FIRST. Checked after the schema, every malformed event in a
+    -- flood was a security report: a console line and a provider call each.
+    local allowed, capped = rateOk(src, name, live.opts.windowMs, live.opts.maxHits)
+    if not allowed then
+        -- ONE WARNING PER (src, name) PER FLOOD, with the number dropped. A
+        -- refusal at the bucket cap is not this event flooding, and kicking a
+        -- player for the limiter's own bound was the old outcome.
+        if capped ~= 'cap' then
+            warnRateLimited(src, name)
+        end
+        return
+    end
     if live.opts.schema ~= nil then
         local payload = ...
         local schemaOk, schemaWhy = checkNetSchema(live.opts.schema, payload)
         if not schemaOk then
             CisDiagnostics.Inc(CisDiagnostics.NAMES.NET_SCHEMA_REFUSED)
-            CisSecurityReport(src, ('bad net payload %s: %s'):format(tostring(name), tostring(schemaWhy)))
+            -- ONE REPORT per player and event; the rest are counted only.
+            local perSrc = schemaReported[src]
+            if not perSrc then
+                perSrc = {}
+                schemaReported[src] = perSrc
+            end
+            if not perSrc[name] then
+                perSrc[name] = true
+                CisSecurityReport(src, ('bad net payload %s: %s'):format(tostring(name), tostring(schemaWhy)))
+            end
             return
         end
-    end
-    if not rateOk(src, name, live.opts.windowMs, live.opts.maxHits) then
-        -- ONE WARNING PER (src, name) PER FLOOD, with the number dropped.
-        warnRateLimited(src, name)
-        return
     end
     -- xpcall, not pcall: the trap runs BEFORE the stack unwinds, so the logged
     -- file, line and trace are the handler's, not this dispatcher's.
@@ -469,9 +520,18 @@ end
 function CisNetOn(name, fn, opts)
     opts = opts or {}
 
+    -- THE OWNER IS THE CALLER, never the reference string. Parsed from
+    -- 'bank:anyExport', any resource could pass the owner check below and replace
+    -- bank's binding, schema and rate limit with its own.
+    local owner = GetInvokingResource() or 'cis_libs'
     local resource, exportName, self, handler
     if type(fn) == 'string' then
         resource, exportName = fn:match('^([^:]+):(.+)$')
+        if resource and resource ~= owner and owner ~= GetCurrentResourceName() then
+            Logging.Warn(('cis_libs: %s tried to bind net event %q to %s, which is not its own export; refused')
+                :format(tostring(owner), tostring(name), tostring(fn)))
+            return false
+        end
         if resource and exportName then
             -- pcall BECAUSE LOOKING UP A MISSING EXPORT RAISES.
             local ok, fetched = pcall(function()
@@ -490,7 +550,7 @@ function CisNetOn(name, fn, opts)
         -- A function, or a function ANOTHER resource passed through the export,
         -- which arrives as a callable reference table. Owned by the invoker either
         -- way, and released with it on onResourceStop below.
-        resource = GetInvokingResource() or 'cis_libs'
+        resource = owner
         handler = fn
     end
 
@@ -511,7 +571,7 @@ function CisNetOn(name, fn, opts)
     local binding = netBindings[name]
     if binding then
         -- Same owner, re-registering: exactly what a `onResourceStart` handler after a
-        if binding.owner == resource then
+        if binding.owner == owner then
             binding.self = self
             binding.handler = handler
             binding.opts = opts
@@ -520,12 +580,12 @@ function CisNetOn(name, fn, opts)
             return true
         end
         Logging.Warn(('cis_libs: net event %q is already bound by %s; %s was refused')
-            :format(tostring(name), tostring(binding.owner), tostring(resource)))
+            :format(tostring(name), tostring(binding.owner), tostring(owner)))
         return false
     end
 
     netBindings[name] = {
-        owner = resource, resource = resource, exportName = exportName,
+        owner = owner, resource = resource, exportName = exportName,
         self = self, handler = handler, opts = opts,
     }
 

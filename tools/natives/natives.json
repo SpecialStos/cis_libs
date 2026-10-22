@@ -6,11 +6,11 @@
   },
   "counts": {
     "shippedFiles": 71,
-    "nativesUsed": 247,
+    "nativesUsed": 248,
     "byRealm": {
       "client": 166,
       "server": 6,
-      "shared": 75
+      "shared": 76
     },
     "unresolvedPascalCaseGlobals": 86
   },
@@ -1524,6 +1524,22 @@
         "client/cache.lua",
         "init.lua",
         "shared/statebag.lua"
+      ]
+    },
+    "GetRegisteredCommands": {
+      "realm": "shared",
+      "evidence": [
+        "shared"
+      ],
+      "sources": [
+        "cfx"
+      ],
+      "namespaces": [],
+      "usedIn": [
+        "server"
+      ],
+      "files": [
+        "server/command.lua"
       ]
     },
     "GetResourceByFindIndex": {

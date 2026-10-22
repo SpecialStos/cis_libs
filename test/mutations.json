@@ -2549,6 +2549,195 @@
       "find": "    if owner == co then\n        local chain = {}",
       "replace": "    if owner ~= nil then\n        local chain = {}",
       "why": "Key the require guard on the module only. A second thread waiting on a load is told circular dependency X -> X."
+    },
+    {
+      "id": "M371",
+      "file": "server/command.lua",
+      "find": "    return type(restricted) == 'string' and restricted:match('^group%.[%w_%-]+$') ~= nil",
+      "replace": "    return type(restricted) == 'string'",
+      "why": "Lend cis_libs' add_ace right to any principal. CommandAdd with restricted = 'builtin.everyone' opens the command to every player."
+    },
+    {
+      "id": "M372",
+      "file": "server/command.lua",
+      "find": "        local holder = existingHolder(name)\n        if holder then",
+      "replace": "        local holder = nil\n        if holder then",
+      "why": "Register over a name the server already knows. A resource takes over add_principal or another resource's setjob and has cis_libs grant its ACE."
+    },
+    {
+      "id": "M373",
+      "file": "server/command.lua",
+      "find": "    local want = name:lower()",
+      "replace": "    local want = name",
+      "why": "Compare command names with case. SetJob slips past the check for setjob."
+    },
+    {
+      "id": "M374",
+      "file": "server/command.lua",
+      "find": "        if registeredRestricted[name] ~= (restricted and true or false) then",
+      "replace": "        if false then",
+      "why": "Accept a re-add that changes the restriction. An unrestricted re-add stays ACE-gated by the platform, or a restricted one is not."
+    },
+    {
+      "id": "M375",
+      "file": "server/command.lua",
+      "find": "        if type(parsed[1]) == 'string' and parsed[1]:lower() == name:lower() then",
+      "replace": "        if parsed[1] == name then",
+      "why": "Strip the command name with case. /GIVE 5 bread passes GIVE as the first argument."
+    },
+    {
+      "id": "M376",
+      "file": "server/command.lua",
+      "find": "        elseif c == 34 or (c == 39 and singleQuotes and not open) then -- \" or a leading '",
+      "replace": "        elseif c == 34 or c == 39 then -- \" or a leading '",
+      "why": "Open a quote at every apostrophe. me I'm sure it's fine becomes Im sure its|fine."
+    },
+    {
+      "id": "M377",
+      "file": "server/command.lua",
+      "find": "    if unclosed == 39 then\n        args = parseLine(raw, false)\n    end",
+      "replace": "    if false then\n        args = parseLine(raw, false)\n    end",
+      "why": "Let an unclosed single quote swallow the rest of the line as one argument."
+    },
+    {
+      "id": "M378",
+      "file": "server/zones.lua",
+      "find": "            local zone = zones[entered[i]]\n            if zone then\n                enter(zone, passSrc)\n            end",
+      "replace": "            enter(zones[entered[i]], passSrc)",
+      "why": "Enter a zone an earlier handler removed. The pass raises and every player after this one misses it."
+    },
+    {
+      "id": "M379",
+      "file": "server/security.lua",
+      "find": "        if resource and resource ~= owner and owner ~= GetCurrentResourceName() then",
+      "replace": "        if false then",
+      "why": "Let a resource bind another resource's export. Any resource replaces bank's binding, schema and limit by naming bank:anyExport."
+    },
+    {
+      "id": "M380",
+      "file": "server/security.lua",
+      "find": "        if binding.owner == owner then\n            binding.self = self",
+      "replace": "        if binding.owner == resource then\n            binding.self = self",
+      "why": "Take the binding owner from the reference string again. The hijack is accepted as a same-owner re-registration."
+    },
+    {
+      "id": "M381",
+      "file": "server/security.lua",
+      "find": "            if not perSrc[name] then\n                perSrc[name] = true\n                CisSecurityReport(src, ('bad net payload %s: %s')",
+      "replace": "            if true then\n                perSrc[name] = true\n                CisSecurityReport(src, ('bad net payload %s: %s')",
+      "why": "Report every bad payload. A flood of malformed events is a console line and a provider call each."
+    },
+    {
+      "id": "M382",
+      "file": "server/security.lua",
+      "find": "    schemaReported[source] = nil\n",
+      "replace": "",
+      "why": "Keep the bad-payload ledger after a drop. A reconnecting player is never reported again."
+    },
+    {
+      "id": "M383",
+      "file": "server/security.lua",
+      "find": "        if (rateCounts[src] or 0) >= RATE_BUCKET_CAP then\n            evictExpired(src, perSrc, now)\n        end",
+      "replace": "",
+      "why": "Never evict expired buckets. Dynamic names fill the cap and every new name is refused for the session."
+    },
+    {
+      "id": "M384",
+      "file": "server/security.lua",
+      "find": "        if capped ~= 'cap' then\n            warnRateLimited(src, name)\n        end",
+      "replace": "        warnRateLimited(src, name)",
+      "why": "Escalate refusals at the bucket cap like a flood. A legitimate player is reported and kicked for the limiter's own bound."
+    },
+    {
+      "id": "M385",
+      "file": "server/security.lua",
+      "find": "    src = tonumber(src) or src\n    local now = GetGameTimer()",
+      "replace": "    local now = GetGameTimer()",
+      "why": "Key a string src apart from its number. Buckets made with a GetPlayers() id are never freed on drop."
+    },
+    {
+      "id": "M386",
+      "file": "server/callback.lua",
+      "find": "        local found, target, got = pcall(function()\n            local t = exports[entry.resource]\n            return t, t and t[entry.export]\n        end)",
+      "replace": "        local found, target, got = true, exports[entry.resource], exports[entry.resource][entry.export]",
+      "why": "Look up a callback export outside pcall. A missing export raises past the in-flight release and locks the player out."
+    },
+    {
+      "id": "M387",
+      "file": "server/callback.lua",
+      "find": "    local called, ok, results, trapped = pcall(invoke, name, src, table.unpack(args, 1, args.n))",
+      "replace": "    local called, ok, results, trapped = true, invoke(name, src, table.unpack(args, 1, args.n))",
+      "why": "Run invoke outside pcall. A raise anywhere in it leaks the in-flight slot."
+    },
+    {
+      "id": "M388",
+      "file": "server/callback.lua",
+      "find": "    if slot.n >= limits.maxInFlight then\n        reclaimStuck(slot)\n    end",
+      "replace": "",
+      "why": "Never reclaim a stuck slot. A handler that never resumes holds it for the session."
+    },
+    {
+      "id": "M389",
+      "file": "server/callback.lua",
+      "find": "    if held and held.owner ~= owner and owner ~= GetCurrentResourceName() then",
+      "replace": "    if false then",
+      "why": "Let a second resource take a callback name. It answers the first resource's callback in its place."
+    },
+    {
+      "id": "M390",
+      "file": "client/callback.lua",
+      "find": "        local found, target, fn = pcall(function()\n            local t = exports[remote.resource]\n            return t, t and t[remote.export]\n        end)",
+      "replace": "        local found, target, fn = true, exports[remote.resource], exports[remote.resource][remote.export]",
+      "why": "Look up a client callback export outside pcall. A missing export sends no reply and the server waits out its timeout."
+    },
+    {
+      "id": "M391",
+      "file": "server/sync.lua",
+      "find": "    if window.n > RESPAWN_MAX then",
+      "replace": "    if window.n > RESPAWN_MAX then\n        removeMany({ key })\n        do return end",
+      "why": "Drop a record whose entity is deleted four times in a minute. A client that can delete it removes it for good."
+    },
+    {
+      "id": "M392",
+      "file": "server/sync.lua",
+      "find": "        local delay = window.backoff and math.min(window.backoff * 2, RESPAWN_BACKOFF_MAX_MS) or RESPAWN_BACKOFF_MS",
+      "replace": "        local delay = 0",
+      "why": "Re-create past the budget with no wait. Something deleting the entity on sight is a spawn loop."
+    },
+    {
+      "id": "M393",
+      "file": "server/sync.lua",
+      "find": "        if records[key] == nil and inflight[key] == nil then\n            return id\n        end",
+      "replace": "        do return id end",
+      "why": "Generate an id without looking. An idless upsert replaces an explicit prop_1."
+    },
+    {
+      "id": "M394",
+      "file": "server/sync.lua",
+      "find": "    if type(SetTimeout) == 'function' then\n        pushArmed = true\n        SetTimeout(0, flushPushes)",
+      "replace": "    if false then\n        pushArmed = true\n        SetTimeout(0, flushPushes)",
+      "why": "Flush every push at once. 300 upserts in a loop are 300 events to each player."
+    },
+    {
+      "id": "M395",
+      "file": "server/sync.lua",
+      "find": "                if type(DeleteEntity) == 'function' then\n                    pcall(DeleteEntity, entity)\n                end",
+      "replace": "",
+      "why": "Leave the handle of a spawn that timed out. An entity that turns up later has no record behind it."
+    },
+    {
+      "id": "M396",
+      "file": "server/sync.lua",
+      "find": "    for i = 1, math.min(#keys, MAX_GAVEUP_KEYS) do\n        gaveUp(src, keys[i])\n    end",
+      "replace": "    gaveUp(src, keys[1])",
+      "why": "Honour only the first key of a batched give-up. The server keeps believing the client holds the rest."
+    },
+    {
+      "id": "M397",
+      "file": "client/sync.lua",
+      "find": "        reportGaveUp(id)\n        return",
+      "replace": "        TriggerServerEvent('cis_libs:server:syncGaveUp', id)\n        return",
+      "why": "Send one give-up event per key. Nine bad models exceed the 8-a-second limit and the rest are dropped."
     }
   ]
 }

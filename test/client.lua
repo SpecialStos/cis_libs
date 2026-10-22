@@ -1059,6 +1059,31 @@ do
     env.reset()
 end
 
+-- A MISSING EXPORT IS ANSWERED. FiveM raises on the lookup of an export a
+-- resource does not have, and raised outside pcall no reply was sent: the
+-- server waited out its whole timeout for an answer that was never coming.
+do
+    local env = newEnv({})
+    loadModule('client/callback.lua')
+    local mt = getmetatable(env.EXPORTS)
+    mt.__index = function(_, res)
+        if res == 'ghost' then
+            error('No such export Nope in resource ghost', 2)
+        end
+    end
+    check(env.EXPORTS.RegisterCallback('ghostly', 'ghost:Nope') == true,
+        'a reference to a resource that is not there yet registers')
+    env.serverEvents = {}
+    local ran = pcall(env.net, 'cis_libs:cb', 1, 'ghostly', 41)
+    local r = env.serverEvents[#env.serverEvents]
+    check(ran and r and r.name == 'cis_libs:cb:serverRes' and r.args[1] == 41
+        and r.args[2] == false and r.args[3] == 'error',
+        ('a missing export is answered error at once, not left to time out (ran=%s reply=%s)')
+            :format(tostring(ran), tostring(r and r.args[3])))
+    mt.__index = nil
+    env.reset()
+end
+
 -- A stopped consumer's client callback is released (), so the next request
 -- answers 'unknown' instead of raising against a dead export.
 do
@@ -3217,12 +3242,41 @@ do
         ('4.6b: a missing model is tried once plus four retries, then given up (%d attempts)')
             :format(attempts))
     local told = nil
+    for _ = 1, 3 do env.runThreads() end
     for _, e in ipairs(env.serverEvents) do
-        if e.name == 'cis_libs:server:syncGaveUp' then told = e.args[1] end
+        if e.name == 'cis_libs:server:syncGaveUp' and type(e.args[1]) == 'table' then told = e.args[1][1] end
     end
     check(told == wireKeyOf('absent'),
         ('4.6b: and the server is told, so it stops believing this client holds it (%s)')
             :format(tostring(told)))
+    env.reset()
+end
+
+-- ============================ 4.6d · give-ups go in one event
+--
+-- One event per key ran into the server's 8-a-second limit with nine bad models,
+-- and the server kept believing this client held the rest.
+do
+    local env = syncEnv({})
+    env.modelFails = 100000
+    for i = 1, 20 do
+        env.upsert(wirePayload('absent' .. i, {
+            kind = 'prop', model = 'prop_does_not_exist',
+            coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = false,
+        }))
+    end
+    for _ = 1, 40 do
+        if env.runThreads() == 0 then break end
+    end
+    local events, keys = 0, 0
+    for _, e in ipairs(env.serverEvents) do
+        if e.name == 'cis_libs:server:syncGaveUp' then
+            events = events + 1
+            keys = keys + (type(e.args[1]) == 'table' and #e.args[1] or 0)
+        end
+    end
+    check(events == 1 and keys == 20,
+        ('4.6d: twenty give-ups reach the server as one event (events=%d keys=%d)'):format(events, keys))
     env.reset()
 end
 

@@ -41,9 +41,13 @@ RegisterNetEvent('cis_libs:cb', function(name, key, ...)
         result = table.pack(xpcall(handler, debug.traceback, table.unpack(packed, 1, packed.n)))
     else
         -- Resolved ON CALL, not captured at registration: a restarted resource exports
-        local target = exports[remote.resource]
-        local fn = target and target[remote.export]
-        if not CisCallable(fn) then
+        -- UNDER pcall: a missing export RAISES on lookup, and raised here no reply
+        -- was sent, so the server waited out its timeout.
+        local found, target, fn = pcall(function()
+            local t = exports[remote.resource]
+            return t, t and t[remote.export]
+        end)
+        if not found or not CisCallable(fn) then
             TriggerServerEvent('cis_libs:cb:serverRes', key, false, 'error')
             return
         end
