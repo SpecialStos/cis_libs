@@ -1,9 +1,13 @@
 -- What is in the world, and how far away it is.
 
+-- GET_GAME_POOL's real pool names. `CPoolablePed` and friends do not exist: the
+-- native answers an EMPTY table for a name it does not know, so every query here
+-- found nothing and said so politely.
 local POOLS = {
-    ped = 'CPoolablePed',
-    vehicle = 'CPoolableVehicle',
-    object = 'CPoolableObject',
+    ped = 'CPed',
+    vehicle = 'CVehicle',
+    object = 'CObject',
+    pickup = 'CPickup',
 }
 
 -- Squared distance, because every comparison here is `d < best` and a square root per
@@ -21,7 +25,9 @@ end
 
 -- Run the caller's filter, and count what it did.
 local function passes(filter, entity, coords)
-    if type(filter) ~= 'function' then return true end
+    -- CisCallable: a consumer's filter arrives as a funcref table, and the type check
+    -- silently ignored it -- an unfiltered answer to a filtered question.
+    if not CisCallable(filter) then return true end
     local ok, keep = pcall(filter, entity, coords)
     if not ok then
         if CisDiagnostics and CisDiagnostics.Inc then
@@ -33,8 +39,16 @@ local function passes(filter, entity, coords)
 end
 
 -- THE WALK, shared by closest and nearby.
-local function eachOfKind(kind, coords, maxDistance, filter, wantsAll, out)
+-- `opts.includeSelf`: the local player (or their ped) is a candidate. Off by
+-- default, because the closest player to where you stand is otherwise always you,
+-- at 0 m. `opts.includePlayers`: player peds are candidates in a PED query. Off by
+-- default; a ped query means NPCs.
+local function eachOfKind(kind, coords, maxDistance, filter, wantsAll, out, opts)
     local fns = {}
+    local includeSelf = type(opts) == 'table' and opts.includeSelf == true
+    local includePlayers = type(opts) == 'table' and opts.includePlayers == true
+    local selfIndex = PlayerId()
+    local selfPed = PlayerPedId()
     if kind == 'player' then
         -- Players are not a pool. A client gets the active indices and their peds; a
         local indices
@@ -50,17 +64,28 @@ local function eachOfKind(kind, coords, maxDistance, filter, wantsAll, out)
         end
         for i = 1, #indices do
             local ped = GetPlayerPed(indices[i])
-            if usable(ped) then
+            if usable(ped) and (includeSelf or indices[i] ~= selfIndex) then
                 fns[#fns + 1] = { handle = ped, player = indices[i] }
             end
         end
     else
         local poolName = POOLS[kind]
-        if not poolName then return nil, ('unknown kind %q; valid kinds are object, ped, player and vehicle'):format(tostring(kind)) end
+        if not poolName then return nil, ('unknown kind %q; valid kinds are object, ped, pickup, player and vehicle'):format(tostring(kind)) end
         local pool = GetGamePool(poolName)
+        local isPed = kind == 'ped'
         for i = 1, #pool do
             local handle = pool[i]
-            if usable(handle) then fns[#fns + 1] = { handle = handle } end
+            if usable(handle) then
+                local keep = true
+                if isPed then
+                    if handle == selfPed then
+                        keep = includeSelf
+                    elseif not includePlayers and IsPedAPlayer(handle) then
+                        keep = false
+                    end
+                end
+                if keep then fns[#fns + 1] = { handle = handle } end
+            end
         end
     end
 
@@ -96,11 +121,11 @@ local function checkCoords(coords, fn)
     return true
 end
 
-function CisWorldClosest(kind, coords, maxDistance, filter)
+function CisWorldClosest(kind, coords, maxDistance, filter, opts)
     local ok, why = checkCoords(coords, 'closest' .. kind)
     if not ok then return false, why end
     local out = {}
-    local walked, walkWhy = eachOfKind(kind, coords, maxDistance, filter, false, out)
+    local walked, walkWhy = eachOfKind(kind, coords, maxDistance, filter, false, out, opts)
     if walked == nil then return false, walkWhy end
     if not out.best then
         return false, ('no %s within %s'):format(tostring(kind), tostring(maxDistance or 'any distance'))
@@ -113,42 +138,42 @@ function CisWorldClosest(kind, coords, maxDistance, filter)
 end
 
 -- NEARBY ANSWERS A LIST, ALWAYS, and never nil.
-function CisWorldNearby(kind, coords, maxDistance, filter)
+function CisWorldNearby(kind, coords, maxDistance, filter, opts)
     local ok, why = checkCoords(coords, 'nearby' .. kind)
     if not ok then return false, why end
     local out = {}
-    local walked, walkWhy = eachOfKind(kind, coords, maxDistance, filter, true, out)
+    local walked, walkWhy = eachOfKind(kind, coords, maxDistance, filter, true, out, opts)
     if walked == nil then return false, walkWhy end
     table.sort(out, function(a, b) return a.distance < b.distance end)
     return out
 end
 
 -- CLOSEST IS SINGULAR AND NEARBY IS PLURAL, and the plurality is not decoration:
-exports('ClosestPed', function(coords, maxDistance, filter)
-    return CisWorldClosest('ped', coords, maxDistance, filter)
+exports('ClosestPed', function(coords, maxDistance, filter, opts)
+    return CisWorldClosest('ped', coords, maxDistance, filter, opts)
 end)
-exports('ClosestVehicle', function(coords, maxDistance, filter)
-    return CisWorldClosest('vehicle', coords, maxDistance, filter)
+exports('ClosestVehicle', function(coords, maxDistance, filter, opts)
+    return CisWorldClosest('vehicle', coords, maxDistance, filter, opts)
 end)
-exports('ClosestObject', function(coords, maxDistance, filter)
-    return CisWorldClosest('object', coords, maxDistance, filter)
+exports('ClosestObject', function(coords, maxDistance, filter, opts)
+    return CisWorldClosest('object', coords, maxDistance, filter, opts)
 end)
-exports('NearbyPeds', function(coords, maxDistance, filter)
-    return CisWorldNearby('ped', coords, maxDistance, filter)
+exports('NearbyPeds', function(coords, maxDistance, filter, opts)
+    return CisWorldNearby('ped', coords, maxDistance, filter, opts)
 end)
-exports('NearbyVehicles', function(coords, maxDistance, filter)
-    return CisWorldNearby('vehicle', coords, maxDistance, filter)
+exports('NearbyVehicles', function(coords, maxDistance, filter, opts)
+    return CisWorldNearby('vehicle', coords, maxDistance, filter, opts)
 end)
-exports('NearbyObjects', function(coords, maxDistance, filter)
-    return CisWorldNearby('object', coords, maxDistance, filter)
+exports('NearbyObjects', function(coords, maxDistance, filter, opts)
+    return CisWorldNearby('object', coords, maxDistance, filter, opts)
 end)
 
 -- The player pair, written out rather than in the loop above because their arity
-exports('ClosestPlayer', function(coords, maxDistance, filter)
-    return CisWorldClosest('player', coords, maxDistance, filter)
+exports('ClosestPlayer', function(coords, maxDistance, filter, opts)
+    return CisWorldClosest('player', coords, maxDistance, filter, opts)
 end)
-exports('NearbyPlayers', function(coords, maxDistance, filter)
-    return CisWorldNearby('player', coords, maxDistance, filter)
+exports('NearbyPlayers', function(coords, maxDistance, filter, opts)
+    return CisWorldNearby('player', coords, maxDistance, filter, opts)
 end)
 
 CisDiagnostics.Register('both', 'world', function()

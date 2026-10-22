@@ -258,58 +258,58 @@ return {
         },
         ClosestPed = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Cis.world.closestPed(coords, maxDistance, filter)',
+            use = 'Cis.world.closestPed(coords, maxDistance, filter, opts)',
             realm = 'client',
-            params = { { name = 'coords', type = 'vector3|table', doc = 'the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone' }, { name = 'maxDistance', type = 'number', doc = 'metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"' }, { name = 'filter', type = 'function', doc = '`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all' } },
+            params = { { name = 'coords', type = 'vector3|table', doc = 'the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone' }, { name = 'maxDistance', type = 'number', doc = 'metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"' }, { name = 'filter', type = 'function', doc = '`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all' }, { name = 'opts', type = 'table', doc = '`{ includePlayers = true }` adds the peds of OTHER players and `{ includeSelf = true }` your own. Both off by default: the pool holds player peds too, and a ped query means NPCs' } },
             returns = { { type = 'integer|false, vector3|string|nil', doc = 'the handle and its coords, or false plus a reason. A dead pool entity is never a candidate' } }
         },
         ClosestVehicle = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Cis.world.closestVehicle(coords, maxDistance, filter)',
+            use = 'Cis.world.closestVehicle(coords, maxDistance, filter, opts)',
             realm = 'client',
-            params = { { name = 'coords', type = 'vector3|table', doc = 'the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone' }, { name = 'maxDistance', type = 'number', doc = 'metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"' }, { name = 'filter', type = 'function', doc = '`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all' } },
+            params = { { name = 'coords', type = 'vector3|table', doc = 'the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone' }, { name = 'maxDistance', type = 'number', doc = 'metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"' }, { name = 'filter', type = 'function', doc = '`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all' }, { name = 'opts', type = 'table', doc = 'reserved; accepted and ignored for this kind' } },
             returns = { { type = 'integer|false, vector3|string|nil', doc = 'the handle and its coords, or false plus a reason' } }
         },
         ClosestObject = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Cis.world.closestObject(coords, maxDistance, filter)',
+            use = 'Cis.world.closestObject(coords, maxDistance, filter, opts)',
             realm = 'client',
-            params = { { name = 'coords', type = 'vector3|table', doc = 'the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone' }, { name = 'maxDistance', type = 'number', doc = 'metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"' }, { name = 'filter', type = 'function', doc = '`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all' } },
+            params = { { name = 'coords', type = 'vector3|table', doc = 'the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone' }, { name = 'maxDistance', type = 'number', doc = 'metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"' }, { name = 'filter', type = 'function', doc = '`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all' }, { name = 'opts', type = 'table', doc = 'reserved; accepted and ignored for this kind' } },
             returns = { { type = 'integer|false, vector3|string|nil', doc = 'the handle and its coords, or false plus a reason' } }
         },
         ClosestPlayer = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Cis.world.closestPlayer(coords, maxDistance, filter)',
+            use = 'Cis.world.closestPlayer(coords, maxDistance, filter, opts)',
             realm = 'client',
-            params = { { name = 'coords', type = 'vector3|table', doc = 'the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone' }, { name = 'maxDistance', type = 'number', doc = 'metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"' }, { name = 'filter', type = 'function', doc = '`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all' } },
+            params = { { name = 'coords', type = 'vector3|table', doc = 'the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone' }, { name = 'maxDistance', type = 'number', doc = 'metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"' }, { name = 'filter', type = 'function', doc = '`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all' }, { name = 'opts', type = 'table', doc = '`{ includeSelf = true }` puts the LOCAL player back in. Off by default: the closest player to where you stand is otherwise always you, at 0 m' } },
             returns = { { type = 'integer|false, vector3|string|nil, integer|nil', doc = 'the PLAYER PED and its coords, plus WHICH player in slot 3 -- the arity differs from the other three on purpose, because reading slot 2 as a player id gives a server id' } }
         },
         NearbyObjects = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Cis.world.nearbyObjects(coords, maxDistance, filter)',
+            use = 'Cis.world.nearbyObjects(coords, maxDistance, filter, opts)',
             realm = 'client',
-            params = { { name = 'coords', type = 'vector3|table', doc = 'the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone' }, { name = 'maxDistance', type = 'number', doc = 'metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"' }, { name = 'filter', type = 'function', doc = '`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all' } },
+            params = { { name = 'coords', type = 'vector3|table', doc = 'the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone' }, { name = 'maxDistance', type = 'number', doc = 'metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"' }, { name = 'filter', type = 'function', doc = '`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all' }, { name = 'opts', type = 'table', doc = 'reserved; accepted and ignored for this kind' } },
             returns = { { type = 'CisWorldEntry[]|false, string', doc = 'SORTED by distance so element 1 is the closest, and NEVER nil: nothing in range is an empty list, which is a real answer and not the same as a missing provider' } }
         },
         NearbyPeds = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Cis.world.nearbyPeds(coords, maxDistance, filter)',
+            use = 'Cis.world.nearbyPeds(coords, maxDistance, filter, opts)',
             realm = 'client',
-            params = { { name = 'coords', type = 'vector3|table', doc = 'the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone' }, { name = 'maxDistance', type = 'number', doc = 'metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"' }, { name = 'filter', type = 'function', doc = '`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all' } },
+            params = { { name = 'coords', type = 'vector3|table', doc = 'the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone' }, { name = 'maxDistance', type = 'number', doc = 'metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"' }, { name = 'filter', type = 'function', doc = '`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all' }, { name = 'opts', type = 'table', doc = '`{ includePlayers = true }` adds the peds of OTHER players and `{ includeSelf = true }` your own. Both off by default: the pool holds player peds too, and a ped query means NPCs' } },
             returns = { { type = 'CisWorldEntry[]|false, string', doc = 'sorted by distance, never nil' } }
         },
         NearbyPlayers = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Cis.world.nearbyPlayers(coords, maxDistance, filter)',
+            use = 'Cis.world.nearbyPlayers(coords, maxDistance, filter, opts)',
             realm = 'client',
-            params = { { name = 'coords', type = 'vector3|table', doc = 'the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone' }, { name = 'maxDistance', type = 'number', doc = 'metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"' }, { name = 'filter', type = 'function', doc = '`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all' } },
+            params = { { name = 'coords', type = 'vector3|table', doc = 'the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone' }, { name = 'maxDistance', type = 'number', doc = 'metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"' }, { name = 'filter', type = 'function', doc = '`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all' }, { name = 'opts', type = 'table', doc = '`{ includeSelf = true }` puts the LOCAL player back in. Off by default: the closest player to where you stand is otherwise always you, at 0 m' } },
             returns = { { type = 'CisWorldEntry[]|false, string', doc = 'sorted by distance, never nil. Each entry carries the player id as well' } }
         },
         NearbyVehicles = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Cis.world.nearbyVehicles(coords, maxDistance, filter)',
+            use = 'Cis.world.nearbyVehicles(coords, maxDistance, filter, opts)',
             realm = 'client',
-            params = { { name = 'coords', type = 'vector3|table', doc = 'the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone' }, { name = 'maxDistance', type = 'number', doc = 'metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"' }, { name = 'filter', type = 'function', doc = '`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all' } },
+            params = { { name = 'coords', type = 'vector3|table', doc = 'the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone' }, { name = 'maxDistance', type = 'number', doc = 'metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"' }, { name = 'filter', type = 'function', doc = '`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all' }, { name = 'opts', type = 'table', doc = 'reserved; accepted and ignored for this kind' } },
             returns = { { type = 'CisWorldEntry[]|false, string', doc = 'sorted by distance, never nil' } }
         },
         CreatePoint = {
@@ -337,29 +337,57 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.raycast.camera(flags, ignore, distance, timeoutMs)',
             realm = 'client',
-            params = { { name = 'flags', type = 'number', doc = 'shape-test flags, default -1 (everything)' }, { name = 'ignore', type = 'number', doc = 'entity to ignore, default 0 (the native documents 0, not -1)' }, { name = 'distance', type = 'number', optional = true, doc = 'metres, default 10' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'the BOUND, default 2000. An unbounded poll would leave a caller stuck in Wait with no way out' } },
+            params = { { name = 'flags', type = 'number', doc = 'shape-test flags, default -1 (everything)' }, { name = 'ignore', type = 'number', doc = 'entity to ignore; default the vehicle the player sits in, else the player ped -- a camera ray starts behind the player and would otherwise hit them. Pass 0 to ignore nothing' }, { name = 'distance', type = 'number', optional = true, doc = 'metres, default 10' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'the BOUND, default 2000. An unbounded poll would leave a caller stuck in Wait with no way out' } },
             returns = { { type = 'boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil', doc = 'hit, entityHit, endCoords, surfaceNormal and materialHash. A MISS still carries endCoords and normal: the surface the ray stopped at. nil plus a reason on refusal or timeout' } }
         },
         RaycastFromCoords = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.raycast.fromCoords(origin, target, flags, ignore, timeoutMs)',
             realm = 'client',
-            params = { { name = 'origin', type = 'vector3|table', doc = 'where the ray starts' }, { name = 'target', type = 'vector3|table', doc = 'where it would end' }, { name = 'flags', type = 'number', optional = true, doc = 'shape-test flags, default -1' }, { name = 'ignore', type = 'number', optional = true, doc = 'entity to ignore, default -1' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'the bound, default 2000' } },
+            params = { { name = 'origin', type = 'vector3|table', doc = 'where the ray starts' }, { name = 'target', type = 'vector3|table', doc = 'where it would end' }, { name = 'flags', type = 'number', optional = true, doc = 'shape-test flags, default -1' }, { name = 'ignore', type = 'number', optional = true, doc = 'entity to ignore; default the vehicle the player sits in, else the player ped -- a camera ray starts behind the player and would otherwise hit them. Pass 0 to ignore nothing' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'the bound, default 2000' } },
             returns = { { type = 'boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil', doc = 'the same five slots as RaycastCamera, so a caller does not have to know which of the two it called' } }
         },
         KeybindAdd = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.keybind.add({ name, description, defaultKey, onPress, onRelease })',
             realm = 'client',
-            params = { { name = 'options', type = 'CisKeybindOptions', doc = 'name is REQUIRED and validated; onPress and onRelease are FUNCTIONS and are dropped across the exports boundary, so a consumer binding does nothing until that is understood' } },
-            returns = { { type = 'table|false, string|nil', doc = 'a handle with disable(bool), isPressed() and reset(), or false plus a reason. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so renaming a binding creates a SECOND one rather than renaming the first' } }
+            params = { { name = 'options', type = 'CisKeybindOptions', doc = 'name is REQUIRED and validated, and refused while another resource holds it; onPress and onRelease are functions, which reach cis_libs as funcrefs and are called there. A stopped owner takes its bindings with it' } },
+            returns = { { type = 'table|false, string|nil', doc = 'a handle with id, name and owner, or false plus a reason. Its methods (disable, isPressed, reset, destroy) work only inside cis_libs -- across exports the metatable is lost, so keep handle.id and use KeybindDisable, KeybindEnable, KeybindIsPressed and KeybindRemove. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so renaming a binding creates a SECOND one rather than renaming the first' } }
         },
         Keybinds = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'no proxy equivalent; every binding this library registered',
             realm = 'client',
             params = {  },
-            returns = { { type = 'table[]', doc = 'the live handles, so a consumer can disable its own rather than guessing at ids' } }
+            returns = { { type = 'table[]', doc = 'snapshots { id, name, owner, command, enabled, pressed } sorted by id -- never the live handles and never anyone\'s callbacks' } }
+        },
+        KeybindDisable = {
+            since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'no proxy equivalent; the id-based form of handle:disable(state)',
+            realm = 'client',
+            params = { { name = 'id', type = 'integer', doc = 'handle.id from KeybindAdd' }, { name = 'state', type = 'boolean', doc = 'true or nil disables, false enables' } },
+            returns = { { type = 'boolean, string|nil', doc = 'false plus a reason for an unknown id or a binding owned by another resource' } }
+        },
+        KeybindEnable = {
+            since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'no proxy equivalent; KeybindDisable(id, false)',
+            realm = 'client',
+            params = { { name = 'id', type = 'integer', doc = 'handle.id from KeybindAdd' } },
+            returns = { { type = 'boolean, string|nil', doc = 'false plus a reason for an unknown id or a binding owned by another resource' } }
+        },
+        KeybindRemove = {
+            since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'no proxy equivalent; the id-based form of handle:destroy()',
+            realm = 'client',
+            params = { { name = 'id', type = 'integer', doc = 'handle.id from KeybindAdd' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true once the binding is inert and its name is free. The +name/-name commands cannot be unregistered, so they stay and do nothing' } }
+        },
+        KeybindIsPressed = {
+            since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'no proxy equivalent; the id-based form of handle:isPressed()',
+            realm = 'client',
+            params = { { name = 'id', type = 'integer', doc = 'handle.id from KeybindAdd' } },
+            returns = { { type = 'boolean', doc = 'false for an unknown or removed id' } }
         },
         UiNotify = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -798,7 +826,7 @@ return {
             use = 'Cis.zones.remove(name)',
             realm = 'client',
             params = { { name = 'name', type = 'string', doc = 'the name. Removing a zone twice, or one that never existed, is a no-op and not an error' } },
-            returns = { { type = 'boolean', doc = "false when no zone holds that name, true once removed. A player still inside gets its onExit fired first, with the PLAYER's coordinates rather than the zone centre" } },
+            returns = { { type = 'boolean, string|nil', doc = "false when no zone holds that name, true once removed; false plus a reason when another resource owns it (only the owner, or cis_libs, may remove a zone). A player still inside gets its onExit fired first, with the PLAYER's coordinates rather than the zone centre" } },
         },
         ZoneContains = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -835,14 +863,14 @@ return {
             use = 'Cis.target.remove(name, isPed)',
             realm = 'client',
             params = { { name = 'name', type = 'string', doc = 'the name; a miss is refused with the name in the reason' }, { name = 'isPed', type = 'boolean', optional = true, doc = 'asserts the target was created for a LOCAL entity. Its ABSENCE is how a box or sphere target removes' } },
-            returns = { { type = 'boolean, string', doc = 'true on success; every refusal is false plus a reason' } },
+            returns = { { type = 'boolean, string', doc = 'true on success; every refusal is false plus a reason, including a target owned by another resource (only the owner, or cis_libs, may remove it)' } },
         },
         UpdateTarget = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.target.update(name, options)',
             realm = 'client',
             params = { { name = 'name', type = 'string', doc = 'the name; a name that is not live is refused' }, { name = 'newOptions', type = 'table', optional = true, doc = 'the new options, passed straight to a create -- update is a remove and re-create, not a patch on the provider' } },
-            returns = { { type = 'boolean, string', doc = 'false with NO reason for an unknown name; otherwise whatever the implicit create returned' } },
+            returns = { { type = 'boolean, string', doc = 'false with NO reason for an unknown name; false plus a reason when another resource owns it; otherwise whatever the implicit create returned' } },
         },
         TargetExists = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -984,10 +1012,17 @@ return {
         },
         OnPlayerCache = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Cis.player.on(key, cb). The cb cannot cross the boundary; use a net event',
+            use = 'Cis.player.on(key, cb); stop it with RemovePlayerCacheListener(id)',
             realm = 'client',
-            params = { { name = 'key', type = 'string', doc = 'a listener key: ped, vehicle, seat, weapon, armed or aiming. NEVER type-checked here, and the same file lists the keys' }, { name = 'cb', type = 'function', doc = 'a non-function returns immediately with no subscription at all' } },
-            returns = { { type = 'function|nil', doc = 'the unsubscribe closure, in-realm only. A LISTENER ARGUMENT IS DROPPED across the boundary -- the teardown arrives and the listener never fires -- so gate on your own flag and drop it in onResourceStop' } },
+            params = { { name = 'key', type = 'string', doc = 'one of aiming, armed, heading, ped, seat, shooting, vehicle, weapon. Anything else is refused with a reason. Coordinates are not a key: Cis.player.coords() is memoised per frame' }, { name = 'cb', type = 'function', doc = '`fun(current, previous)`, called under pcall on every change. A consumer function arrives as a funcref and is accepted; a stopped owner takes its listeners with it' } },
+            returns = { { type = 'function|nil, integer|string', doc = 'the in-realm unsubscribe and the listener id, or nil plus a reason. The unsubscribe cannot be called from another resource; feed the id to RemovePlayerCacheListener. Vehicle and seat are both updated before either listener runs' } },
+        },
+        RemovePlayerCacheListener = {
+            since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'no proxy equivalent; the id OnPlayerCache returns as its second value',
+            realm = 'client',
+            params = { { name = 'id', type = 'integer', doc = 'the id OnPlayerCache returned in slot two' } },
+            returns = { { type = 'boolean, string|nil', doc = 'false plus a reason for an unknown id or a listener owned by another resource' } },
         },
         WatchNear = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -1137,14 +1172,14 @@ return {
             use = 'Cis.points.remove(id)',
             realm = 'client',
             params = { { name = 'id', type = 'integer', doc = 'the id CreatePoint returned' } },
-            returns = { { type = 'boolean', doc = 'false when no point holds that id, which is a no-op and not an error. A point the player was inside fires onExit first, with the PLAYER coordinates and not the point coordinates' } }
+            returns = { { type = 'boolean, string|nil', doc = 'false when no point holds that id, which is a no-op and not an error; false plus a reason when the point belongs to another resource (only the owner, or cis_libs, may remove it). A point the player was inside fires onExit first, with the PLAYER coordinates and not the point coordinates' } }
         },
         AudioBank = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.streaming.audioBank(name, timeout)',
             realm = 'client',
             params = { { name = 'name', type = 'string', doc = 'the bank name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000' } },
-            returns = { { type = 'string|nil, string|nil', doc = 'the name once the engine has ACCEPTED the bank. RequestScriptAudioBank answers a BOOL and no HasScriptAudioBankLoaded is verified to exist, so this is acceptance and not residency, and it never waits' } }
+            returns = { { type = 'string|nil, string|nil', doc = 'the name once RequestScriptAudioBank answers true. The native is its own poll -- false while the bank loads -- so it is called again until true or the timeout, and a timed-out bank is released by name' } }
         },
         Ptfx = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -1395,7 +1430,7 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'no proxy equivalent',
             realm = 'client',
-            params = { { name = 'x1', type = 'number', doc = 'first point X' }, { name = 'y1', type = 'number', doc = 'first point Y' }, { name = 'z1', type = 'number', doc = 'first point Z' }, { name = 'x2', type = 'number', doc = 'second point X' }, { name = 'y2', type = 'number', doc = 'second point Y' }, { name = 'z2', type = 'number', doc = 'second point Z' } },
+            params = { { name = 'x1', type = 'number', doc = 'first point X' }, { name = 'y1', type = 'number', doc = 'first point Y' }, { name = 'z1', type = 'number', doc = 'first point Z' }, { name = 'x2', type = 'number', doc = 'second point X' }, { name = 'y2', type = 'number', doc = 'second point Y' }, { name = 'z2', type = 'number', doc = 'second point Z' }, { name = 'useZ', type = 'boolean', optional = true, doc = 'false measures on the ground plane, as the native does; omitted is 3D. The Lua global is CisGetDistanceBetweenCoords -- the native keeps its own name' } },
             returns = { { type = 'number', doc = 'the straight-line distance between the two points' } },
         },
         DrawText3D = {
@@ -1407,9 +1442,9 @@ return {
         },
         CreatePed = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'no proxy equivalent; returns 0 on an invalid or unloaded model',
+            use = 'no proxy equivalent; returns 0 on an invalid or unloaded model. The Lua global is CisCreatePed -- the CreatePed native keeps its own name',
             realm = 'client',
-            params = { { name = 'model', type = 'integer|string', doc = 'a hash or a model name; a number passes through, anything else goes through joaat' }, { name = 'coords', type = 'vector3|table', doc = 'the placement, read as .x/.y/.z and unguarded' }, { name = 'heading', type = 'number', optional = true, doc = 'the heading, default 0.0' }, { name = 'options', type = 'table', optional = true, doc = 'the options table, defaulted to {}' } },
+            params = { { name = 'model', type = 'integer|string', doc = 'a hash or a model name; a number passes through, anything else goes through joaat' }, { name = 'coords', type = 'vector3|table', doc = 'the placement, read as .x/.y/.z; nil or a table with no numeric x/y/z answers 0 before any model is requested' }, { name = 'heading', type = 'number', optional = true, doc = 'the heading, default 0.0' }, { name = 'options', type = 'table', optional = true, doc = 'the options table, defaulted to {}' } },
             returns = { { type = 'integer', doc = 'the ped handle, or 0 when the model failed to load -- 0 and not nil, so callers test one shape' } },
         },
         DebugLog = {
@@ -1428,7 +1463,7 @@ return {
         },
         GetClosestVehicle = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'no proxy equivalent; a 5 unit forward ray, then a 5 unit radius search',
+            use = 'no proxy equivalent; a 5 unit forward ray, then the nearest vehicle in the CVehicle pool within 5 units. The Lua global is CisGetClosestVehicle; the native GetClosestVehicle is left alone',
             realm = 'client',
             params = {},
             returns = { { type = 'integer', doc = 'the aimed-at vehicle within 5m, else the nearest within 5m, else 0 -- and 0, not nil' } },
@@ -1442,10 +1477,10 @@ return {
         },
         SetVehicleProperties = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'no proxy equivalent; diffs against the last applied snapshot',
+            use = 'no proxy equivalent; applies every field present, every time (there is no diff)',
             realm = 'client',
-            params = { { name = 'vehicle', type = 'integer', doc = 'the entity handle; a non-existent entity refuses' }, { name = 'props', type = 'table', doc = 'a PARTIAL table is safe -- absent keys are left alone rather than zeroed, which is the opposite of most setters and worth knowing' }, { name = 'fixVehicle', type = 'boolean', optional = true, doc = 'truthy calls SetVehicleFixed after the apply' } },
-            returns = { { type = 'boolean', doc = 'false on a dead entity or a non-table props; otherwise whether this client is allowed to modify the vehicle at all -- non-networked or locally owned' } },
+            params = { { name = 'vehicle', type = 'integer', doc = 'the entity handle; a non-existent entity refuses' }, { name = 'props', type = 'table', doc = 'a PARTIAL table is safe -- absent keys are left alone rather than zeroed, which is the opposite of most setters and worth knowing' }, { name = 'fixVehicle', type = 'boolean', optional = true, doc = 'truthy calls SetVehicleFixed FIRST, so saved damage in props survives the repair' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true once applied; false plus a reason on a dead entity, a non-table props, or a networked vehicle this client does not control -- control is requested and NOTHING is written, so retry' } },
         },
         GetPlayerVehicleSeat = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -1734,8 +1769,8 @@ return {
         since = '1.0.0',
         realm = 'client',
         forwardsTo = 'OnPlayerCache',
-        params = { { name = 'key', type = 'string', doc = 'a cache key: ped, vehicle, seat, weapon, armed or aiming. mount is RedM-only and is not a key here -- this game is gta5' }, { name = 'cb', type = 'function', doc = "the listener, called pcall'd under the library's loop guard" } },
-        returns = { { type = 'function|nil', doc = 'the unsubscribe, which DOES cross as a callable reference. The LISTENER does not: a function argument is dropped, so from a consumer this call delivers a teardown and a listener that never fires. Gate the listener on your own flag and drop it in onResourceStop' } },
+        params = { { name = 'key', type = 'string', doc = 'a cache key: aiming, armed, heading, ped, seat, shooting, vehicle or weapon. mount is RedM-only and is not a key here -- this game is gta5' }, { name = 'cb', type = 'function', doc = "the listener, `fun(current, previous)`, called pcall'd on every change; it arrives in cis_libs as a funcref" } },
+        returns = { { type = 'function|nil, integer|string', doc = 'slot one is the in-realm unsubscribe and does not survive the boundary; slot two is the id for RemovePlayerCacheListener. Nil plus a reason for an unknown key or a non-callable listener' } },
     },
     ['Cis.player.ped'] = {
         since = '1.0.0',
@@ -1979,7 +2014,7 @@ return {
         realm = 'client',
         forwardsTo = 'UpdateTarget',
         params = { { name = 'name', type = 'string', doc = 'the target name' }, { name = 'options', type = 'CisTargetOptions', optional = true, doc = 'the new options' } },
-        returns = { { type = 'boolean, string', doc = 'false with NO reason for an unknown name; otherwise whatever the implicit create returned' } },
+        returns = { { type = 'boolean, string', doc = 'false with NO reason for an unknown name; false plus a reason when another resource owns it; otherwise whatever the implicit create returned' } },
     },
     ['Cis.waitFor'] = {
         since = '1.0.0',
@@ -1991,22 +2026,22 @@ return {
         since = '1.0.0',
         realm = 'client',
         forwardsTo = 'RaycastCamera',
-        params = { { name = 'flags', type = 'number', optional = true, doc = 'shape-test flags, default -1' }, { name = 'ignore', type = 'number', optional = true, doc = 'entity to ignore, default 0 (the native documents 0, not -1)' }, { name = 'distance', type = 'number', optional = true, doc = 'metres, default 10' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'the bound, default 2000' } },
+        params = { { name = 'flags', type = 'number', optional = true, doc = 'shape-test flags, default -1' }, { name = 'ignore', type = 'number', optional = true, doc = 'entity to ignore; default the vehicle the player sits in, else the player ped -- a camera ray starts behind the player and would otherwise hit them' }, { name = 'distance', type = 'number', optional = true, doc = 'metres, default 10' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'the bound, default 2000' } },
         returns = { { type = 'boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil', doc = 'hit, entityHit, endCoords, surfaceNormal, materialHash. Probed from the CAMERA, not the ped: "forward" means where the player is LOOKING, and probing from the ped works until they look up and then hits their feet' } },
     },
     ['Cis.raycast.fromCoords'] = {
         since = '1.0.0',
         realm = 'client',
         forwardsTo = 'RaycastFromCoords',
-        params = { { name = 'origin', type = 'vector3|table', doc = 'where it starts' }, { name = 'target', type = 'vector3|table', doc = 'where it would end' }, { name = 'flags', type = 'number', optional = true, doc = 'default -1' }, { name = 'ignore', type = 'number', optional = true, doc = 'default 0' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'default 2000' } },
+        params = { { name = 'origin', type = 'vector3|table', doc = 'where it starts' }, { name = 'target', type = 'vector3|table', doc = 'where it would end' }, { name = 'flags', type = 'number', optional = true, doc = 'default -1' }, { name = 'ignore', type = 'number', optional = true, doc = 'default the player vehicle, else the player ped' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'default 2000' } },
         returns = { { type = 'boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil', doc = 'the same five slots as camera, so a caller does not have to know which it called' } },
     },
     ['Cis.keybind.add'] = {
         since = '1.0.0',
         realm = 'client',
         forwardsTo = 'KeybindAdd',
-        params = { { name = 'options', type = 'CisKeybindOptions', doc = 'name REQUIRED; onPress and onRelease are FUNCTIONS and are dropped across the boundary' } },
-        returns = { { type = 'table|false, string|nil', doc = 'a handle with disable, isPressed and reset. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so a renamed binding is a second binding and the first still shows in the menu' } },
+        params = { { name = 'options', type = 'CisKeybindOptions', doc = 'name REQUIRED; onPress and onRelease are functions and arrive in cis_libs as funcrefs' } },
+        returns = { { type = 'table|false, string|nil', doc = 'a handle whose id feeds KeybindDisable, KeybindEnable, KeybindIsPressed and KeybindRemove -- its methods do not survive the boundary. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so a renamed binding is a second binding and the first still shows in the menu' } },
     },
     ['Cis.ui.notify'] = {
         since = '1.0.0',
@@ -2195,7 +2230,7 @@ return {
         realm = 'client',
         forwardsTo = 'RemoveZone',
         params = { { name = 'name', type = 'string', doc = 'the zone name. Removing a zone twice, or one that never existed, is a no-op and not an error' } },
-        returns = { { type = 'boolean', doc = "false when no zone holds that name, true once removed. A player still inside gets its onExit fired first, with the PLAYER's coordinates and not the zone centre" } },
+        returns = { { type = 'boolean, string|nil', doc = "false when no zone holds that name, true once removed; false plus a reason when another resource owns it. A player still inside gets its onExit fired first, with the PLAYER's coordinates and not the zone centre" } },
     },
     ['Cis.zones.sphere'] = {
         since = '1.0.0',
@@ -2232,7 +2267,7 @@ return {
     },
     CisPointOptions = {
         doc = 'The table Cis.points.add takes. coords and distance are REQUIRED and are refused by name when absent -- a defaulted radius is a specific number nobody asked for, and a defaulted coordinate is a point at the world origin that fires for a player who spawned there. Every other field is optional. THE FUNCTION FIELDS ARE DROPPED ACROSS THE EXPORTS BOUNDARY: a consumer passing onEnter gets nil and the point is silently inert, and the event-name twins are strings and do cross.',
-        fields = { { name = 'coords', type = 'vector3|vector4|table', optional = false, doc = 'the centre' }, { name = 'distance', type = 'number', optional = false, doc = 'the enter radius in metres. Must be finite and greater than zero; NaN and infinity are both refused by name, because NaN makes every containment test false and infinity has no cell to index' }, { name = 'onEnter', type = 'fun(coords: vector3)', optional = true, doc = 'called under pcall on arrival' }, { name = 'onExit', type = 'fun(coords: vector3)', optional = true, doc = 'called under pcall on departure and on removal' }, { name = 'nearby', type = 'fun(coords: vector3)', optional = true, doc = 'called under pcall every nearbyInterval while the player is inside, and ONLY inside' }, { name = 'nearbyInterval', type = 'integer', optional = true, doc = 'ms between nearby calls, default 200. Zero is allowed: a local function asking for every pass is legitimate' }, { name = 'onEnterEvent', type = 'string', optional = true, doc = 'the net event fired on arrival, with (id, x, y, z). The id lets one handler watch several points' }, { name = 'onExitEvent', type = 'string', optional = true, doc = 'the net event fired on departure, with (id, x, y, z)' }, { name = 'nearbyEvent', type = 'string', optional = true, doc = 'the net event fired inside, with (id, x, y, z). Aimed at the server this is a rate-limited budget, and there is no floor on it the way a zone insideEvent has' } },
+        fields = { { name = 'coords', type = 'vector3|vector4|table', optional = false, doc = 'the centre' }, { name = 'distance', type = 'number', optional = false, doc = 'the enter radius in metres. Must be finite and greater than zero; NaN and infinity are both refused by name, because NaN makes every containment test false and infinity has no cell to index' }, { name = 'onEnter', type = 'fun(coords: vector3)', optional = true, doc = 'called under pcall on arrival' }, { name = 'onExit', type = 'fun(coords: vector3)', optional = true, doc = 'called under pcall on departure and on removal' }, { name = 'nearby', type = 'fun(coords: vector3)', optional = true, doc = 'called under pcall every nearbyInterval while the player is inside, and ONLY inside' }, { name = 'nearbyInterval', type = 'integer', optional = true, doc = 'ms between nearby calls, default 200. Zero is allowed: a local function asking for every pass is legitimate' }, { name = 'onEnterEvent', type = 'string', optional = true, doc = 'the net event fired on arrival, with (id, x, y, z). The id lets one handler watch several points' }, { name = 'onExitEvent', type = 'string', optional = true, doc = 'the net event fired on departure, with (id, x, y, z)' }, { name = 'nearbyEvent', type = 'string', optional = true, doc = 'the net event fired inside every nearbyInterval, with (id, x, y, z). Aimed at the server, so nearbyInterval is clamped to at least 250 ms when it is set -- the same floor a zone insideEvent has' } },
     },
     CisAuditEntry = {
         doc = 'One ring-buffer entry from GetAuditLog. RESOURCE AND SLOT NAMES ONLY -- never a player identifier, which is why this is in memory at all.',
@@ -2323,8 +2358,8 @@ return {
         fields = { { name = 'isInteger', type = 'function' }, { name = 'isFinite', type = 'function' }, { name = 'number', type = 'function' }, { name = 'integer', type = 'function' }, { name = 'string', type = 'function' }, { name = 'boolean', type = 'function' }, { name = 'tableValue', type = 'function' }, { name = 'field', type = 'function' }, { name = 'schema', type = 'function' }, { name = 'defaults', type = 'function' }, { name = 'clamp', type = 'function' } },
     },
     CisVehicleProps = {
-        doc = 'GetVehicleProperties and SetVehicleProperties. A PARTIAL table is safe to set: absent keys are left alone rather than zeroed, which is the opposite of most setters. Set also answers whether THIS CLIENT is allowed to modify the vehicle at all.',
-        fields = { { name = 'model', type = 'integer', optional = true, doc = 'written by get, never read by set -- passing it is a no-op' }, { name = 'plate', type = 'string', optional = true, doc = 'the number plate text' }, { name = 'plateIndex', type = 'integer', optional = true, doc = 'the plate index' }, { name = 'lockState', type = 'integer', optional = true, doc = 'GetVehicleDoorLockStatus / SetVehicleDoorsLocked. 0 is unlocked and is a real state, not "absent"' }, { name = 'livery', type = 'integer', optional = true, doc = 'GetVehicleLivery; not the same as modLivery (mod 48) on every vehicle' }, { name = 'bodyHealth', type = 'number', optional = true, doc = 'floored on read' }, { name = 'engineHealth', type = 'number', optional = true, doc = 'the engine health' }, { name = 'tankHealth', type = 'number', optional = true, doc = 'the tank health' }, { name = 'fuelLevel', type = 'number', optional = true, doc = '0.0 to 1.0' }, { name = 'oilLevel', type = 'number', optional = true, doc = '0.0 to 1.0' }, { name = 'dirtLevel', type = 'number', optional = true, doc = '0.0 to 15.0' }, { name = 'paintType1', type = 'integer', optional = true, doc = 'a modifier on the custom-RGB path' }, { name = 'paintType2', type = 'integer', optional = true, doc = 'a modifier on the custom-RGB path' }, { name = 'color1', type = 'integer|integer[]', optional = true, doc = 'a palette number, or { r, g, b } when custom' }, { name = 'color2', type = 'integer|integer[]', optional = true, doc = 'a palette number, or { r, g, b } when custom' }, { name = 'pearlescentColor', type = 'integer', optional = true, doc = 'the pearlescent finish' }, { name = 'wheelColor', type = 'integer', optional = true, doc = 'the wheel finish' }, { name = 'wheels', type = 'integer', optional = true, doc = 'the wheel type' }, { name = 'windowTint', type = 'integer', optional = true, doc = 'the window tint' }, { name = 'neonEnabled', type = 'boolean[]', optional = true, doc = 'four booleans, read up to #neonEnabled' }, { name = 'neonColor', type = 'integer[]', optional = true, doc = '{ r, g, b }' }, { name = 'extras', type = 'table<integer, integer>', optional = true, doc = 'keyed by extra id; 0 = on and 1 = off, and set sends `disable == 1 and 1 or 0`' }, { name = 'tyreSmokeColor', type = 'integer[]', optional = true, doc = '{ r, g, b }' }, { name = 'windows', type = 'integer[]', optional = true, doc = 'an index array of broken window ids 0-7' }, { name = 'doors', type = 'integer[]', optional = true, doc = 'an index array of broken door ids 0-5' }, { name = 'tyres', type = 'table<integer, integer>', optional = true, doc = 'id -> 1 burst and 2 un-burst' }, { name = 'modTurbo', type = 'boolean', optional = true, doc = 'toggle mod 18' }, { name = 'modSmokeEnabled', type = 'boolean', optional = true, doc = 'toggle mod 20' }, { name = 'modHydraulics', type = 'boolean', optional = true, doc = 'toggle mod 21' }, { name = 'modXenon', type = 'boolean', optional = true, doc = 'toggle mod 22' }, { name = 'modLivery', type = 'integer', optional = true, doc = 'mod 48 plus SetVehicleLivery' }, { name = 'modRoofLivery', type = 'integer', optional = true, doc = 'a second livery' }, { name = 'bulletProofTyres', type = 'boolean', optional = true, doc = 'the bulletproof flag' }, { name = 'driftTyres', type = 'boolean', optional = true, doc = 'applied only when the game build is 2372 or later, and the gate is in the code rather than in the type' }, { name = 'interiorColor', type = 'integer', optional = true, doc = 'written by get, never read by set' }, { name = 'dashboardColor', type = 'integer', optional = true, doc = 'written by get, never read by set' }, { name = 'wheelWidth', type = 'integer', optional = true, doc = 'written by get, never read by set' }, { name = 'wheelSize', type = 'integer', optional = true, doc = 'written by get, never read by set' }, { name = 'xenonColor', type = 'integer', optional = true, doc = 'written by get, never read by set' } },
+        doc = 'GetVehicleProperties and SetVehicleProperties, field-compatible with ox_lib getVehicleProperties (same names and meanings), plus lockState and livery. A PARTIAL table is safe to set: absent keys are left alone rather than zeroed. The mod slots (modSpoilers 0 through modLightbar 49, including modDoorR 47) are integers as GetVehicleMod answers them.',
+        fields = { { name = 'model', type = 'integer', optional = true, doc = 'written by get, never read by set -- passing it is a no-op' }, { name = 'plate', type = 'string', optional = true, doc = 'the number plate text' }, { name = 'plateIndex', type = 'integer', optional = true, doc = 'the plate index' }, { name = 'lockState', type = 'integer', optional = true, doc = 'GetVehicleDoorLockStatus / SetVehicleDoorsLocked. 0 is unlocked and is a real state, not "absent"' }, { name = 'livery', type = 'integer', optional = true, doc = 'GetVehicleLivery; not the same as modLivery (mod 48) on every vehicle' }, { name = 'bodyHealth', type = 'number', optional = true, doc = 'floored on read' }, { name = 'engineHealth', type = 'number', optional = true, doc = 'the engine health' }, { name = 'tankHealth', type = 'number', optional = true, doc = 'the tank health' }, { name = 'fuelLevel', type = 'number', optional = true, doc = '0.0 to 1.0' }, { name = 'oilLevel', type = 'number', optional = true, doc = '0.0 to 1.0' }, { name = 'dirtLevel', type = 'number', optional = true, doc = '0.0 to 15.0' }, { name = 'paintType1', type = 'integer', optional = true, doc = 'the primary finish (0 normal, 1 metallic, 2 pearl, 3 matte, 4 metal, 5 chrome); applied before the colour on both the palette and the custom-RGB path' }, { name = 'paintType2', type = 'integer', optional = true, doc = 'the secondary finish; applied before the colour on both paths' }, { name = 'color1', type = 'integer|integer[]', optional = true, doc = 'a palette number, or { r, g, b } when custom' }, { name = 'color2', type = 'integer|integer[]', optional = true, doc = 'a palette number, or { r, g, b } when custom' }, { name = 'pearlescentColor', type = 'integer', optional = true, doc = 'the pearlescent finish' }, { name = 'wheelColor', type = 'integer', optional = true, doc = 'the wheel finish' }, { name = 'wheels', type = 'integer', optional = true, doc = 'the wheel type' }, { name = 'windowTint', type = 'integer', optional = true, doc = 'the window tint' }, { name = 'neonEnabled', type = 'boolean[]', optional = true, doc = 'four booleans, read up to #neonEnabled' }, { name = 'neonColor', type = 'integer[]', optional = true, doc = '{ r, g, b }' }, { name = 'extras', type = 'table<integer, integer>', optional = true, doc = 'keyed by extra id; 0 = on and 1 = off, and set sends `disable == 1 and 1 or 0`' }, { name = 'tyreSmokeColor', type = 'integer[]', optional = true, doc = '{ r, g, b }' }, { name = 'windows', type = 'integer[]', optional = true, doc = 'an index array of broken window ids 0-7' }, { name = 'doors', type = 'integer[]', optional = true, doc = 'an index array of broken door ids 0-5' }, { name = 'tyres', type = 'table<integer, integer>', optional = true, doc = 'tyre index (0-7, and 45 / 47 for a six-wheeled trailer) -> 1 burst, 2 burst to the rim' }, { name = 'modTurbo', type = 'boolean', optional = true, doc = 'toggle mod 18' }, { name = 'modSmokeEnabled', type = 'boolean', optional = true, doc = 'toggle mod 20' }, { name = 'modHydraulics', type = 'boolean', optional = true, doc = 'toggle mod 21' }, { name = 'modXenon', type = 'boolean', optional = true, doc = 'toggle mod 22' }, { name = 'modLivery', type = 'integer', optional = true, doc = 'mod 48 plus SetVehicleLivery' }, { name = 'modRoofLivery', type = 'integer', optional = true, doc = 'a second livery' }, { name = 'bulletProofTyres', type = 'boolean', optional = true, doc = 'true when the tyres CANNOT burst -- `not GetVehicleTyresCanBurst`, as ox_lib and qb store it' }, { name = 'driftTyres', type = 'boolean', optional = true, doc = 'applied only when the game build is 2372 or later, and the gate is in the code rather than in the type' }, { name = 'interiorColor', type = 'integer', optional = true, doc = 'GetVehicleInteriorColor / SetVehicleInteriorColor' }, { name = 'dashboardColor', type = 'integer', optional = true, doc = 'GetVehicleDashboardColour / SetVehicleDashboardColor' }, { name = 'wheelWidth', type = 'number', optional = true, doc = 'applied after the wheel mods: the native only takes on non-default rims' }, { name = 'wheelSize', type = 'number', optional = true, doc = 'applied after the wheel mods: the native only takes on non-default rims' }, { name = 'xenonColor', type = 'integer', optional = true, doc = 'GetVehicleXenonLightsColor / SetVehicleXenonLightsColor' } },
     },
     CisWeaponData = {
         doc = 'The record Cis.player.weapon and GetCurrentWeaponData answer. NIL as a whole when unarmed -- not a table of nils. GetCurrentWeaponData can hand back the LIVE cache table, so a caller holding it across frames is holding a snapshot that stops updating.',

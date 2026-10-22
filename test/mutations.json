@@ -509,9 +509,9 @@
     {
       "id": "M78",
       "file": "client/raycast.lua",
-      "find": "local PENDING = 0\n",
-      "replace": "local PENDING = 2\n",
-      "why": "Treat GetShapeTestResultIncludingMaterial's DONE value (2) as pending. 1 and 2 both mean done; 0 is the only pending state. Treating 2 as pending makes a resolved probe look unfinished until the timeout, so every hit becomes a timeout."
+      "find": "local DONE = 2\n",
+      "replace": "local DONE = 1\n",
+      "why": "Read GET_SHAPE_TEST_RESULT_INCLUDING_MATERIAL's PENDING status (1) as done. The status is 0 failed, 1 pending, 2 done, and every other return value is undefined until 2 -- so a probe still in flight is reported as a miss, and a finished one (2) becomes an unknown status."
     },
     {
       "id": "M79",
@@ -610,6 +610,377 @@
       "find": "    if ok and type(name) == 'string' and name ~= 'cis_libs' then\n",
       "replace": "    if ok and type(name) == 'string' and name ~= 'cis_libs' and false then\n",
       "why": "Disable the folder-name check. A rebranded copy then boots, which is the thing the license and the check exist to stop."
+    },
+    {
+      "id": "M93",
+      "file": "client/points.lua",
+      "find": "    while true do\n        -- The interval is returned by the body and waited on HERE, so a yield is never\n        -- swallowed by the guard's pcall.\n        Wait(tick() or IDLE_MS)\n    end\n",
+      "replace": "    Wait(tick() or IDLE_MS)\n",
+      "why": "Restore the one-shot points thread: Wait once and fall off the end. The first pass is then the only pass, so a point the player reaches later never fires. The 7.1 test that drives one thread for six wakeups is what sees it."
+    },
+    {
+      "id": "M94",
+      "file": "client/points.lua",
+      "find": "    for i = 1, #freed do\n        local id = freed[i].id\n",
+      "replace": "    for id in ipairs(freed) do\n        freed[id] = freed[id] or {}\n",
+      "why": "Iterate the released list by POSITION instead of by entry id. Stopping a resource that holds one point then deletes point #1 -- whoever owns it -- and leaves the stopping resource's point alive. The 7.1 stop-sweep test with a cis_libs point at id 1 sees it."
+    },
+    {
+      "id": "M95",
+      "file": "client/points.lua",
+      "find": "    if not CisCallable(fn) then\n        return\n    end\n",
+      "replace": "    if type(fn) ~= 'function' then\n        return\n    end\n",
+      "why": "Accept only plain Lua functions as point handlers. A handler from another resource arrives as a funcref table, so every consumer's onEnter/nearby/onExit silently never fires."
+    },
+    {
+      "id": "M96",
+      "file": "client/points.lua",
+      "find": "                fireEvent(point, 'nearbyEvent', coords)\n",
+      "replace": "",
+      "why": "Accept `nearbyEvent` and never fire it, the original defect. A server-side consumer has no other way to observe a point it is standing in."
+    },
+    {
+      "id": "M97",
+      "file": "client/points.lua",
+      "find": "    if caller ~= 'cis_libs' and caller ~= point.owner then\n",
+      "replace": "    if false and caller ~= point.owner then\n",
+      "why": "Drop the owner check on RemovePoint. Ids are 1, 2, 3..., so any resource can remove every other resource's points by counting."
+    },
+    {
+      "id": "M98",
+      "file": "client/world.lua",
+      "find": "    ped = 'CPed',\n",
+      "replace": "    ped = 'CPoolablePed',\n",
+      "why": "Restore the made-up pool name. GET_GAME_POOL answers an empty table for a name it does not know, so every ped query finds nothing in game. The 7.3 GetGamePool stub refuses unknown pool names, which is what sees it."
+    },
+    {
+      "id": "M99",
+      "file": "client/world.lua",
+      "find": "            if usable(ped) and (includeSelf or indices[i] ~= selfIndex) then\n",
+      "replace": "            if usable(ped) then\n",
+      "why": "Drop the self-exclusion from player queries. ClosestPlayer then answers the local player at 0 m for every caller, which is never the question being asked."
+    },
+    {
+      "id": "M100",
+      "file": "client/world.lua",
+      "find": "                    elseif not includePlayers and IsPedAPlayer(handle) then\n",
+      "replace": "                    elseif false then\n",
+      "why": "Let player peds into ped queries. The CPed pool holds them too, so closestPed near another player answers that player instead of an NPC."
+    },
+    {
+      "id": "M101",
+      "file": "client/world.lua",
+      "find": "    if not CisCallable(filter) then return true end\n",
+      "replace": "    if type(filter) ~= 'function' then return true end\n",
+      "why": "Ignore funcref filters. A consumer's filter crosses exports as a callable table, so the query silently returns unfiltered results."
+    },
+    {
+      "id": "M102",
+      "file": "client/keybind.lua",
+      "find": "    local onPress = CisCallable(options.onPress) and options.onPress or nil\n",
+      "replace": "    local onPress = type(options.onPress) == 'function' and options.onPress or nil\n",
+      "why": "Accept only plain Lua functions for onPress. A consumer's handler crosses exports as a funcref table, so every consumer keybind with only onPress is refused."
+    },
+    {
+      "id": "M103",
+      "file": "client/keybind.lua",
+      "find": "    b.enabled = false\n    b.pressed = false\n    callbacks[b.id] = nil\n    binds[b.id] = nil\n",
+      "replace": "    b.pressed = false\n",
+      "why": "Retire a binding without disabling it or dropping its callbacks. The +name command cannot be unregistered, so a removed or released binding keeps firing -- into a dead funcref once its owner has stopped."
+    },
+    {
+      "id": "M104",
+      "file": "client/keybind.lua",
+      "find": "        if held.owner ~= owner then\n",
+      "replace": "        if false then\n",
+      "why": "Drop the name-collision guard. A second resource re-registers +name and silently takes the first resource's key."
+    },
+    {
+      "id": "M105",
+      "file": "client/keybind.lua",
+      "find": "        out[#out + 1] = {\n            id = b.id,\n            name = b.name,\n            owner = b.owner,\n            command = b.command,\n            enabled = b.enabled,\n            pressed = b.pressed,\n        }\n",
+      "replace": "        out[#out + 1] = b\n",
+      "why": "Hand out the live handles from Keybinds. Any resource can then mutate another resource's binding through the list."
+    },
+    {
+      "id": "M106",
+      "file": "client/keybind.lua",
+      "find": "    if caller ~= 'cis_libs' and caller ~= b.owner then\n        return nil, ('keybind %s belongs to %s, not %s')",
+      "replace": "    if false then\n        return nil, ('keybind %s belongs to %s, not %s')",
+      "why": "Drop the owner check on the id-based controls. Ids are 1, 2, 3..., so any resource can disable or remove every other resource's bindings."
+    },
+    {
+      "id": "M107",
+      "file": "client/zones.lua",
+      "find": "        local ex = zone.hx * c + zone.hy * s\n        local ey = zone.hx * s + zone.hy * c\n",
+      "replace": "        local ex = zone.hx + 0 * c\n        local ey = zone.hy + 0 * s\n",
+      "why": "Index a rotated box with its UNROTATED half-extents. The corners of a turned box fall outside the grid index, so a player standing in them is never a candidate and that part of the zone never fires."
+    },
+    {
+      "id": "M108",
+      "file": "client/zones.lua",
+      "find": "    if caller ~= 'cis_libs' and caller ~= zone.owner then\n",
+      "replace": "    if false then\n",
+      "why": "Drop the owner check on RemoveZone. A zone name is a guessable string, so any resource removes another's zones and fires their onExit."
+    },
+    {
+      "id": "M109",
+      "file": "client/zones.lua",
+      "find": "            0.0, 0.0, 0.0, zone.radius + 0.0, zone.radius + 0.0, zone.radius + 0.0,\n            colour[1], colour[2], colour[3], 80,\n",
+      "replace": "            0.0, 0.0, 0.0, zone.radius + 0.0, 80, colour[1], colour[2], colour[3],\n",
+      "why": "Restore the sphere DrawMarker argument order that passed the alpha as scaleY and shifted every colour one slot. The debug sphere is then a squashed shape in the wrong colour."
+    },
+    {
+      "id": "M110",
+      "file": "client/zones.lua",
+      "find": "                    if dx * dx + dy * dy <= DEBUG_DRAW_RANGE * DEBUG_DRAW_RANGE then\n",
+      "replace": "                    if dx * dx + dy * dy >= 0 then\n",
+      "why": "Draw every debug zone every frame regardless of distance. A debug zone across the map costs a frame of DrawLine calls nobody can see."
+    },
+    {
+      "id": "M111",
+      "file": "client/zones.lua",
+      "find": "local function awaitReady()\n    while not CisReadyState.wait(15000) do\n        if CisReadyState.failed then\n            return\n        end\n    end\nend\n",
+      "replace": "local function awaitReady()\n    if not CisReadyState.wait(15000) then\n        error('cis_libs never became ready', 0)\n    end\nend\n",
+      "why": "End the zone threads when the first ready wait times out. initialize.lua marks ready at the same 15 s, so losing that race ends zones for the session -- the defect the retry loop replaced."
+    },
+    {
+      "id": "M112",
+      "file": "client/zones.lua",
+      "find": "    debugStats.lastPassMs = GetGameTimer() - started\n    debugStats.lastPassAt = GetGameTimer()\n",
+      "replace": "    debugStats.insideNames = {}\n    for id in pairs(inside) do debugStats.insideNames[#debugStats.insideNames + 1] = id end\n    table.sort(debugStats.insideNames)\n    debugStats.lastPassMs = GetGameTimer() - started\n    debugStats.lastPassAt = GetGameTimer()\n",
+      "why": "Rebuild and sort the debug inside-list on every pass again. That is an allocation and a sort per pass for a view nobody is reading."
+    },
+    {
+      "id": "M113",
+      "file": "client/zones.lua",
+      "find": "    local rad = math.rad(zone.heading or 0.0)\n    local c, s = math.cos(rad), math.sin(rad)\n    local hx, hy = zone.hx, zone.hy\n",
+      "replace": "    local rad = 0.0\n    local c, s = math.cos(rad), math.sin(rad)\n    local hx, hy = zone.hx, zone.hy\n",
+      "why": "Draw a box's debug outline unrotated. The outline then disagrees with the containment test for every box with a heading, which is the opposite of what a debug view is for."
+    },
+    {
+      "id": "M114",
+      "file": "client/cache.lua",
+      "find": "    if vehicle ~= CisCache.vehicle or type(seat) ~= 'number'\n        or GetPedInVehicleSeat(vehicle, seat) ~= ped then\n",
+      "replace": "    if vehicle ~= CisCache.vehicle or type(seat) ~= 'number' then\n",
+      "why": "Re-derive the seat only when the cached one is missing. A shuffle or warp to another seat in the same vehicle then stays stale for as long as the player is in it."
+    },
+    {
+      "id": "M115",
+      "file": "client/cache.lua",
+      "find": "    CisCache.vehicle = vehicle\n    CisCache.seat = seat\n    if prevVehicle ~= vehicle then\n        emit('vehicle', vehicle, prevVehicle)\n    end\n",
+      "replace": "    CisCache.vehicle = vehicle\n    if prevVehicle ~= vehicle then\n        emit('vehicle', vehicle, prevVehicle)\n    end\n    CisCache.seat = seat\n",
+      "why": "Emit the vehicle change before the seat is written. A vehicle listener then reads the previous seat alongside the new vehicle."
+    },
+    {
+      "id": "M116",
+      "file": "client/cache.lua",
+      "find": "local PASS_MAX_MS = 250\n",
+      "replace": "local PASS_MAX_MS = 10000\n",
+      "why": "Let the config's 1000 ms default through as the pass interval. The cache becomes a 1 Hz poll again: seat changes are a second stale and IsPedShooting, true for a frame or two per shot, is never seen."
+    },
+    {
+      "id": "M117",
+      "file": "client/cache.lua",
+      "find": "    setField('shooting', IsPedShooting(ped) and true or false)\n",
+      "replace": "    CisCache.shooting = IsPedShooting(ped)\n",
+      "why": "Write shooting without emitting. A listener on 'shooting' then never fires, which was the original state of the key."
+    },
+    {
+      "id": "M118",
+      "file": "client/cache.lua",
+      "find": "    if not CisCallable(cb) then\n        return nil, ('a listener must be a function, got %s'):format(type(cb))\n",
+      "replace": "    if type(cb) ~= 'function' then\n        return nil, ('a listener must be a function, got %s'):format(type(cb))\n",
+      "why": "Accept only plain Lua functions as cache listeners. A consumer's listener arrives as a funcref table and is refused, so no consumer can subscribe."
+    },
+    {
+      "id": "M119",
+      "file": "client/cache.lua",
+      "find": "    if caller ~= 'cis_libs' and caller ~= owner then\n",
+      "replace": "    if false then\n",
+      "why": "Drop the owner check on RemovePlayerCacheListener. Listener ids are 1, 2, 3..., so any resource can unsubscribe every other resource."
+    },
+    {
+      "id": "M120",
+      "file": "client/cache.lua",
+      "find": "        if dropListener(freedListeners[i].id) then\n",
+      "replace": "        if freedListeners[i].id == nil then\n",
+      "why": "Keep a stopped resource's cache listeners. Each holds a dead funcref and raises on every change for the rest of the session."
+    },
+    {
+      "id": "M121",
+      "file": "client/cache.lua",
+      "find": "local function awaitReady()\n    while not CisReadyState.wait(15000) do\n        if CisReadyState.failed then\n            return\n        end\n    end\nend\n",
+      "replace": "local function awaitReady()\n    if not CisReadyState.wait(15000) then\n        error('cis_libs never became ready', 0)\n    end\nend\n",
+      "why": "End the cache threads when the first ready wait times out. initialize.lua marks ready at the same 15 s, so losing the race ends the cache for the session."
+    },
+    {
+      "id": "M122",
+      "file": "client/cache.lua",
+      "find": "    refreshVehicle(refreshPed())\nend)\n",
+      "replace": "    refreshPed()\n    setVehicleSeat(args[2], nil)\nend)\n",
+      "why": "Trust the vehicle handle in gameEventTriggered's arguments. Any client resource can TriggerEvent that name and write whatever vehicle it likes into the cache."
+    },
+    {
+      "id": "M123",
+      "file": "client/vehicle.lua",
+      "find": "        SetVehicleColours(vehicle, palette1 and c1 or colorPrimary, palette2 and c2 or colorSecondary)\n",
+      "replace": "        SetVehicleColours(vehicle, palette1 and c1 or nil, palette2 and c2 or colorSecondary)\n",
+      "why": "Hand SetVehicleColours nil for a primary the props did not name, the original `appliedColor1` defect. A props table with only color2 resets the primary to black; the stub refuses a non-integer index."
+    },
+    {
+      "id": "M124",
+      "file": "client/vehicle.lua",
+      "find": "        bulletProofTyres = not GetVehicleTyresCanBurst(vehicle),\n",
+      "replace": "        bulletProofTyres = GetVehicleTyresCanBurst(vehicle),\n",
+      "why": "Store GetVehicleTyresCanBurst as bulletProofTyres, inverted against ox_lib and qb. Every saved bulletproof vehicle comes back burstable and every normal one bulletproof."
+    },
+    {
+      "id": "M125",
+      "file": "client/vehicle.lua",
+      "find": "    if props.xenonColor then SetVehicleXenonLightsColor(vehicle, props.xenonColor) end\n",
+      "replace": "",
+      "why": "Read xenonColor and never write it back. A garage round trip loses the headlight colour silently."
+    },
+    {
+      "id": "M126",
+      "file": "client/vehicle.lua",
+      "find": "    modDoorR = 47, modLightbar = 49,\n",
+      "replace": "    modLightbar = 49,\n",
+      "why": "Drop mod 47 (modDoorR) from the mod table. It is neither read nor written, so the right-door mod is lost on every round trip."
+    },
+    {
+      "id": "M127",
+      "file": "client/vehicle.lua",
+      "find": "    if not hasControl(vehicle) then\n",
+      "replace": "    if false then\n",
+      "why": "Write to a networked vehicle without network control. The owner's next sync overwrites every field, so the apply looks like it worked and silently did not."
+    },
+    {
+      "id": "M128",
+      "file": "client/vehicle.lua",
+      "find": "    for i = 0, 20 do\n        if DoesExtraExist(vehicle, i) then\n",
+      "replace": "    for i = 1, 15 do\n        if DoesExtraExist(vehicle, i) then\n",
+      "why": "Read extras 1..15 only. Extras 0 and 16..20 exist on real vehicles (and ox_lib reads 0..20), so they are never saved."
+    },
+    {
+      "id": "M129",
+      "file": "client/vehicle.lua",
+      "find": "local TYRES = { 0, 1, 2, 3, 4, 5, 6, 7, 45, 47 }\n",
+      "replace": "local TYRES = { 0, 1, 2, 3, 4, 5, 6, 7 }\n",
+      "why": "Forget the trailer tyres 45 and 47. A burst middle tyre on a six-wheeled trailer is neither saved nor restored."
+    },
+    {
+      "id": "M130",
+      "file": "client/vehicle.lua",
+      "find": "exports('GetClosestVehicle', CisGetClosestVehicle)\n",
+      "replace": "GetClosestVehicle = CisGetClosestVehicle\nexports('GetClosestVehicle', CisGetClosestVehicle)\n",
+      "why": "Overwrite the GetClosestVehicle native with the wrapper again. Every file in cis_libs that means the native now gets a different signature."
+    },
+    {
+      "id": "M131",
+      "file": "client/vehicle.lua",
+      "find": "    if fixVehicle then\n        SetVehicleFixed(vehicle)\n    end\n\n    if props.extras then\n",
+      "replace": "    if props.extras then\n",
+      "why": "Ignore fixVehicle. A caller asking for a repaired vehicle gets the damaged one; the test that orders SetVehicleFixed before the saved damage sees no repair at all."
+    },
+    {
+      "id": "M132",
+      "file": "client/raycast.lua",
+      "find": "            if hit == true or hit == 1 then\n",
+      "replace": "            if hit then\n",
+      "why": "Test the shape test's `hit` for truthiness. CfxLua returns a BOOL* out-parameter as the integer 0 or 1, and 0 is truthy in Lua, so every miss is reported as a hit on entity 0."
+    },
+    {
+      "id": "M133",
+      "file": "client/raycast.lua",
+      "find": "        elseif state == FAILED then\n",
+      "replace": "        elseif false then\n",
+      "why": "Stop recognising status 0 as a failed probe. A dead handle then reads as an unknown status instead of the documented failure, and the caller is told the wrong thing."
+    },
+    {
+      "id": "M134",
+      "file": "client/raycast.lua",
+      "find": "    local vehicle = GetVehiclePedIsIn(ped, false)\n    if vehicle and vehicle ~= 0 then\n        return vehicle\n    end\n    return ped\n",
+      "replace": "    return 0\n",
+      "why": "Default the ignored entity to 0. A camera ray starts behind the player, so its first hit is the player's own ped or the vehicle they sit in."
+    },
+    {
+      "id": "M135",
+      "file": "client/streaming.lua",
+      "find": "        if loaded and loaded(handle or hash or name) then\n",
+      "replace": "        if loaded and loaded(hash or name) then\n",
+      "why": "Poll HasScaleformMovieLoaded with the movie NAME. The native takes the handle RequestScaleformMovie returned, so in game it never answers true and every scaleform waits out its timeout; the stub refuses a non-handle."
+    },
+    {
+      "id": "M136",
+      "file": "client/streaming.lua",
+      "find": "        while not request(spec.requestArgs(name)) do\n",
+      "replace": "        if not request(spec.requestArgs(name)) then\n            return nil, ('the engine refused %s %q'):format(kind, tostring(name))\n        end\n        while false do\n",
+      "why": "Treat the first false from RequestScriptAudioBank as a refusal. The native answers false while the bank loads and must be called again until true, so every bank not already resident is refused."
+    },
+    {
+      "id": "M137",
+      "file": "client/ui.lua",
+      "find": "        while j < n and j > i do\n            local b = text:byte(j + 1)\n            if b < 0x80 or b >= 0xC0 then break end\n            j = j - 1\n        end\n        AddTextComponentSubstringPlayerName(text:sub(i, j))\n",
+      "replace": "        AddTextComponentSubstringPlayerName(text:sub(i, j))\n",
+      "why": "Cut help and notify text at a fixed 99 bytes. A multi-byte character straddling the cut is split, and both halves render as garbage."
+    },
+    {
+      "id": "M138",
+      "file": "client/utils.lua",
+      "find": "    BeginTextCommandDisplayText('STRING')\n    addTextComponents(tostring(text))\n",
+      "replace": "    BeginTextCommandDisplayText(text)\n",
+      "why": "Hand DrawText3D's text to BeginTextCommandDisplayText as the GXT label again. Anything that is not a real label key draws nothing; the stub requires the STRING label."
+    },
+    {
+      "id": "M139",
+      "file": "client/utils.lua",
+      "find": "exports('CreatePed', CisCreatePed)\n",
+      "replace": "CreatePed = CisCreatePed\nexports('CreatePed', CisCreatePed)\n",
+      "why": "Rebind the CreatePed native to the wrapper again. Every file in cis_libs that means the native gets a different signature, and a second loaded copy wraps it twice."
+    },
+    {
+      "id": "M140",
+      "file": "client/utils.lua",
+      "find": "    if useZ == false then\n",
+      "replace": "    if false then\n",
+      "why": "Ignore the native's useZ argument on GetDistanceBetweenCoords. A caller asking for a ground-plane distance gets a 3D one."
+    },
+    {
+      "id": "M141",
+      "file": "client/utils.lua",
+      "find": "    if type(coords) ~= 'table' and type(coords) ~= 'vector3' and type(coords) ~= 'vector4' then\n        DebugLog('CisCreatePed received no coords: ' .. tostring(coords))\n        return 0\n    end\n",
+      "replace": "",
+      "why": "Drop the nil-coords guard on CreatePed. The export raises inside the caller's call instead of answering the documented 0."
+    },
+    {
+      "id": "M142",
+      "file": "client/weapon.lua",
+      "find": "    local name = WEAPON_NAME_BY_HASH[weaponHash]\n    if name then\n",
+      "replace": "    local name = WEAPON_NAME_BY_HASH[weaponHash]\n    if name and false then\n",
+      "why": "Consider only the generic COMPONENT_AT_* attachments, the original 24-name table's blind spot. A weapon's clips, MK2 rounds, finishes and camos are never reported."
+    },
+    {
+      "id": "M143",
+      "file": "client/weapon.lua",
+      "find": "    takes[weaponHash] = list\n",
+      "replace": "",
+      "why": "Stop caching which components a weapon takes. Every attachment read then asks DoesWeaponTakeWeaponComponent about the whole superset again -- a hundred natives per weapon swap instead of once per session."
+    },
+    {
+      "id": "M144",
+      "file": "client/target.lua",
+      "find": "    if caller ~= 'cis_libs' and caller ~= entry.owner then\n",
+      "replace": "    if false then\n",
+      "why": "Drop the owner check on RemoveTarget and UpdateTarget. A target name is a guessable string, so any resource removes another resource's targets from the provider."
+    },
+    {
+      "id": "M145",
+      "file": "client/initialize.lua",
+      "find": "    return src ~= nil and src ~= ''\n",
+      "replace": "    return true\n",
+      "why": "Accept getData and showNotification from a local TriggerEvent. Any client resource can then rewrite this client's config or show a notification that looks like the server's."
     }
   ]
 }

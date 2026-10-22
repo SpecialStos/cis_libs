@@ -6,13 +6,13 @@
   },
   "counts": {
     "shippedFiles": 58,
-    "nativesUsed": 212,
+    "nativesUsed": 220,
     "byRealm": {
-      "client": 137,
+      "client": 145,
       "server": 5,
       "shared": 70
     },
-    "unresolvedPascalCaseGlobals": 66
+    "unresolvedPascalCaseGlobals": 73
   },
   "natives": {
     "AddDoorToSystem": {
@@ -70,7 +70,8 @@
       "files": [
         "client/initialize.lua",
         "client/proxy.lua",
-        "client/ui.lua"
+        "client/ui.lua",
+        "client/utils.lua"
       ]
     },
     "AttachEntityToEntity": {
@@ -463,6 +464,24 @@
         "client/vehicle.lua"
       ]
     },
+    "DoesWeaponTakeWeaponComponent": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "WEAPON"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/weapon.lua"
+      ]
+    },
     "DrawLine": {
       "realm": "client",
       "evidence": [
@@ -685,7 +704,6 @@
         "client/sync.lua",
         "client/target.lua",
         "client/ui.lua",
-        "client/vehicle.lua",
         "client/zones.lua",
         "init.lua",
         "server/callback.lua",
@@ -872,6 +890,7 @@
         "client"
       ],
       "files": [
+        "client/vehicle.lua",
         "client/world.lua"
       ]
     },
@@ -1785,6 +1804,7 @@
       ],
       "files": [
         "client/cache.lua",
+        "client/raycast.lua",
         "client/vehicle.lua"
       ]
     },
@@ -2285,6 +2305,26 @@
         "client/interface/radial.lua"
       ]
     },
+    "IsPedAPlayer": {
+      "realm": "shared",
+      "evidence": [
+        "client",
+        "server"
+      ],
+      "sources": [
+        "gta",
+        "cfx"
+      ],
+      "namespaces": [
+        "PED"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/world.lua"
+      ]
+    },
     "IsPedArmed": {
       "realm": "client",
       "evidence": [
@@ -2617,22 +2657,6 @@
         "client/vehicle.lua"
       ]
     },
-    "NetworkGetEntityOwner": {
-      "realm": "shared",
-      "evidence": [
-        "shared"
-      ],
-      "sources": [
-        "cfx"
-      ],
-      "namespaces": [],
-      "usedIn": [
-        "client"
-      ],
-      "files": [
-        "client/vehicle.lua"
-      ]
-    },
     "NetworkGetNetworkIdFromEntity": {
       "realm": "shared",
       "evidence": [
@@ -2651,6 +2675,42 @@
       ],
       "files": [
         "server/sync.lua"
+      ]
+    },
+    "NetworkHasControlOfEntity": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "NETWORK"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/vehicle.lua"
+      ]
+    },
+    "NetworkRequestControlOfEntity": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "NETWORK"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/vehicle.lua"
       ]
     },
     "PlaySoundFrontend": {
@@ -2688,7 +2748,7 @@
       ],
       "files": [
         "client/cache.lua",
-        "client/vehicle.lua",
+        "client/world.lua",
         "init.lua"
       ]
     },
@@ -2710,8 +2770,10 @@
       "files": [
         "client/cache.lua",
         "client/interface/progress.lua",
+        "client/raycast.lua",
         "client/vehicle.lua",
         "client/weapon.lua",
+        "client/world.lua",
         "client/zones.lua",
         "init.lua"
       ]
@@ -2755,7 +2817,7 @@
         "client/keybind.lua"
       ]
     },
-    "ReleaseScriptAudioBank": {
+    "ReleaseNamedScriptAudioBank": {
       "realm": "client",
       "evidence": [
         "client"
@@ -3449,6 +3511,24 @@
         "client/vehicle.lua"
       ]
     },
+    "SetVehicleDashboardColor": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "VEHICLE"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/vehicle.lua"
+      ]
+    },
     "SetVehicleDirtLevel": {
       "realm": "shared",
       "evidence": [
@@ -3590,6 +3670,24 @@
         "cfx"
       ],
       "namespaces": [],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/vehicle.lua"
+      ]
+    },
+    "SetVehicleInteriorColor": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "VEHICLE"
+      ],
       "usedIn": [
         "client"
       ],
@@ -3867,6 +3965,22 @@
         "client/vehicle.lua"
       ]
     },
+    "SetVehicleWheelSize": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "cfx"
+      ],
+      "namespaces": [],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/vehicle.lua"
+      ]
+    },
     "SetVehicleWheelType": {
       "realm": "client",
       "evidence": [
@@ -3885,7 +3999,41 @@
         "client/vehicle.lua"
       ]
     },
+    "SetVehicleWheelWidth": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "cfx"
+      ],
+      "namespaces": [],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/vehicle.lua"
+      ]
+    },
     "SetVehicleWindowTint": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "VEHICLE"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/vehicle.lua"
+      ]
+    },
+    "SetVehicleXenonLightsColor": {
       "realm": "client",
       "evidence": [
         "client"
@@ -4060,10 +4208,17 @@
     "CisCommandList",
     "CisCommandNames",
     "CisCommandParse",
+    "CisCreatePed",
     "CisForgetPlayer",
+    "CisGetClosestVehicle",
+    "CisGetDistanceBetweenCoords",
     "CisInvokingAllowed",
     "CisJobCount",
     "CisKeybindAdd",
+    "CisKeybindDisable",
+    "CisKeybindEnable",
+    "CisKeybindIsPressed",
+    "CisKeybindRemove",
     "CisLog",
     "CisNetOn",
     "CisPointsCreate",

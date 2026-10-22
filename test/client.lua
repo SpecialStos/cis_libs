@@ -25,6 +25,16 @@ local function check(cond, msg)
     TEST_CASES[#TEST_CASES + 1] = { name = msg, status = cond and 'passed' or 'failed' }
 end
 
+-- A handler as it arrives from ANOTHER resource: not a Lua function but a table
+-- carrying `__cfx_functionReference`, callable through its metatable. Every API
+-- that takes a handler has to accept this shape, and `type(fn) == 'function'`
+-- refuses it.
+local function funcref(fn)
+    return setmetatable({ __cfx_functionReference = 'test:' .. tostring(fn) }, {
+        __call = function(_, ...) return fn(...) end,
+    })
+end
+
 -- ============================================================ the stub harness
 --
 -- `natives` is the recorder table. A test writes into it, calls the file under
@@ -66,7 +76,7 @@ local function newEnv(opts)
         'CreateVehicle', 'DeleteEntity', 'DoesEntityExist', 'FreezeEntityPosition',
         'SetEntityCoords', 'SetEntityHeading', 'PlayerPedId', 'GetPlayerPed',
         'GetEntityCoords', 'IsEntityDead', 'GetGameBuildNumber',
-        'AddEventHandler', 'PlayerId', 'NetworkGetEntityOwner', 'CisCache',
+        'AddEventHandler', 'PlayerId', 'CisCache',
     }) do
         env.save(name)
     end
@@ -136,7 +146,6 @@ local function newEnv(opts)
     function IsEntityDead() return false end
     function vec4(x, y, z, w) return { x = x, y = y, z = z, w = w } end
     function PlayerId() return 0 end
-    function NetworkGetEntityOwner() return 1 end
     -- Event handlers are recorded rather than dropped: and assert on
     -- what a stop sweep is bound to, so the harness has to be able to fire one.
     env.handlers = {}
@@ -1447,6 +1456,172 @@ do
     env.reset()
 end
 
+-- ============================================ 5b. the cache pass itself
+--
+-- A world the test controls: which vehicle, which seat, armed, shooting,
+-- heading. GetPedInVehicleSeat answers from `env.seat`, so a shuffle is a test
+-- writing one number.
+local function cacheEnv(opts)
+    opts = opts or {}
+    local env = newEnv({})
+    env.ped = 7
+    env.vehicle, env.seat = 0, nil
+    env.armed, env.shooting, env.heading = false, false, 0.0
+    env.save('CisReadyState')
+    env.save('GetWeaponAttachments')
+    CisReadyState = opts.ready or { wait = function() return true end, ready = true, failed = false }
+    Config = opts.config
+    Globals = {}
+    function GetPlayerServerId() return 12 end
+    function GetEntityHeading() return env.heading end
+    function IsPedInAnyVehicle() return env.vehicle ~= 0 end
+    function GetVehiclePedIsIn() return env.vehicle end
+    function GetPedInVehicleSeat(veh, i)
+        env.seatReads = (env.seatReads or 0) + 1
+        return (veh == env.vehicle and i == env.seat) and env.ped or 0
+    end
+    function GetVehicleMaxNumberOfPassengers() return 3 end
+    function IsPedArmed() return env.armed end
+    function GetSelectedPedWeapon() return 0x1234 end
+    function GetAmmoInPedWeapon() return 30 end
+    function GetWeaponAttachments() return {} end
+    function IsPlayerFreeAiming() return false end
+    function IsPedShooting() return env.shooting end
+    loadModule('client/cache.lua')
+    return env
+end
+
+-- Drive the MAIN cache thread for `n` passes. `between(i)` runs at each Wait,
+-- so a test changes the world between passes; the waits are recorded.
+local CACHE_DONE = {}
+local function cachePasses(env, n, between)
+    local waits = {}
+    local realWait = Wait
+    Wait = function(ms)
+        waits[#waits + 1] = ms
+        env.clock = env.clock + (tonumber(ms) or 0)
+        if #waits >= n then error(CACHE_DONE, 0) end
+        if between then between(#waits) end
+    end
+    local ok, err = pcall(env.threads[1])
+    Wait = realWait
+    if not ok and err ~= CACHE_DONE then error(err, 0) end
+    return waits
+end
+
+-- A SEAT SHUFFLE IS SEEN, and the vehicle listener sees the NEW seat.
+do
+    local env = cacheEnv()
+    local seenSeats, seatAtVehicle = {}, nil
+    CisCache.on('seat', function(seat) seenSeats[#seenSeats + 1] = seat end)
+    CisCache.on('vehicle', function() seatAtVehicle = CisCache.seat end)
+    env.vehicle, env.seat = 50, 1
+    cachePasses(env, 3, function(i)
+        if i == 1 then env.seat = -1 end
+    end)
+    check(seatAtVehicle == 1,
+        ('cache: a vehicle listener sees the seat that came WITH the vehicle (got %s)'):format(tostring(seatAtVehicle)))
+    check(CisCache.seat == -1 and seenSeats[#seenSeats] == -1,
+        ('cache: a shuffle to the driver seat is seen on the next pass (seat=%s)'):format(tostring(CisCache.seat)))
+    env.reset()
+end
+
+-- THE CADENCE. The config default is 1000 ms, which made the pass a 1 Hz poll:
+-- a shot (`IsPedShooting` true for a frame or two) was never seen. Clamped to
+-- 100..250 with or without a config.
+do
+    local env = cacheEnv({ config = CisDefaults.config() })
+    local waits = cachePasses(env, 2)
+    check(waits[1] ~= nil and waits[1] >= 100 and waits[1] <= 250,
+        ('cache: the pass runs at 100-250 ms even when the config says 1000 (waited %s)'):format(tostring(waits[1])))
+    env.reset()
+    local env2 = cacheEnv({ config = nil })
+    local waits2 = cachePasses(env2, 2)
+    check(waits2[1] ~= nil and waits2[1] >= 100 and waits2[1] <= 250,
+        ('cache: and with no config at all (waited %s)'):format(tostring(waits2[1])))
+    env2.reset()
+end
+
+-- SHOOTING AND HEADING EMIT, like every other key.
+do
+    local env = cacheEnv()
+    local shots, headings = {}, {}
+    local _, sid = CisCache.on('shooting', function(v) shots[#shots + 1] = v end)
+    CisCache.on('heading', function(v) headings[#headings + 1] = v end)
+    check(type(sid) == 'number', 'cache: on() answers an id in slot two')
+    cachePasses(env, 4, function(i)
+        if i == 1 then env.shooting = true; env.heading = 90.0 end
+        if i == 2 then env.shooting = false end
+    end)
+    check(#shots == 2 and shots[1] == true and shots[2] == false,
+        ('cache: shooting emits on and off (events=%d)'):format(#shots))
+    check(headings[#headings] == 90.0, 'cache: heading emits its change')
+    local bad, why = CisCache.on('coords', function() end)
+    check(bad == nil and type(why) == 'string' and why:find('unknown', 1, true),
+        'cache: an unknown key is refused with a reason, not silently never fired')
+    env.reset()
+end
+
+-- LISTENERS FROM OTHER RESOURCES: funcrefs, owned, removable by id, released on stop.
+do
+    local env = cacheEnv()
+    env.save('GetInvokingResource')
+    GetInvokingResource = function() return 'res_a' end
+    local got = 0
+    local unsub, id = exports.OnPlayerCache('armed', funcref(function() got = got + 1 end))
+    check(type(id) == 'number', ('cache: a funcref listener is accepted (id=%s)'):format(tostring(id)))
+    local _, id2 = exports.OnPlayerCache('armed', funcref(function() got = got + 100 end))
+    cachePasses(env, 2, function() env.armed = true end)
+    check(got == 101, ('cache: both funcref listeners fire (got=%d)'):format(got))
+    GetInvokingResource = function() return 'res_b' end
+    local stolen = exports.RemovePlayerCacheListener(id)
+    check(stolen == false, 'cache: another resource cannot remove the listener')
+    GetInvokingResource = function() return 'res_a' end
+    check(exports.RemovePlayerCacheListener(id) == true, 'cache: its owner removes it by id')
+    env.fire('onResourceStop', 'res_a')
+    got = 0
+    cachePasses(env, 2, function() env.armed = false end)
+    check(got == 0, ('cache: a stopped owner\'s listeners are released (got=%d)'):format(got))
+    check(exports.RemovePlayerCacheListener(id2) == false, 'cache: and the released id is gone')
+    check(type(unsub) == 'function', 'cache: the in-realm unsubscribe is still returned in slot one')
+    env.reset()
+end
+
+-- THE CACHE LOOP NEVER GIVES UP ON READINESS.
+do
+    local calls = 0
+    local env = cacheEnv({ ready = {
+        wait = function() calls = calls + 1; return calls > 1 end, ready = false, failed = false,
+    } })
+    env.vehicle, env.seat = 50, 0
+    cachePasses(env, 2)
+    check(calls >= 2 and CisCache.vehicle == 50,
+        ('cache: a first ready wait that times out is retried, and the loop runs (waits=%d vehicle=%s)')
+            :format(calls, tostring(CisCache.vehicle)))
+    env.reset()
+end
+
+-- THE VEHICLE EVENT CANNOT BE FORGED. gameEventTriggered for ANOTHER player, or
+-- a hand-raised 'CEventNetworkPlayerEnteredVehicle', must not rewrite the cache.
+do
+    local env = cacheEnv()
+    cachePasses(env, 1)
+    check(env.handlers['CEventNetworkPlayerEnteredVehicle'] == nil,
+        'cache: no handler on the bare CEventNetworkPlayerEnteredVehicle name, which the game never raises')
+    env.fire('gameEventTriggered', 'CEventNetworkPlayerEnteredVehicle', { 5, 999 })
+    check(CisCache.vehicle == 0,
+        ('cache: another player entering a vehicle does not change ours (vehicle=%s)'):format(tostring(CisCache.vehicle)))
+    env.fire('gameEventTriggered', 'CEventNetworkPlayerEnteredVehicle', { 0, 999, -1 })
+    check(CisCache.vehicle == 0,
+        'cache: even our own event cannot write a vehicle the natives do not confirm')
+    env.vehicle, env.seat = 60, 2
+    env.fire('gameEventTriggered', 'CEventNetworkPlayerEnteredVehicle', { 0, 60 })
+    check(CisCache.vehicle == 60 and CisCache.seat == 2,
+        ('cache: our own event triggers an immediate re-read (vehicle=%s seat=%s)')
+            :format(tostring(CisCache.vehicle), tostring(CisCache.seat)))
+    env.reset()
+end
+
 -- ============================================ 6. a dead cached ped ()
 --
 -- `GetCachedPed` answered `CisCache.ped ~= 0 and CisCache.ped or PlayerPedId()`,
@@ -1544,26 +1719,244 @@ do
     check(not leaked,
         'a table color1 is never passed to SetVehicleColours, which wants a number')
 
-    -- THE DIFF STILL WORKS, and it is asserted on a field the fix did not touch.
-    --
-    -- A fix that simply always applied would pass every assertion above while
-    -- making every sync tick a full repaint -- which is the reason the diff
-    -- exists at all, on a moving vehicle, at 500ms. `plate` is an ordinary
-    -- snapshot-diffed field, so it is the honest place to check that skipping
-    -- still happens.
+    -- THERE IS NO DIFF. A re-apply of the same props applies again: the
+    -- snapshot it used to diff against went stale the moment gameplay, another
+    -- resource or a repair touched the vehicle, and was keyed by a recycled
+    -- handle -- so the apply that was skipped was exactly the one needed.
     calls = {}
     SetVehicleProperties(9, { plate = 'ABC123' })
     local firstPlate = #calls
     calls = {}
     SetVehicleProperties(9, { plate = 'ABC123' })
-    check(firstPlate > 0 and #calls == 0,
-        ('an unchanged re-apply is still skipped, so the diff survives '
-            .. 'the fix (first apply made %d calls, second made %d)')
+    check(firstPlate > 0 and #calls == firstPlate,
+        ('an identical re-apply is applied again, not skipped by a stale snapshot '
+            .. '(first apply made %d calls, second made %d)')
             :format(firstPlate, #calls))
 
     calls = {}
     SetVehicleProperties(9, { plate = 'XYZ789' })
     check(#calls > 0, 'and a CHANGED plate is still applied')
+    env.reset()
+end
+
+-- ====================================== 7b. vehicle properties, field by field
+--
+-- A recorder for every setter, and getters answering a known vehicle, so the
+-- round trip get -> set can be asserted field by field against ox_lib's shape.
+local VEH_SETTERS = {
+    'SetVehicleModKit', 'SetVehicleFixed', 'SetVehicleExtra', 'SetVehicleDoorsLocked',
+    'SetVehicleNumberPlateText', 'SetVehicleNumberPlateTextIndex', 'SetVehicleBodyHealth',
+    'SetVehicleEngineHealth', 'SetVehiclePetrolTankHealth', 'SetVehicleFuelLevel', 'SetVehicleOilLevel',
+    'SetVehicleDirtLevel', 'ClearVehicleCustomPrimaryColour', 'ClearVehicleCustomSecondaryColour',
+    'SetVehicleModColor_1', 'SetVehicleModColor_2', 'SetVehicleColours', 'SetVehicleCustomPrimaryColour',
+    'SetVehicleCustomSecondaryColour', 'SetVehicleExtraColours', 'SetVehicleInteriorColor',
+    'SetVehicleDashboardColor', 'SetVehicleWheelType', 'SetVehicleWindowTint', 'SetVehicleNeonLightEnabled',
+    'SetVehicleNeonLightsColour', 'RemoveVehicleWindow', 'SetVehicleDoorBroken', 'SetVehicleTyreBurst',
+    'SetVehicleTyreSmokeColor', 'SetVehicleMod', 'ToggleVehicleMod', 'SetVehicleXenonLightsColor',
+    'SetVehicleWheelSize', 'SetVehicleWheelWidth', 'SetVehicleLivery', 'SetVehicleRoofLivery',
+    'SetVehicleTyresCanBurst', 'SetDriftTyresEnabled', 'NetworkRequestControlOfEntity',
+}
+local function vehEnv()
+    local env = newEnv({})
+    env.calls = {}
+    -- Into _ENV, not _G: under the lua54 driver each suite runs in its own
+    -- environment, and an earlier test's `function SetVehicleColours()` lives
+    -- THERE, shadowing anything written to _G. Restored by env.reset.
+    local previous = {}
+    for _, name in ipairs(VEH_SETTERS) do
+        previous[name] = rawget(_ENV, name)
+    end
+    local baseReset = env.reset
+    env.reset = function()
+        for _, name in ipairs(VEH_SETTERS) do
+            rawset(_ENV, name, previous[name])
+        end
+        baseReset()
+    end
+    for _, name in ipairs(VEH_SETTERS) do
+        _ENV[name] = function(...)
+            local a = table.pack(...)
+            -- SetVehicleColours takes two palette INDICES; anything else is the
+            -- defect that reset or aborted the apply.
+            if name == 'SetVehicleColours' then
+                assert(math.type(a[2]) == 'integer' and math.type(a[3]) == 'integer',
+                    ('SetVehicleColours wants two integers, got %s, %s'):format(type(a[2]), type(a[3])))
+            end
+            env.calls[#env.calls + 1] = { name = name, args = a }
+        end
+    end
+    env.extrasAsked = {}
+    env.tyresAsked = {}
+    function DoesEntityExist() return true end
+    function GetVehicleColours() return 5, 6 end
+    function GetVehicleExtraColours() return 7, 8 end
+    function GetVehicleModColor_1() return 3, 0, 0 end
+    function GetVehicleModColor_2() return 1, 0 end
+    function GetIsVehiclePrimaryColourCustom() return false end
+    function GetIsVehicleSecondaryColourCustom() return false end
+    function DoesExtraExist(_, i) env.extrasAsked[#env.extrasAsked + 1] = i; return i == 0 or i == 20 end
+    function IsVehicleExtraTurnedOn(_, i) return i == 0 end
+    function GetVehicleLiveryCount() return 3 end
+    function GetVehicleLivery() return 1 end
+    function GetVehicleMod(_, i) return i == 47 and 2 or -1 end
+    function IsVehicleWindowIntact() return true end
+    function IsVehicleDoorDamaged() return false end
+    function IsVehicleTyreBurst(_, i) env.tyresAsked[i] = true; return i == 45 end
+    function IsVehicleNeonLightEnabled() return false end
+    function GetVehicleInteriorColor() return 11 end
+    function GetVehicleDashboardColour() return 12 end
+    function GetVehicleWheelWidth() return 0.75 end
+    function GetVehicleWheelSize() return 0.8 end
+    function GetVehicleXenonLightsColor() return 4 end
+    function GetVehicleTyresCanBurst() return false end
+    function IsToggleModOn(_, i) return i == 21 end
+    function GetDriftTyresEnabled() return false end
+    loadModule('client/vehicle.lua')
+    function env.called(name)
+        local out = {}
+        for i, c in ipairs(env.calls) do
+            if c.name == name then out[#out + 1] = c; c.at = i end
+        end
+        return out
+    end
+    return env
+end
+
+do
+    local env = vehEnv()
+    -- color2 ALONE keeps the live primary. It used to pass `appliedColor1`,
+    -- nil here, which reset the primary to black.
+    SetVehicleProperties(9, { color2 = 33 })
+    local sc = env.called('SetVehicleColours')[1]
+    check(sc and sc.args[2] == 5 and sc.args[3] == 33,
+        ('vehicle: color2 alone keeps the live primary (got %s, %s)')
+            :format(tostring(sc and sc.args[2]), tostring(sc and sc.args[3])))
+
+    -- A CUSTOM color1 WITH A PALETTE color2 does not hand SetVehicleColours a
+    -- table, and the props after the colours are still applied.
+    env.calls = {}
+    local ok, err = pcall(SetVehicleProperties, 9, { color1 = { 1, 2, 3 }, color2 = 40, plate = 'AFTER' })
+    check(ok, ('vehicle: custom color1 + palette color2 does not raise (%s)'):format(tostring(err)))
+    sc = env.called('SetVehicleColours')[1]
+    check(sc and sc.args[2] == 5 and sc.args[3] == 40, 'vehicle: and the palette secondary lands beside the live primary')
+    check(#env.called('SetVehicleCustomPrimaryColour') == 1, 'vehicle: the custom primary is applied')
+    check(#env.called('SetVehicleNumberPlateText') == 1, 'vehicle: and the fields after the colours still apply')
+    env.reset()
+end
+
+-- GET -> SET ROUND TRIP. Every field the getter reads, the setter writes, with
+-- ox_lib's meaning.
+do
+    local env = vehEnv()
+    local props = GetVehicleProperties(9)
+    check(props.bulletProofTyres == true,
+        'vehicle: bulletProofTyres is NOT GetVehicleTyresCanBurst -- tyres that cannot burst are bulletproof')
+    check(props.modDoorR == 2, ('vehicle: modDoorR is read from mod 47 (got %s)'):format(tostring(props.modDoorR)))
+    check(props.modHydraulics == true, 'vehicle: modHydraulics is the VMT_HYDRAULICS toggle, as ox_lib reads it')
+    check(props.extras[0] == 0 and props.extras[20] == 1,
+        'vehicle: extras 0 and 20 are read (the range is 0..20, not 1..15)')
+    check(env.tyresAsked[45] and env.tyresAsked[47] and props.tyres[45] ~= nil,
+        'vehicle: the trailer tyres 45 and 47 are read')
+    env.calls = {}
+    local ok, err = pcall(SetVehicleProperties, 9, props)
+    check(ok, ('vehicle: the getter output applies cleanly (%s)'):format(tostring(err)))
+    local function argOf(name, slot)
+        local c = env.called(name)[1]
+        return c and c.args[slot]
+    end
+    check(argOf('SetVehicleXenonLightsColor', 2) == 4, 'vehicle: xenonColor is written back')
+    check(argOf('SetVehicleInteriorColor', 2) == 11, 'vehicle: interiorColor is written back')
+    check(argOf('SetVehicleDashboardColor', 2) == 12, 'vehicle: dashboardColor is written back')
+    check(argOf('SetVehicleWheelWidth', 2) == 0.75, 'vehicle: wheelWidth is written back')
+    check(argOf('SetVehicleWheelSize', 2) == 0.8, 'vehicle: wheelSize is written back')
+    check(argOf('SetVehicleTyresCanBurst', 2) == false, 'vehicle: a bulletproof set is written as CAN NOT burst')
+    check(argOf('SetVehicleModColor_1', 2) == 3, 'vehicle: paintType1 is written for a palette colour too')
+    local doorR = false
+    for _, c in ipairs(env.called('SetVehicleMod')) do
+        if c.args[2] == 47 and c.args[3] == 2 then doorR = true end
+    end
+    check(doorR, 'vehicle: modDoorR is written to mod 47')
+    local hyd = false
+    for _, c in ipairs(env.called('ToggleVehicleMod')) do
+        if c.args[2] == 21 and c.args[3] == true then hyd = true end
+    end
+    check(hyd, 'vehicle: modHydraulics is toggled back on')
+    local tyre45 = false
+    for _, c in ipairs(env.called('SetVehicleTyreBurst')) do
+        if c.args[2] == 45 then tyre45 = true end
+    end
+    check(tyre45, 'vehicle: a burst trailer tyre is restored')
+    -- Wheel size and width only take on non-default rims, so they come after them.
+    local wheelsAt, sizeAt
+    for i, c in ipairs(env.calls) do
+        if c.name == 'SetVehicleMod' and c.args[2] == 23 then wheelsAt = i end
+        if c.name == 'SetVehicleWheelSize' then sizeAt = i end
+    end
+    check(wheelsAt and sizeAt and sizeAt > wheelsAt, 'vehicle: wheel size is applied after the wheel mod')
+    env.reset()
+end
+
+-- REPAIR FIRST, so saved damage survives a fixVehicle apply.
+do
+    local env = vehEnv()
+    SetVehicleProperties(9, { tyres = { [0] = 2 }, bodyHealth = 500 }, true)
+    local fixAt, burstAt
+    for i, c in ipairs(env.calls) do
+        if c.name == 'SetVehicleFixed' then fixAt = i end
+        if c.name == 'SetVehicleTyreBurst' then burstAt = i end
+    end
+    check(fixAt and burstAt and fixAt < burstAt,
+        ('vehicle: SetVehicleFixed runs BEFORE the saved damage, not after it (fix=%s burst=%s)')
+            :format(tostring(fixAt), tostring(burstAt)))
+    env.reset()
+end
+
+-- NETWORK CONTROL. A networked vehicle this client does not control is not
+-- written: control is requested and the caller is told why.
+do
+    local env = vehEnv()
+    function NetworkGetEntityIsNetworked() return true end
+    function NetworkHasControlOfEntity() return false end
+    local ok, why = SetVehicleProperties(9, { plate = 'NOPE' })
+    check(ok == false and type(why) == 'string' and why:find('control', 1, true),
+        ('vehicle: no control answers false and a reason (got %s, %s)'):format(tostring(ok), tostring(why)))
+    check(#env.called('NetworkRequestControlOfEntity') == 1, 'vehicle: and control is requested')
+    check(#env.called('SetVehicleNumberPlateText') == 0, 'vehicle: and nothing is written')
+    function NetworkHasControlOfEntity() return true end
+    check(SetVehicleProperties(9, { plate = 'YES' }) == true, 'vehicle: with control it applies and answers true')
+    env.reset()
+end
+
+-- GetClosestVehicle IS NOT REPLACED, and the export finds a parked vehicle.
+do
+    local env = newEnv({})
+    local native = function() return 'native' end
+    GetClosestVehicle = native
+    env.save('GetGamePool')
+    env.save('GetOffsetFromEntityInWorldCoords')
+    env.save('StartExpensiveSynchronousShapeTestLosProbe')
+    env.save('GetShapeTestResult')
+    env.save('GetEntityType')
+    local pos = { [1] = { x = 0.0, y = 0.0, z = 0.0 }, [300] = { x = 3.0, y = 0.0, z = 0.0 }, [301] = { x = 4.0, y = 0.0, z = 0.0 } }
+    function GetEntityCoords(e) return pos[e] end
+    function GetOffsetFromEntityInWorldCoords() return { x = 0.0, y = 5.0, z = 0.0 } end
+    local probe
+    function StartExpensiveSynchronousShapeTestLosProbe(...)
+        probe = table.pack(...)
+        return 1
+    end
+    function GetShapeTestResult() return 2, 0, { x = 0, y = 0, z = 0 }, { x = 0, y = 0, z = 0 }, 0 end
+    function GetEntityType() return 0 end
+    function GetGamePool(name)
+        assert(name == 'CVehicle', 'GetGamePool: unknown pool ' .. tostring(name))
+        return { 301, 300 }
+    end
+    loadModule('client/vehicle.lua')
+    check(GetClosestVehicle == native, 'vehicle: loading cis_libs does not replace the GetClosestVehicle native')
+    local got = exports.GetClosestVehicle()
+    check(got == 300, ('vehicle: the export walks the vehicle pool for the nearest (got %s)'):format(tostring(got)))
+    check(probe and probe.n == 9 and type(probe[1]) == 'number' and type(probe[6]) == 'number',
+        'vehicle: the aim probe is given six floats, not two vectors')
     env.reset()
 end
 
@@ -1655,7 +2048,15 @@ do
     check(warningsAbout('already registered by') > after,
         'H5: and a DIFFERENT requester colliding with the same name is reported once')
 
-    check(exports.RemoveZone('shop') == true, 'remove() works on the surviving zone')
+    -- ONLY THE OWNER REMOVES. res_c is still the caller here, and a name is a
+    -- guessable string: without the check it removes res_a's zone and fires
+    -- res_a's onExit.
+    local stolen, stolenWhy = exports.RemoveZone('shop')
+    check(stolen == false and type(stolenWhy) == 'string' and stolenWhy:find('res_a', 1, true),
+        ('remove() by a resource that does not own the zone is refused (got %s, %s)')
+            :format(tostring(stolen), tostring(stolenWhy)))
+    env.invoking = 'res_a'
+    check(exports.RemoveZone('shop') == true, 'remove() works on the surviving zone, for its owner')
     env.reset()
 end
 
@@ -1715,6 +2116,20 @@ do
     check(createdT == 2,
         ('the provider was asked exactly twice (A initial, A update), '
             .. 'never for the refused one (asked %d)'):format(createdT))
+
+    -- ONLY THE OWNER REMOVES OR UPDATES. res_b still cannot reach res_a's
+    -- target by name, and the provider is never asked to.
+    env.invoking = 'res_b'
+    local rmB, rmWhy = env.EXPORTS.RemoveTarget('t')
+    check(rmB == false and tostring(rmWhy):find('res_a', 1, true) ~= nil,
+        ('RemoveTarget by another resource is refused (got %s, %s)'):format(tostring(rmB), tostring(rmWhy)))
+    local upB = env.EXPORTS.UpdateTarget('t', {})
+    check(upB == false, 'UpdateTarget by another resource is refused')
+    check(#removed == 0, ('and the provider was never asked to remove it (removed=%d)'):format(#removed))
+    check(env.EXPORTS.TargetExists('t') == true, 'the target still exists')
+    env.invoking = 'res_a'
+    check(env.EXPORTS.UpdateTarget('t', {}) == true, 'its owner can update it')
+    check(env.EXPORTS.RemoveTarget('t') == true, 'and remove it')
     env.reset()
 end
 
@@ -1922,6 +2337,26 @@ do
     _G.World3dToScreen2d = function()
         return true, 0.5, 0.5
     end
+    -- BEGIN_TEXT_COMMAND_DISPLAY_TEXT TAKES A GXT LABEL. 'STRING' is the label that
+    -- renders its components verbatim; anything else here is the caller's text
+    -- being used as a label, which draws nothing in game.
+    _G.BeginTextCommandDisplayText = function(label)
+        env.called[#env.called + 1] = 'BeginTextCommandDisplayText'
+        env.label = label
+        if label ~= 'STRING' then
+            error(('BeginTextCommandDisplayText wants the STRING label, got %q'):format(tostring(label)), 2)
+        end
+    end
+    env.components = {}
+    _G.AddTextComponentSubstringPlayerName = function(text)
+        env.components[#env.components + 1] = text
+    end
+    -- The natives CisCreatePed and CisGetDistanceBetweenCoords must leave alone.
+    local nativeCreatePed = function() return 4242 end
+    local nativeDistance = function() return 'native' end
+    env.save('GetDistanceBetweenCoords')
+    CreatePed = nativeCreatePed
+    GetDistanceBetweenCoords = nativeDistance
     -- vec2/vector3 are CfxLua builtins this VM does not have. `vector3` is
     -- already stubbed by newEnv; vec2 was not, which is why the first version of
     -- this test failed on a NATIVE and looked like the fix had not worked.
@@ -1947,6 +2382,21 @@ do
     check(called('EndTextCommandDisplayText'),
         '3.4: and positions it with EndTextCommandDisplayText -- Command, not '
             .. 'Component, and there is no DrawText native at all')
+    check(env.label == 'STRING' and env.components[1] == 'harness',
+        ('3.4: the label is STRING and the text is a substring component (label=%s component=%s)')
+            :format(tostring(env.label), tostring(env.components[1])))
+
+    -- NO NATIVE IS REBOUND. Both used to be replaced for every file in cis_libs.
+    check(CreatePed == nativeCreatePed, 'utils: loading cis_libs does not replace the CreatePed native')
+    check(GetDistanceBetweenCoords == nativeDistance,
+        'utils: nor the GetDistanceBetweenCoords native')
+    local flat = exports.GetDistanceBetweenCoords(0, 0, 0, 3, 4, 100, false)
+    check(flat == 5, ('utils: the distance export honours useZ = false (got %s)'):format(tostring(flat)))
+    local full = exports.GetDistanceBetweenCoords(0, 0, 0, 0, 3, 4)
+    check(full == 5, ('utils: and is 3D by default (got %s)'):format(tostring(full)))
+    -- A ped with no coords is refused with the documented 0, not a raise.
+    local okPed, ped = pcall(exports.CreatePed, 'a_m_y_skater_01', nil, 0.0)
+    check(okPed and ped == 0, ('utils: CreatePed with nil coords answers 0 (got %s, %s)'):format(tostring(okPed), tostring(ped)))
     env.reset()
 end
 
@@ -2120,6 +2570,134 @@ do
     check(drawing() == true,
         '3.4b: and the refused zone did not disturb the thread')
 
+    env.reset()
+end
+
+-- WHAT THE DEBUG THREAD DRAWS, against DRAW_MARKER's and DRAW_LINE's real
+-- parameter lists. The stubs refuse a call whose scale or colour slots hold the
+-- wrong thing, which is how the sphere's shifted arguments went unseen.
+do
+    local env = zoneEnv()
+    env.lines, env.markers = {}, {}
+    function DrawLine(...)
+        local a = table.pack(...)
+        assert(a.n == 10, 'DrawLine takes 10 arguments')
+        env.lines[#env.lines + 1] = a
+    end
+    function DrawMarker(...)
+        local a = table.pack(...)
+        -- type, pos(3), dir(3), rot(3), scale(3), r, g, b, a, bob, face, p19,
+        -- rotate, dict, name, drawOnEnts.
+        assert(a.n == 24, ('DrawMarker takes 24 arguments, got %d'):format(a.n))
+        for i = 14, 17 do
+            assert(math.type(a[i]) == 'integer' and a[i] >= 0 and a[i] <= 255,
+                ('DrawMarker colour slot %d must be an integer 0..255'):format(i))
+        end
+        env.markers[#env.markers + 1] = a
+    end
+    Cis.player.coords = function() return vector3(0.0, 0.0, 0.0) end
+
+    exports.CreateZone('sphere', 'ball', { x = 0.0, y = 0.0, z = 0.0 }, 4.0, { debug = true })
+    env.tick(1)
+    local m = env.markers[1]
+    check(m ~= nil and m[11] == 4.0 and m[12] == 4.0 and m[13] == 4.0,
+        ('3.4b: a debug sphere is drawn with scale = radius on all three axes (got %s,%s,%s)')
+            :format(tostring(m and m[11]), tostring(m and m[12]), tostring(m and m[13])))
+    exports.RemoveZone('ball')
+
+    -- A ROTATED BOX IS DRAWN ROTATED. A 10 x 2 box turned 90 degrees has a corner
+    -- at (1, 5), and the unrotated outline never touches it.
+    env.lines = {}
+    exports.CreateZone('box', 'turned', { x = 0.0, y = 0.0, z = 0.0 },
+        { x = 10.0, y = 2.0, z = 2.0 }, { debug = true, heading = 90.0 })
+    env.tick(1)
+    local sawCorner = false
+    for _, l in ipairs(env.lines) do
+        if math.abs(l[1] - 1.0) < 0.01 and math.abs(l[2] - 5.0) < 0.01 then sawCorner = true end
+    end
+    check(#env.lines > 0 and sawCorner,
+        ('3.4b: a rotated box outline follows its heading (lines=%d)'):format(#env.lines))
+    exports.RemoveZone('turned')
+
+    -- AND ONLY NEAR THE PLAYER.
+    env.lines = {}
+    exports.CreateZone('box', 'faraway', { x = 3000.0, y = 0.0, z = 0.0 },
+        { x = 4.0, y = 4.0, z = 4.0 }, { debug = true })
+    env.tick(1)
+    check(#env.lines == 0, ('3.4b: a debug zone across the map is not drawn (lines=%d)'):format(#env.lines))
+    env.reset()
+end
+
+-- A ROTATED BOX MUST BE ENTERABLE IN ITS CORNERS. The index box used the
+-- unrotated half-extents, so a 20 x 2 box turned 45 degrees indexed y within
+-- +-1.5 m while its far end reaches y = 6.4: standing there was never a
+-- candidate, so it never fired.
+do
+    local env = zoneEnv()
+    local entered = 0
+    exports.CreateZone('box', 'diag', { x = 0.0, y = 0.0, z = 0.0 },
+        { x = 20.0, y = 2.0, z = 4.0 }, { heading = 45.0, onEnter = function() entered = entered + 1 end })
+    Cis.player.coords = function() return vector3(6.0, 6.0, 0.0) end
+    check(exports.ZoneContains('diag', { x = 6.0, y = 6.0, z = 0.0 }) == true,
+        'rotated box: (6, 6) is inside a 20 x 2 box turned 45 degrees')
+    local SENT = {}
+    local n = 0
+    local realWait = Wait
+    Wait = function(ms) env.clock = env.clock + (tonumber(ms) or 0); n = n + 1; if n >= 2 then error(SENT, 0) end end
+    local ok, err = pcall(env.threads[1])
+    Wait = realWait
+    if not ok and err ~= SENT then error(err, 0) end
+    check(entered == 1, ('rotated box: a player in its far end is found by the pass (onEnter=%d)'):format(entered))
+    env.reset()
+end
+
+-- THE ZONE LOOP NEVER GIVES UP ON READINESS. `wait(15000)` answering false used
+-- to `return` from the thread: initialize.lua marks ready at the same 15 s, so
+-- losing that race ended zones for the session.
+do
+    local env = zoneEnv()
+    local calls = 0
+    CisReadyState = {
+        wait = function() calls = calls + 1; return calls > 1 end,
+        ready = false,
+    }
+    local entered = 0
+    exports.CreateZone('box', 'late', { x = 0.0, y = 0.0, z = 0.0 },
+        { x = 10.0, y = 10.0, z = 10.0 }, { onEnter = function() entered = entered + 1 end })
+    Cis.player.coords = function() return vector3(0.0, 0.0, 0.0) end
+    local SENT = {}
+    local realWait = Wait
+    Wait = function(ms) env.clock = env.clock + (tonumber(ms) or 0); error(SENT, 0) end
+    local ok, err = pcall(env.threads[1])
+    Wait = realWait
+    if not ok and err ~= SENT then error(err, 0) end
+    check(calls >= 2 and entered == 1,
+        ('a zone loop whose first ready wait timed out keeps waiting and then runs (waits=%d onEnter=%d)')
+            :format(calls, entered))
+    env.reset()
+end
+
+-- A PASS DOES NOT BUILD DEBUG STATE: no sort, and the list is right when asked.
+do
+    local env = zoneEnv()
+    Cis.player.coords = function() return vector3(0.0, 0.0, 0.0) end
+    exports.CreateZone('box', 'b1', { x = 0.0, y = 0.0, z = 0.0 }, { x = 10.0, y = 10.0, z = 10.0 }, {})
+    exports.CreateZone('box', 'a1', { x = 0.0, y = 0.0, z = 0.0 }, { x = 10.0, y = 10.0, z = 10.0 }, {})
+    local realSort = table.sort
+    local sorts = 0
+    table.sort = function(...) sorts = sorts + 1; return realSort(...) end
+    local SENT = {}
+    local n = 0
+    local realWait = Wait
+    Wait = function(ms) env.clock = env.clock + 200; n = n + 1; if n >= 3 then error(SENT, 0) end end
+    local ok, err = pcall(env.threads[1])
+    Wait = realWait
+    table.sort = realSort
+    if not ok and err ~= SENT then error(err, 0) end
+    check(sorts == 0, ('a zone pass performs no sort (sorts=%d)'):format(sorts))
+    local dbg = exports.GetZoneDebug()
+    check(dbg.insideCount == 2 and dbg.insideNames[1] == 'a1' and dbg.insideNames[2] == 'b1',
+        ('and GetZoneDebug still lists what the player is inside, sorted (count=%s)'):format(tostring(dbg.insideCount)))
     env.reset()
 end
 
@@ -2635,20 +3213,26 @@ end
 -- point the player steps away from is never re-tested. The failures looked like
 -- a broken exit path; the exit path was fine and the harness was standing still
 -- in a way the player is not.
+local POINT_PASS_DONE = {}
 local function pointPass(env, advanceMs)
     local tick = env.threads[1]
     if not tick then
         return nil, 'client/points.lua started no thread'
     end
+    -- ONE PASS, then out through a private sentinel at the pass's Wait. The thread
+    -- is a `while true` loop; this harness used to rely on it returning after one
+    -- Wait, which is exactly the defect (the loop ran once and died) it hid.
+    -- The clock moves at least RECHECK_MS (200) so the next pass is a later pass.
     local realWait = Wait
     local waited = 0
     Wait = function(ms)
         waited = waited + 1
-        env.clock = env.clock + (tonumber(ms) or 0)
+        env.clock = env.clock + math.max(tonumber(ms) or 0, advanceMs or 200)
+        error(POINT_PASS_DONE, 0)
     end
     local ok, err = pcall(tick)
     Wait = realWait
-    if not ok then
+    if not ok and err ~= POINT_PASS_DONE then
         return nil, tostring(err)
     end
     return waited
@@ -2860,6 +3444,142 @@ do
     env.reset()
 end
 
+-- THE PASS IS A LOOP. The thread called `Wait(tick())` once and fell off the
+-- end, so the first pass was the only pass: a point the player walked into on
+-- the second pass or later never fired. Driven here for several wakeups of ONE
+-- thread, with the player arriving only after the first.
+do
+    local env = pointEnv()
+    local entered = 0
+    exports.CreatePoint({
+        coords = { x = 50.0, y = 0.0, z = 0.0 }, distance = 3.0,
+        onEnter = function() entered = entered + 1 end,
+    })
+    env.coords = { x = 0.0, y = 0.0, z = 0.0 }
+    local SENT = {}
+    local waits = 0
+    local realWait = Wait
+    Wait = function(ms)
+        waits = waits + 1
+        env.clock = env.clock + math.max(tonumber(ms) or 0, 1)
+        if waits == 2 then env.coords = { x = 50.0, y = 0.0, z = 0.0 } end
+        if waits >= 6 then error(SENT, 0) end
+    end
+    local ok, err = pcall(env.threads[1])
+    Wait = realWait
+    check((ok or err == SENT) and waits >= 6,
+        ('7.1: the points thread keeps looping after its first pass (waits=%d, err=%s)')
+            :format(waits, tostring(not ok and err ~= SENT and err or nil)))
+    check(entered == 1,
+        ('7.1: a player who arrives AFTER the first pass is found (onEnter=%d)'):format(entered))
+    env.reset()
+end
+
+-- A HANDLER FROM ANOTHER RESOURCE IS A FUNCREF TABLE, and it must fire.
+do
+    local env = pointEnv()
+    local fired = { enter = 0, nearby = 0, exit = 0 }
+    exports.CreatePoint({
+        coords = { x = 0.0, y = 0.0, z = 0.0 }, distance = 5.0,
+        onEnter = funcref(function() fired.enter = fired.enter + 1 end),
+        nearby = funcref(function() fired.nearby = fired.nearby + 1 end),
+        onExit = funcref(function() fired.exit = fired.exit + 1 end),
+    })
+    pointPass(env)
+    env.coords = { x = 100.0, y = 0.0, z = 0.0 }
+    pointPass(env)
+    check(fired.enter == 1 and fired.nearby >= 1 and fired.exit == 1,
+        ('7.1: funcref onEnter/nearby/onExit all fire (enter=%d nearby=%d exit=%d)')
+            :format(fired.enter, fired.nearby, fired.exit))
+    env.reset()
+end
+
+-- `nearbyEvent` WAS ACCEPTED AND NEVER FIRED. It is the only way a server-side
+-- consumer can observe a point it is standing in, and it is clamped to 250 ms
+-- for the reason zone `insideEvent` is: it is a server event.
+do
+    local env = pointEnv()
+    exports.CreatePoint({
+        coords = { x = 0.0, y = 0.0, z = 0.0 }, distance = 5.0,
+        nearbyEvent = 'my_res:nearPoint', nearbyInterval = 0,
+    })
+    -- One second of the real loop.
+    local SENT = {}
+    local realWait = Wait
+    Wait = function(ms)
+        env.clock = env.clock + math.max(tonumber(ms) or 0, 1)
+        if env.clock >= 1000 then error(SENT, 0) end
+    end
+    local ok, err = pcall(env.threads[1])
+    Wait = realWait
+    if not ok and err ~= SENT then error(err, 0) end
+    local fired = #env.serverEventsOf('my_res:nearPoint')
+    check(fired >= 1, ('7.1: nearbyEvent fires as a server event while inside (fired=%d)'):format(fired))
+    check(fired <= 5, ('7.1: nearbyEvent is clamped to 250 ms, not per frame (fired=%d in 1s)'):format(fired))
+    local ev = env.serverEventsOf('my_res:nearPoint')[1]
+    check(ev and type(ev.args[1]) == 'number',
+        '7.1: nearbyEvent carries the point id first, like the enter/exit events')
+    env.reset()
+end
+
+-- THE STOP SWEEP RELEASES THE STOPPING RESOURCE'S POINTS -- AND ONLY THOSE.
+-- `for id in ipairs(freed)` walked positions 1..n: stopping a resource that held
+-- one point deleted point #1, whoever owned it, and left its own point alive.
+do
+    local env = pointEnv()
+    env.save('GetInvokingResource')
+    GetInvokingResource = function() return nil end
+    local mine = exports.CreatePoint({ coords = { x = 0, y = 0, z = 0 }, distance = 5 })
+    GetInvokingResource = function() return 'res_b' end
+    local theirs = exports.CreatePoint({ coords = { x = 9, y = 0, z = 0 }, distance = 5 })
+    GetInvokingResource = function() return nil end
+    check(mine == 1 and theirs == 2, '7.1: ids 1 (cis_libs) and 2 (res_b) -- the case the bug needs')
+    env.fire('onResourceStop', 'res_b')
+    env.coords = { x = 0.0, y = 0.0, z = 0.0 }
+    local closest = exports.GetClosestPoint()
+    check(closest == mine,
+        ('7.1: stopping res_b leaves cis_libs point %s alive (closest=%s)'):format(tostring(mine), tostring(closest)))
+    check(exports.RemovePoint(theirs) == false,
+        '7.1: and res_b point is gone after its owner stopped')
+    check(exports.RemovePoint(mine) == true, '7.1: the survivor is still removable')
+    env.reset()
+end
+
+-- ONLY THE OWNER MAY REMOVE A POINT. Ids are 1, 2, 3...: without the check any
+-- resource removes every other resource's points by counting.
+do
+    local env = pointEnv()
+    env.save('GetInvokingResource')
+    GetInvokingResource = function() return 'res_a' end
+    local id = exports.CreatePoint({ coords = { x = 0, y = 0, z = 0 }, distance = 5 })
+    GetInvokingResource = function() return 'res_b' end
+    local ok, why = exports.RemovePoint(id)
+    check(ok == false and type(why) == 'string' and why:find('res_a', 1, true),
+        ('7.1: another resource cannot remove a point it does not own (got %s, %s)'):format(tostring(ok), tostring(why)))
+    GetInvokingResource = function() return 'res_a' end
+    check(exports.RemovePoint(id) == true, '7.1: the owner can')
+    env.reset()
+end
+
+-- A PASS DOES NOT BUILD DEBUG STATE. The inside list was rebuilt AND SORTED on
+-- every pass for a debug view nobody was reading; it is now built on request.
+do
+    local env = pointEnv()
+    exports.CreatePoint({ coords = { x = 0, y = 0, z = 0 }, distance = 5 })
+    exports.CreatePoint({ coords = { x = 1, y = 0, z = 0 }, distance = 5 })
+    local realSort = table.sort
+    local sorts = 0
+    table.sort = function(...) sorts = sorts + 1; return realSort(...) end
+    pointPass(env)
+    pointPass(env)
+    table.sort = realSort
+    check(sorts == 0, ('7.1: a pass performs no sort (sorts=%d)'):format(sorts))
+    local dbg = exports.GetPointsDebug()
+    check(dbg.insideCount == 2 and dbg.insideIds[1] == 1 and dbg.insideIds[2] == 2,
+        ('7.1: the debug view is still right when asked (count=%s)'):format(tostring(dbg.insideCount)))
+    env.reset()
+end
+
 -- ===================================================== 7.2 Cis.streaming
 --
 -- Seven asset kinds, one table, and four things that have to be true for each
@@ -2913,7 +3633,14 @@ local function streamEnv(opts)
     RequestStreamedTextureDict = recorder('RequestStreamedTextureDict')
     RequestWeaponAsset = recorder('RequestWeaponAsset')
     RequestScaleformMovie = recorder('RequestScaleformMovie', opts.scaleformRefused and 0 or 7)
-    RequestScriptAudioBank = recorder('RequestScriptAudioBank', opts.bankRefused and false or true)
+    -- REQUEST_SCRIPT_AUDIO_BANK IS ITS OWN POLL: false while the bank loads, true
+    -- once it is in. `bankAfter` is when it starts answering true.
+    env.bankAfter = opts.bankAfter
+    RequestScriptAudioBank = function(...)
+        env.calls[#env.calls + 1] = { name = 'RequestScriptAudioBank', args = table.pack(...) }
+        if env.never then return false end
+        return env.bankAfter == nil or env.clock >= env.bankAfter
+    end
 
     HasModelLoaded = probe('HasModelLoaded')
     HasAnimDictLoaded = probe('HasAnimDictLoaded')
@@ -2921,7 +3648,15 @@ local function streamEnv(opts)
     HasNamedPtfxAssetLoaded = probe('HasNamedPtfxAssetLoaded')
     HasStreamedTextureDictLoaded = probe('HasStreamedTextureDictLoaded')
     HasWeaponAssetLoaded = probe('HasWeaponAssetLoaded')
-    HasScaleformMovieLoaded = probe('HasScaleformMovieLoaded')
+    -- HAS_SCALEFORM_MOVIE_LOADED TAKES THE HANDLE RequestScaleformMovie returned.
+    -- Asked with a name it can never answer true in game, so here it raises.
+    local scaleformProbe = probe('HasScaleformMovieLoaded')
+    HasScaleformMovieLoaded = function(handle)
+        if handle ~= 7 then
+            error(('HasScaleformMovieLoaded takes the movie handle, got %s'):format(tostring(handle)), 2)
+        end
+        return scaleformProbe(handle)
+    end
     DoesAnimDictExist = function(name)
         env.calls[#env.calls + 1] = { name = 'DoesAnimDictExist', args = table.pack(name) }
         return not env.badAnimDict
@@ -2935,7 +3670,7 @@ local function streamEnv(opts)
     SetStreamedTextureDictAsNoLongerNeeded = recorder('SetStreamedTextureDictAsNoLongerNeeded')
     RemoveWeaponAsset = recorder('RemoveWeaponAsset')
     SetScaleformMovieAsNoLongerNeeded = recorder('SetScaleformMovieAsNoLongerNeeded')
-    ReleaseScriptAudioBank = recorder('ReleaseScriptAudioBank')
+    ReleaseNamedScriptAudioBank = recorder('ReleaseNamedScriptAudioBank')
 
     GetNumberOfStreamingRequests = function() return 3 end
     HaveAllStreamingRequestsCompleted = function() return true end
@@ -2978,7 +3713,7 @@ do
         { call = 'TextureDict', asset = 'mpbigteams', request = 'RequestStreamedTextureDict', release = 'SetStreamedTextureDictAsNoLongerNeeded' },
         { call = 'WeaponAsset', asset = 0x1F45D307, request = 'RequestWeaponAsset', release = 'RemoveWeaponAsset' },
         { call = 'Scaleform', asset = 'bossmp', request = 'RequestScaleformMovie', release = 'SetScaleformMovieAsNoLongerNeeded' },
-        { call = 'AudioBank', asset = 'ambient_bank_indoor', request = 'RequestScriptAudioBank', release = 'ReleaseScriptAudioBank' },
+        { call = 'AudioBank', asset = 'ambient_bank_indoor', request = 'RequestScriptAudioBank', release = 'ReleaseNamedScriptAudioBank' },
     }
 
     -- A VALID REQUEST, for every kind. `loadedAfter = 50` rather than 0,
@@ -3004,7 +3739,9 @@ do
     -- re-request on a resident asset is what pushes a server towards "too many
     -- loaded assets".
     for _, k in ipairs(KINDS) do
-        if k.call ~= 'AudioBank' then
+        -- Not a scaleform (its probe takes a handle, which only a request makes)
+        -- and not an audio bank (its request IS the probe).
+        if k.call ~= 'AudioBank' and k.call ~= 'Scaleform' then
             local env = streamEnv({ loadedAfter = 0 })
             local got = exports[k.call](k.asset, 1000)
             check(got ~= nil, ('7.2: %s answers immediately when already resident'):format(k.call))
@@ -3017,7 +3754,8 @@ do
     -- A TIMED-OUT REQUEST, for every kind that waits. This is the branch the
     -- whole file exists for, so it is asserted per kind and not once.
     for _, k in ipairs(KINDS) do
-        if k.call ~= 'AudioBank' then
+        -- Every kind, the audio bank included: it is polled to a deadline too.
+        do
             local env = streamEnv({ never = true })
             local got, why = exports[k.call](k.asset, 100)
             check(got == nil and type(why) == 'string' and why:find('did not load'),
@@ -3060,9 +3798,32 @@ do
         local env = streamEnv({})
         local before = env.clock
         local got = exports.AudioBank('ambient_bank_indoor', 5000)
-        check(got ~= nil, '7.2: an audio bank is accepted and answers immediately')
+        check(got ~= nil, '7.2: an audio bank that is already in answers immediately')
         check(env.clock == before,
             ('7.2: an audio bank does NOT wait (the clock moved %dms)'):format(env.clock - before))
+        env.reset()
+    end
+
+    -- ONE false FROM RequestScriptAudioBank IS "NOT YET". The bank answers false
+    -- while it loads; treating the first false as a refusal failed every bank
+    -- that was not already resident.
+    do
+        local env = streamEnv({ bankAfter = 200 })
+        local got, why = exports.AudioBank('ambient_bank_indoor', 5000)
+        check(got == 'ambient_bank_indoor',
+            ('7.2: an audio bank still loading is asked again until it answers true (got %s, %s)')
+                :format(tostring(got), tostring(why)))
+        check(env.countOf('RequestScriptAudioBank') >= 3,
+            ('7.2: the request is repeated (calls=%d)'):format(env.countOf('RequestScriptAudioBank')))
+        env.reset()
+    end
+
+    -- A scaleform is polled by its HANDLE and answers it in slot two.
+    do
+        local env = streamEnv({ loadedAfter = 50 })
+        local got, handle = exports.Scaleform('bossmp', 1000)
+        check(got == 'bossmp' and handle == 7,
+            ('7.2: a scaleform answers its name and the movie handle (got %s, %s)'):format(tostring(got), tostring(handle)))
         env.reset()
     end
 
@@ -3163,8 +3924,14 @@ local function worldEnv()
         [103] = { x = 30.0, y = 0.0, z = 0.0, alive = true },
         [104] = { x = 5.0, y = 0.0, z = 0.0, alive = false },
     }
-    env.pools = { CPoolablePed = {}, CPoolableVehicle = {}, CPoolableObject = {} }
+    -- THE REAL POOL NAMES. These were `CPoolablePed` and friends, matching the
+    -- library's own wrong names, so the suite certified queries that find nothing
+    -- in game. GET_GAME_POOL knows CPed, CVehicle, CObject and CPickup.
+    env.pools = { CPed = {}, CVehicle = {}, CObject = {}, CPickup = {} }
     env.activePlayers = { 0, 1 }
+    -- PlayerId() is 0 in the base harness, so player 0 / ped 201 is the local
+    -- player.
+    env.ped = 201
     env.playerPeds = { [0] = 201, [1] = 202 }
     env.playerPedCoords = {
         [201] = { x = 8.0, y = 0.0, z = 0.0 },
@@ -3181,7 +3948,10 @@ local function worldEnv()
         return env.entities[e] or env.playerPedCoords[e]
     end
     function GetGamePool(name)
-        local pool = env.pools[name] or {}
+        -- A name the game does not know is a test failure, not an empty pool: the
+        -- empty answer is exactly how the wrong names went unnoticed.
+        local pool = env.pools[name]
+        if pool == nil then error(('GetGamePool: no pool named %s'):format(tostring(name)), 2) end
         local snapshot = {}
         for i = 1, #pool do snapshot[i] = pool[i] end
         return snapshot
@@ -3190,6 +3960,7 @@ local function worldEnv()
     function GetPlayerPed(i) return env.playerPeds[i] end
     function GetPlayers() return { '1', '2' } end
     function IsDuplicityVersion() return false end
+    function IsPedAPlayer(ped) return env.playerPedCoords[ped] ~= nil end
 
     loadModule('client/world.lua')
     return env
@@ -3198,9 +3969,10 @@ end
 -- Written out so a kind that stops being scanned shows up as a missing key
 -- rather than as a silently shorter list.
 local function seed(env)
-    env.pools.CPoolablePed = { 101, 102, 103, 104 }
-    env.pools.CPoolableVehicle = { 101, 102 }
-    env.pools.CPoolableObject = { 101 }
+    -- The ped pool holds PLAYER peds too, as the real one does.
+    env.pools.CPed = { 101, 102, 103, 104, 201, 202 }
+    env.pools.CVehicle = { 101, 102 }
+    env.pools.CObject = { 101 }
 end
 
 do
@@ -3312,13 +4084,45 @@ end
 -- PLAYERS, whose arity differs from everything else on purpose.
 do
     local env = worldEnv(); seed(env)
+    -- YOU ARE NOT THE CLOSEST PLAYER TO YOURSELF. Player 0 (ped 201, 8 m) is the
+    -- local player; without the exclusion every caller standing anywhere got
+    -- themselves back.
     local ped, coords, playerId = exports.ClosestPlayer({ x = 0.0, y = 0.0, z = 0.0 }, 100)
-    check(ped == 201, ('7.3: closestPlayer answers the PED (got %s)'):format(tostring(ped)))
+    check(ped == 202, ('7.3: closestPlayer answers ANOTHER player ped, never your own (got %s)'):format(tostring(ped)))
     check(coords ~= nil, '7.3: closestPlayer answers the coords')
-    check(playerId ~= nil, ('7.3: closestPlayer answers WHICH player in slot 3 (got %s)'):format(tostring(playerId)))
+    check(playerId == 1, ('7.3: closestPlayer answers WHICH player in slot 3 (got %s)'):format(tostring(playerId)))
+    local mine = exports.ClosestPlayer({ x = 0.0, y = 0.0, z = 0.0 }, 100, nil, { includeSelf = true })
+    check(mine == 201, ('7.3: includeSelf puts the local player back (got %s)'):format(tostring(mine)))
     local list = exports.NearbyPlayers({ x = 0.0, y = 0.0, z = 0.0 }, 100)
-    check(type(list) == 'table' and #list == 2,
-        ('7.3: nearbyPlayers lists every connected player (got %s)'):format(tostring(list and #list)))
+    check(type(list) == 'table' and #list == 1 and list[1].player == 1,
+        ('7.3: nearbyPlayers lists every OTHER connected player (got %s)'):format(tostring(list and #list)))
+    local all = exports.NearbyPlayers({ x = 0.0, y = 0.0, z = 0.0 }, 100, nil, { includeSelf = true })
+    check(#all == 2, ('7.3: and includeSelf lists all of them (got %d)'):format(#all))
+    env.reset()
+end
+
+-- A PED QUERY MEANS NPCs. Player peds sit in the same pool, so without the
+-- exclusion `closestPed` near another player answered that player.
+do
+    local env = worldEnv(); seed(env)
+    local near = exports.NearbyPeds({ x = 0.0, y = 0.0, z = 0.0 }, 100)
+    local sawPlayer = false
+    for _, e in ipairs(near) do
+        if e.entity == 201 or e.entity == 202 then sawPlayer = true end
+    end
+    check(not sawPlayer and #near == 3, ('7.3: nearbyPeds excludes player peds (got %d entries)'):format(#near))
+    local withPlayers = exports.NearbyPeds({ x = 0.0, y = 0.0, z = 0.0 }, 100, nil, { includePlayers = true })
+    check(#withPlayers == 4, ('7.3: includePlayers adds OTHER players, not yourself (got %d)'):format(#withPlayers))
+    env.reset()
+end
+
+-- A FILTER FROM ANOTHER RESOURCE IS A FUNCREF TABLE, and it must filter.
+do
+    local env = worldEnv(); seed(env)
+    local got = exports.ClosestPed({ x = 0.0, y = 0.0, z = 0.0 }, 100, funcref(function(entity)
+        return entity ~= 101
+    end))
+    check(got == 102, ('7.3: a funcref filter is applied (got %s)'):format(tostring(got)))
     env.reset()
 end
 
@@ -3339,9 +4143,89 @@ do
     env.reset()
 end
 
+-- ===================================================== initialize: server-only events
+--
+-- A RegisterNetEvent handler is also reachable by a local TriggerEvent from any
+-- client resource; the runtime sets `source` to '' for that and to 65535 for
+-- one from the server. Only the second may rewrite the config or notify.
+do
+    local env = newEnv({})
+    env.save('CisLibReady')
+    env.save('CisLibFailed')
+    env.save('CisReadyState')
+    env.save('BeginTextCommandThefeedPost')
+    env.save('AddTextComponentSubstringPlayerName')
+    env.save('EndTextCommandThefeedPostTicker')
+    CisReadyState = { ready = false, failed = false, markReady = function() CisReadyState.ready = true end,
+        wait = function() return true end }
+    Config = CisDefaults.config()
+    local notified = {}
+    function BeginTextCommandThefeedPost() end
+    function AddTextComponentSubstringPlayerName(t) notified[#notified + 1] = t end
+    function EndTextCommandThefeedPostTicker() end
+    loadModule('client/initialize.lua')
+    local before = Config.CallbackTimeout
+    env.net('cis_libs:client:getData', '', { Config = { CallbackTimeout = 1234 } })
+    check(Config.CallbackTimeout == before and CisReadyState.ready == false,
+        ('initialize: a LOCAL TriggerEvent of getData (source \'\') is ignored (timeout=%s)')
+            :format(tostring(Config.CallbackTimeout)))
+    env.net('cis_libs:client:showNotification', '', 'forged')
+    check(#notified == 0, 'initialize: a local showNotification is ignored')
+    env.net('cis_libs:client:getData', 65535, { Config = { CallbackTimeout = 1234 } })
+    check(Config.CallbackTimeout == 1234 and CisReadyState.ready == true,
+        ('initialize: the server\'s getData (source 65535) is applied (timeout=%s)'):format(tostring(Config.CallbackTimeout)))
+    env.net('cis_libs:client:showNotification', 65535, 'real')
+    check(notified[1] == 'real', 'initialize: and the server\'s notification is shown')
+    env.reset()
+end
+
+-- ===================================================== weapon attachments
+--
+-- The attachment list used to be 24 generic COMPONENT_AT_* names, so a pistol's
+-- extended clip or a finish was never reported. The game decides which
+-- components a weapon takes; the stub answers that question for a pistol.
+do
+    local env = newEnv({})
+    local takesAsked = 0
+    local pistol = joaat('WEAPON_PISTOL')
+    local takes = {
+        [joaat('COMPONENT_PISTOL_CLIP_02')] = true,
+        [joaat('COMPONENT_AT_PI_FLSH')] = true,
+        [joaat('COMPONENT_PISTOL_VARMOD_LUXE')] = true,
+    }
+    local has = {
+        [joaat('COMPONENT_PISTOL_CLIP_02')] = true,
+        [joaat('COMPONENT_PISTOL_VARMOD_LUXE')] = true,
+    }
+    function DoesWeaponTakeWeaponComponent(weapon, component)
+        takesAsked = takesAsked + 1
+        return weapon == pistol and takes[component] == true
+    end
+    function HasPedGotWeaponComponent(_, weapon, component)
+        assert(takes[component], 'HasPedGotWeaponComponent asked about a component the weapon cannot take')
+        return weapon == pistol and has[component] == true
+    end
+    loadModule('client/weapon.lua')
+    local got = GetWeaponAttachments(7, pistol)
+    local set = {}
+    for _, c in ipairs(got) do set[c] = true end
+    check(#got == 2 and set[joaat('COMPONENT_PISTOL_CLIP_02')] and set[joaat('COMPONENT_PISTOL_VARMOD_LUXE')],
+        ('weapon: a pistol reports its extended clip and its finish, not only AT_* parts (got %d)'):format(#got))
+    local asked = takesAsked
+    GetWeaponAttachments(7, pistol)
+    check(takesAsked == asked,
+        ('weapon: which components a weapon takes is asked once and cached (asked again %d times)')
+            :format(takesAsked - asked))
+    check(#GetWeaponAttachments(7, 0) == 0, 'weapon: no weapon has no attachments')
+    env.reset()
+end
+
 -- ===================================================== 7.4 Cis.raycast
 --
--- Bounded poll, camera forward in RADIANS, ignore default 0, LOS options 7.
+-- Bounded poll, camera forward in RADIANS, ignore defaults to the player, LOS
+-- options 7. The shape-test stub answers what the native answers: status 1
+-- while pending, 2 when done, 0 for a dead handle, and `hit` as the INTEGER
+-- 0 or 1 that CfxLua returns for a BOOL* out-parameter.
 local function raycastEnv(opts)
     opts = opts or {}
     local env = newEnv({})
@@ -3368,11 +4252,17 @@ local function raycastEnv(opts)
     end
     function GetShapeTestResultIncludingMaterial(handle)
         env.reads = env.reads + 1
-        if opts.never or env.reads <= env.pendingReads then
-            return 0
+        if opts.failed then
+            return 0, 0, nil, nil, 0, 0
         end
-        return 2, env.hit, env.endCoords, env.normal, env.material, env.entity
+        if opts.never or env.reads <= env.pendingReads then
+            return 1, 0, nil, nil, 0, 0
+        end
+        return 2, env.hit and 1 or 0, env.endCoords, env.normal, env.material, env.hit and env.entity or 0
     end
+    env.ped = 31
+    env.inVehicle = opts.inVehicle or 0
+    function GetVehiclePedIsIn() return env.inVehicle end
     loadModule('client/raycast.lua')
     return env
 end
@@ -3387,8 +4277,9 @@ do
     check(normal and normal.z == 1, '7.4: and the surface normal')
     check(material == 123, '7.4: and the material hash')
     local start = env.calls[1]
-    check(start ~= nil and start.args[8] == 0,
-        ('7.4: ignore defaults to 0, the value the native documents (got %s)'):format(tostring(start and start.args[8])))
+    check(start ~= nil and start.args[8] == 31,
+        ('7.4: ignore defaults to the player ped, so a ray does not hit its own caster (got %s)')
+            :format(tostring(start and start.args[8])))
     check(start ~= nil and start.args[9] == 7,
         ('7.4: LOS options are 7 (got %s)'):format(tostring(start and start.args[9])))
     env.reset()
@@ -3401,6 +4292,35 @@ do
     check(hit == false, ('7.4: a miss answers false, not nil (got %s)'):format(tostring(hit)))
     check(entity == nil, '7.4: a miss has no entity')
     check(coords ~= nil, '7.4: a miss still carries endCoords -- how far the ray got')
+    env.reset()
+end
+
+-- A MISS IS hit == 0, and 0 is truthy. `if hit` reported every miss as a hit.
+do
+    local env = raycastEnv({ pendingReads = 0, hit = false })
+    local hit, entity = exports.RaycastFromCoords({ x = 0, y = 0, z = 0 }, { x = 1, y = 0, z = 0 })
+    check(hit == false and entity == nil,
+        ('7.4: an integer 0 hit is a MISS (got %s, %s)'):format(tostring(hit), tostring(entity)))
+    env.reset()
+end
+
+-- STATUS 0 IS A FAILED PROBE, answered at once rather than polled to the timeout.
+do
+    local env = raycastEnv({ failed = true })
+    local hit, why = exports.RaycastFromCoords({ x = 0, y = 0, z = 0 }, { x = 1, y = 0, z = 0 }, -1, 0, 2000)
+    check(hit == nil and type(why) == 'string' and why:find('failed', 1, true) and env.clock < 100,
+        ('7.4: status 0 is a failure with a reason, not a pending probe (got %s, %s, clock=%d)')
+            :format(tostring(hit), tostring(why), env.clock))
+    env.reset()
+end
+
+-- IN A VEHICLE, the camera ray ignores the vehicle, which is what it starts behind.
+do
+    local env = raycastEnv({ pendingReads = 0, hit = false, inVehicle = 88 })
+    exports.RaycastCamera(nil, nil, 10, 2000)
+    local start = env.calls[1]
+    check(start ~= nil and start.args[8] == 88,
+        ('7.4: a camera ray from a vehicle ignores that vehicle (got %s)'):format(tostring(start and start.args[8])))
     env.reset()
 end
 
@@ -3476,6 +4396,80 @@ do
     local none, noneWhy = exports.KeybindAdd({ name = 'okname' })
     check(none == false and type(noneWhy) == 'string' and noneWhy:find('onPress', 1, true),
         '7.5: a binding with neither callback is refused')
+    env.reset()
+end
+
+-- THE CONSUMER'S VIEW: handlers are funcrefs, the handle arrives without its
+-- metatable, and the commands outlive every binding because FiveM cannot
+-- unregister one.
+do
+    local env = newEnv({})
+    env.mappings = {}
+    function RegisterKeyMapping(...)
+        env.mappings[#env.mappings + 1] = table.pack(...)
+    end
+    loadModule('client/keybind.lua')
+    env.save('GetInvokingResource')
+    GetInvokingResource = function() return 'res_a' end
+
+    local pressed = 0
+    local handle = exports.KeybindAdd({
+        name = 'cis_ref_bind',
+        onPress = funcref(function() pressed = pressed + 1 end),
+    })
+    check(type(handle) == 'table' and type(handle.id) == 'number',
+        ('7.5: a funcref onPress is accepted (got %s)'):format(tostring(handle)))
+    local id = handle and handle.id
+    env.commands['+cis_ref_bind'].fn()
+    check(pressed == 1, ('7.5: and it fires on +name (pressed=%d)'):format(pressed))
+    check(exports.KeybindIsPressed(id) == true, '7.5: KeybindIsPressed(id) answers by id')
+    env.commands['-cis_ref_bind'].fn()
+    check(exports.KeybindIsPressed(id) == false, '7.5: and clears on -name')
+
+    -- Keybinds hands out snapshots, never another resource's callbacks.
+    local list = exports.Keybinds()
+    local leaked = false
+    for _, b in ipairs(list) do
+        if b.onPress ~= nil or b.onRelease ~= nil or getmetatable(b) ~= nil then leaked = true end
+    end
+    check(#list == 1 and not leaked, '7.5: Keybinds lists bindings without their callbacks')
+
+    -- A NAME ANOTHER RESOURCE HOLDS IS REFUSED.
+    GetInvokingResource = function() return 'res_b' end
+    local stolen, why = exports.KeybindAdd({ name = 'cis_ref_bind', onPress = function() end })
+    check(stolen == false and type(why) == 'string' and why:find('res_a', 1, true),
+        ('7.5: res_b cannot take a name res_a holds (got %s, %s)'):format(tostring(stolen), tostring(why)))
+    env.commands['+cis_ref_bind'].fn()
+    check(pressed == 2, '7.5: and res_a still owns the key')
+
+    -- Id-based control is the owner's.
+    local okB = exports.KeybindDisable(id)
+    check(okB == false, '7.5: res_b cannot disable res_a binding by id')
+    GetInvokingResource = function() return 'res_a' end
+    check(exports.KeybindDisable(id) == true, '7.5: the owner can disable by id')
+    env.commands['+cis_ref_bind'].fn()
+    check(pressed == 2, '7.5: a binding disabled by id does not fire')
+    check(exports.KeybindEnable(id) == true, '7.5: and re-enable by id')
+    env.commands['+cis_ref_bind'].fn()
+    check(pressed == 3, '7.5: and it fires again')
+
+    -- REMOVE MAKES THE COMMAND INERT. The command cannot be unregistered, so the
+    -- closure must find nothing to call -- not a live flag and a dead funcref.
+    check(exports.KeybindRemove(id) == true, '7.5: the owner can remove by id')
+    env.commands['+cis_ref_bind'].fn()
+    check(pressed == 3, ('7.5: a removed binding\'s command does nothing (pressed=%d)'):format(pressed))
+    check(handle.enabled == false, '7.5: and the handle says it is disabled')
+
+    -- AN OWNER'S STOP MAKES ITS BINDINGS INERT, and frees the name.
+    local stopCalls = 0
+    exports.KeybindAdd({ name = 'cis_stop_bind', onPress = funcref(function() stopCalls = stopCalls + 1 end) })
+    env.fire('onResourceStop', 'res_a')
+    local ok, err = pcall(env.commands['+cis_stop_bind'].fn)
+    check(ok and stopCalls == 0, ('7.5: a stopped owner\'s binding no longer calls its dead handler (%s, calls=%d)')
+        :format(tostring(err), stopCalls))
+    GetInvokingResource = function() return 'res_b' end
+    local reused = exports.KeybindAdd({ name = 'cis_stop_bind', onPress = function() end })
+    check(type(reused) == 'table', '7.5: the name is free for another resource once its owner stopped')
     env.reset()
 end
 
@@ -3655,6 +4649,28 @@ do
             :format(#adds))
     check(adds[1] == string.rep('x', 99) and adds[2] == 'x',
         '7.9: the split is 99 then the remainder, not a silent truncate')
+    env.reset()
+end
+
+-- A CUT NEVER SPLITS A UTF-8 CHARACTER. 98 ASCII bytes and then 'é' (two bytes)
+-- put the 99-byte boundary inside the 'é'; a fixed cut renders garbage on both
+-- sides of it.
+do
+    local env = uiEnv()
+    local text = string.rep('x', 98) .. '\195\169' .. string.rep('y', 5) .. '\226\130\172'
+    exports.UiNotify(text)
+    local adds = feedAdds(env)
+    local clean = true
+    for _, piece in ipairs(adds) do
+        local first, last = piece:byte(1), piece:byte(#piece)
+        if first and first >= 0x80 and first < 0xC0 then clean = false end
+        -- A piece must not END on a lead byte or mid-sequence: check it decodes.
+        if utf8.len(piece) == nil then clean = false end
+        if last and last >= 0xC0 then clean = false end
+    end
+    check(clean and table.concat(adds) == text and #adds[1] <= 99,
+        ('7.9: help/notify text is chunked on UTF-8 character boundaries (pieces=%d, first=%d bytes)')
+            :format(#adds, adds[1] and #adds[1] or -1))
     env.reset()
 end
 

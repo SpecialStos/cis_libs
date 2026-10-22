@@ -186,7 +186,7 @@ local CisModuleInfo = {}
 ---@field nearbyInterval? integer ms between nearby calls, default 200. Zero is allowed: a local function asking for every pass is legitimate
 ---@field onEnterEvent? string the net event fired on arrival, with (id, x, y, z). The id lets one handler watch several points
 ---@field onExitEvent? string the net event fired on departure, with (id, x, y, z)
----@field nearbyEvent? string the net event fired inside, with (id, x, y, z). Aimed at the server this is a rate-limited budget, and there is no floor on it the way a zone insideEvent has
+---@field nearbyEvent? string the net event fired inside every nearbyInterval, with (id, x, y, z). Aimed at the server, so nearbyInterval is clamped to at least 250 ms when it is set -- the same floor a zone insideEvent has
 local CisPointOptions = {}
 
 ---@class CisPointsDebug
@@ -365,7 +365,7 @@ local CisTime = {}
 local CisValidate = {}
 
 ---@class CisVehicleProps
--- GetVehicleProperties and SetVehicleProperties. A PARTIAL table is safe to set: absent keys are left alone rather than zeroed, which is the opposite of most setters. Set also answers whether THIS CLIENT is allowed to modify the vehicle at all.
+-- GetVehicleProperties and SetVehicleProperties, field-compatible with ox_lib getVehicleProperties (same names and meanings), plus lockState and livery. A PARTIAL table is safe to set: absent keys are left alone rather than zeroed. The mod slots (modSpoilers 0 through modLightbar 49, including modDoorR 47) are integers as GetVehicleMod answers them.
 ---@field model? integer written by get, never read by set -- passing it is a no-op
 ---@field plate? string the number plate text
 ---@field plateIndex? integer the plate index
@@ -377,8 +377,8 @@ local CisValidate = {}
 ---@field fuelLevel? number 0.0 to 1.0
 ---@field oilLevel? number 0.0 to 1.0
 ---@field dirtLevel? number 0.0 to 15.0
----@field paintType1? integer a modifier on the custom-RGB path
----@field paintType2? integer a modifier on the custom-RGB path
+---@field paintType1? integer the primary finish (0 normal, 1 metallic, 2 pearl, 3 matte, 4 metal, 5 chrome); applied before the colour on both the palette and the custom-RGB path
+---@field paintType2? integer the secondary finish; applied before the colour on both paths
 ---@field color1? integer|integer[] a palette number, or { r, g, b } when custom
 ---@field color2? integer|integer[] a palette number, or { r, g, b } when custom
 ---@field pearlescentColor? integer the pearlescent finish
@@ -391,20 +391,20 @@ local CisValidate = {}
 ---@field tyreSmokeColor? integer[] { r, g, b }
 ---@field windows? integer[] an index array of broken window ids 0-7
 ---@field doors? integer[] an index array of broken door ids 0-5
----@field tyres? table<integer, integer> id -> 1 burst and 2 un-burst
+---@field tyres? table<integer, integer> tyre index (0-7, and 45 / 47 for a six-wheeled trailer) -> 1 burst, 2 burst to the rim
 ---@field modTurbo? boolean toggle mod 18
 ---@field modSmokeEnabled? boolean toggle mod 20
 ---@field modHydraulics? boolean toggle mod 21
 ---@field modXenon? boolean toggle mod 22
 ---@field modLivery? integer mod 48 plus SetVehicleLivery
 ---@field modRoofLivery? integer a second livery
----@field bulletProofTyres? boolean the bulletproof flag
+---@field bulletProofTyres? boolean true when the tyres CANNOT burst -- `not GetVehicleTyresCanBurst`, as ox_lib and qb store it
 ---@field driftTyres? boolean applied only when the game build is 2372 or later, and the gate is in the code rather than in the type
----@field interiorColor? integer written by get, never read by set
----@field dashboardColor? integer written by get, never read by set
----@field wheelWidth? integer written by get, never read by set
----@field wheelSize? integer written by get, never read by set
----@field xenonColor? integer written by get, never read by set
+---@field interiorColor? integer GetVehicleInteriorColor / SetVehicleInteriorColor
+---@field dashboardColor? integer GetVehicleDashboardColour / SetVehicleDashboardColor
+---@field wheelWidth? number applied after the wheel mods: the native only takes on non-default rims
+---@field wheelSize? number applied after the wheel mods: the native only takes on non-default rims
+---@field xenonColor? integer GetVehicleXenonLightsColor / SetVehicleXenonLightsColor
 local CisVehicleProps = {}
 
 ---@class CisWeaponData
@@ -481,7 +481,7 @@ local CisZoneDebug = {}
 ---@field rotation? number an alias for the box heading
 local CisZoneOptions = {}
 
--- ================================================= RAW EXPORTS (188)
+-- ================================================= RAW EXPORTS (193)
 
 ---@overload fun(...)
   ---@param groupData table #the group record handed to the provider's addGroup
@@ -546,7 +546,7 @@ function AnimSet(name, timeout) end
 --- Cis.streaming.audioBank(name, timeout)
 ---@param name string #the bank name
 ---@param timeout? integer #ms, default 5000
----@return string|nil, string|nil #the name once the engine has ACCEPTED the bank. RequestScriptAudioBank answers a BOOL and no HasScriptAudioBankLoaded is verified to exist, so this is acceptance and not residency, and it never waits
+---@return string|nil, string|nil #the name once RequestScriptAudioBank answers true. The native is its own poll -- false while the bank loads -- so it is called again until true or the timeout, and a timed-out bank is released by name
 --- realm: client
 function AudioBank(name, timeout) end
 
@@ -642,37 +642,41 @@ function CloseAlertDialog() end
 --- realm: client
 function CloseInputDialog() end
 
---- Cis.world.closestObject(coords, maxDistance, filter)
+--- Cis.world.closestObject(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
+---@param opts table #reserved; accepted and ignored for this kind
 ---@return integer|false, vector3|string|nil #the handle and its coords, or false plus a reason
 --- realm: client
-function ClosestObject(coords, maxDistance, filter) end
+function ClosestObject(coords, maxDistance, filter, opts) end
 
---- Cis.world.closestPed(coords, maxDistance, filter)
+--- Cis.world.closestPed(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
+---@param opts table #`{ includePlayers = true }` adds the peds of OTHER players and `{ includeSelf = true }` your own. Both off by default: the pool holds player peds too, and a ped query means NPCs
 ---@return integer|false, vector3|string|nil #the handle and its coords, or false plus a reason. A dead pool entity is never a candidate
 --- realm: client
-function ClosestPed(coords, maxDistance, filter) end
+function ClosestPed(coords, maxDistance, filter, opts) end
 
---- Cis.world.closestPlayer(coords, maxDistance, filter)
+--- Cis.world.closestPlayer(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
+---@param opts table #`{ includeSelf = true }` puts the LOCAL player back in. Off by default: the closest player to where you stand is otherwise always you, at 0 m
 ---@return integer|false, vector3|string|nil, integer|nil #the PLAYER PED and its coords, plus WHICH player in slot 3 -- the arity differs from the other three on purpose, because reading slot 2 as a player id gives a server id
 --- realm: client
-function ClosestPlayer(coords, maxDistance, filter) end
+function ClosestPlayer(coords, maxDistance, filter, opts) end
 
---- Cis.world.closestVehicle(coords, maxDistance, filter)
+--- Cis.world.closestVehicle(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
+---@param opts table #reserved; accepted and ignored for this kind
 ---@return integer|false, vector3|string|nil #the handle and its coords, or false plus a reason
 --- realm: client
-function ClosestVehicle(coords, maxDistance, filter) end
+function ClosestVehicle(coords, maxDistance, filter, opts) end
 
 --- Cis.command.add(name, { params, restricted, help }, handler)
 ---@param name string #letters, digits, underscore or hyphen only
@@ -699,9 +703,9 @@ function CommandParse(raw) end
 --- realm: server
 function CommandRemove(name) end
 
---- no proxy equivalent; returns 0 on an invalid or unloaded model
+--- no proxy equivalent; returns 0 on an invalid or unloaded model. The Lua global is CisCreatePed -- the CreatePed native keeps its own name
 ---@param model integer|string #a hash or a model name; a number passes through, anything else goes through joaat
----@param coords vector3|table #the placement, read as .x/.y/.z and unguarded
+---@param coords vector3|table #the placement, read as .x/.y/.z; nil or a table with no numeric x/y/z answers 0 before any model is requested
 ---@param heading? number #the heading, default 0.0
 ---@param options? table #the options table, defaulted to {}
 ---@return integer #the ped handle, or 0 when the model failed to load -- 0 and not nil, so callers test one shape
@@ -907,7 +911,7 @@ function GetClosestDoor() end
 --- realm: client
 function GetClosestPoint() end
 
---- no proxy equivalent; a 5 unit forward ray, then a 5 unit radius search
+--- no proxy equivalent; a 5 unit forward ray, then the nearest vehicle in the CVehicle pool within 5 units. The Lua global is CisGetClosestVehicle; the native GetClosestVehicle is left alone
 ---@return integer #the aimed-at vehicle within 5m, else the nearest within 5m, else 0 -- and 0, not nil
 --- realm: client
 function GetClosestVehicle() end
@@ -950,9 +954,10 @@ function GetDiscordQueueDepth() end
 ---@param x2 number #second point X
 ---@param y2 number #second point Y
 ---@param z2 number #second point Z
+---@param useZ? boolean #false measures on the ground plane, as the native does; omitted is 3D. The Lua global is CisGetDistanceBetweenCoords -- the native keeps its own name
 ---@return number #the straight-line distance between the two points
 --- realm: client
-function GetDistanceBetweenCoords(x1, y1, z1, x2, y2, z2) end
+function GetDistanceBetweenCoords(x1, y1, z1, x2, y2, z2, useZ) end
 
 ---@overload fun(...)
   ---@param doorId string|integer #the door id
@@ -1162,13 +1167,38 @@ function IsReady() end
 function IsTextUIOpen() end
 
 --- Cis.keybind.add({ name, description, defaultKey, onPress, onRelease })
----@param options CisKeybindOptions #name is REQUIRED and validated; onPress and onRelease are FUNCTIONS and are dropped across the exports boundary, so a consumer binding does nothing until that is understood
----@return table|false, string|nil #a handle with disable(bool), isPressed() and reset(), or false plus a reason. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so renaming a binding creates a SECOND one rather than renaming the first
+---@param options CisKeybindOptions #name is REQUIRED and validated, and refused while another resource holds it; onPress and onRelease are functions, which reach cis_libs as funcrefs and are called there. A stopped owner takes its bindings with it
+---@return table|false, string|nil #a handle with id, name and owner, or false plus a reason. Its methods (disable, isPressed, reset, destroy) work only inside cis_libs -- across exports the metatable is lost, so keep handle.id and use KeybindDisable, KeybindEnable, KeybindIsPressed and KeybindRemove. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so renaming a binding creates a SECOND one rather than renaming the first
 --- realm: client
 function KeybindAdd(options) end
 
+--- no proxy equivalent; the id-based form of handle:disable(state)
+---@param id integer #handle.id from KeybindAdd
+---@param state boolean #true or nil disables, false enables
+---@return boolean, string|nil #false plus a reason for an unknown id or a binding owned by another resource
+--- realm: client
+function KeybindDisable(id, state) end
+
+--- no proxy equivalent; KeybindDisable(id, false)
+---@param id integer #handle.id from KeybindAdd
+---@return boolean, string|nil #false plus a reason for an unknown id or a binding owned by another resource
+--- realm: client
+function KeybindEnable(id) end
+
+--- no proxy equivalent; the id-based form of handle:isPressed()
+---@param id integer #handle.id from KeybindAdd
+---@return boolean #false for an unknown or removed id
+--- realm: client
+function KeybindIsPressed(id) end
+
+--- no proxy equivalent; the id-based form of handle:destroy()
+---@param id integer #handle.id from KeybindAdd
+---@return boolean, string|nil #true once the binding is inert and its name is free. The +name/-name commands cannot be unregistered, so they stay and do nothing
+--- realm: client
+function KeybindRemove(id) end
+
 --- no proxy equivalent; every binding this library registered
----@return table[] #the live handles, so a consumer can disable its own rather than guessing at ids
+---@return table[] #snapshots { id, name, owner, command, enabled, pressed } sorted by id -- never the live handles and never anyone's callbacks
 --- realm: client
 function Keybinds() end
 
@@ -1234,37 +1264,41 @@ function LogWarn.client(message) end
 --- realm: both
 function ModuleInfo(name, opts) end
 
---- Cis.world.nearbyObjects(coords, maxDistance, filter)
+--- Cis.world.nearbyObjects(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
+---@param opts table #reserved; accepted and ignored for this kind
 ---@return CisWorldEntry[]|false, string #SORTED by distance so element 1 is the closest, and NEVER nil: nothing in range is an empty list, which is a real answer and not the same as a missing provider
 --- realm: client
-function NearbyObjects(coords, maxDistance, filter) end
+function NearbyObjects(coords, maxDistance, filter, opts) end
 
---- Cis.world.nearbyPeds(coords, maxDistance, filter)
+--- Cis.world.nearbyPeds(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
+---@param opts table #`{ includePlayers = true }` adds the peds of OTHER players and `{ includeSelf = true }` your own. Both off by default: the pool holds player peds too, and a ped query means NPCs
 ---@return CisWorldEntry[]|false, string #sorted by distance, never nil
 --- realm: client
-function NearbyPeds(coords, maxDistance, filter) end
+function NearbyPeds(coords, maxDistance, filter, opts) end
 
---- Cis.world.nearbyPlayers(coords, maxDistance, filter)
+--- Cis.world.nearbyPlayers(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
+---@param opts table #`{ includeSelf = true }` puts the LOCAL player back in. Off by default: the closest player to where you stand is otherwise always you, at 0 m
 ---@return CisWorldEntry[]|false, string #sorted by distance, never nil. Each entry carries the player id as well
 --- realm: client
-function NearbyPlayers(coords, maxDistance, filter) end
+function NearbyPlayers(coords, maxDistance, filter, opts) end
 
---- Cis.world.nearbyVehicles(coords, maxDistance, filter)
+--- Cis.world.nearbyVehicles(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
+---@param opts table #reserved; accepted and ignored for this kind
 ---@return CisWorldEntry[]|false, string #sorted by distance, never nil
 --- realm: client
-function NearbyVehicles(coords, maxDistance, filter) end
+function NearbyVehicles(coords, maxDistance, filter, opts) end
 
 ---@overload fun(...)
   ---@param src integer #a connected player id above 0; console and broadcast included, anything else refuses
@@ -1297,10 +1331,10 @@ function NotifyClient(src, message, kind) end
 --- realm: server
 function NotifyPlayer(src, data) end
 
---- Cis.player.on(key, cb). The cb cannot cross the boundary; use a net event
----@param key string #a listener key: ped, vehicle, seat, weapon, armed or aiming. NEVER type-checked here, and the same file lists the keys
----@param cb function #a non-function returns immediately with no subscription at all
----@return function|nil #the unsubscribe closure, in-realm only. A LISTENER ARGUMENT IS DROPPED across the boundary -- the teardown arrives and the listener never fires -- so gate on your own flag and drop it in onResourceStop
+--- Cis.player.on(key, cb); stop it with RemovePlayerCacheListener(id)
+---@param key string #one of aiming, armed, heading, ped, seat, shooting, vehicle, weapon. Anything else is refused with a reason. Coordinates are not a key: Cis.player.coords() is memoised per frame
+---@param cb function #`fun(current, previous)`, called under pcall on every change. A consumer function arrives as a funcref and is accepted; a stopped owner takes its listeners with it
+---@return function|nil, integer|string #the in-realm unsubscribe and the listener id, or nil plus a reason. The unsubscribe cannot be called from another resource; feed the id to RemovePlayerCacheListener. Vehicle and seat are both updated before either listener runs
 --- realm: client
 function OnPlayerCache(key, cb) end
 
@@ -1366,7 +1400,7 @@ function RateOk(src, name, windowMs, maxHits) end
 
 --- Cis.raycast.camera(flags, ignore, distance, timeoutMs)
 ---@param flags number #shape-test flags, default -1 (everything)
----@param ignore number #entity to ignore, default 0 (the native documents 0, not -1)
+---@param ignore number #entity to ignore; default the vehicle the player sits in, else the player ped -- a camera ray starts behind the player and would otherwise hit them. Pass 0 to ignore nothing
 ---@param distance? number #metres, default 10
 ---@param timeoutMs? number #the BOUND, default 2000. An unbounded poll would leave a caller stuck in Wait with no way out
 ---@return boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil #hit, entityHit, endCoords, surfaceNormal and materialHash. A MISS still carries endCoords and normal: the surface the ray stopped at. nil plus a reason on refusal or timeout
@@ -1377,7 +1411,7 @@ function RaycastCamera(flags, ignore, distance, timeoutMs) end
 ---@param origin vector3|table #where the ray starts
 ---@param target vector3|table #where it would end
 ---@param flags? number #shape-test flags, default -1
----@param ignore? number #entity to ignore, default -1
+---@param ignore? number #entity to ignore; default the vehicle the player sits in, else the player ped -- a camera ray starts behind the player and would otherwise hit them. Pass 0 to ignore nothing
 ---@param timeoutMs? number #the bound, default 2000
 ---@return boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil #the same five slots as RaycastCamera, so a caller does not have to know which of the two it called
 --- realm: client
@@ -1434,9 +1468,15 @@ function RegisterRadial(radial) end
 --- realm: client
 function RemoveNearWatcher(id) end
 
+--- no proxy equivalent; the id OnPlayerCache returns as its second value
+---@param id integer #the id OnPlayerCache returned in slot two
+---@return boolean, string|nil #false plus a reason for an unknown id or a listener owned by another resource
+--- realm: client
+function RemovePlayerCacheListener(id) end
+
 --- Cis.points.remove(id)
 ---@param id integer #the id CreatePoint returned
----@return boolean #false when no point holds that id, which is a no-op and not an error. A point the player was inside fires onExit first, with the PLAYER coordinates and not the point coordinates
+---@return boolean, string|nil #false when no point holds that id, which is a no-op and not an error; false plus a reason when the point belongs to another resource (only the owner, or cis_libs, may remove it). A point the player was inside fires onExit first, with the PLAYER coordinates and not the point coordinates
 --- realm: client
 function RemovePoint(id) end
 
@@ -1455,13 +1495,13 @@ function RemoveStatebagHandler(cookie) end
 --- Cis.target.remove(name, isPed)
 ---@param name string #the name; a miss is refused with the name in the reason
 ---@param isPed? boolean #asserts the target was created for a LOCAL entity. Its ABSENCE is how a box or sphere target removes
----@return boolean, string #true on success; every refusal is false plus a reason
+---@return boolean, string #true on success; every refusal is false plus a reason, including a target owned by another resource (only the owner, or cis_libs, may remove it)
 --- realm: client
 function RemoveTarget(name, isPed) end
 
 --- Cis.zones.remove(name)
 ---@param name string #the name. Removing a zone twice, or one that never existed, is a no-op and not an error
----@return boolean #false when no zone holds that name, true once removed. A player still inside gets its onExit fired first, with the PLAYER's coordinates rather than the zone centre
+---@return boolean, string|nil #false when no zone holds that name, true once removed; false plus a reason when another resource owns it (only the owner, or cis_libs, may remove a zone). A player still inside gets its onExit fired first, with the PLAYER's coordinates rather than the zone centre
 --- realm: client
 function RemoveZone(name) end
 
@@ -1607,11 +1647,11 @@ function SetUiLocale(strings) end
 --- realm: client
 function SetUiTheme(data) end
 
---- no proxy equivalent; diffs against the last applied snapshot
+--- no proxy equivalent; applies every field present, every time (there is no diff)
 ---@param vehicle integer #the entity handle; a non-existent entity refuses
 ---@param props table #a PARTIAL table is safe -- absent keys are left alone rather than zeroed, which is the opposite of most setters and worth knowing
----@param fixVehicle? boolean #truthy calls SetVehicleFixed after the apply
----@return boolean #false on a dead entity or a non-table props; otherwise whether this client is allowed to modify the vehicle at all -- non-networked or locally owned
+---@param fixVehicle? boolean #truthy calls SetVehicleFixed FIRST, so saved damage in props survives the repair
+---@return boolean, string|nil #true once applied; false plus a reason on a dead entity, a non-table props, or a networked vehicle this client does not control -- control is requested and NOTHING is written, so retry
 --- realm: client
 function SetVehicleProperties(vehicle, props, fixVehicle) end
 
@@ -1791,7 +1831,7 @@ function UnregisterCapability(slot) end
 --- Cis.target.update(name, options)
 ---@param name string #the name; a name that is not live is refused
 ---@param newOptions? table #the new options, passed straight to a create -- update is a remove and re-create, not a patch on the provider
----@return boolean, string #false with NO reason for an unknown name; otherwise whatever the implicit create returned
+---@return boolean, string #false with NO reason for an unknown name; false plus a reason when another resource owns it; otherwise whatever the implicit create returned
 --- realm: client
 function UpdateTarget(name, newOptions) end
 
@@ -2104,8 +2144,8 @@ function Cis.inventory.remove(src, item, amount) end
 ---@field since string 1.0.0
 ---@field realm "client"
 ---@field forwardsTo string KeybindAdd
----@param options CisKeybindOptions #name REQUIRED; onPress and onRelease are FUNCTIONS and are dropped across the boundary
----@return table|false, string|nil #a handle with disable, isPressed and reset. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so a renamed binding is a second binding and the first still shows in the menu
+---@param options CisKeybindOptions #name REQUIRED; onPress and onRelease are functions and arrive in cis_libs as funcrefs
+---@return table|false, string|nil #a handle whose id feeds KeybindDisable, KeybindEnable, KeybindIsPressed and KeybindRemove -- its methods do not survive the boundary. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so a renamed binding is a second binding and the first still shows in the menu
 function Cis.keybind.add(options) end
 
 ---@class Cis.log.debug
@@ -2200,9 +2240,9 @@ function Cis.player.near(coords, distance, onEnter, onExit, onEnterEvent, onExit
 ---@field since string 1.0.0
 ---@field realm "client"
 ---@field forwardsTo string OnPlayerCache
----@param key string #a cache key: ped, vehicle, seat, weapon, armed or aiming. mount is RedM-only and is not a key here -- this game is gta5
----@param cb function #the listener, called pcall'd under the library's loop guard
----@return function|nil #the unsubscribe, which DOES cross as a callable reference. The LISTENER does not: a function argument is dropped, so from a consumer this call delivers a teardown and a listener that never fires. Gate the listener on your own flag and drop it in onResourceStop
+---@param key string #a cache key: aiming, armed, heading, ped, seat, shooting, vehicle or weapon. mount is RedM-only and is not a key here -- this game is gta5
+---@param cb function #the listener, `fun(current, previous)`, called pcall'd on every change; it arrives in cis_libs as a funcref
+---@return function|nil, integer|string #slot one is the in-realm unsubscribe and does not survive the boundary; slot two is the id for RemovePlayerCacheListener. Nil plus a reason for an unknown key or a non-callable listener
 function Cis.player.on(key, cb) end
 
 ---@class Cis.player.ped
@@ -2275,7 +2315,7 @@ function Cis.points.remove(id) end
 ---@field realm "client"
 ---@field forwardsTo string RaycastCamera
 ---@param flags? number #shape-test flags, default -1
----@param ignore? number #entity to ignore, default 0 (the native documents 0, not -1)
+---@param ignore? number #entity to ignore; default the vehicle the player sits in, else the player ped -- a camera ray starts behind the player and would otherwise hit them
 ---@param distance? number #metres, default 10
 ---@param timeoutMs? number #the bound, default 2000
 ---@return boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil #hit, entityHit, endCoords, surfaceNormal, materialHash. Probed from the CAMERA, not the ped: "forward" means where the player is LOOKING, and probing from the ped works until they look up and then hits their feet
@@ -2288,7 +2328,7 @@ function Cis.raycast.camera(flags, ignore, distance, timeoutMs) end
 ---@param origin vector3|table #where it starts
 ---@param target vector3|table #where it would end
 ---@param flags? number #default -1
----@param ignore? number #default 0
+---@param ignore? number #default the player vehicle, else the player ped
 ---@param timeoutMs? number #default 2000
 ---@return boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil #the same five slots as camera, so a caller does not have to know which it called
 function Cis.raycast.fromCoords(origin, target, flags, ignore, timeoutMs) end
@@ -2529,7 +2569,7 @@ function Cis.target.remove(name, isPed) end
 ---@field forwardsTo string UpdateTarget
 ---@param name string #the target name
 ---@param options? CisTargetOptions #the new options
----@return boolean, string #false with NO reason for an unknown name; otherwise whatever the implicit create returned
+---@return boolean, string #false with NO reason for an unknown name; false plus a reason when another resource owns it; otherwise whatever the implicit create returned
 function Cis.target.update(name, options) end
 
 ---@class Cis.ui.confirm
@@ -2643,7 +2683,7 @@ function Cis.zones.poly(name, points, options) end
 ---@field realm "client"
 ---@field forwardsTo string RemoveZone
 ---@param name string #the zone name. Removing a zone twice, or one that never existed, is a no-op and not an error
----@return boolean #false when no zone holds that name, true once removed. A player still inside gets its onExit fired first, with the PLAYER's coordinates and not the zone centre
+---@return boolean, string|nil #false when no zone holds that name, true once removed; false plus a reason when another resource owns it. A player still inside gets its onExit fired first, with the PLAYER's coordinates and not the zone centre
 function Cis.zones.remove(name) end
 
 ---@class Cis.zones.server.box

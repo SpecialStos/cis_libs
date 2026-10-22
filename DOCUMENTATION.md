@@ -182,15 +182,15 @@ Generated from `api.lua`. Do not edit between the markers.
 | `ClearRadialItems` | client | `()` | 1.1.0 | exports.cis_libs:ClearRadialItems() |
 | `CloseAlertDialog` | client | `()` | 1.1.0 | exports.cis_libs:CloseAlertDialog() |
 | `CloseInputDialog` | client | `()` | 1.1.0 | exports.cis_libs:CloseInputDialog() |
-| `ClosestObject` | client | `(coords, maxDistance, filter)` | 1.0.0 | Cis.world.closestObject(coords, maxDistance, filter) |
-| `ClosestPed` | client | `(coords, maxDistance, filter)` | 1.0.0 | Cis.world.closestPed(coords, maxDistance, filter) |
-| `ClosestPlayer` | client | `(coords, maxDistance, filter)` | 1.0.0 | Cis.world.closestPlayer(coords, maxDistance, filter) |
-| `ClosestVehicle` | client | `(coords, maxDistance, filter)` | 1.0.0 | Cis.world.closestVehicle(coords, maxDistance, filter) |
+| `ClosestObject` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.closestObject(coords, maxDistance, filter, opts) |
+| `ClosestPed` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.closestPed(coords, maxDistance, filter, opts) |
+| `ClosestPlayer` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.closestPlayer(coords, maxDistance, filter, opts) |
+| `ClosestVehicle` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.closestVehicle(coords, maxDistance, filter, opts) |
 | `CommandAdd` | server | `(name, options, handler)` | 1.0.0 | Cis.command.add(name, { params, restricted, help }, handler) |
 | `CommandList` | server | `()` | 1.0.0 | Cis.command.list() |
 | `CommandParse` | server | `(raw)` | 1.0.0 | no proxy equivalent; the argument splitter used by CommandAdd |
 | `CommandRemove` | server | `(name)` | 1.0.0 | Cis.command.remove(name) |
-| `CreatePed` | client | `(model, coords, heading?, options?)` | 1.0.0 | no proxy equivalent; returns 0 on an invalid or unloaded model |
+| `CreatePed` | client | `(model, coords, heading?, options?)` | 1.0.0 | no proxy equivalent; returns 0 on an invalid or unloaded model. The Lua global is CisCreatePed -- the CreatePed native keeps its own name |
 | `CreatePoint` | client | `(data)` | 1.0.0 | Cis.points.add({ coords, distance, onEnter, onExit, nearby }) |
 | `CreateTarget` | client | `(zoneType, name, coords, size, options?)` | 1.0.0 | Cis.target.add(zoneType, name, coords, size, options) |
 | `CreateZone` | client | `(kind, name, a, b, options?)` | 1.0.0 | Cis.zones.box / Cis.zones.poly / Cis.zones.sphere |
@@ -220,13 +220,13 @@ Generated from `api.lua`. Do not edit between the markers.
 | `GetClientLogging` | client | `()` | 1.0.0 | Cis.log.debug / info / warn / error |
 | `GetClosestDoor` | client | `()` | 1.0.0 | no proxy equivalent; exports["cis_libs"]:GetClosestDoor() |
 | `GetClosestPoint` | client | `()` | 1.0.0 | Cis.points.getClosest() |
-| `GetClosestVehicle` | client | `()` | 1.0.0 | no proxy equivalent; a 5 unit forward ray, then a 5 unit radius search |
+| `GetClosestVehicle` | client | `()` | 1.0.0 | no proxy equivalent; a 5 unit forward ray, then the nearest vehicle in the CVehicle pool within 5 units. The Lua global is CisGetClosestVehicle; the native GetClosestVehicle is left alone |
 | `GetConfigSummary` | server | `()` | 1.0.0 | no proxy equivalent; the non-secret half of the server config |
 | `GetCurrentWeaponData` | client | `(ped?)` | 1.0.0 | Cis.player.weapon() |
 | `GetDiagnostics` | both | `(opts?)` | 1.0.0 | Counts, never player data: capability slots and owners, sync records by owner, pending callbacks, net handlers, error and warning counters, memory, uptime, and pass timings. The harness diffs counters and probes only; timings are a sibling so a pass does not fail every case |
 | `GetDiscordConfig` | server | `()` | 1.0.0 | The outbound/webhook configuration SetConfig was handed, for the capability that does the sending. Server realm only -- it holds webhook URLs and is deliberately not on the client payload whitelist |
 | `GetDiscordQueueDepth` | server | `()` | 1.0.0 | no proxy equivalent; queued message count and dropped count |
-| `GetDistanceBetweenCoords` | client | `(x1, y1, z1, x2, y2, z2)` | 1.0.0 | no proxy equivalent |
+| `GetDistanceBetweenCoords` | client | `(x1, y1, z1, x2, y2, z2, useZ?)` | 1.0.0 | no proxy equivalent |
 | `GetDoorState` | both | `()` | 1.0.0 | Cis.doors.get(id) |
 | `GetKnownTargets` | both | `()` | 1.0.0 | The ordered framework and driver tables detection uses. Shared so a product cannot disagree with the debug output about what is running |
 | `GetLastRefusal` | server | `()` | 1.0.0 | Read after a nil/false answer from a capability export to learn WHY it was refused. Returns a sentence naming the missing or failing capability, or nil when the last call succeeded. Additive: no existing return shape changes |
@@ -260,6 +260,10 @@ Generated from `api.lua`. Do not edit between the markers.
 | `IsReady` | client | `()` | 1.0.0 | Cis.isReady, or Cis.ready(cb) |
 | `IsTextUIOpen` | client | `()` | 1.1.0 | exports.cis_libs:IsTextUIOpen() |
 | `KeybindAdd` | client | `(options)` | 1.0.0 | Cis.keybind.add({ name, description, defaultKey, onPress, onRelease }) |
+| `KeybindDisable` | client | `(id, state)` | 1.0.0 | no proxy equivalent; the id-based form of handle:disable(state) |
+| `KeybindEnable` | client | `(id)` | 1.0.0 | no proxy equivalent; KeybindDisable(id, false) |
+| `KeybindIsPressed` | client | `(id)` | 1.0.0 | no proxy equivalent; the id-based form of handle:isPressed() |
+| `KeybindRemove` | client | `(id)` | 1.0.0 | no proxy equivalent; the id-based form of handle:destroy() |
 | `Keybinds` | client | `()` | 1.0.0 | no proxy equivalent; every binding this library registered |
 | `LockDoors` | server | `(identifier)` | 1.0.0 | Cis.doors.setState(identifier, true) |
 | `LogDebug` | both | `()` | 1.0.0 | Cis.log.debug(message) |
@@ -267,14 +271,14 @@ Generated from `api.lua`. Do not edit between the markers.
 | `LogInfo` | both | `()` | 1.0.0 | Cis.log.info(message) |
 | `LogWarn` | both | `()` | 1.0.0 | Cis.log.warn(message) |
 | `ModuleInfo` | both | `(name, opts?)` | 1.0.0 | Cis.moduleInfo(name, opts) |
-| `NearbyObjects` | client | `(coords, maxDistance, filter)` | 1.0.0 | Cis.world.nearbyObjects(coords, maxDistance, filter) |
-| `NearbyPeds` | client | `(coords, maxDistance, filter)` | 1.0.0 | Cis.world.nearbyPeds(coords, maxDistance, filter) |
-| `NearbyPlayers` | client | `(coords, maxDistance, filter)` | 1.0.0 | Cis.world.nearbyPlayers(coords, maxDistance, filter) |
-| `NearbyVehicles` | client | `(coords, maxDistance, filter)` | 1.0.0 | Cis.world.nearbyVehicles(coords, maxDistance, filter) |
+| `NearbyObjects` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.nearbyObjects(coords, maxDistance, filter, opts) |
+| `NearbyPeds` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.nearbyPeds(coords, maxDistance, filter, opts) |
+| `NearbyPlayers` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.nearbyPlayers(coords, maxDistance, filter, opts) |
+| `NearbyVehicles` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.nearbyVehicles(coords, maxDistance, filter, opts) |
 | `Notify` | both | `()` | 1.0.0 | Cis.framework.notify(...). With a framework provider registered the call passes through to it untouched; with none, cis_libs delivers it itself through the same guards NotifyClient uses, so a server with no framework does not go mute and does not become the unbounded path. The two-argument client form sends `kind` in the message slot; this is pinned as a known defect in test/contracts.lua and is a MAJOR change to correct |
 | `NotifyClient` | server | `(src, message, kind?)` | 1.0.0 | Called by a product to show a notification to one client, without hardcoding the event name owned by this library. Answers `false, reason` for a src that is not a connected player, truncates a message past 512 characters, and allows 10 a second per (src, calling resource) |
 | `NotifyPlayer` | server | `(src, data)` | 1.1.0 | exports.cis_libs:NotifyPlayer(src, data) |
-| `OnPlayerCache` | client | `(key, cb)` | 1.0.0 | Cis.player.on(key, cb). The cb cannot cross the boundary; use a net event |
+| `OnPlayerCache` | client | `(key, cb)` | 1.0.0 | Cis.player.on(key, cb); stop it with RemovePlayerCacheListener(id) |
 | `ProgressActive` | client | `()` | 1.1.0 | exports.cis_libs:ProgressActive() |
 | `ProgressBar` | client | `(data)` | 1.1.0 | exports.cis_libs:ProgressBar(data) |
 | `ProgressCircle` | client | `(data)` | 1.1.0 | exports.cis_libs:ProgressCircle(data) |
@@ -292,6 +296,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `RegisterMenu` | client | `(data, cb?)` | 1.1.0 | exports.cis_libs:RegisterMenu(data, cb) |
 | `RegisterRadial` | client | `(radial)` | 1.1.0 | exports.cis_libs:RegisterRadial(radial) |
 | `RemoveNearWatcher` | client | `(id)` | 1.0.0 | Cis.player.nearStop(id); the id WatchNear returns as its second value |
+| `RemovePlayerCacheListener` | client | `(id)` | 1.0.0 | no proxy equivalent; the id OnPlayerCache returns as its second value |
 | `RemovePoint` | client | `(id)` | 1.0.0 | Cis.points.remove(id) |
 | `RemoveRadialItem` | client | `(id)` | 1.1.0 | exports.cis_libs:RemoveRadialItem(id) |
 | `RemoveStatebagHandler` | both | `(cookie)` | 1.0.0 | Cis.statebag.remove(cookie) |
@@ -317,7 +322,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `SetMenuOptions` | client | `(id, options, index?)` | 1.1.0 | exports.cis_libs:SetMenuOptions(id, options, index) |
 | `SetUiLocale` | client | `(strings)` | 1.1.0 | exports.cis_libs:SetUiLocale(strings) |
 | `SetUiTheme` | client | `(data)` | 1.1.0 | exports.cis_libs:SetUiTheme(data) |
-| `SetVehicleProperties` | client | `(vehicle, props, fixVehicle?)` | 1.0.0 | no proxy equivalent; diffs against the last applied snapshot |
+| `SetVehicleProperties` | client | `(vehicle, props, fixVehicle?)` | 1.0.0 | no proxy equivalent; applies every field present, every time (there is no diff) |
 | `ShowContext` | client | `(id)` | 1.1.0 | exports.cis_libs:ShowContext(id) |
 | `ShowMenu` | client | `(id, startIndex?)` | 1.1.0 | exports.cis_libs:ShowMenu(id, startIndex) |
 | `ShowTextUI` | client | `(text, options?)` | 1.1.0 | exports.cis_libs:ShowTextUI(text, options) |
