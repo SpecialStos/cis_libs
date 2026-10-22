@@ -174,7 +174,9 @@ do
         for k = 1, #ins do table.insert(list, st + k - 1, { ins[k] }) end
         local y = A.from(x)
         local removed = A.splice(y, start, del, table.unpack(ins))
-        check(same(y, unbox(list)) and same(removed, unbox(refRemoved)), 'splice', case)
+        local tailClear = true
+        for k = y.n + 1, n do if y[k] ~= nil then tailClear = false end end
+        check(same(y, unbox(list)) and same(removed, unbox(refRemoved)) and tailClear, 'splice', case)
         -- reverse, concat, unique, chunk
         local refRev = { n = n }
         for k = 1, n do refRev[k] = x[n - k + 1] end
@@ -672,6 +674,7 @@ do
     expect(t:getTimeLeft('ms') == 600 and t:pause() and t:isPaused(), 'timer: pause keeps the time left')
     advance(5000)
     expect(ended == 0 and t:getTimeLeft('ms') == 600 and not t:hasEnded(), 'timer: a paused timer does not run out')
+    expect(liveThreads() == 0, 'timer: pausing retires the sleeper -- nothing keeps waking while paused')
     expect(t:pause() == false and t:play() and t:play() == false, 'timer: pause/play answer false when there is nothing to do')
     advance(599)
     expect(ended == 0 and t:getTimeLeft('s') == 0, 'timer: not yet (getTimeLeft s rounds to 2 places)')

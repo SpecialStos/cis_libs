@@ -1630,7 +1630,8 @@ do
                     return true
                 end
                 local receiver = body:sub(1, at - 2):match('([%w_]+)%s*$')
-                if receiver == '_G' or receiver == '_ENV' then
+                -- The bodies are lowercased, so _G arrives as _g.
+                if receiver == '_g' or receiver == '_env' then
                     return true
                 end
             end
