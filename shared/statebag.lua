@@ -252,6 +252,10 @@ end
 -- reference INTO that resource, which dies with it: a watcher left behind raises
 -- on every change for the rest of the session.
 AddEventHandler('onResourceStop', function(resource)
+    -- A forged stop from another client script is ignored (shared/owned.lua).
+    if not CisRealStop(resource) then
+        return
+    end
     local freed = CisOwned.release(owned, resource)
     for i = 1, #freed do
         if freed[i].kind == 'statebag' then

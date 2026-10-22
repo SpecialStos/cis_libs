@@ -78,7 +78,10 @@ function M.new(cfg)
     -- to know: the next read retries a snapshot (throttled) and answers the
     -- fallback meanwhile.
     AddEventHandler('onResourceStop', function(resource)
-        if resource == self.resource then
+        -- A real stop comes from the engine, with no script below this handler;
+        -- one TriggerEvent'd by another script is ignored (shared/owned.lua).
+        local by = GetInvokingResource()
+        if resource == self.resource and (by == nil or by == resource) then
             self.snapped = false
             self.lastTry = nil
         end

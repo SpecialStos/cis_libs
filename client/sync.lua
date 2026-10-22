@@ -434,8 +434,18 @@ local function applyBatch(n, ups, rems)
     pruneTouched()
 end
 
+-- The server numbers batches 1, 2, 3... per player, so a real `n` is a small
+-- positive integer. A huge one would pin `touched` for that key above every
+-- later batch and refuse its upserts for the rest of the session.
+local MAX_BATCH = 0x7fffffff
+
 RegisterNetEvent('cis_libs:client:syncBatch', function(n, ups, rems)
-    if type(n) ~= 'number' then
+    -- FROM THE SERVER, OR NOT AT ALL: a local TriggerEvent arrives with
+    -- source == '' and would spawn and delete synced entities at will.
+    if source == nil or source == '' then
+        return
+    end
+    if type(n) ~= 'number' or n < 1 or n > MAX_BATCH or n ~= math.floor(n) then
         return
     end
     if n > newestBatch then
@@ -573,6 +583,10 @@ local function dropHandlersOf(list, resource)
 end
 
 AddEventHandler('onResourceStop', function(resource)
+    -- A forged stop from another client script is ignored (shared/owned.lua).
+    if not CisRealStop(resource) then
+        return
+    end
     if resource ~= GetCurrentResourceName() then
         -- A hook is a function reference into the resource that registered it.
         dropHandlersOf(spawnHandlers, resource)

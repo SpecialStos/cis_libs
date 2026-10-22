@@ -99,6 +99,10 @@ end)
 -- A stopped resource's bindings go inert: its funcrefs are dead, and a command
 -- still holding one raised on every key press for the rest of the session.
 AddEventHandler('onResourceStop', function(resource)
+    -- A forged stop from another client script is ignored (shared/owned.lua).
+    if not CisRealStop(resource) then
+        return
+    end
     local freed = CisOwned.release(owned, resource)
     for i = 1, #freed do
         local b = freed[i].kind == 'keybind' and binds[freed[i].id] or nil

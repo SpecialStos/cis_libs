@@ -14,6 +14,29 @@ function CisCallable(v)
     return type(v) == 'table' and rawget(v, '__cfx_functionReference') ~= nil
 end
 
+-- A REAL STOP, OR A FORGED ONE. `onResourceStop` is an ordinary event, so any
+-- client resource can TriggerEvent('onResourceStop', 'victim') and have the
+-- victim's zones, keybinds, callbacks and capability slots released. Checking
+-- GetResourceState(victim) == 'stopping' does NOT tell them apart: FiveM fires
+-- the event from Resource::Stop while the state is still Started, and only
+-- sets Stopped after (citizen-resources-core Resource.cpp; nothing sets
+-- Stopping). What differs is the caller. GetInvokingResource() is the script
+-- runtime below the handler's own on the runtime stack (ScriptHost.cpp): the
+-- forger's, for a TriggerEvent from a script, and nil for the stop the engine
+-- itself fires on a client. A resource "stopping" itself only hurts itself.
+-- On the SERVER a real restart can come from a script (txAdmin's monitor runs
+-- `restart` from its own runtime), and a server resource is trusted code that
+-- can call these exports directly anyway, so every stop counts there.
+--- @param resource string  the resource named by the event
+--- @return boolean
+function CisRealStop(resource)
+    if IsDuplicityVersion() then
+        return true
+    end
+    local by = GetInvokingResource()
+    return by == nil or by == resource
+end
+
 --- @return table
 function CisOwned.new()
     return {

@@ -71,6 +71,7 @@ end
 local STUBBED = {
     'CisInterface', 'CisLog', 'exports', 'json', 'promise', 'Citizen', 'source',
     'CreateThread', 'Wait', 'GetGameTimer', 'GetCurrentResourceName', 'GetInvokingResource',
+    'IsDuplicityVersion',
     'SetNuiFocus', 'SetNuiFocusKeepInput', 'SendNuiMessage', 'RegisterNUICallback',
     'RegisterNetEvent', 'AddEventHandler', 'RegisterCommand', 'RegisterKeyMapping',
     'TriggerEvent', 'TriggerServerEvent', 'TriggerClientEvent', 'PlaySoundFrontend',
@@ -204,6 +205,7 @@ local function newEnv()
     function GetGameTimer() return env.clock end
     function GetCurrentResourceName() return 'cis_libs' end
     function GetInvokingResource() return env.invoking end
+    function IsDuplicityVersion() return false end
 
     -- ------------------------------------------------------------ NUI
     function SetNuiFocus(focus, cursor)
@@ -252,8 +254,13 @@ local function newEnv()
     function RegisterNetEvent(name, fn)
         env.netEvents[name] = fn
     end
+    -- The engine fires its own events with no script below the handler, so
+    -- GetInvokingResource answers nil inside a real onResourceStop.
     function env.fire(name, ...)
+        local saved = env.invoking
+        env.invoking = nil
         for _, fn in ipairs(env.handlers[name] or {}) do fn(...) end
+        env.invoking = saved
     end
     function env.net(name, src, ...)
         source = src
@@ -417,6 +424,12 @@ do
     check(not F.has('boom'), 'focus: an escape handler that raises is popped, so focus cannot strand')
 
     F.push('owned', { owner = 'res_x' })
+    -- A stop TriggerEvent'd by another script is not the engine's: nothing pops.
+    env.invoking = 'evil_res'
+    for _, fn in ipairs(env.handlers['onResourceStop'] or {}) do fn('res_x') end
+    for _, fn in ipairs(env.handlers['onResourceStop'] or {}) do fn('cis_libs') end
+    env.invoking = nil
+    check(F.has('owned') and F.has('high'), 'focus: a forged onResourceStop pops nothing')
     env.fire('onResourceStop', 'res_x')
     check(not F.has('owned') and F.has('high'), 'focus: an owner stopping pops only its entries')
 

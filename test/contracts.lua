@@ -2191,8 +2191,22 @@ do
         check(asked == before,
             ('isReady (%s): a settled gate is not asked again on every read (%d calls)')
                 :format(realm, asked - before))
-        -- cis_libs restarting unsettles it.
+        -- cis_libs restarting unsettles it. The engine fires a real stop with no
+        -- script below the handler, so GetInvokingResource answers nil; one
+        -- TriggerEvent'd by another client script names that script, and is
+        -- ignored on the client.
+        local savedInvoking = GetInvokingResource
+        GetInvokingResource = function() return 'evil_res' end
         for _, fn in ipairs(stopHandlers) do fn('cis_libs') end
+        if realm == 'client' then
+            local held = asked
+            local _ = Cis.isReady
+            check(asked == held,
+                'isReady (client): a forged cis_libs stop does not unsettle the gate')
+        end
+        GetInvokingResource = function() return nil end
+        for _, fn in ipairs(stopHandlers) do fn('cis_libs') end
+        GetInvokingResource = savedInvoking
         gate.ready = false
         check(Cis.isReady == false,
             ('isReady (%s): a cis_libs restart is seen, not cached over'):format(realm))
@@ -3894,11 +3908,24 @@ end
         handlers[name] = handlers[name] or {}
         handlers[name][#handlers[name] + 1] = fn
     end
-    local function fire(name, ...)
-        for _, fn in ipairs(handlers[name] or {}) do fn(...) end
-    end
     local invoker = 'cis_libs'
     GetInvokingResource = function() return invoker end
+    -- The engine's own events have no script below the handler: inside them
+    -- GetInvokingResource answers nil, which is how a real stop is told from a
+    -- TriggerEvent'd one. `fireFrom` is the TriggerEvent from a script.
+    local ENGINE = { onResourceStop = true, onClientResourceStart = true, onResourceStart = true }
+    local function fireFrom(by, name, ...)
+        local prior = invoker
+        invoker = by
+        for _, fn in ipairs(handlers[name] or {}) do fn(...) end
+        invoker = prior
+    end
+    local function fire(name, ...)
+        if ENGINE[name] then
+            return fireFrom(nil, name, ...)
+        end
+        for _, fn in ipairs(handlers[name] or {}) do fn(...) end
+    end
     local clock = 0
     GetGameTimer = function() return clock end
     local frame = 1
@@ -4015,6 +4042,12 @@ end
         ('19: a cis_libs restart re-snapshots with ONE export call (%d)'):format(#calls))
     check(Cis.player.vehicle() == 77, '19: and the mirror carries the new values')
     calls = {}
+    -- A stop TriggerEvent'd by another script is not cis_libs stopping: the
+    -- mirror keeps its snapshot and asks nothing.
+    fireFrom('evil_res', 'onResourceStop', 'cis_libs')
+    for _ = 1, 10 do Cis.player.vehicle() end
+    check(#calls == 0 and Cis.player.vehicle() == 77,
+        ('19: a forged cis_libs stop leaves the mirror snapped (%d calls)'):format(#calls))
     fire('onResourceStop', 'cis_libs')
     down = true
     for _ = 1, 100 do Cis.player.vehicle() end
@@ -4218,6 +4251,9 @@ end
     check(type(page) == 'table' and type(page.dictName) == 'string', '19: a DUI object names its texture')
     local released = {}
     SetScaleformMovieAsNoLongerNeeded = function(h) released[#released + 1] = h end
+    fireFrom('evil_res', 'onResourceStop', 'cis_consumer')
+    check(#destroyed == 0 and #released == 0,
+        '19: a forged stop of the consumer destroys none of its DUIs or scaleforms')
     fire('onResourceStop', 'cis_consumer')
     check(#destroyed == 1 and destroyed[1] == 900, '19: the consumer stopping destroys its DUI')
     check(type(held) == 'table' and #released == 1 and released[1] == 33,

@@ -237,6 +237,10 @@ I.on('error', { message = 'string' }, function(data)
 end)
 
 AddEventHandler('onResourceStop', function(resource)
+    -- A forged stop from another client script is ignored (shared/owned.lua).
+    if not CisRealStop(resource) then
+        return
+    end
     local all = resource == GetCurrentResourceName()
     runAll(stopHandlers, resource, all)
 end)

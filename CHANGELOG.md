@@ -50,6 +50,9 @@ under **Changed** so nobody upgrades into them blind.
   removes)`; clients report a give-up with `cis_libs:server:syncGaveUp`.
   Networked records are never streamed over sync events: the server creates
   the one entity and its metadata rides the `cis_sync` entity state bag.
+- **Pending callback keys are opaque string tokens** (a counter plus 60
+  random bits), on both realms. `CallCallbackClient` / `Cis.callback.callClient`
+  return one where they returned an integer; it is only ever echoed back.
 - **Server zones belong to one routing bucket** (`opts.bucket`, default 0).
 - **World queries exclude the local player** (and player peds from ped
   queries) unless `opts.includeSelf` / `opts.includePlayers`.
@@ -174,6 +177,29 @@ under **Changed** so nobody upgrades into them blind.
   restart, so one client event ran N+1 times. The rate limiter counted window
   rolls as buckets and locked active players out of new events for the
   session.
+- **Exploitable:** any client resource could forge the client's
+  `cis_libs:cb`, `cis_libs:cb:res` and `cis_libs:client:syncBatch` with a
+  local `TriggerEvent`: run a consumer's client callback with its own
+  arguments, answer every in-flight `Cis.callback.await` (keys counted from 1)
+  with its own data, and spawn or delete synced entities. All three now
+  require a server `source`, and the batch number must be an integer in
+  1..2^31-1, so one forged batch can no longer pin a key above every real one.
+- **Exploitable:** `TriggerEvent('onResourceStop', 'victim')` from any
+  client script released the victim's zones, points, keybinds (for the
+  session), targets, client callbacks, cache listeners, near watchers,
+  statebag watchers, hooks, NUI focus and capability slots, and destroyed a
+  consumer's DUIs and scaleforms; naming `cis_libs` despawned every synced
+  entity. Every client stop handler (16, plus the consumer-side ones in
+  `init.lua` and the cache mirror) now ignores a stop that another script
+  triggered: a real one has no script below the handler, so
+  `GetInvokingResource()` is nil. `GetResourceState(name) == 'stopping'`
+  cannot tell them apart — FiveM still reports `started` during the event.
+  Server handlers are unchanged: a txAdmin restart arrives from a script.
+- Any client resource could take over another's client callback name
+  (`RegisterCallback` replaced it) and remove any resource's near watcher
+  (`RemoveNearWatcher` had no owner check, and ids count from 1). Both now
+  refuse a foreign owner with `false, reason`; the client `RegisterCallback`
+  returns its reason on every refusal (was a bare `false`).
 - `AwaitCallbackClient` hung forever when the target player dropped.
 - Points never fired (the thread ran once); a stopping resource removed other
   resources' points; world queries used pool names that do not exist and
@@ -222,6 +248,8 @@ under **Changed** so nobody upgrades into them blind.
   twice for each commit on a pull-request branch.
 - `npm run test:lua54` exits non-zero when no interpreter is found and `CI` is
   set (it skipped with exit 0).
+- `npm run lint` failed on Windows when luacheck sat under a path with a
+  space (`C:\Users\First Last\.cis-devtools`): the shell split it.
 - `npm run package` builds a reproducible zip: fixed timestamps, entries in
   name order, verified by building twice.
 - `.luarc.json` declared LuaJIT; FiveM runs CfxLua 5.4.

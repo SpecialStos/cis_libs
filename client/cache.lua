@@ -459,6 +459,13 @@ function CisCache.removeNearWatcher(id)
     if not watcher then
         return false, ('no watcher with id %s'):format(tostring(id))
     end
+    -- Only its owner, or cis_libs, as for CisCache.off. Ids are sequential, so
+    -- without this `for i = 1, 1e3 do RemoveNearWatcher(i) end` removed everyone's.
+    local caller = GetInvokingResource() or 'cis_libs'
+    local owner = CisOwned.ownerOf(nearOwned, 'nearWatcher', id)
+    if caller ~= 'cis_libs' and caller ~= owner then
+        return false, ('watcher %s belongs to %s, not %s'):format(tostring(id), tostring(owner), caller)
+    end
     nearWatchers[id] = nil
     -- Same reason unsubscribe() forgets it: a watcher already removed by its
     -- owner must not also be counted by the stop sweep, or it reports a count
@@ -586,6 +593,10 @@ end)
 -- funcref into a resource that no longer exists -- it raises on every change
 -- for the rest of the session.
 AddEventHandler('onResourceStop', function(resource)
+    -- A forged stop from another client script is ignored (shared/owned.lua).
+    if not CisRealStop(resource) then
+        return
+    end
     if resource == GetCurrentResourceName() then
         return
     end

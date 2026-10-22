@@ -171,8 +171,8 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.callback.register(name, handler)',
             realm = 'both',
-            params = { server = { { name = 'name', type = 'string', doc = 'a non-empty handler name, the key everything else is filed under' }, { name = 'handler', type = 'function|string|table', doc = 'a function, a callable reference table (a function passed from another resource; released when that resource stops), or a "resource:Export" string; nil fails all three. A later registration of the same name REPLACES the earlier one, whatever its kind' }, { name = 'opts', type = 'table', optional = true, doc = "{ remote = true|false, ace = 'object', schema = { field = { type, min, max, maxLen, optional } }, maxStringLen = n }. remote defaults to TRUE (1.0.0 behaviour); remote = false makes the callback unreachable from any client, which is answered 'unknown' exactly as for a missing name. ace is checked with IsPrincipalAceAllowed('player.<src>', ace) and refused 'denied'. schema checks the FIRST argument and refuses 'bad payload' (and reports the player). maxStringLen replaces the default string cap (Config.CallbackLimits.MaxStringLen, 4096) for this callback; every remote call is capped, keys and values. A malformed option is refused, never ignored" } }, client = { { name = 'name', type = 'string', doc = 'a non-empty handler name; a non-string or "" is refused before anything is stored' }, { name = 'fn', type = 'function|string', doc = 'a callable, or a "resource:Export" string' } } },
-            returns = { server = { { type = 'boolean, string|nil', doc = "true once bound; false plus the reason (also logged) on a refusal" } }, client = { { type = 'boolean', doc = 'true once stored; a refusal is a bare false with the reason only in the log' } } },
+            params = { server = { { name = 'name', type = 'string', doc = 'a non-empty handler name, the key everything else is filed under' }, { name = 'handler', type = 'function|string|table', doc = 'a function, a callable reference table (a function passed from another resource; released when that resource stops), or a "resource:Export" string; nil fails all three. A later registration of the same name REPLACES the earlier one, whatever its kind' }, { name = 'opts', type = 'table', optional = true, doc = "{ remote = true|false, ace = 'object', schema = { field = { type, min, max, maxLen, optional } }, maxStringLen = n }. remote defaults to TRUE (1.0.0 behaviour); remote = false makes the callback unreachable from any client, which is answered 'unknown' exactly as for a missing name. ace is checked with IsPrincipalAceAllowed('player.<src>', ace) and refused 'denied'. schema checks the FIRST argument and refuses 'bad payload' (and reports the player). maxStringLen replaces the default string cap (Config.CallbackLimits.MaxStringLen, 4096) for this callback; every remote call is capped, keys and values. A malformed option is refused, never ignored" } }, client = { { name = 'name', type = 'string', doc = 'a non-empty handler name; a non-string or "" is refused before anything is stored, and so is a name another resource holds (the owner may replace its own; a name is free again once its owner stops)' }, { name = 'fn', type = 'function|string', doc = 'a callable, or a "resource:Export" string' } } },
+            returns = { server = { { type = 'boolean, string|nil', doc = "true once bound; false plus the reason (also logged) on a refusal" } }, client = { { type = 'boolean, string|nil', doc = 'true once stored; false plus the reason (also logged) on a refusal' } } },
         },
         CallCallback = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -205,7 +205,7 @@ return {
             use = 'Cis.callback.callClient(src, name, cb, ...)',
             realm = 'server',
             params = { { name = 'name', type = 'string', doc = 'the callback the CLIENT answers' }, { name = 'target', type = 'integer', doc = 'a connected player server id; anything else is refused and nobody is told' }, { name = 'cb', type = 'function', optional = true, doc = 'a consumer-side function, consumed on the consumer side, so it does not cross' }, { name = '...', type = '...', optional = true, variadic = true, doc = 'the unbounded tail; the client caps it at 32 args and answers "too large"' } },
-            returns = { { type = 'integer', doc = 'the pending key. A bad target returns NOTHING and instead calls cb(false, reason)' } },
+            returns = { { type = 'string', doc = 'the pending key, an opaque random token. A bad target returns NOTHING and instead calls cb(false, reason)' } },
         },
         AwaitCallbackClient = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -1052,7 +1052,7 @@ return {
             use = 'Cis.player.nearStop(id); the id WatchNear returns as its second value',
             realm = 'client',
             params = { { name = 'id', type = 'integer', doc = 'the id WatchNear returned as its second slot' } },
-            returns = { { type = 'boolean, string', doc = 'true on success; false plus a reason for a non-number id or an unknown one' } },
+            returns = { { type = 'boolean, string', doc = 'true on success; false plus a reason for a non-number id, an unknown one, or one another resource owns (only the owner or cis_libs may remove it)' } },
         },
 
         -- ---------------------------------------------------------- platform
@@ -1603,7 +1603,7 @@ return {
         realm = 'server',
         forwardsTo = 'CallCallbackClient',
         params = { { name = 'src', type = 'integer', doc = 'the target player' }, { name = 'name', type = 'string', doc = 'the callback the CLIENT answers' }, { name = 'cb', type = 'function', optional = true, doc = 'a consumer-side function, consumed on the consumer side, so it does not cross' }, { name = '...', type = '...', optional = true, variadic = true, doc = 'the arguments; the client caps them at 32' } },
-        returns = { { type = 'integer', doc = 'the pending key. A bad target returns nothing and instead calls cb(false, reason)' } },
+        returns = { { type = 'string', doc = 'the pending key, an opaque random token. A bad target returns nothing and instead calls cb(false, reason)' } },
     },
     ['Cis.callback.register'] = {
         since = '1.0.0',
@@ -2649,11 +2649,11 @@ return {
         },
         ['cis_libs:cb'] = {
             since = '1.0.0',
-            payload = 'client to server and server to client: (name, key, ...)',
+            payload = 'client to server and server to client: (name, key, ...). `key` is the caller\'s opaque pending token, echoed back unchanged. The client handler ignores a local TriggerEvent (`source` is empty): only the server can ask a client callback.',
         },
         ['cis_libs:cb:res'] = {
             since = '1.0.0',
-            payload = 'client: (key, ok, ...) resolving an outstanding callback',
+            payload = 'client: (key, ok, ...) resolving an outstanding callback. Only a reply from the server counts; a local TriggerEvent (`source` is empty) is ignored.',
         },
         ['cis_libs:cb:serverRes'] = {
             since = '1.0.0',
@@ -2681,7 +2681,7 @@ return {
         },
         ['cis_libs:client:syncBatch'] = {
             since = '1.0.0',
-            payload = 'server to client: (n, upserts, removes). ONE event per player per pass, latent when it carries 32 entries or more. `n` numbers the batches sent to that player, and a client applies an entry only if no later batch has touched that key, so a reliable batch overtaking a latent one is safe. `upserts` are CLIENT-LOCAL records (identity `record.key`, the caller\'s id namespaced by its owning resource; `record.rev` is its revision); a networked record is never on this wire. `removes` are keys to despawn.',
+            payload = 'server to client: (n, upserts, removes). ONE event per player per pass, latent when it carries 32 entries or more. `n` numbers the batches sent to that player, and a client applies an entry only if no later batch has touched that key, so a reliable batch overtaking a latent one is safe. `upserts` are CLIENT-LOCAL records (identity `record.key`, the caller\'s id namespaced by its owning resource; `record.rev` is its revision); a networked record is never on this wire. `removes` are keys to despawn. The client applies a batch only from the server (a local TriggerEvent is ignored) and only when `n` is an integer in 1..2^31-1.',
         },
         ['cis_libs:server:syncSnapshot'] = {
             since = '1.0.0',

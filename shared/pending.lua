@@ -1,4 +1,4 @@
--- Incrementing pending-key map with timeout sweep. No natives.
+-- Pending-key map with timeout sweep. No natives.
 
 CisPending = {}
 
@@ -9,9 +9,19 @@ function CisPending.new()
     }
 end
 
+-- A KEY IS A TOKEN, NOT A COUNTER. The key crosses the network and comes back in
+-- the reply, and a reply is matched by key alone. Sequential integers let any
+-- script that can reach the reply handler answer every in-flight call by
+-- counting from 1. The counter keeps keys unique for the life of the store; the
+-- 60 random bits beside it make the next key unguessable. Two 30-bit draws,
+-- because fengari's integers are 32 bits and CfxLua's are 64.
+local function token(n)
+    return ('%x.%08x%08x'):format(n, math.random(0, 0x3fffffff), math.random(0, 0x3fffffff))
+end
+
 function CisPending.alloc(store, payload, expireAt)
     store.nextKey = store.nextKey + 1
-    local key = store.nextKey
+    local key = token(store.nextKey)
     store.items[key] = {
         payload = payload,
         expireAt = expireAt,

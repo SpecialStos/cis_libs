@@ -842,7 +842,7 @@ function CallCallback.client(name, cb, ...) end
 ---@param target integer #a connected player server id; anything else is refused and nobody is told
 ---@param cb? function #a consumer-side function, consumed on the consumer side, so it does not cross
 ---@param ... ... #the unbounded tail; the client caps it at 32 args and answers "too large"
----@return integer #the pending key. A bad target returns NOTHING and instead calls cb(false, reason)
+---@return string #the pending key, an opaque random token. A bad target returns NOTHING and instead calls cb(false, reason)
 --- realm: server
 function CallCallbackClient(name, target, cb, ...) end
 
@@ -1662,9 +1662,9 @@ function ReadyState() end
   ---@param opts? table #{ remote = true|false, ace = 'object', schema = { field = { type, min, max, maxLen, optional } }, maxStringLen = n }. remote defaults to TRUE (1.0.0 behaviour); remote = false makes the callback unreachable from any client, which is answered 'unknown' exactly as for a missing name. ace is checked with IsPrincipalAceAllowed('player.<src>', ace) and refused 'denied'. schema checks the FIRST argument and refuses 'bad payload' (and reports the player). maxStringLen replaces the default string cap (Config.CallbackLimits.MaxStringLen, 4096) for this callback; every remote call is capped, keys and values. A malformed option is refused, never ignored
   ---@return boolean, string|nil #true once bound; false plus the reason (also logged) on a refusal
 ---@overload
-  ---@param name string #a non-empty handler name; a non-string or "" is refused before anything is stored
+  ---@param name string #a non-empty handler name; a non-string or "" is refused before anything is stored, and so is a name another resource holds (the owner may replace its own; a name is free again once its owner stops)
   ---@param fn function|string #a callable, or a "resource:Export" string
-  ---@return boolean #true once stored; a refusal is a bare false with the reason only in the log
+  ---@return boolean, string|nil #true once stored; false plus the reason (also logged) on a refusal
 ---@overload
 function RegisterCallback.server(name, handler, opts) end
 function RegisterCallback.client(name, fn) end
@@ -1704,7 +1704,7 @@ function RegisterRadial(radial) end
 
 --- Cis.player.nearStop(id); the id WatchNear returns as its second value
 ---@param id integer #the id WatchNear returned as its second slot
----@return boolean, string #true on success; false plus a reason for a non-number id or an unknown one
+---@return boolean, string #true on success; false plus a reason for a non-number id, an unknown one, or one another resource owns (only the owner or cis_libs may remove it)
 --- realm: client
 function RemoveNearWatcher(id) end
 
@@ -2172,7 +2172,7 @@ function Cis.callback.call(name, cb, ...) end
 ---@param name string #the callback the CLIENT answers
 ---@param cb? function #a consumer-side function, consumed on the consumer side, so it does not cross
 ---@param ... ... #the arguments; the client caps them at 32
----@return integer #the pending key. A bad target returns nothing and instead calls cb(false, reason)
+---@return string #the pending key, an opaque random token. A bad target returns nothing and instead calls cb(false, reason)
 function Cis.callback.callClient(src, name, cb, ...) end
 
 ---@class Cis.callback.register

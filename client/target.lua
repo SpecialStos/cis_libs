@@ -150,6 +150,10 @@ end
 
 -- A CONSUMER THAT STOPS HAS ITS TARGETS REMOVED THROUGH THE PROVIDER ().
 AddEventHandler('onResourceStop', function(resource)
+    -- A forged stop from another client script is ignored (shared/owned.lua).
+    if not CisRealStop(resource) then
+        return
+    end
     if resource == GetCurrentResourceName() then
         return
     end

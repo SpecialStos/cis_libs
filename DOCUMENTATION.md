@@ -994,13 +994,13 @@ Generated from `api.lua`. Do not edit between the markers.
 | `chat:removeSuggestion` | 1.0.0 | server to client, (name) while the chat resource is started: the same seam, taking a suggestion back when its command is removed or its resource stops |
 | `cis_libs:cache` | 1.1.0 | client, local: (key, value, seat, silent) -- seat rides on a vehicle push; silent marks a refresh with no change to announce |
 | `cis_libs:capabilityChanged` | 1.0.0 | both realms: ({ slot, action, owner, previousOwner, resolved }) |
-| `cis_libs:cb` | 1.0.0 | client to server and server to client: (name, key, ...) |
-| `cis_libs:cb:res` | 1.0.0 | client: (key, ok, ...) resolving an outstanding callback |
+| `cis_libs:cb` | 1.0.0 | client to server and server to client: (name, key, ...). `key` is the caller's opaque pending token, echoed back unchanged. The client handler ignores a local TriggerEvent (`source` is empty): only the server can ask a client callback. |
+| `cis_libs:cb:res` | 1.0.0 | client: (key, ok, ...) resolving an outstanding callback. Only a reply from the server counts; a local TriggerEvent (`source` is empty) is ignored. |
 | `cis_libs:cb:serverRes` | 1.0.0 | server: (key, ok, ...) resolving an outstanding client callback |
 | `cis_libs:client:getData` | 1.0.0 | server to client: ({ Config, EventPrefix }) on join. DoorData was not shipped in 1.0.0 |
 | `cis_libs:client:inventory` | 1.0.0 | server to client: ({ [itemName] = count }), pushed by PublishInventory |
 | `cis_libs:client:showNotification` | 1.0.0 | server to client: (message, kind) |
-| `cis_libs:client:syncBatch` | 1.0.0 | server to client: (n, upserts, removes). ONE event per player per pass, latent when it carries 32 entries or more. `n` numbers the batches sent to that player, and a client applies an entry only if no later batch has touched that key, so a reliable batch overtaking a latent one is safe. `upserts` are CLIENT-LOCAL records (identity `record.key`, the caller's id namespaced by its owning resource; `record.rev` is its revision); a networked record is never on this wire. `removes` are keys to despawn. |
+| `cis_libs:client:syncBatch` | 1.0.0 | server to client: (n, upserts, removes). ONE event per player per pass, latent when it carries 32 entries or more. `n` numbers the batches sent to that player, and a client applies an entry only if no later batch has touched that key, so a reliable batch overtaking a latent one is safe. `upserts` are CLIENT-LOCAL records (identity `record.key`, the caller's id namespaced by its owning resource; `record.rev` is its revision); a networked record is never on this wire. `removes` are keys to despawn. The client applies a batch only from the server (a local TriggerEvent is ignored) and only when `n` is an integer in 1..2^31-1. |
 | `cis_libs:client:uiNotify` | 1.1.0 | server to client: (data) a Notify table, sent by NotifyPlayer. Accepted only from the network: a local TriggerEvent of it is ignored |
 | `cis_libs:jobUpdated` | 1.0.0 | server to client: ({ name, grade }), fired by PublishJobUpdate |
 | `cis_libs:playerLoaded` | 1.0.0 | server to client: (job), fired by PublishPlayerLoaded |

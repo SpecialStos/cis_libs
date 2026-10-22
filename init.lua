@@ -9,6 +9,17 @@ local THIS = GetCurrentResourceName()
 local IS_SELF = THIS == RESOURCE
 local IS_SERVER = IsDuplicityVersion()
 
+-- A FORGED onResourceStop is ignored on the client. The same test as
+-- CisRealStop in shared/owned.lua, which explains it; a consumer's VM does not
+-- load that file, so the three lines are repeated here.
+local function realStop(resource)
+    if IS_SERVER then
+        return true
+    end
+    local by = GetInvokingResource()
+    return by == nil or by == resource
+end
+
 Cis = Cis or {}
 Cis.resource = RESOURCE
 
@@ -60,7 +71,7 @@ else
     end
     if AddEventHandler then
         AddEventHandler('onResourceStop', function(resource)
-            if resource == RESOURCE then
+            if resource == RESOURCE and realStop(resource) then
                 settled = nil
             end
         end)
@@ -314,7 +325,7 @@ if not IS_SERVER then
     -- resident and a DUI browser left running.
     if AddEventHandler and not IS_SELF then
         AddEventHandler('onResourceStop', function(resource)
-            if resource ~= THIS then
+            if resource ~= THIS or not realStop(resource) then
                 return
             end
             for _, name in ipairs({ 'scaleform', 'dui' }) do

@@ -27,7 +27,7 @@ self = false
 -- In shipped code an unused parameter is a real smell and stays reported.
 unused_args = false
 
--- 509 names writable in this directory.
+-- 510 names writable in this directory.
 globals = {
     "AddCommand", "AddDoorToSystem", "AddEventHandler", "AddStateBagChangeHandler",
     "AddTextComponentString", "AddTextComponentSubstringPlayerName", "AttachEntityToEntity",
@@ -45,10 +45,10 @@ globals = {
     "CisLocale", "CisLog", "CisLoopGuard", "CisMathX", "CisNetOn", "CisOwned", "CisPending",
     "CisPointsCreate", "CisPointsGetClosest", "CisPointsGetDebug", "CisPointsRemove",
     "CisPrint", "CisRandom", "CisRate", "CisRateBucketCount", "CisRateOk",
-    "CisRaycastCamera", "CisRaycastFromCoords", "CisReadyState", "CisRegisterCallback",
-    "CisRegistry", "CisRememberJob", "CisRingBuffer", "CisSecurityPinned",
-    "CisSecurityPosture", "CisSecurityRebuild", "CisSecurityReport", "CisSemver",
-    "CisServerZoneBox", "CisServerZoneContains", "CisServerZonePlayers",
+    "CisRaycastCamera", "CisRaycastFromCoords", "CisReadyState", "CisRealStop",
+    "CisRegisterCallback", "CisRegistry", "CisRememberJob", "CisRingBuffer",
+    "CisSecurityPinned", "CisSecurityPosture", "CisSecurityRebuild", "CisSecurityReport",
+    "CisSemver", "CisServerZoneBox", "CisServerZoneContains", "CisServerZonePlayers",
     "CisServerZonePoly", "CisServerZoneRemove", "CisServerZoneSphere", "CisSet",
     "CisSparse", "CisStatebagOnEntity", "CisStatebagOnPlayer", "CisString",
     "CisSyncEnabled", "CisTable", "CisTestB", "CisTestBClient", "CisTestBadMeta",

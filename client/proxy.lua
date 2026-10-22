@@ -44,6 +44,10 @@ end)
 
 -- See the server half: a stopped resource's exports are gone, so its slots are.
 AddEventHandler('onResourceStop', function(resource)
+    -- A forged stop from another client script is ignored (shared/owned.lua).
+    if not CisRealStop(resource) then
+        return
+    end
     for _, slot in ipairs(CisRegistry.releaseOwner(resource)) do
         warned = {}
         Logging.Warn(('cis_libs: capability %q released: %s stopped'):format(slot, resource))

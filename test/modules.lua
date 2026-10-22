@@ -1277,13 +1277,13 @@ end
 -- same key. The store leaked, one key at a time, and nothing said so.
 do
     local store = CisPending.new()
-    CisPending.alloc(store, { n = 1 }, 10)
+    local first = CisPending.alloc(store, { n = 1 }, 10)
     CisPending.alloc(store, { n = 2 }, 10)
     CisPending.alloc(store, { n = 3 }, 10)
     local reported = {}
     local ok = pcall(CisPending.sweep, store, 20, function(key)
         reported[#reported + 1] = key
-        if key == 1 then error('the logger is gone') end
+        if key == first then error('the logger is gone') end
     end)
     expect(ok, 'a throwing onExpire does not escape the sweep')
     expect(CisPending.count(store) == 0,
@@ -1291,7 +1291,53 @@ do
             :format(CisPending.count(store)))
     expect(#reported == 3,
         ('every expired key is still reported (reported=%d)'):format(#reported))
-    expect(CisPending.peek(store, 1) == nil, 'peek confirms the first key is gone')
+    expect(CisPending.peek(store, first) == nil, 'peek confirms the first key is gone')
+end
+
+-- CisRealStop: a client stop counts only when the engine fired it (no script
+-- below the handler) or the resource named itself; on the server every stop
+-- counts, because txAdmin's monitor runs `restart` from its own runtime.
+do
+    local savedDup, savedInv = rawget(_ENV, 'IsDuplicityVersion'), rawget(_ENV, 'GetInvokingResource')
+    local by
+    GetInvokingResource = function() return by end
+    IsDuplicityVersion = function() return false end
+    by = nil
+    expect(CisRealStop('res_a') == true, 'client: the engine\'s own stop counts')
+    by = 'evil_res'
+    expect(CisRealStop('res_a') == false, 'client: a stop another script TriggerEvent\'d does not')
+    by = 'res_a'
+    expect(CisRealStop('res_a') == true, 'client: a resource naming itself counts')
+    IsDuplicityVersion = function() return true end
+    by = 'monitor'
+    expect(CisRealStop('res_a') == true, 'server: a restart run from txAdmin\'s runtime counts')
+    rawset(_ENV, 'IsDuplicityVersion', savedDup)
+    rawset(_ENV, 'GetInvokingResource', savedInv)
+end
+
+-- KEYS ARE TOKENS. The key is the only thing that matches a reply to its call, so
+-- a key a script can predict is a reply a script can forge: with 1, 2, 3...
+-- `for k = 1, 500 do TriggerEvent('cis_libs:cb:res', k, true, fake) end`
+-- answered every in-flight await on the client.
+do
+    local store = CisPending.new()
+    local seen, keys = {}, {}
+    for i = 1, 200 do
+        local k = CisPending.alloc(store, { n = i }, 100)
+        keys[i] = k
+        expect(not seen[k], ('key %d is unique (%s)'):format(i, tostring(k)))
+        seen[k] = true
+    end
+    expect(type(keys[1]) == 'string' and #keys[1] >= 16,
+        ('a key carries random bits, not just a count (%s)'):format(tostring(keys[1])))
+    local guessed = 0
+    for k = 1, 500 do
+        if CisPending.peek(store, k) then guessed = guessed + 1 end
+    end
+    expect(guessed == 0, ('counting from 1 finds no pending entry (found %d)'):format(guessed))
+    local a = CisPending.alloc(CisPending.new(), {}, 100)
+    local b = CisPending.alloc(CisPending.new(), {}, 100)
+    expect(a ~= b, 'two stores at the same count still hand out different keys')
 end
 
 -- peek does not consume, which is the property that lets a caller ask "is this
@@ -1431,14 +1477,14 @@ do
     -- key, peek leaves it. A consumer that peeks twice must get the same answer
     -- twice -- that is the entire reason the function exists.
     local store = CisPending.new()
-    CisPending.alloc(store, { v = 1 }, 100)
-    local peeked = CisPending.peek(store, 1)
-    local again = CisPending.peek(store, 1)
+    local key = CisPending.alloc(store, { v = 1 }, 100)
+    local peeked = CisPending.peek(store, key)
+    local again = CisPending.peek(store, key)
     expect(peeked ~= nil and again ~= nil, 'pending.peek returns the payload')
     expect(peeked == again, 'and returns the SAME one on a second peek -- it does not consume')
     expect(CisPending.count(store) == 1, 'and the key is still held after two peeks')
-    expect(CisPending.take(store, 1) ~= nil, 'take after peek still gets the payload')
-    expect(CisPending.peek(store, 1) == nil, 'and now peek is empty, because take consumed it')
+    expect(CisPending.take(store, key) ~= nil, 'take after peek still gets the payload')
+    expect(CisPending.peek(store, key) == nil, 'and now peek is empty, because take consumed it')
     expect(CisPending.peek(store, 99) == nil, 'peek on an unknown key is nil, not a raise')
 
     -- ---------------------------------------------------------------- heap

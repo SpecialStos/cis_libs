@@ -55,7 +55,7 @@ local function newEnv(opts)
     }
 
     env.save = function(name)
-        env.saved[#env.saved + 1] = { name = name, value = rawget(_G, name) }
+        env.saved[#env.saved + 1] = { name = name, value = rawget(_ENV, name) }
     end
 
     function env.print(fmt, ...)
@@ -163,8 +163,23 @@ local function newEnv(opts)
         env.commands[name] = { fn = fn, restricted = restricted }
     end
 
+    -- `by` is the resource whose script triggered the event, which is what
+    -- GetInvokingResource answers inside the handler. The engine's own events --
+    -- a real onResourceStop among them -- have no script below the handler, so
+    -- env.fire delivers with nil; env.fireFrom is a TriggerEvent from a script.
+    function env.fireFrom(by, name, ...)
+        -- _ENV, not _G: under test/run.lua a suite's globals live in its own
+        -- environment, and _G is the interpreter's.
+        local saved = rawget(_ENV, 'GetInvokingResource')
+        GetInvokingResource = function() return by end
+        local ok, err = pcall(function(...)
+            for _, fn in ipairs(env.handlers[name] or {}) do fn(...) end
+        end, ...)
+        rawset(_ENV, 'GetInvokingResource', saved)
+        if not ok then error(err, 0) end
+    end
     function env.fire(name, ...)
-        for _, fn in ipairs(env.handlers[name] or {}) do fn(...) end
+        return env.fireFrom(nil, name, ...)
     end
     -- `cis_libs:cb` is registered through RegisterNetEvent, so it is delivered
     -- through env.net rather than env.fire.
@@ -177,10 +192,10 @@ local function newEnv(opts)
         env.netEvents[name][#env.netEvents[name] + 1] = fn
     end
     function env.net(name, src, ...)
-        local saved = rawget(_G, 'source')
+        local saved = rawget(_ENV, 'source')
         source = src
         for _, fn in ipairs(env.netEvents[name] or {}) do fn(...) end
-        _G.source = saved
+        rawset(_ENV, 'source', saved)
     end
 
     -- A minimal promise and Citizen.Await, because the callback module parks a
@@ -342,7 +357,7 @@ local function newEnv(opts)
             if entry.name == '__metatable' then
                 setmetatable(_G, entry.value)
             else
-                _G[entry.name] = entry.value
+                _ENV[entry.name] = entry.value
             end
         end
         env.saved = {}
@@ -743,7 +758,19 @@ local function syncEnv(opts)
     loadModule('client/sync.lua')
     -- THE WIRE IS A NUMBERED BATCH. `upsert` and `remove` are the one-entry
     -- batches most tests want; `batch` sends exactly what the server would.
-    env.batch = env.netEvents['cis_libs:client:syncBatch']
+    -- Delivered the way the network delivers it: `source` is the server's net id
+    -- (65535) for the duration of the call. `env.forge` is the same handler
+    -- reached by a local TriggerEvent, where the runtime sets `source` to ''.
+    local handler = env.netEvents['cis_libs:client:syncBatch']
+    local function deliver(src, ...)
+        local saved = rawget(_ENV, 'source')
+        source = src
+        local out = table.pack(handler(...))
+        rawset(_ENV, 'source', saved)
+        return table.unpack(out, 1, out.n)
+    end
+    env.batch = function(...) return deliver(65535, ...) end
+    env.forge = function(...) return deliver('', ...) end
     env.batchN = 0
     function env.upsert(record)
         env.batchN = env.batchN + 1
@@ -1061,6 +1088,56 @@ do
     local z = lastReply()
     check(z and z.args[2] == true,
         "res_b's client callback SURVIVES another resource's stop")
+
+    -- A NAME ANOTHER RESOURCE HOLDS IS NOT TAKEN OVER. res_b holds 'z'; res_c
+    -- registering 'z' used to replace res_b's handler and answer the server in
+    -- its place, by function or by "resource:export" alike.
+    env.invoking = 'res_c'
+    local took, why = env.EXPORTS.RegisterCallback('z', function() return 'hijacked' end)
+    check(took == false and tostring(why):find('res_b', 1, true) ~= nil,
+        ('another resource cannot take over a client callback name (%s)'):format(tostring(why)))
+    check(env.EXPORTS.RegisterCallback('z', 'res_c:Steal') == false,
+        'nor by "resource:export" reference')
+    env.serverEvents = {}
+    env.net('cis_libs:cb', 1, 'z', 4)
+    local still = lastReply()
+    check(still and still.args[3] == 2, "and res_b's handler still answers")
+    env.invoking = 'res_b'
+    check(env.EXPORTS.RegisterCallback('z', function() return 3 end) == true,
+        'the owner may replace its own')
+    env.invoking = 'res_c'
+    check(env.EXPORTS.RegisterCallback('y', function() return 4 end) == true,
+        'and a name whose owner stopped is free again')
+    env.reset()
+end
+
+-- A LOCAL FORGERY IS NOT THE SERVER. Both callback events are net events, so any
+-- client resource can reach them with TriggerEvent, and the runtime sets `source`
+-- to '' when it does. Unchecked, a forged `cis_libs:cb` ran a consumer's handler
+-- with the forger's arguments, and a forged `cis_libs:cb:res` answered another
+-- resource's in-flight call with the forger's data.
+do
+    local env = newEnv({})
+    loadModule('client/callback.lua')
+
+    local ran = 0
+    env.EXPORTS.RegisterCallback('bank:pin', function() ran = ran + 1 end)
+    env.serverEvents = {}
+    env.net('cis_libs:cb', '', 'bank:pin', 1)
+    check(ran == 0, 'a forged cis_libs:cb does not run the handler')
+    check(#env.serverEvents == 0, 'and sends no reply to the server')
+    env.net('cis_libs:cb', 65535, 'bank:pin', 2)
+    check(ran == 1, 'the same request from the server does')
+
+    local got
+    env.serverEvents = {}
+    env.EXPORTS.CallCallback('shop:price', function(ok, v) got = { ok, v } end)
+    local key = env.serverEvents[1] and env.serverEvents[1].args[2]
+    env.net('cis_libs:cb:res', '', key, true, 'forged')
+    check(got == nil, 'a forged cis_libs:cb:res does not answer the caller')
+    env.net('cis_libs:cb:res', 65535, key, true, 'real')
+    check(got and got[1] == true and got[2] == 'real',
+        ('the server reply still does (%s)'):format(tostring(got and got[2])))
     env.reset()
 end
 
@@ -1233,7 +1310,7 @@ local function zoneEnv()
     Vec.__sub = function(a, b) return vector3(a.x - b.x, a.y - b.y, a.z - b.z) end
     Vec.__len = function(v) return math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z) end
     function vector3(x, y, z) return setmetatable({ x = x, y = y, z = z }, Vec) end
-    env.saved[#env.saved + 1] = { name = 'CisReadyState', value = rawget(_G, 'CisReadyState') }
+    env.saved[#env.saved + 1] = { name = 'CisReadyState', value = rawget(_ENV, 'CisReadyState') }
     CisReadyState = { wait = function() return true end, ready = true }
     -- Only the LAST thread is the one that drives inside-events; the sweeps are
     -- collected rather than run, for the reason in the base harness.
@@ -1245,8 +1322,8 @@ local function zoneEnv()
     -- asking for interval 0 -- which is precisely the flood under test. Driving
     -- the second one would measure the loop that was always going to be fast
     -- rather than the one that had to be clamped.
-    env.saved[#env.saved + 1] = { name = 'Cis', value = rawget(_G, 'Cis') }
-    env.saved[#env.saved + 1] = { name = 'vector3', value = rawget(_G, 'vector3') }
+    env.saved[#env.saved + 1] = { name = 'Cis', value = rawget(_ENV, 'Cis') }
+    env.saved[#env.saved + 1] = { name = 'vector3', value = rawget(_ENV, 'vector3') }
     Cis = Cis or {}
     Cis.player = Cis.player or {}
     -- A player that walks a little and stops: inside the 20-unit box, and past
@@ -1477,7 +1554,7 @@ do
     -- than left to whatever a previous suite left behind: with `wait` answering
     -- false the thread returns before it reads anything, and the test asserts on
     -- a cache that was never populated -- which passes for the wrong reason.
-    env.saved[#env.saved + 1] = { name = 'CisReadyState', value = rawget(_G, 'CisReadyState') }
+    env.saved[#env.saved + 1] = { name = 'CisReadyState', value = rawget(_ENV, 'CisReadyState') }
     CisReadyState = { wait = function() return true end, ready = true, failed = false }
     -- One bounded pass of the cache loop. The loop is `while true`, so `Wait` is
     -- where it goes round and where a private sentinel unwinds it.
@@ -1698,6 +1775,21 @@ do
     check(got == 0, ('cache: a stopped owner\'s listeners are released (got=%d)'):format(got))
     check(exports.RemovePlayerCacheListener(id2) == false, 'cache: and the released id is gone')
     check(type(unsub) == 'function', 'cache: the in-realm unsubscribe is still returned in slot one')
+
+    -- A near watcher is removed by its owner or cis_libs only. The ids are
+    -- sequential, so an unchecked RemoveNearWatcher let any script count up from
+    -- 1 and remove every resource's watchers.
+    GetInvokingResource = function() return 'res_a' end
+    local _, wid = exports.WatchNear({ x = 0.0, y = 0.0, z = 0.0 }, 2.0, nil, nil, 'a:in', 'a:out')
+    GetInvokingResource = function() return 'res_b' end
+    local took, why = exports.RemoveNearWatcher(wid)
+    check(took == false and tostring(why):find('res_a', 1, true) ~= nil,
+        ('cache: another resource cannot remove a near watcher (%s)'):format(tostring(why)))
+    GetInvokingResource = function() return 'res_a' end
+    check(exports.RemoveNearWatcher(wid) == true, 'cache: its owner removes it by id')
+    local _, wid2 = exports.WatchNear({ x = 0.0, y = 0.0, z = 0.0 }, 2.0, nil, nil, 'a:in', 'a:out')
+    GetInvokingResource = function() return nil end
+    check(exports.RemoveNearWatcher(wid2) == true, 'cache: and so does cis_libs')
     env.reset()
 end
 
@@ -2202,7 +2294,7 @@ do
     -- test that needs readiness should SAY it needs readiness -- a harness that
     -- always reported ready would make every other test pass for the wrong
     -- reason if that guard ever regressed.
-    env.saved[#env.saved + 1] = { name = 'CisReadyState', value = rawget(_G, 'CisReadyState') }
+    env.saved[#env.saved + 1] = { name = 'CisReadyState', value = rawget(_ENV, 'CisReadyState') }
     CisReadyState = { wait = function() return true end, ready = true, failed = false }
     loadModule('client/target.lua')
     CisRegistry.register('target', 'cis_bridge:CisBridgeTargetOx')
@@ -2571,7 +2663,7 @@ end
 -- none is.
 do
     local env = newEnv({})
-    env.saved[#env.saved + 1] = { name = 'CisReadyState', value = rawget(_G, 'CisReadyState') }
+    env.saved[#env.saved + 1] = { name = 'CisReadyState', value = rawget(_ENV, 'CisReadyState') }
     CisReadyState = { wait = function() return true end, ready = true }
     loadModule('client/proxy.lua')
 
@@ -3090,6 +3182,45 @@ do
     env.reset()
 end
 
+-- ============================ 4.6g · a batch comes from the server or not at all
+--
+-- `cis_libs:client:syncBatch` is a net event, and a net event is also reachable
+-- by a local TriggerEvent from any client resource. Unchecked, one line deleted
+-- a synced ped and pinned its key above every later batch:
+--     TriggerEvent('cis_libs:client:syncBatch', 1e12, nil, { key })
+do
+    local env = syncEnv({})
+    local shop = wirePayload('shop_ped', {
+        kind = 'prop', model = 'prop_barrel_01',
+        coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = false,
+    })
+    env.batch(1, { shop }, {})
+    check(env.EXPORTS.GetSyncedEntity(wireKeyOf('shop_ped')) ~= nil,
+        '4.6g: the real batch spawns the record')
+
+    env.forge(1e12, nil, { wireKeyOf('shop_ped') })
+    check(env.EXPORTS.GetSyncedEntity(wireKeyOf('shop_ped')) ~= nil,
+        '4.6g: a forged local batch does not delete a synced entity')
+    env.forge(2, { wirePayload('fake', {
+        kind = 'prop', model = 'prop_barrel_01',
+        coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = false,
+    }) }, {})
+    check(env.EXPORTS.GetSyncedEntity(wireKeyOf('fake')) == nil,
+        '4.6g: a forged local batch does not spawn anything')
+
+    -- The number is bounded too: a batch number no server sends is refused, so
+    -- it cannot pin a key above every real batch that follows.
+    env.batch(1e12, {}, { wireKeyOf('shop_ped') })
+    env.batch(2.5, {}, { wireKeyOf('shop_ped') })
+    env.batch(0 / 0, {}, { wireKeyOf('shop_ped') })
+    check(env.EXPORTS.GetSyncedEntity(wireKeyOf('shop_ped')) ~= nil,
+        '4.6g: a huge, fractional or NaN batch number is refused')
+    env.batch(2, {}, { wireKeyOf('shop_ped') })
+    check(env.EXPORTS.GetSyncedEntity(wireKeyOf('shop_ped')) == nil,
+        '4.6g: and the next real batch still applies')
+    env.reset()
+end
+
 -- ============================ 4.6f · networked records through their state bag
 do
     local env = syncEnv({})
@@ -3413,7 +3544,7 @@ do
     })
     local savedDup = IsDuplicityVersion
     IsDuplicityVersion = function() return false end
-    local savedCis = rawget(_G, 'Cis')
+    local savedCis = rawget(_ENV, 'Cis')
     Cis = nil
     assert(loadfile('./init.lua'))()
     -- The reference is taken BEFORE the global is put back: restoring first and
@@ -3421,7 +3552,7 @@ do
     local clientCis = Cis
     exports = savedExports
     IsDuplicityVersion = savedDup
-    _G.Cis = savedCis
+    rawset(_ENV, 'Cis', savedCis)
 
     for _, name in ipairs({ 'ped', 'prop', 'vehicle', 'remove' }) do
         -- Under PCALL ON PURPOSE. Before the fix this call RAISES -- that is
@@ -3461,13 +3592,13 @@ do
     })
     local savedDup = IsDuplicityVersion
     IsDuplicityVersion = function() return true end
-    local savedCis = rawget(_G, 'Cis')
+    local savedCis = rawget(_ENV, 'Cis')
     Cis = nil
     assert(loadfile('./init.lua'))()
     local serverCis = Cis
     exports = savedExports
     IsDuplicityVersion = savedDup
-    _G.Cis = savedCis
+    rawset(_ENV, 'Cis', savedCis)
 
     local okEntityCall, okEntity, whyEntity = pcall(serverCis.sync.entity, 'any-key')
     local okSpawnCall, okSpawn = pcall(serverCis.sync.onSpawn, function() end)
@@ -5288,6 +5419,9 @@ do
     env.fire('onResourceStop', 'someone_else')
     check(exports.UiTextUIIsOpen() == true,
         '7.9: another resource stopping does not hide our help')
+    env.fireFrom('evil_res', 'onResourceStop', 'my_resource')
+    check(exports.UiTextUIIsOpen() == true,
+        '7.9: a forged stop of the owner does not close its text UI')
     env.fire('onResourceStop', 'my_resource')
     check(exports.UiTextUIIsOpen() == false,
         '7.9: the owner stopping hides native help -- loop=true would otherwise stay forever')
@@ -5362,6 +5496,96 @@ do
     local values = exports.UiInput({ heading = 'Name', rows = { { type = 'input', label = 'n' } } })
     check(type(values) == 'table' and values[1] == 'v1', '7.9b: input returns the built-in dialog values')
     check(env.builtin[5][2] == 'Name', '7.9b: input heading is forwarded')
+    env.reset()
+end
+
+-- ==================================== a forged onResourceStop releases nothing
+--
+-- `onResourceStop` is an ordinary event: `TriggerEvent('onResourceStop',
+-- 'victim')` from any client script used to release the victim's zones,
+-- keybinds, targets, callbacks, cache listeners, statebag watchers and
+-- capability slots. The engine fires a real stop with no script below the
+-- handler, so GetInvokingResource() is nil there and the forger's name here.
+-- Each file's sweep is watched through the release call it makes.
+do
+    local SWEEPS = {
+        { file = 'client/cache.lua', lib = 'CisOwned', fn = 'release' },
+        { file = 'client/callback.lua', lib = 'CisOwned', fn = 'release' },
+        { file = 'client/keybind.lua', lib = 'CisOwned', fn = 'release' },
+        { file = 'client/points.lua', lib = 'CisOwned', fn = 'release' },
+        { file = 'client/target.lua', lib = 'CisOwned', fn = 'release' },
+        { file = 'client/zones.lua', lib = 'CisOwned', fn = 'release' },
+        { file = 'shared/statebag.lua', lib = 'CisOwned', fn = 'release' },
+        { file = 'client/proxy.lua', lib = 'CisRegistry', fn = 'releaseOwner' },
+        { file = 'shared/hooks.lua', lib = 'CisHooks', fn = 'releaseOwner' },
+    }
+    for _, s in ipairs(SWEEPS) do
+        local env = newEnv({})
+        env.save('CisReadyState')
+        CisReadyState = { wait = function() return true end, ready = true, failed = false }
+        env.save(s.lib)
+        local calls = 0
+        -- hooks.lua defines CisHooks itself, so it is watched after the load.
+        if s.file ~= 'shared/hooks.lua' then
+            -- Loaded fresh, so the spy does not depend on what an earlier test
+            -- left in _G (the two runners preload differently).
+            env.save('CisCallable')
+            env.save('CisRealStop')
+            loadModule(s.lib == 'CisOwned' and 'shared/owned.lua' or 'shared/registry.lua')
+            local lib = _ENV[s.lib]
+            local real = lib[s.fn]
+            _ENV[s.lib] = setmetatable({ [s.fn] = function(...)
+                calls = calls + 1
+                return real(...)
+            end }, { __index = lib })
+        end
+        env.handlers = {}
+        local loaded, err = pcall(loadModule, s.file)
+        check(loaded, ('forged stop: %s loads (%s)'):format(s.file, tostring(err)))
+        if s.file == 'shared/hooks.lua' then
+            local made = _ENV.CisHooks
+            local own = made[s.fn]
+            made[s.fn] = function(...)
+                calls = calls + 1
+                return own(...)
+            end
+        end
+        env.fireFrom('evil_res', 'onResourceStop', 'res_a')
+        check(calls == 0, ('forged stop: %s ignores a stop TriggerEvent\'d by another script (%d)')
+            :format(s.file, calls))
+        env.fire('onResourceStop', 'res_a')
+        check(calls >= 1, ('forged stop: %s still sweeps on the engine\'s stop (%d)'):format(s.file, calls))
+        local before = calls
+        env.fireFrom('res_a', 'onResourceStop', 'res_a')
+        check(calls > before, ('forged stop: %s accepts a resource stopping itself'):format(s.file))
+        env.reset()
+    end
+end
+
+-- A forged stop naming cis_libs itself despawned every synced entity while
+-- cis_libs kept running; one naming a consumer dropped its spawn hooks.
+do
+    local env = syncEnv({})
+    local calls = 0
+    env.EXPORTS.AddSyncSpawnHandler(setmetatable({ __cfx_functionReference = 'res_a:1' }, {
+        __call = function() calls = calls + 1 end,
+    }))
+    env.upsert(wirePayload('kept', {
+        kind = 'prop', model = 'prop_barrel_01',
+        coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = false,
+    }))
+    env.fireFrom('evil_res', 'onResourceStop', GetCurrentResourceName())
+    check(env.EXPORTS.GetSyncedEntity(wireKeyOf('kept')) ~= nil,
+        'forged stop: naming cis_libs does not despawn its synced entities')
+    env.fireFrom('evil_res', 'onResourceStop', 'res_a')
+    env.upsert(wirePayload('kept2', {
+        kind = 'prop', model = 'prop_barrel_01',
+        coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = false,
+    }))
+    check(calls == 2, ('forged stop: and naming a consumer keeps its spawn hooks (calls=%d)'):format(calls))
+    env.fire('onResourceStop', GetCurrentResourceName())
+    check(env.EXPORTS.GetSyncedEntity(wireKeyOf('kept')) == nil,
+        'forged stop: the real cis_libs stop still despawns them')
     env.reset()
 end
 

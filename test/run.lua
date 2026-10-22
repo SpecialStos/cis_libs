@@ -377,7 +377,7 @@ expect(realBox ~= nil and realBox.minX == 0 and realBox.maxX == 10 and realBox.m
 local store = CisPending.new()
 local k1 = CisPending.alloc(store, { n = 1 }, 10)
 local k2 = CisPending.alloc(store, { n = 2 }, 30)
-expect(k1 == 1 and k2 == 2, 'keys increment')
+expect(k1 ~= nil and k2 ~= nil and k1 ~= k2, 'keys are distinct')
 local expired = 0
 CisPending.sweep(store, 20, function()
     expired = expired + 1
@@ -387,7 +387,7 @@ expect(CisPending.take(store, k1) == nil, 'expired key is gone')
 local item = CisPending.take(store, k2)
 expect(item and item.payload.n == 2, 'live key still takeable')
 local k3 = CisPending.alloc(store, { n = 3 }, 100)
-expect(k3 == 3, 'keys keep incrementing after timeout')
+expect(k3 ~= k1 and k3 ~= k2, 'a key is never reused after a timeout')
 expect(CisPending.count(store) == 1, 'count after take')
 -- take() must consume: a second take of the same key returns nil, which is what
 -- stops a forged callback response from resolving twice.

@@ -2017,6 +2017,174 @@
       "find": "            __newindex = function(_, global)\n",
       "replace": "            __unused = function(_, global)\n",
       "why": "Load an engine into a sandbox that accepts global writes. A helper an engine leaks lands in a private table today and in nobody's view; the loader is supposed to say so loudly, as Cis.require does."
+    },
+    {
+      "id": "M295",
+      "file": "client/callback.lua",
+      "find": "RegisterNetEvent('cis_libs:cb', function(name, key, ...)\n    if not fromServer() then\n        return\n    end\n",
+      "replace": "RegisterNetEvent('cis_libs:cb', function(name, key, ...)\n",
+      "why": "Accept a local TriggerEvent of cis_libs:cb. Any client resource runs any consumer's client callback with its own arguments, and the reply goes to the server under a key it chose."
+    },
+    {
+      "id": "M296",
+      "file": "client/callback.lua",
+      "find": "RegisterNetEvent('cis_libs:cb:res', function(key, ok, ...)\n    if not fromServer() then\n        return\n    end\n",
+      "replace": "RegisterNetEvent('cis_libs:cb:res', function(key, ok, ...)\n",
+      "why": "Accept a local TriggerEvent of cis_libs:cb:res. Any client resource answers every in-flight Cis.callback.await with its own data."
+    },
+    {
+      "id": "M297",
+      "file": "client/sync.lua",
+      "find": "    if source == nil or source == '' then\n        return\n    end\n",
+      "replace": "",
+      "why": "Accept a local TriggerEvent of cis_libs:client:syncBatch. Any client resource spawns local entities and deletes synced ones."
+    },
+    {
+      "id": "M298",
+      "file": "client/sync.lua",
+      "find": "n < 1 or n > MAX_BATCH or n ~= math.floor(n)",
+      "replace": "n ~= n",
+      "why": "Take any batch number. One batch numbered 1e12 pins its keys above every real batch, so their upserts are refused for the rest of the session."
+    },
+    {
+      "id": "M299",
+      "file": "shared/pending.lua",
+      "find": "    local key = token(store.nextKey)\n",
+      "replace": "    local key = store.nextKey\n",
+      "why": "Hand out sequential pending keys. A script that reaches the reply handler answers every in-flight call by counting from 1."
+    },
+    {
+      "id": "M300",
+      "file": "client/cache.lua",
+      "find": "    -- A forged stop from another client script is ignored (shared/owned.lua).\n    if not CisRealStop(resource) then\n        return\n    end\n",
+      "replace": "",
+      "why": "Trust a forged onResourceStop in client/cache.lua. TriggerEvent('onResourceStop', 'victim') from any client script releases the victim's cache listeners and near watchers."
+    },
+    {
+      "id": "M301",
+      "file": "client/callback.lua",
+      "find": "    -- A forged stop from another client script is ignored (shared/owned.lua).\n    if not CisRealStop(resource) then\n        return\n    end\n",
+      "replace": "",
+      "why": "Trust a forged onResourceStop in client/callback.lua. TriggerEvent('onResourceStop', 'victim') from any client script releases the victim's client callbacks."
+    },
+    {
+      "id": "M302",
+      "file": "client/interface/nui.lua",
+      "find": "    -- A forged stop from another client script is ignored (shared/owned.lua).\n    if not CisRealStop(resource) then\n        return\n    end\n",
+      "replace": "",
+      "why": "Trust a forged onResourceStop in client/interface/nui.lua. TriggerEvent('onResourceStop', 'victim') from any client script releases the victim's NUI focus entries (and, for cis_libs, all focus)."
+    },
+    {
+      "id": "M303",
+      "file": "client/keybind.lua",
+      "find": "    -- A forged stop from another client script is ignored (shared/owned.lua).\n    if not CisRealStop(resource) then\n        return\n    end\n",
+      "replace": "",
+      "why": "Trust a forged onResourceStop in client/keybind.lua. TriggerEvent('onResourceStop', 'victim') from any client script releases the victim's keybinds, retired for the session."
+    },
+    {
+      "id": "M304",
+      "file": "client/points.lua",
+      "find": "    -- A forged stop from another client script is ignored (shared/owned.lua).\n    if not CisRealStop(resource) then\n        return\n    end\n",
+      "replace": "",
+      "why": "Trust a forged onResourceStop in client/points.lua. TriggerEvent('onResourceStop', 'victim') from any client script releases the victim's points."
+    },
+    {
+      "id": "M305",
+      "file": "client/proxy.lua",
+      "find": "    -- A forged stop from another client script is ignored (shared/owned.lua).\n    if not CisRealStop(resource) then\n        return\n    end\n",
+      "replace": "",
+      "why": "Trust a forged onResourceStop in client/proxy.lua. TriggerEvent('onResourceStop', 'victim') from any client script releases the victim's capability slots, so the forger can register into them."
+    },
+    {
+      "id": "M306",
+      "file": "client/sync.lua",
+      "find": "    -- A forged stop from another client script is ignored (shared/owned.lua).\n    if not CisRealStop(resource) then\n        return\n    end\n",
+      "replace": "",
+      "why": "Trust a forged onResourceStop in client/sync.lua. TriggerEvent('onResourceStop', 'victim') from any client script releases the victim's sync spawn hooks, or every synced entity when it names cis_libs."
+    },
+    {
+      "id": "M307",
+      "file": "client/target.lua",
+      "find": "    -- A forged stop from another client script is ignored (shared/owned.lua).\n    if not CisRealStop(resource) then\n        return\n    end\n",
+      "replace": "",
+      "why": "Trust a forged onResourceStop in client/target.lua. TriggerEvent('onResourceStop', 'victim') from any client script releases the victim's targets."
+    },
+    {
+      "id": "M308",
+      "file": "client/ui.lua",
+      "find": "    -- A forged stop from another client script is ignored (shared/owned.lua).\n    if not CisRealStop(resource) then\n        return\n    end\n",
+      "replace": "",
+      "why": "Trust a forged onResourceStop in client/ui.lua. TriggerEvent('onResourceStop', 'victim') from any client script releases the victim's native text UI and progress."
+    },
+    {
+      "id": "M309",
+      "file": "client/zones.lua",
+      "find": "    -- A forged stop from another client script is ignored (shared/owned.lua).\n    if not CisRealStop(resource) then\n        return\n    end\n",
+      "replace": "",
+      "why": "Trust a forged onResourceStop in client/zones.lua. TriggerEvent('onResourceStop', 'victim') from any client script releases the victim's zones."
+    },
+    {
+      "id": "M310",
+      "file": "shared/hooks.lua",
+      "find": "        -- A forged stop from another client script is ignored (shared/owned.lua).\n        if not CisRealStop(resource) then\n            return\n        end\n",
+      "replace": "",
+      "why": "Trust a forged onResourceStop in shared/hooks.lua. TriggerEvent('onResourceStop', 'victim') from any client script releases the victim's hooks."
+    },
+    {
+      "id": "M311",
+      "file": "shared/statebag.lua",
+      "find": "    -- A forged stop from another client script is ignored (shared/owned.lua).\n    if not CisRealStop(resource) then\n        return\n    end\n",
+      "replace": "",
+      "why": "Trust a forged onResourceStop in shared/statebag.lua. TriggerEvent('onResourceStop', 'victim') from any client script releases the victim's statebag watchers."
+    },
+    {
+      "id": "M312",
+      "file": "shared/owned.lua",
+      "find": "    return by == nil or by == resource\n",
+      "replace": "    return true\n",
+      "why": "Treat every client onResourceStop as real. The guard in every sweep becomes a no-op and any client script releases any resource's records."
+    },
+    {
+      "id": "M313",
+      "file": "shared/owned.lua",
+      "find": "    if IsDuplicityVersion() then\n        return true\n    end\n    local by = GetInvokingResource()\n",
+      "replace": "    local by = GetInvokingResource()\n",
+      "why": "Apply the invoker test on the server. A restart from txAdmin (run in monitor's runtime) is then ignored, and a restarted resource's hooks and statebag watchers leak."
+    },
+    {
+      "id": "M314",
+      "file": "init.lua",
+      "find": "            if resource == RESOURCE and realStop(resource) then\n",
+      "replace": "            if resource == RESOURCE then\n",
+      "why": "Trust a forged cis_libs stop in a consumer's isReady gate. Any client script makes every consumer re-ask the gate."
+    },
+    {
+      "id": "M315",
+      "file": "init.lua",
+      "find": "            if resource ~= THIS or not realStop(resource) then\n",
+      "replace": "            if resource ~= THIS then\n",
+      "why": "Trust a forged consumer stop in init.lua. Any client script destroys the consumer's DUI browsers and scaleform movies while it runs."
+    },
+    {
+      "id": "M316",
+      "file": "client/core/mirror.lua",
+      "find": "        if resource == self.resource and (by == nil or by == resource) then\n",
+      "replace": "        if resource == self.resource then\n",
+      "why": "Trust a forged cis_libs stop in the consumer's cache mirror. Any client script makes every consumer drop its snapshot and re-ask."
+    },
+    {
+      "id": "M317",
+      "file": "client/cache.lua",
+      "find": "    if caller ~= 'cis_libs' and caller ~= owner then\n        return false, ('watcher %s belongs to %s, not %s'):format(tostring(id), tostring(owner), caller)\n    end\n",
+      "replace": "",
+      "why": "Let any resource remove a near watcher by id. Ids count from 1, so one loop removes every resource's watchers."
+    },
+    {
+      "id": "M318",
+      "file": "client/callback.lua",
+      "find": "    if holder and holder ~= owner then\n",
+      "replace": "    if false then\n",
+      "why": "Let any resource re-register a client callback name another holds. It takes over the handler and answers the server in its place."
     }
   ]
 }

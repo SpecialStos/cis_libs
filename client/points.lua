@@ -73,6 +73,10 @@ end)
 
 -- A point that outlives the resource that made it is invisible from the server and
 AddEventHandler('onResourceStop', function(resource)
+    -- A forged stop from another client script is ignored (shared/owned.lua).
+    if not CisRealStop(resource) then
+        return
+    end
     local freed = CisOwned.release(owned, resource)
     -- `release` hands back { kind, id } ENTRIES. Iterating it with `for id in ipairs`
     -- walked the positions 1..n instead, which deleted whichever points happened to

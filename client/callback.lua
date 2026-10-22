@@ -1,4 +1,4 @@
--- One event each way. Incrementing keys. Await and callback both time out.
+-- One event each way. Random keys. Await and callback both time out.
 
 local pending = CisPending.new()
 local handlers = {}
@@ -12,7 +12,20 @@ end
 -- `remotes` is declared up here rather than beside its users, because the `cis_libs:cb`
 local remotes = {}
 
+-- FROM THE SERVER, OR NOT AT ALL. A net event is also reachable by a plain
+-- TriggerEvent from any client resource, and the runtime sets `source` to '' for
+-- that local call. Forged, `cis_libs:cb` runs any consumer's callback with the
+-- forger's arguments, and `cis_libs:cb:res` answers another resource's await
+-- with the forger's data. Same check as client/initialize.lua.
+local function fromServer()
+    local src = source
+    return src ~= nil and src ~= ''
+end
+
 RegisterNetEvent('cis_libs:cb', function(name, key, ...)
+    if not fromServer() then
+        return
+    end
     local handler = handlers[name]
     local remote = not handler and remotes[name] or nil
     if not handler and not remote then
@@ -51,6 +64,9 @@ RegisterNetEvent('cis_libs:cb', function(name, key, ...)
 end)
 
 RegisterNetEvent('cis_libs:cb:res', function(key, ok, ...)
+    if not fromServer() then
+        return
+    end
     local item = CisPending.take(pending, key)
     if not item then
         return
@@ -97,18 +113,30 @@ local function startCall(name, cb, ...)
 end
 
 -- LOCAL handlers, and 'resource:export' references ().
+-- Logged AND returned, so a caller that checks the result is told why.
+local function refuse(why)
+    Logging.Error(why)
+    return false, why
+end
+
 exports('RegisterCallback', function(name, fn)
     if type(name) ~= 'string' or name == '' then
-        Logging.Error('RegisterCallback needs a non-empty name')
-        return false
+        return refuse('RegisterCallback needs a non-empty name')
     end
     -- who registered it, so a consumer's stop releases its own.
     local owner = GetInvokingResource() or 'cis_libs'
+    -- A NAME ANOTHER RESOURCE HOLDS IS REFUSED, as zones, targets and keybinds
+    -- refuse theirs. Overwriting it let any script take over a consumer's client
+    -- callback and answer the server in its place. The owner may replace its
+    -- own, and a name is free again once its owner stops.
+    local holder = CisOwned.ownerOf(callbackOwned, 'callback', name)
+    if holder and holder ~= owner then
+        return refuse(('RegisterCallback: %q belongs to %s, not %s'):format(name, holder, owner))
+    end
     if type(fn) == 'string' then
         local resource, export = fn:match('^([^:]+):(.+)$')
         if not resource or not export then
-            Logging.Error(('RegisterCallback: %s must be "resource:export"'):format(name))
-            return false
+            return refuse(('RegisterCallback: %s must be "resource:export"'):format(name))
         end
         handlers[name] = nil
         remotes[name] = { resource = resource, export = export, owner = owner }
@@ -116,8 +144,7 @@ exports('RegisterCallback', function(name, fn)
         return true
     end
     if not CisCallable(fn) then
-        Logging.Error(('RegisterCallback needs a function or "resource:export" for %s'):format(name))
-        return false
+        return refuse(('RegisterCallback needs a function or "resource:export" for %s'):format(name))
     end
     remotes[name] = nil
     handlers[name] = fn
@@ -127,6 +154,10 @@ end)
 
 -- a consumer that stops takes its client callbacks with it, so the next call
 AddEventHandler('onResourceStop', function(resource)
+    -- A forged stop from another client script is ignored (shared/owned.lua).
+    if not CisRealStop(resource) then
+        return
+    end
     if resource == GetCurrentResourceName() then
         return
     end
