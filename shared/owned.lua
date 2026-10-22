@@ -2,6 +2,18 @@
 
 CisOwned = {}
 
+-- A function handed over by another resource crosses the exports boundary as a
+-- callable table carrying `__cfx_functionReference`, not as a Lua function.
+-- Both are callable; nothing else is. Every API that takes a handler uses this.
+--- @param v any
+--- @return boolean
+function CisCallable(v)
+    if type(v) == 'function' then
+        return true
+    end
+    return type(v) == 'table' and rawget(v, '__cfx_functionReference') ~= nil
+end
+
 --- @return table
 function CisOwned.new()
     return {

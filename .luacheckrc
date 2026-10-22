@@ -123,9 +123,9 @@ read_globals = {
 -- reach its neighbour through a global. That is the design, not a leak,
 -- and it is the reason these names are declared at all.
 --
--- 100 names, read out of the source by build-libglobals.js.
+-- 101 names, read out of the source by build-libglobals.js.
 globals = {
-    "CIS_DUMP_TARGET", "Cis", "CisCache", "CisCommandAdd", "CisCommandList",
+    "CIS_DUMP_TARGET", "Cis", "CisCache", "CisCallable", "CisCommandAdd", "CisCommandList",
     "CisCommandNames", "CisCommandParse", "CisConfigUtil", "CisCurve", "CisDefaults",
     "CisDetect", "CisDiagnostics", "CisForgetPlayer", "CisGrid", "CisHeap", "CisHistogram",
     "CisHooks", "CisId", "CisInterp", "CisInvokingAllowed", "CisJobCount", "CisJson",
