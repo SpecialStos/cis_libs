@@ -201,12 +201,13 @@ provider is registered, and `GetLibsPrefix()` reports it.
 
 ### 5.1 Modules
 
-Fifteen pure-Lua modules ship in `files {}` and load on demand through
+Twenty-four pure-Lua modules ship in `files {}` and load on demand through
 `Cis.require(name)`: `curve`, `heap`, `interp`, `lru`, `random`, `rate`,
-`sparse`, `window`, `id`, `json`, `semver`, `string`, `table`, `time`,
-`validate`. Each loads into the **calling** resource's Lua state, once per
-state, and installs no global. `Cis.require('unknown')` raises and lists the
-valid names; `Cis.requireList()` returns them.
+`ringbuffer`, `set`, `sparse`, `window`, `array`, `class`, `cron`, `id`,
+`json`, `locale`, `mathx`, `print`, `semver`, `string`, `table`, `time`,
+`timer`, `validate`. Each loads into the **calling** resource's Lua state,
+once per state, and installs no global. `Cis.require('unknown')` raises and
+lists the valid names; `Cis.requireList()` returns them.
 
 A resource's own files load the same way. `Cis.require('client.utils')`,
 `Cis.require('client/utils')` and `Cis.require('./client/utils')` all read
@@ -231,6 +232,25 @@ non-number where only numbers make sense) raises; a point is `{ x, y, z }`,
 `{ 1, 2, 3 }` or a FiveM `vector2`/`vector3`/`vector4`. Headings are GTA
 headings: degrees, 0 facing +Y, 90 facing −X. Rate limiters and windows take
 time in **seconds**.
+
+The `array`, `set`, `ringbuffer` and `timer` objects also carry a metatable
+whose `__index` is their module, so `a:map(fn)` is `array.map(a, fn)` and
+`t:pause()` is `timer.pause(t)`; cron jobs have `job:stop()`, `job:isActive()`
+and `job:nextRun()`. An `array` reads its explicit length `n` (or a plain
+table's own `n`) rather than `#t`, so holes never shorten it, and nothing in it
+mutates its input except `push` and `splice`.
+
+The runtime modules read FiveM state in the **calling** resource:
+
+| Module | Reads | Notes |
+|---|---|---|
+| `locale` | `LoadResourceFile(GetCurrentResourceName(), 'locales/<lang>.json')`, convar `cis:locale` | List the files in your own `files {}`. English is the fallback file and the fallback per key; `${name}` from a table argument, `%s` positionally; a missing key answers the key and warns once. |
+| `print` | convar `cis:printlevel:<resource>`, then `cis:printlevel` | Levels `error` < `warn` < `info` (default) < `verbose` < `debug`. Read at load; `print.refresh()` re-reads. A filtered call formats nothing. |
+| `timer` | `GetGameTimer`, `CreateThread`, `Wait` | A running timer is one thread asleep for exactly the time left. `setTimeout`/`setInterval` take the callback and delay in either order. |
+| `cron` | `os.time`, `os.date`, `CreateThread`, `Wait` | Server **local** time (`{ utc = true }` for UTC). Day of month and day of week are ORed when both are restricted, as in Vixie cron. One scheduler thread per Lua state sleeps until the next due job; a stall runs a missed job once. |
+
+Set convars a client must see with `setr`, e.g. `setr cis:locale "pt"` and
+`setr cis:printlevel:my_shop "debug"`.
 
 The reference below is generated from the `---@param`/`---@return`
 annotations in each module's source by `npm run gen-types`, which also writes

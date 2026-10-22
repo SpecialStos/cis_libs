@@ -70,6 +70,32 @@ under **Changed** so nobody upgrades into them blind.
 
 ### Added
 
+- **Nine developer-experience modules** for `Cis.require`, bringing the count
+  to twenty-four (DOCUMENTATION.md §5.1):
+  - `locale` — per-resource `locales/<lang>.json`, language from the
+    replicated convar `cis:locale` (else `en`), English fallback per file and
+    per key, `${name}` and `%s` arguments, warn-once on a missing key.
+  - `print` — `error`/`warn`/`info`/`verbose`/`debug` with colour prefixes;
+    level from `cis:printlevel:<resource>`, then `cis:printlevel`, default
+    `info`. A filtered call formats nothing.
+  - `timer` — pausable `GetGameTimer` countdowns (`play`, `pause`, `restart`,
+    `forceEnd`, `getTimeLeft`) that sleep for exactly the time left, and
+    `setTimeout`/`setInterval`/`clearTimeout` with cancellation.
+  - `cron` — five-field expressions with ranges, steps, lists and names,
+    `@hourly`…`@yearly`, Vixie day-of-month/day-of-week OR semantics,
+    `parse`/`next`/`matches`, and `schedule` on one scheduler thread per Lua
+    state that sleeps until the next due job. Server local time, or UTC.
+  - `class` — `class.new(name, super)`, constructors, `instanceof`, a
+    `toString` hook, weak-table private fields.
+  - `array` — explicit-length arrays (holes survive) with map, filter,
+    reduce, find, slice, splice, concat, flat, a stable sort, unique,
+    groupBy, chunk, zip, sum, min and max.
+  - `set` and `ringbuffer` — an insertion-ordered Set with union, intersect
+    and difference; a fixed-capacity ring buffer.
+  - `mathx` — `round(n, decimals)`, `clamp`, `lerp` (FiveM vectors too),
+    `inverseLerp`, `remap`, `approx`, `toHex`/`fromHex` exact to 2^53,
+    `groupDigits`, and a `weightedPick` reproducible with a seeded generator.
+- **`string.random(pattern, rng)`**, ox_lib's `'1AA111'` plate shape.
 - **First-party NUI** with no build step and no dependencies: `Toast`,
   `ProgressBar`/`ProgressCircle`, text UI, `AlertDialog`, `InputDialog`
   (11 field types), context menus, list menus, a radial menu, `SkillCheck`,
