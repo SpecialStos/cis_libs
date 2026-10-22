@@ -231,7 +231,9 @@ function CisRegistry.announce(slot, action, previousOwner, owner)
     })
 end
 
-function CisRegistry.register(slot, provider, contract)
+-- `asOwner` is for cis_libs' own code only: the client capability gate files a
+-- registration it held back, after the caller's export call has returned.
+function CisRegistry.register(slot, provider, contract, asOwner)
     if type(slot) ~= 'string' or not CisRegistry.SLOTS[slot] then
         return false, ('unknown capability slot %q'):format(tostring(slot))
     end
@@ -255,7 +257,7 @@ function CisRegistry.register(slot, provider, contract)
     end
 
     -- A bare callable is cis_libs registering its own capability, so it is owned by
-    local owner = invokingResource()
+    local owner = asOwner or invokingResource()
         or (type(provider) == 'table' and provider.resource)
         or 'cis_libs'
     local held = slots[slot]

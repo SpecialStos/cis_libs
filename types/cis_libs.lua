@@ -1673,12 +1673,12 @@ function RegisterCallback.client(name, fn) end
   ---@param slot string #a CisRegistry.SLOTS key; an unknown slot is refused before dispatch
   ---@param provider string #always "resource:Export" -- a function cannot cross the exports boundary and arrives as nil
   ---@param contract? string #the caller's declared contract, normally the engine's own reading of its fxmanifest cis_libs_contract. A MAJOR mismatch is refused before dispatch, because a 3.x product registering into a 2.x cis_libs gets calls that return the wrong value for the right reason
-  ---@return boolean, string #true on registration; false plus a reason on a major contract mismatch or a refusal
+  ---@return boolean, string #true on registration; false plus a reason on a major contract mismatch, a caller off Security.AuthorizedResources, or a refusal
 ---@overload
   ---@param slot string #a CisRegistry.SLOTS key; an unknown slot is refused before dispatch
   ---@param provider string|table|function #a "resource:Export" string, a table carrying .resource, or a bare callable
   ---@param contract? string #as on the server: a MAJOR mismatch is refused before dispatch
-  ---@return boolean, string|nil #true, or false plus a reason naming the slot or the holder
+  ---@return boolean, string|nil #true, or false plus a reason naming the slot, the holder, or a caller off the server's allow-list. Before the server's allow-list reaches the client a foreign registration is held: true plus 'held until the server sends the allow-list', then filed or refused (and logged) when it arrives
 ---@overload
 function RegisterCapability.server(slot, provider, contract) end
 function RegisterCapability.client(slot, provider, contract) end

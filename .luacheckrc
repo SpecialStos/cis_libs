@@ -142,7 +142,7 @@ read_globals = {
 -- reach its neighbour through a global. That is the design, not a leak,
 -- and it is the reason these names are declared at all.
 --
--- 121 names, read out of the source by build-libglobals.js.
+-- 122 names, read out of the source by build-libglobals.js.
 globals = {
     "CIS_DUMP_TARGET", "Cis", "CisArray", "CisCache", "CisCallable", "CisCallbackLimits",
     "CisCheckNetSchema", "CisClass", "CisCommandAdd", "CisCommandList", "CisCommandNames",
@@ -156,9 +156,9 @@ globals = {
     "CisPointsGetClosest", "CisPointsGetDebug", "CisPointsRemove", "CisPrint", "CisRandom",
     "CisRate", "CisRateBucketCount", "CisRateOk", "CisRaycastCamera",
     "CisRaycastFromCoords", "CisReadyState", "CisRealStop", "CisRegisterCallback",
-    "CisRegistry", "CisRememberJob", "CisRingBuffer", "CisSecurityPinned",
-    "CisSecurityPosture", "CisSecurityRebuild", "CisSecurityReport", "CisSemver",
-    "CisServerZoneBox", "CisServerZoneContains", "CisServerZonePlayers",
+    "CisRegistry", "CisRememberJob", "CisRingBuffer", "CisSecurityDigests",
+    "CisSecurityPinned", "CisSecurityPosture", "CisSecurityRebuild", "CisSecurityReport",
+    "CisSemver", "CisServerZoneBox", "CisServerZoneContains", "CisServerZonePlayers",
     "CisServerZonePoly", "CisServerZoneRemove", "CisServerZoneSphere", "CisSet",
     "CisSparse", "CisStatebagOnEntity", "CisStatebagOnPlayer", "CisString",
     "CisSyncEnabled", "CisTable", "CisTime", "CisTimer", "CisTiming", "CisUiConfirm",

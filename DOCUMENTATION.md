@@ -153,7 +153,11 @@ declares them under a `convar_category`, so txAdmin lists them. Limits are
 re-read at most once a second, so a console `set` lands without a restart.
 
 The client payload is a whitelist. Webhook URLs, drop handlers, and
-`AuthorizedResources` do not leave the server.
+`AuthorizedResources` do not leave the server. The allow-list also gates
+`RegisterCapability` on both realms; for the client's half, the payload carries
+a one-way digest of each allowed name (`Providers`), so a client can check a
+caller it runs but cannot read the list. A client capability registered before
+that payload arrives is held, then filed or refused.
 
 `Security.EventPrefix` is **not** a prefix on every net event: every
 `cis_libs:*` event is a literal. It prefixes only the legacy
@@ -923,7 +927,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `RaycastFromCoords` | client | `(origin, target, flags?, ignore?, timeoutMs?)` | 1.0.0 | Cis.raycast.fromCoords(origin, target, flags, ignore, timeoutMs) |
 | `ReadyState` | both | `()` | 1.0.0 | Cis.isReady and Cis.isFailed, which read through to this in a consumer |
 | `RegisterCallback` | both | `()` | 1.0.0 | Cis.callback.register(name, handler) |
-| `RegisterCapability` | both | `()` | 1.0.0 | Called by cis_core, cis_bridge and cis_keys with (slot, "resource:Export"). First registration wins |
+| `RegisterCapability` | both | `()` | 1.0.0 | Called by cis_core, cis_bridge and cis_keys with (slot, "resource:Export"). Gated on Security.AuthorizedResources on both realms; among allowed callers the first registration wins |
 | `RegisterContext` | client | `(context)` | 1.1.0 | exports.cis_libs:RegisterContext(context) |
 | `RegisterMenu` | client | `(data, cb?)` | 1.1.0 | exports.cis_libs:RegisterMenu(data, cb) |
 | `RegisterRadial` | client | `(radial)` | 1.1.0 | exports.cis_libs:RegisterRadial(radial) |
@@ -997,7 +1001,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `cis_libs:cb` | 1.0.0 | client to server and server to client: (name, key, ...). `key` is the caller's opaque pending token, echoed back unchanged. The client handler ignores a local TriggerEvent (`source` is empty): only the server can ask a client callback. |
 | `cis_libs:cb:res` | 1.0.0 | client: (key, ok, ...) resolving an outstanding callback. Only a reply from the server counts; a local TriggerEvent (`source` is empty) is ignored. |
 | `cis_libs:cb:serverRes` | 1.0.0 | server: (key, ok, ...) resolving an outstanding client callback |
-| `cis_libs:client:getData` | 1.0.0 | server to client: ({ Config, EventPrefix }) on join. DoorData was not shipped in 1.0.0 |
+| `cis_libs:client:getData` | 1.0.0 | server to client: ({ Config, EventPrefix, Providers }) on join, and to every client after SetConfig. Providers is "any" or the CisConfigUtil.digest of each Security.AuthorizedResources name (never the names), and gates client RegisterCapability. A local TriggerEvent is ignored. DoorData was not shipped in 1.0.0 |
 | `cis_libs:client:inventory` | 1.0.0 | server to client: ({ [itemName] = count }), pushed by PublishInventory |
 | `cis_libs:client:showNotification` | 1.0.0 | server to client: (message, kind) |
 | `cis_libs:client:syncBatch` | 1.0.0 | server to client: (n, upserts, removes). ONE event per player per pass, latent when it carries 32 entries or more. `n` numbers the batches sent to that player, and a client applies an entry only if no later batch has touched that key, so a reliable batch overtaking a latent one is safe. `upserts` are CLIENT-LOCAL records (identity `record.key`, the caller's id namespaced by its owning resource; `record.rev` is its revision); a networked record is never on this wire. `removes` are keys to despawn. The client applies a batch only from the server (a local TriggerEvent is ignored) and only when `n` is an integer in 1..2^31-1. |

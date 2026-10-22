@@ -27,7 +27,7 @@ self = false
 -- In shipped code an unused parameter is a real smell and stays reported.
 unused_args = false
 
--- 510 names writable in this directory.
+-- 511 names writable in this directory.
 globals = {
     "AddCommand", "AddDoorToSystem", "AddEventHandler", "AddStateBagChangeHandler",
     "AddTextComponentString", "AddTextComponentSubstringPlayerName", "AttachEntityToEntity",
@@ -47,17 +47,17 @@ globals = {
     "CisPrint", "CisRandom", "CisRate", "CisRateBucketCount", "CisRateOk",
     "CisRaycastCamera", "CisRaycastFromCoords", "CisReadyState", "CisRealStop",
     "CisRegisterCallback", "CisRegistry", "CisRememberJob", "CisRingBuffer",
-    "CisSecurityPinned", "CisSecurityPosture", "CisSecurityRebuild", "CisSecurityReport",
-    "CisSemver", "CisServerZoneBox", "CisServerZoneContains", "CisServerZonePlayers",
-    "CisServerZonePoly", "CisServerZoneRemove", "CisServerZoneSphere", "CisSet",
-    "CisSparse", "CisStatebagOnEntity", "CisStatebagOnPlayer", "CisString",
-    "CisSyncEnabled", "CisTable", "CisTestB", "CisTestBClient", "CisTestBadMeta",
-    "CisTestC", "CisTestClientCase", "CisTestControl", "CisTestJson", "CisTestPlayer",
-    "CisTestReport", "CisTestRing", "CisTestRunner", "CisTestSoak", "CisTestStatus",
-    "CisTime", "CisTimer", "CisTiming", "CisUiConfirm", "CisUiInput", "CisUiNotify",
-    "CisUiProgress", "CisUiTextUIHide", "CisUiTextUIIsOpen", "CisUiTextUIShow",
-    "CisValidate", "CisWindow", "CisWorldClosest", "CisWorldNearby", "CisZoneGeom",
-    "CisZonesContains", "CisZonesCreate", "CisZonesRemove", "Citizen",
+    "CisSecurityDigests", "CisSecurityPinned", "CisSecurityPosture", "CisSecurityRebuild",
+    "CisSecurityReport", "CisSemver", "CisServerZoneBox", "CisServerZoneContains",
+    "CisServerZonePlayers", "CisServerZonePoly", "CisServerZoneRemove",
+    "CisServerZoneSphere", "CisSet", "CisSparse", "CisStatebagOnEntity",
+    "CisStatebagOnPlayer", "CisString", "CisSyncEnabled", "CisTable", "CisTestB",
+    "CisTestBClient", "CisTestBadMeta", "CisTestC", "CisTestClientCase", "CisTestControl",
+    "CisTestJson", "CisTestPlayer", "CisTestReport", "CisTestRing", "CisTestRunner",
+    "CisTestSoak", "CisTestStatus", "CisTime", "CisTimer", "CisTiming", "CisUiConfirm",
+    "CisUiInput", "CisUiNotify", "CisUiProgress", "CisUiTextUIHide", "CisUiTextUIIsOpen",
+    "CisUiTextUIShow", "CisValidate", "CisWindow", "CisWorldClosest", "CisWorldNearby",
+    "CisZoneGeom", "CisZonesContains", "CisZonesCreate", "CisZonesRemove", "Citizen",
     "ClearAllHelpMessages", "ClearPedTasks", "ClearTimeout",
     "ClearVehicleCustomPrimaryColour", "ClearVehicleCustomSecondaryColour", "Config",
     "CreateDui", "CreateObject", "CreateObjectNoOffset", "CreatePed",

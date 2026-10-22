@@ -1077,7 +1077,7 @@ return {
         },
         RegisterCapability = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Called by cis_core, cis_bridge and cis_keys with (slot, "resource:Export"). First registration wins',
+            use = 'Called by cis_core, cis_bridge and cis_keys with (slot, "resource:Export"). Gated on Security.AuthorizedResources on both realms; among allowed callers the first registration wins',
             realm = 'both',
             -- THE THIRD PARAMETER WAS MISSING HERE AND HAS BEEN SINCE THE CONTRACT
             -- CHECK LANDED. The code has taken `contract` since the A1 work --
@@ -1094,7 +1094,7 @@ return {
             -- "is every declared name present in the source" would have passed this
             -- forever.
             params = { server = { { name = 'slot', type = 'string', doc = 'a CisRegistry.SLOTS key; an unknown slot is refused before dispatch' }, { name = 'provider', type = 'string', doc = 'always "resource:Export" -- a function cannot cross the exports boundary and arrives as nil' }, { name = 'contract', type = 'string', optional = true, doc = "the caller's declared contract, normally the engine's own reading of its fxmanifest cis_libs_contract. A MAJOR mismatch is refused before dispatch, because a 3.x product registering into a 2.x cis_libs gets calls that return the wrong value for the right reason" } }, client = { { name = 'slot', type = 'string', doc = 'a CisRegistry.SLOTS key; an unknown slot is refused before dispatch' }, { name = 'provider', type = 'string|table|function', doc = 'a "resource:Export" string, a table carrying .resource, or a bare callable' }, { name = 'contract', type = 'string', optional = true, doc = 'as on the server: a MAJOR mismatch is refused before dispatch' } } },
-            returns = { server = { { type = 'boolean, string', doc = 'true on registration; false plus a reason on a major contract mismatch or a refusal' } }, client = { { type = 'boolean, string|nil', doc = 'true, or false plus a reason naming the slot or the holder' } } },
+            returns = { server = { { type = 'boolean, string', doc = 'true on registration; false plus a reason on a major contract mismatch, a caller off Security.AuthorizedResources, or a refusal' } }, client = { { type = 'boolean, string|nil', doc = "true, or false plus a reason naming the slot, the holder, or a caller off the server's allow-list. Before the server's allow-list reaches the client a foreign registration is held: true plus 'held until the server sends the allow-list', then filed or refused (and logged) when it arrives" } } },
         },
         UnregisterCapability = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -2661,7 +2661,7 @@ return {
         },
         ['cis_libs:client:getData'] = {
             since = '1.0.0',
-            payload = 'server to client: ({ Config, EventPrefix }) on join. DoorData was not shipped in 1.0.0',
+            payload = 'server to client: ({ Config, EventPrefix, Providers }) on join, and to every client after SetConfig. Providers is "any" or the CisConfigUtil.digest of each Security.AuthorizedResources name (never the names), and gates client RegisterCapability. A local TriggerEvent is ignored. DoorData was not shipped in 1.0.0',
         },
         ['cis_libs:server:getData'] = {
             since = '1.0.0',

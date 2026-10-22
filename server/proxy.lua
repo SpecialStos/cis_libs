@@ -302,6 +302,16 @@ exports('RegisterCapability', function(slot, provider, contract)
         return false, reason
     end
 
+    -- GATED, like SetDropPlayerHandler: a slot is first-come, and whoever holds
+    -- `security`, `framework` or `inventory` answers for every consumer.
+    if not CisInvokingAllowed() then
+        local reason = notAuthorizedReason('RegisterCapability')
+        Logging.Warn(('cis_libs: capability %q refused: %s'):format(tostring(slot), reason))
+        audit('capability-refused', ('slot=%s caller=%s reason=not-authorized')
+            :format(tostring(slot), tostring(GetInvokingResource())))
+        return false, reason
+    end
+
     local ok, reason = CisRegistry.register(slot, provider, contract)
     if not ok then
         Logging.Warn(('cis_libs: capability %q refused: %s'):format(tostring(slot), tostring(reason)))

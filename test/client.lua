@@ -5499,6 +5499,54 @@ do
     env.reset()
 end
 
+-- ============================ the allow-list gates client capability providers
+--
+-- A slot is first-come. A client script that started before the real `ui`
+-- provider owned the slot and answered every consumer's Cis.ui.input and
+-- confirm. The server now sends who may provide -- as digests, never names --
+-- and a registration that arrives before that is held, in order, and filed or
+-- refused when it does.
+do
+    local env = newEnv({})
+    env.save('CisReadyState')
+    CisReadyState = { wait = function() return true end, ready = true, failed = false }
+    env.save('CisRegistry')
+    loadModule('shared/registry.lua')
+    loadModule('client/proxy.lua')
+
+    env.invoking = 'rogue'
+    local early = env.EXPORTS.RegisterCapability('ui', 'rogue:Ui')
+    env.invoking = 'cis_ui'
+    local legit = env.EXPORTS.RegisterCapability('ui', 'cis_ui:Ui')
+    check(early == true and legit == true and not CisRegistry.has('ui'),
+        'capability gate: before the server answers, registrations are held, not filed')
+    env.invoking = nil
+
+    env.net('cis_libs:client:getData', '', { Providers = 'any' })
+    check(not CisRegistry.has('ui'), 'capability gate: a forged payload opens nothing')
+
+    env.net('cis_libs:client:getData', 65535, { Providers = { CisConfigUtil.digest('cis_ui') } })
+    check(CisRegistry.owner('ui') == 'cis_ui',
+        ('capability gate: the listed provider gets the slot the squatter asked for first (owner=%s)')
+            :format(tostring(CisRegistry.owner('ui'))))
+
+    env.invoking = 'rogue'
+    local late, why = env.EXPORTS.RegisterCapability('target', 'rogue:Target')
+    check(late == false and tostring(why):find('cis_authorized_resources', 1, true) ~= nil
+        and not CisRegistry.has('target'),
+        ('capability gate: once known, an unlisted provider is refused at once (%s)'):format(tostring(why)))
+    env.invoking = nil
+    check(env.EXPORTS.RegisterCapability('target', function() return true end) == true,
+        'capability gate: cis_libs\' own registrations are not gated')
+    CisRegistry.unregister('target')
+
+    env.net('cis_libs:client:getData', 65535, { Providers = 'any' })
+    env.invoking = 'rogue'
+    check(env.EXPORTS.RegisterCapability('target', 'rogue:Target') == true,
+        'capability gate: a permissive server lets any resource provide')
+    env.reset()
+end
+
 -- ==================================== a forged onResourceStop releases nothing
 --
 -- `onResourceStop` is an ordinary event: `TriggerEvent('onResourceStop',

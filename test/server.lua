@@ -5202,6 +5202,33 @@ do
     check(calls[1] == 'breakDoor', 'P1: an allow-listed resource still reaches the provider')
     CisRegistry.unregister('doors')
     CisRegistry.unregister('security')
+
+    -- RegisterCapability reached the same first-come slots with no check at all:
+    -- RegisterCapability('security', ...) took what SetDropPlayerHandler guards.
+    env.invoking = 'cis_evil'
+    local capOk, capWhy = env.EXPORTS.RegisterCapability('security', 'cis_evil:Drop')
+    check(capOk == false and tostring(capWhy):find('AuthorizedResources', 1, true) ~= nil
+        and not CisRegistry.has('security'),
+        ('P1: RegisterCapability from a resource off the list takes no slot (%s)'):format(tostring(capWhy)))
+    env.invoking = 'cis_keys'
+    check(env.EXPORTS.RegisterCapability('security', 'cis_keys:Drop') == true,
+        'P1: an allow-listed provider still registers')
+    CisRegistry.unregister('security', 'cis_keys')
+
+    -- The client gates its own providers on the same list, sent as digests:
+    -- the names never cross (DOCUMENTATION.md section 3).
+    local payload = CisConfigUtil.clientPayload(Config, Security)
+    local digests = payload.Providers
+    check(type(digests) == 'table' and #digests == 1
+        and digests[1] == CisConfigUtil.digest('cis_keys'),
+        'P1: the client payload carries the allow-list as digests')
+    local leaked = false
+    local function walk(v)
+        if v == 'cis_keys' then leaked = true end
+        if type(v) == 'table' then for _, c in pairs(v) do walk(c) end end
+    end
+    walk(payload)
+    check(not leaked, 'P1: and not one allowed name')
     env.reset()
 end
 

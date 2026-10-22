@@ -50,6 +50,14 @@ under **Changed** so nobody upgrades into them blind.
   removes)`; clients report a give-up with `cis_libs:server:syncGaveUp`.
   Networked records are never streamed over sync events: the server creates
   the one entity and its metadata rides the `cis_sync` entity state bag.
+- **`RegisterCapability` is gated on `Security.AuthorizedResources`** on both
+  realms, like `SetDropPlayerHandler`. With the default (empty, restrictive)
+  list, a provider such as `cis_bridge` must be listed to register. Clients
+  get the list as one-way digests in the `cis_libs:client:getData` payload
+  (`Providers`), never the names; a client registration that arrives before
+  the payload is held and answered `true, 'held until ...'`, then filed or
+  refused. First-come slots let any resource that started first own `ui`,
+  `target`, `framework` or `security` for every consumer.
 - **Pending callback keys are opaque string tokens** (a counter plus 60
   random bits), on both realms. `CallCallbackClient` / `Cis.callback.callClient`
   return one where they returned an integer; it is only ever echoed back.

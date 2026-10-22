@@ -2185,6 +2185,48 @@
       "find": "    if holder and holder ~= owner then\n",
       "replace": "    if false then\n",
       "why": "Let any resource re-register a client callback name another holds. It takes over the handler and answers the server in its place."
+    },
+    {
+      "id": "M319",
+      "file": "client/proxy.lua",
+      "find": "    if not mayProvide(owner) then\n        return notAllowed(slot, owner)\n    end\n    return file(slot, provider, contract, owner)\nend)\n",
+      "replace": "    return file(slot, provider, contract, owner)\nend)\n",
+      "why": "File a client capability from any resource once the allow-list is known. First-come slots go back to whoever starts first."
+    },
+    {
+      "id": "M320",
+      "file": "client/proxy.lua",
+      "find": "        if mayProvide(h.owner) then\n",
+      "replace": "        if true then\n",
+      "why": "File every held registration when the allow-list arrives. A squatter that registered before the real provider keeps the ui slot."
+    },
+    {
+      "id": "M321",
+      "file": "client/proxy.lua",
+      "find": "    if gate == nil then\n        held[#held + 1]",
+      "replace": "    if false then\n        held[#held + 1]",
+      "why": "Judge a registration before the allow-list has arrived. Every real provider that starts in that window is refused."
+    },
+    {
+      "id": "M322",
+      "file": "client/proxy.lua",
+      "find": "    if source == nil or source == '' then\n        return\n    end\n    local providers",
+      "replace": "    local providers",
+      "why": "Take the provider allow-list from a local TriggerEvent. Any client script opens every slot with Providers = 'any'."
+    },
+    {
+      "id": "M323",
+      "file": "server/proxy.lua",
+      "find": "    if not CisInvokingAllowed() then\n        local reason = notAuthorizedReason('RegisterCapability')\n",
+      "replace": "    if false then\n        local reason = notAuthorizedReason('RegisterCapability')\n",
+      "why": "Leave RegisterCapability ungated on the server. Any resource takes the security slot SetDropPlayerHandler guards."
+    },
+    {
+      "id": "M324",
+      "file": "server/security.lua",
+      "find": "        out[#out + 1] = CisConfigUtil.digest(name)\n",
+      "replace": "        out[#out + 1] = name\n",
+      "why": "Send the allow-list names to every client. AuthorizedResources is server-only and would be readable by any client script."
     }
   ]
 }

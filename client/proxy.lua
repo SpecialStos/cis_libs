@@ -28,14 +28,86 @@ local function forward(slot, onFail, ...)
     return table.unpack(results, 2, results.n)
 end
 
--- Registered from both realms, so a resource that speaks to cis_libs never has to know
-exports('RegisterCapability', function(slot, provider, contract)
-    local ok, reason = CisRegistry.register(slot, provider, contract)
+-- THE ALLOW-LIST GATES CLIENT PROVIDERS TOO. A first-come slot let any client
+-- script that started before the real provider own `ui`, `target` or
+-- `framework`, and answer every consumer's Cis.ui.input and confirm. The server
+-- sends who may provide as 'any' or as name digests (CisConfigUtil.digest), so
+-- the list itself never reaches the client. Until it arrives a foreign
+-- registration is HELD, in order, and filed or refused when it does: providers
+-- register as they start, which is before the payload's round trip completes.
+-- nil until the server answers; then 'any' or { [digest] = true }.
+local gate = nil
+local held = {}
+
+local function mayProvide(owner)
+    if gate == 'any' then
+        return true
+    end
+    return type(gate) == 'table' and gate[CisConfigUtil.digest(owner)] == true
+end
+
+local function file(slot, provider, contract, owner)
+    local ok, reason = CisRegistry.register(slot, provider, contract, owner)
     if not ok then
         Logging.Warn(('cis_libs: capability %q refused: %s'):format(tostring(slot), tostring(reason)))
         return false, reason
     end
     return true
+end
+
+local function notAllowed(slot, owner)
+    local reason = ("%s may not provide %q: add it to cis_authorized_resources on the server")
+        :format(tostring(owner), tostring(slot))
+    Logging.Warn(('cis_libs: capability %q refused: %s'):format(tostring(slot), reason))
+    return false, reason
+end
+
+RegisterNetEvent('cis_libs:client:getData', function(data)
+    if source == nil or source == '' then
+        return
+    end
+    local providers = type(data) == 'table' and data.Providers or nil
+    if providers == 'any' then
+        gate = 'any'
+    else
+        gate = {}
+        if type(providers) == 'table' then
+            for i = 1, #providers do
+                if type(providers[i]) == 'string' then
+                    gate[providers[i]] = true
+                end
+            end
+        end
+    end
+    local pending = held
+    held = {}
+    for i = 1, #pending do
+        local h = pending[i]
+        if mayProvide(h.owner) then
+            file(h.slot, h.provider, h.contract, h.owner)
+        else
+            notAllowed(h.slot, h.owner)
+        end
+    end
+end)
+
+-- Registered from both realms, so a resource that speaks to cis_libs never has to know
+exports('RegisterCapability', function(slot, provider, contract)
+    local owner = GetInvokingResource()
+    if owner == nil or owner == GetCurrentResourceName() then
+        return file(slot, provider, contract)
+    end
+    if type(slot) ~= 'string' or not CisRegistry.SLOTS[slot] then
+        return file(slot, provider, contract, owner)
+    end
+    if gate == nil then
+        held[#held + 1] = { slot = slot, provider = provider, contract = contract, owner = owner }
+        return true, 'held until the server sends the allow-list'
+    end
+    if not mayProvide(owner) then
+        return notAllowed(slot, owner)
+    end
+    return file(slot, provider, contract, owner)
 end)
 
 exports('GetCapabilities', function()
@@ -47,6 +119,11 @@ AddEventHandler('onResourceStop', function(resource)
     -- A forged stop from another client script is ignored (shared/owned.lua).
     if not CisRealStop(resource) then
         return
+    end
+    for i = #held, 1, -1 do
+        if held[i].owner == resource then
+            table.remove(held, i)
+        end
     end
     for _, slot in ipairs(CisRegistry.releaseOwner(resource)) do
         warned = {}

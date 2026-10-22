@@ -211,6 +211,21 @@ function CisInvokingAllowed()
     return invokingAllowed()
 end
 
+--- The allow-list as a client may see it, for its capability gate: 'any' when
+--- every resource is allowed, else the sorted digest of each allowed name.
+--- @return string|string[]
+function CisSecurityDigests()
+    if not authorized then
+        return 'any'
+    end
+    local out = {}
+    for name in pairs(authorized) do
+        out[#out + 1] = CisConfigUtil.digest(name)
+    end
+    table.sort(out)
+    return out
+end
+
 -- A fixed window, not a sliding one, and not a token bucket.
 local RATE_BUCKET_CAP = 256
 

@@ -1315,6 +1315,18 @@ do
     rawset(_ENV, 'GetInvokingResource', savedInv)
 end
 
+-- CisConfigUtil.digest is computed by the server and checked by the client, so
+-- both runtimes must produce the same digits: pinned to values computed apart
+-- from Lua (IEEE doubles), which this suite checks under fengari and Lua 5.4.
+do
+    expect(CisConfigUtil.digest('cis_keys') == '2130725535.3064527974',
+        ('digest: a known name gives its known digest (%s)'):format(CisConfigUtil.digest('cis_keys')))
+    expect(CisConfigUtil.digest('cis_ui') == '4135222049.2229876390', 'digest: and another')
+    expect(CisConfigUtil.digest('') == '5381.0', 'digest: the empty name is the seed')
+    expect(CisConfigUtil.digest('cis_keys') ~= CisConfigUtil.digest('cis_keyt'),
+        'digest: one byte apart is a different digest')
+end
+
 -- KEYS ARE TOKENS. The key is the only thing that matches a reply to its call, so
 -- a key a script can predict is a reply a script can forge: with 1, 2, 3...
 -- `for k = 1, 500 do TriggerEvent('cis_libs:cb:res', k, true, fake) end`
