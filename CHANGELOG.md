@@ -92,6 +92,13 @@ under **Changed** so nobody upgrades into them blind.
   annotations that every module function now carries.
 - `.github/workflows/release.yml` refuses a tag that is not
   `v<package.json version>`.
+- **A live server tier in CI.** The `live-server` job boots a real headless
+  Linux FXServer (pinned build 35245, sha256-verified, cached), deploys
+  cis_libs and the `test/live/` harness, runs the `server` and `lifecycle`
+  tiers and fails on any FAIL, script error or boot error. It needs the
+  `FIVEM_LICENSE_KEY` repository secret and skips with a notice without it
+  (`tools/ci-fxserver.sh`, `tools/ci-live.js`, `npm run live:ci`,
+  `npm run test:ci`; test/live/RUNBOOK.md, "CI").
 
 ### Fixed
 
@@ -150,6 +157,9 @@ under **Changed** so nobody upgrades into them blind.
 - `npm run package` builds a reproducible zip: fixed timestamps, entries in
   name order, verified by building twice.
 - `.luarc.json` declared LuaJIT; FiveM runs CfxLua 5.4.
+- `npm run live:deploy` died with a ReferenceError when `.live-env.json` had
+  no `libDir`. The live tools also read `CIS_LIVE_ENV` / `CIS_LIVE_*`
+  environment variables, and `console-bridge` can start a Linux FXServer.
 
 ## [1.0.0] — 2026-10-07
 
