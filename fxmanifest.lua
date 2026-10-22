@@ -16,6 +16,25 @@ dependencies {
     '/server:4500',
 }
 
+-- Server convars that OUTRANK SetConfig (DOCUMENTATION.md §3). Plain `set`, never
+-- `setr`: none of these may reach a client. Blank means "not set, SetConfig
+-- decides", which is why the two switches are strings and not CV_BOOL: a checkbox
+-- has no "not set", and a written-out `false` would pin the posture.
+convar_category 'cis_libs' {
+    'Security and limits (a set convar wins over SetConfig)',
+    {
+        { 'Resources allowed to mutate doors and sync (comma list)', 'cis_authorized_resources', 'CV_STRING', '' },
+        { 'Allow ANY resource to mutate: true / false / blank', 'cis_allow_any_resource', 'CV_STRING', '' },
+        { 'Resource allowed to call SetConfig', 'cis_config_supplier', 'CV_STRING', '' },
+        { 'Callback requests per name per window', 'cis_cb_rate_per_name', 'CV_INT', '20', 1, 10000 },
+        { 'Callback requests per player per window', 'cis_cb_rate_per_player', 'CV_INT', '60', 1, 100000 },
+        { 'Callback rate window (ms)', 'cis_cb_window_ms', 'CV_INT', '1000', 100, 60000 },
+        { 'Callback handlers in flight per player', 'cis_cb_max_inflight', 'CV_INT', '8', 1, 1000 },
+        { 'Longest string a client may send (chars)', 'cis_cb_max_string_len', 'CV_INT', '4096', 16, 1048576 },
+        { 'Check for updates: true / false / blank', 'cis_check_version', 'CV_STRING', '' },
+    },
+}
+
 -- Load order is load-bearing: identity before anything that could run as a
 -- rename, diagnostics before loops, defaults/registry before config, init.lua
 -- last so it captures a complete exports table.

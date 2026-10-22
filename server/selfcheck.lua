@@ -5,25 +5,37 @@ local GRACE_MS = 20000
 
 local startedBeforeUs = {}
 
--- Snapshot at cis_libs's own start.
+-- Snapshot at cis_libs's own start: the resources that were RUNNING then.
+-- GetResourceByFindIndex enumerates every resource the server knows, stopped and
+-- never-started included, so recording each one reported every installed but
+-- unstarted consumer as having "started before cis_libs".
 local function snapshotStartedBefore()
-    if not GetNumResources or not GetResourceByFindIndex then
+    if not GetNumResources or not GetResourceByFindIndex or not GetResourceState then
         return
     end
     for i = 0, GetNumResources() - 1 do
         local name = GetResourceByFindIndex(i)
-        if name then startedBeforeUs[name] = true end
+        if name and GetResourceState(name) == 'started' then
+            startedBeforeUs[name] = true
+        end
     end
 end
 
 -- `fxmeta { cis_requires = 'database, target' }` -- a comma-separated list of
 local function declaredRequirements(name)
     if not GetResourceMetadata then return {} end
-    local raw = GetResourceMetadata(name, CIS_REQUIRES)
-    if type(raw) ~= 'string' or raw == '' then return {} end
+    -- (resource, key, INDEX): every value under the key, not only a first one
+    -- read with the index left off.
     local out = {}
-    for piece in raw:gmatch('[^,%s]+') do
-        out[#out + 1] = piece
+    local count = type(GetNumResourceMetadata) == 'function'
+        and tonumber(GetNumResourceMetadata(name, CIS_REQUIRES)) or 1
+    for index = 0, math.max(count, 1) - 1 do
+        local raw = GetResourceMetadata(name, CIS_REQUIRES, index)
+        if type(raw) == 'string' then
+            for piece in raw:gmatch('[^,%s]+') do
+                out[#out + 1] = piece
+            end
+        end
     end
     return out
 end
@@ -102,6 +114,12 @@ local function run()
                                 .. 'Known slots: %s'):format(table.concat(SlotNames(), ', ')))
                         elseif not CisRegistry.has(slot) then
                             problems = problems + 1
+                            -- STRUCTURED as well as printed: GetSelfCheck and
+                            -- cis_doctor read PROBLEMS, and this one was missing.
+                            problem('missing_provider',
+                                ('%s requires capability %q and no provider is registered for it'):format(name, slot),
+                                ('start the product that provides %q, or add it to Config.Framework in cis_core. Current owners: %s')
+                                    :format(slot, describeOwners()))
                             line(('[x] %s requires capability %q and no provider is registered for it')
                                 :format(name, slot))
                             line(('    fix: start the product that provides %q, or add it to '
@@ -199,11 +217,14 @@ function manifestEntries(name)
     if type(GetNumResourceMetadata) ~= 'function' or type(GetResourceMetadata) ~= 'function' then
         return out
     end
-    local ok, total = pcall(GetNumResourceMetadata, name)
-    if not ok or type(total) ~= 'number' then
-        return out
-    end
     for _, key in ipairs(MANIFEST_KEYS) do
+        -- GET_NUM_RESOURCE_METADATA is (resource, KEY): a count per key. Called
+        -- with the key left off it answered 0 for everything on a real server,
+        -- and every dependency check below this line was dead.
+        local ok, total = pcall(GetNumResourceMetadata, name, key)
+        if not ok or type(total) ~= 'number' then
+            total = 0
+        end
         for i = 0, total - 1 do
             local readOk, value = pcall(GetResourceMetadata, name, key, i)
             if readOk and type(value) == 'string' and not seen[value] then

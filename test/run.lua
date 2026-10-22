@@ -950,6 +950,21 @@ withFakeExports(function()
     expect(CisRegistry.value('migration', 'sources') == 'did:sources',
         'a dispatcher provider receives the action name')
 
+    -- A dispatcher answers the no-method probe with nil, and the nil was never
+    -- cached: every call probed again, so the provider's export ran TWICE per
+    -- call for the life of the server.
+    local invoked = 0
+    exports.cis_migrate.CisMigrateCapability = function(self, action)
+        invoked = invoked + 1
+        if action == nil then return nil end
+        return 'did:' .. tostring(action)
+    end
+    CisRegistry.invalidate('migration')
+    for _ = 1, 10 do CisRegistry.value('migration', 'plan') end
+    expect(invoked <= 11,
+        ('ten calls to a dispatcher invoke its export about ten times, not twenty (invoked=%d)'):format(invoked))
+    expect(CisRegistry.value('migration', 'plan') == 'did:plan', 'and it still dispatches')
+
     -- A stopped resource releases everything it owned, and only that.
     local released = CisRegistry.releaseOwner('cis_bridge')
     expect(#released == 1 and released[1] == 'target', 'releaseOwner returns exactly the slots it held')
@@ -1014,6 +1029,17 @@ do
         '7.13: a raising hook is a veto')
     CisHooks.remove(id)
     CisHooks.remove(raiseId)
+
+    -- A function from ANOTHER resource arrives as a callable reference table;
+    -- `type(fn) == 'function'` refused every one, so no consumer could veto.
+    local ref = setmetatable({ __cfx_functionReference = 'cis_shop:1:1' }, {
+        __call = function(_, p) if p.deny then return false, 'shop says no' end return true end,
+    })
+    local refId, refWhy = CisHooks.on('test.ref', ref)
+    expect(type(refId) == 'number', ('7.13: a cross-resource function registers a hook (%s)'):format(tostring(refWhy)))
+    local okRef, whyRef = CisHooks.run('test.ref', { deny = true })
+    expect(okRef == false and whyRef == 'shop says no', '7.13: and its veto is honoured')
+    CisHooks.remove(refId)
 end
 
 -- 8.1 pass timings. Not CisHistogram (that is job counts).
@@ -1238,6 +1264,21 @@ expect(d.name == 'NONE' and d.how == 'detected', 'no driver started is reported 
 s, v = server({ oxmysql = true }), function() return '2.6.0' end
 d = CisDetect.database('NONE', s, v)
 expect(d.name == 'NONE' and d.how == 'configured', 'database NONE is honoured')
+
+-- A CONFIGURED driver. The configured name is uppercased and the list's names
+-- are lowercase, so `known.name == configured` never matched: every explicit
+-- Database.Type -- 'oxmysql', 'mysql-async' -- was reported as "not a supported
+-- driver" and the install ran with no database.
+s, v = server({ oxmysql = true }), function() return '2.6.0' end
+d = CisDetect.database('oxmysql', s, v)
+expect(d.name == 'oxmysql' and d.how == 'configured' and d.resource == 'oxmysql',
+    ('a configured driver is honoured, whatever its case (got %s, %s)'):format(tostring(d.name), tostring(d.reason)))
+d = CisDetect.database('MySQL-Async', server({ ['mysql-async'] = true }), function() return '0.6.2' end)
+expect(d.name == 'mysql-async' and d.resource == 'mysql-async',
+    'and the list name comes back in its own spelling')
+d = CisDetect.database('ghmattimysql', server({}), function() return nil end)
+expect(d.name == 'ghmattimysql' and d.resource == nil and d.how == 'configured',
+    'a configured driver that is not started is still the one named, with no resource')
 
 
 -- ============================== 3.10: A LOOP THAT RAISES MUST SURVIVE IT

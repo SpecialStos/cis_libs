@@ -1697,6 +1697,13 @@ do
     -- passes. The cap in security.lua is what bounds this case, and it is a
     -- separate defence from the ordering above: without it a client that named
     -- real callbacks could still grow the map.
+    --
+    -- The per-PLAYER budget would otherwise stop this flood after its first 60
+    -- requests, long before the cap is reached -- which is the budget working,
+    -- and not what this block measures. Raised here so the cap is the only
+    -- thing in the way.
+    Config.CallbackLimits.PerPlayer = 100000
+    CisSecurityRebuild()
     for i = 1, 10000 do
         env.EXPORTS.RegisterCallback(('real:%d'):format(i), function() return 1 end)
     end
@@ -2323,12 +2330,15 @@ do
         table.sort(names)
         return names[i + 1]
     end
-    function GetNumResourceMetadata(name)
+    -- GET_NUM_RESOURCE_METADATA is (resourceName, metadataKey): a count PER KEY.
+    -- This stub used to take the name alone and answer the total across every
+    -- key, which is the shape the code was then written against -- and on a real
+    -- server that call answers 0, so every check fed by it was dead. A call
+    -- without the key now gets the real answer.
+    function GetNumResourceMetadata(name, key)
         local m = manifests[name]
-        if not m then return 0 end
-        local n = 0
-        for _, values in pairs(m) do n = n + #values end
-        return n
+        if not m or type(key) ~= 'string' then return 0 end
+        return #(m[key] or {})
     end
     function GetResourceMetadata(name, key, index)
         local values = manifests[name] and manifests[name][key]
@@ -4020,6 +4030,899 @@ do
     exports.CommandAdd('cis_chat_cmd', { help = 'hello', params = { 'who' } }, function() end)
     check(#env.chat == 1 and env.chat[1].name == 'chat:addSuggestion' and env.chat[1].target == -1,
         '7.6: a started chat resource gets a suggestion ')
+    env.reset()
+end
+
+-- ============================ S1. a rolling window is not a new bucket
+--
+-- `rateOk` counted a bucket every time a window ROLLED, not only when a name was
+-- new, so the per-src count was "windows seen" rather than "buckets held". A
+-- player who triggered one event a second for five minutes passed the 256 cap
+-- and from then on every NEW event name was refused for the rest of the session
+-- -- logged on the cheating channel, which can escalate to a kick.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+
+    for i = 1, 300 do
+        env.clock = i * 1001
+        CisRateOk(21, 'cis_roll:probe', 1000, 8)
+    end
+    check(CisRateBucketCount(21) == 1,
+        ('S1: 300 window rolls on ONE name hold one bucket, not 300 (count=%d)')
+            :format(CisRateBucketCount(21)))
+    check(CisRateOk(21, 'cis_roll:fresh', 1000, 8) == true,
+        'S1: and a NEW name after a long session is still allowed')
+    env.reset()
+end
+
+-- ============================ S2. a consumer restart does not double a handler
+--
+-- onResourceStop freed the BINDING but FiveM keeps the RegisterNetEvent handler,
+-- and CisNetOn registered a second one when the consumer came back. Both read
+-- the live binding, so after N restarts one client event ran the handler N+1
+-- times -- a payout handler paid N+1 times.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    local calls = 0
+    exports.cis_pay = { OnPay = function() calls = calls + 1 end }
+    loadModule('server/security.lua')
+
+    env.invoking = 'cis_pay'
+    check(CisNetOn('cis_pay:collect', 'cis_pay:OnPay') == true, 'S2: the payout event binds')
+    for _ = 1, 3 do
+        env.fire('onResourceStop', 'cis_pay')
+        CisNetOn('cis_pay:collect', 'cis_pay:OnPay')
+    end
+    env.emit('cis_pay:collect', 5)
+    check(calls == 1,
+        ('S2: after three restarts one client event runs the handler ONCE (calls=%d)'):format(calls))
+    check(#(env.netEvents['cis_pay:collect'] or {}) == 1,
+        ('S2: and the net event was registered once (handlers=%d)')
+            :format(#(env.netEvents['cis_pay:collect'] or {})))
+
+    -- A FUNCTION from another resource arrives as a callable reference TABLE, and
+    -- the function branch used to refuse anything that was not type 'function'.
+    local got
+    local ref = setmetatable({ __cfx_functionReference = 'cis_pay:1:1' }, {
+        __call = function(_, src, amount) got = { src = src, amount = amount } end,
+    })
+    check(CisNetOn('cis_pay:tip', ref) == true,
+        'S2: a funcref handed over by another resource binds')
+    env.emit('cis_pay:tip', 6, 50)
+    check(got and got.src == 6 and got.amount == 50,
+        'S2: and runs with (src, ...) like a local function')
+    env.fire('onResourceStop', 'cis_pay')
+    got = nil
+    env.emit('cis_pay:tip', 6, 50)
+    check(got == nil, "S2: and is released with its owner's stop")
+    env.reset()
+end
+
+-- ============================ S3. a long flood is a few lines, not one a second
+--
+-- The warning was one line per (src, event) per second for as long as a flood
+-- lasted, each on the cheating channel, and a flood under 100 a second never
+-- escalated at all. A client firing at 20Hz for half a minute was 30 lines and
+-- 30 Discord posts and not one report.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    local logged = {}
+    env.saved[#env.saved + 1] = { name = 'CisLog', value = rawget(_G, 'CisLog') }
+    CisLog = function(level, message, channel)
+        logged[#logged + 1] = { level = level, message = message, channel = channel }
+    end
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_G, 'CisSecurityReport') }
+    exports.cis_shop = { OnBuy = function() end }
+    loadModule('server/security.lua')
+    local reported = {}
+    function CisSecurityReport(src, reason)
+        reported[#reported + 1] = { src = src, reason = reason }
+        return true
+    end
+
+    CisNetOn('cis_flood:x', 'cis_shop:OnBuy', { maxHits = 4, windowMs = 1000 })
+    for second = 0, 29 do
+        env.clock = 10000 + second * 1000
+        for _ = 1, 20 do env.emit('cis_flood:x', 5, 1) end
+    end
+    local lines = 0
+    for _, l in ipairs(logged) do
+        if tostring(l.message):find('cis_flood:x', 1, true) then lines = lines + 1 end
+    end
+    check(lines >= 1 and lines <= 2,
+        ('S3: a 30 second flood is announced once, not once a second (lines=%d)'):format(lines))
+    check(#reported == 1,
+        ('S3: and a SUSTAINED flood escalates once, even under 100 a second (reports=%d)')
+            :format(#reported))
+
+    -- It ends, and a later burst says how big the last one was.
+    env.clock = env.clock + 10000
+    for _ = 1, 6 do env.emit('cis_flood:x', 5, 1) end
+    env.clock = env.clock + 1000
+    env.emit('cis_flood:x', 5, 1)
+    local ended = false
+    for _, l in ipairs(logged) do
+        if tostring(l.message):find('ended', 1, true) and tostring(l.message):find('cis_flood:x', 1, true) then
+            ended = true
+        end
+    end
+    check(ended, 'S3: and when it is over, one line carries the whole total')
+    env.reset()
+end
+
+-- ============================ S4. Discord gets the news once, not every copy
+--
+-- Every log line with Discord on became a webhook post. A repeating line -- a
+-- handler raising on every event, a flood report -- posted until Discord
+-- answered 429 and the posts that mattered were dropped with the rest.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Config.Printing.UseDiscordLogs = true
+    Security = CisDefaults.security()
+    env.saved[#env.saved + 1] = { name = 'DiscordConfig', value = rawget(_G, 'DiscordConfig') }
+    DiscordConfig = { DiscordLogsLinks = { MasterLogs = 'm', CheatingLogs = 'c', ErrorLogs = 'e' } }
+    local posts = {}
+    CisRegistry.register('discord', function(method, _, _, message)
+        if method == 'log' then posts[#posts + 1] = message end
+    end)
+
+    for _ = 1, 50 do Logging.Warn('same flood line', 'cheating') end
+    check(#posts == 1, ('S4: fifty identical lines are ONE post (posts=%d)'):format(#posts))
+
+    for i = 1, 50 do Logging.Warn(('distinct line %d'):format(i), 'cheating') end
+    check(#posts <= 10, ('S4: and a channel is capped per window (posts=%d)'):format(#posts))
+
+    env.clock = env.clock + 61000
+    Logging.Warn('same flood line', 'cheating')
+    local last = posts[#posts]
+    check(last and last:find('same flood line', 1, true) and last:find('repeated', 1, true),
+        ('S4: after the dedupe window the next copy goes out WITH the repeat count (%s)')
+            :format(tostring(last)))
+    CisRegistry.unregister('discord')
+    env.reset()
+end
+
+-- ============================ S5. the logged location is the handler's
+--
+-- The dispatcher ran handlers under pcall and AutoLogError read debug.getinfo
+-- AFTERWARDS, when the stack had unwound: every consumer error was filed under
+-- the line in server/security.lua that called pcall.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    local handler = load("return function()\n\n    error('boom from the consumer')\nend",
+        '=consumer_handler.lua')()
+    exports.cis_err = { OnErr = handler }
+    loadModule('server/security.lua')
+    CisNetOn('cis_err:go', 'cis_err:OnErr')
+
+    local captured
+    local realError = Logging.Error
+    Logging.Error = function(_, _, info) captured = info end
+    env.emit('cis_err:go', 5)
+    Logging.Error = realError
+    check(captured and captured.file == 'consumer_handler.lua' and captured.line == 3,
+        ('S5: the error is filed at the raise, consumer_handler.lua:3 (got %s:%s)')
+            :format(tostring(captured and captured.file), tostring(captured and captured.line)))
+    check(captured and tostring(captured.stackTrace):find('consumer_handler.lua:3', 1, true) ~= nil,
+        'S5: and the trace starts there too')
+    env.reset()
+end
+
+-- ============================ S6. the operator's convars outrank SetConfig
+--
+-- The allow-list came from whichever resource called SetConfig first. A
+-- resource that started early could hand itself every door and every sync
+-- record. Server convars are set before any resource runs, so when one is set
+-- it decides and the Security table is ignored.
+do
+    local env = newEnv({})
+    env.convars = { cis_authorized_resources = 'cis_core, cis_keys' }
+    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_G, 'GetConvar') }
+    function GetConvar(name, default) return env.convars[name] or default end
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    Security.AllowAnyResource = true
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+
+    env.invoking = 'cis_keys'
+    check(CisInvokingAllowed() == true, 'S6: a resource the convar names is allowed')
+    env.invoking = 'cis_evil'
+    check(CisInvokingAllowed() == false,
+        'S6: Security.AllowAnyResource is ignored while the convar pins the list')
+
+    -- The first SetConfig caller tries to widen it.
+    env.EXPORTS.SetConfig(nil, { AuthorizedResources = { 'cis_evil' }, AllowAnyResource = true })
+    check(CisInvokingAllowed() == false,
+        'S6: and SetConfig cannot widen a convar-pinned list')
+
+    -- With no convar the Security table decides, exactly as before.
+    env.convars = {}
+    CisSecurityRebuild()
+    check(CisInvokingAllowed() == true, 'S6: with no convar set, SetConfig security still applies')
+
+    -- cis_allow_any_resource false pins restrictive on its own.
+    env.convars = { cis_allow_any_resource = 'false' }
+    CisSecurityRebuild()
+    check(CisInvokingAllowed() == false,
+        'S6: cis_allow_any_resource false refuses even a resource Security names')
+
+    -- Limits: the convar beats Config.
+    env.convars = { cis_cb_rate_per_name = '3' }
+    Config.CallbackLimits.PerName = 50
+    CisSecurityRebuild()
+    local function perName()
+        return CisCallbackLimits and CisCallbackLimits().perName
+    end
+    check(perName() == 3,
+        ('S6: a rate-limit convar beats Config.CallbackLimits (got %s)'):format(tostring(perName())))
+    env.convars = {}
+    CisSecurityRebuild()
+    check(perName() == 50, 'S6: and Config applies when the convar is unset')
+    env.reset()
+end
+
+-- A callback env, and the last reply each src got: (key, ok, ...).
+local function callbackEnv(opts)
+    local env = newEnv(opts or {})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+    loadModule('server/callback.lua')
+    function env.replies(src)
+        local out = {}
+        for _, e in ipairs(env.sentTo(src, 'cis_libs:cb:res')) do
+            out[#out + 1] = e.args
+        end
+        return out
+    end
+    function env.lastReply(src)
+        local all = env.replies(src)
+        return all[#all]
+    end
+    function env.drop(src)
+        local saved = rawget(_G, 'source')
+        source = src
+        local ok, err = pcall(env.fire, 'playerDropped')
+        _G.source = saved
+        return ok, err
+    end
+    return env
+end
+
+-- ============================ CB1. a dropped player answers every waiter
+--
+-- playerDropped removed the pending entries for the player and told the
+-- callback-style callers -- but a PROMISE (AwaitCallbackClient) was removed and
+-- never rejected, so the coroutine parked on it waited forever. And the first
+-- callback that raised aborted the loop, leaving every caller after it hanging.
+do
+    local env = callbackEnv({ players = { [7] = {} } })
+
+    env.awaitHook = function()
+        env.drop(7)
+    end
+    local ok, reason = env.EXPORTS.AwaitCallbackClient('ask', 7)
+    env.awaitHook = nil
+    check(ok == false and tostring(reason):find('player dropped', 1, true) ~= nil,
+        ('CB1: an await on a player who leaves is REJECTED with the reason (got %s, %s)')
+            :format(tostring(ok), tostring(reason)))
+
+    local told = {}
+    env.EXPORTS.CallCallbackClient('first', 7, function() error('consumer callback exploded') end)
+    env.EXPORTS.CallCallbackClient('second', 7, function(cbOk, why) told[#told + 1] = { cbOk, why } end)
+    local fired = env.drop(7)
+    check(fired, 'CB1: a callback that raises does not take the drop handler with it')
+    check(#told == 1 and told[1][1] == false and told[1][2] == 'player dropped',
+        ('CB1: and the caller after it is still told (told=%d)'):format(#told))
+    env.reset()
+end
+
+-- ============================ CB2. registration options
+--
+-- Every server callback was reachable from every client, unbounded in string
+-- size, with no permission check and no shape check. A callback that exists for
+-- other server code to call had no way to say so.
+do
+    local env = callbackEnv({})
+    local reached = {}
+    local function handler(name)
+        return function(src, payload)
+            reached[name] = (reached[name] or 0) + 1
+            return 'ok', payload
+        end
+    end
+    check(env.EXPORTS.RegisterCallback('cb2:local', handler('local'), { remote = false }) == true,
+        'CB2: a local-only callback registers')
+    check(env.EXPORTS.RegisterCallback('cb2:admin', handler('admin'), { ace = 'cis.admin' }) == true,
+        'CB2: an ACE-gated callback registers')
+    check(env.EXPORTS.RegisterCallback('cb2:shaped', handler('shaped'),
+        { schema = { amount = { type = 'number', min = 1, max = 10 } } }) == true,
+        'CB2: a schema-checked callback registers')
+    check(env.EXPORTS.RegisterCallback('cb2:open', handler('open')) == true,
+        'CB2: no options is still remote, as in 1.0.0')
+    check(env.EXPORTS.RegisterCallback('cb2:long', handler('long'), { maxStringLen = 10000 }) == true,
+        'CB2: a callback may raise its own string cap')
+    local refused, why = env.EXPORTS.RegisterCallback('cb2:typo', handler('typo'), { remote = 'yes' })
+    check(refused == false and tostring(why):find('remote', 1, true) ~= nil,
+        ('CB2: a malformed option is refused by name, not ignored (got %s)'):format(tostring(why)))
+
+    -- Local-only: unreachable from the network, and indistinguishable from a
+    -- name that does not exist.
+    env.emit('cis_libs:cb', 1, 'cb2:local', 1)
+    check(not reached['local'] and env.lastReply(1)[3] == 'unknown',
+        ('CB2: a local-only callback is UNKNOWN to a client (reached=%s, reply=%s)')
+            :format(tostring(reached['local']), tostring(env.lastReply(1)[3])))
+    check(env.EXPORTS.AwaitCallback('cb2:local', 'x') == 'ok',
+        'CB2: and still answers server-side callers')
+
+    -- ACE.
+    env.saved[#env.saved + 1] = { name = 'IsPrincipalAceAllowed', value = rawget(_G, 'IsPrincipalAceAllowed') }
+    local asked
+    function IsPrincipalAceAllowed(principal, object)
+        asked = principal .. ' ' .. object
+        return principal == 'player.2'
+    end
+    env.emit('cis_libs:cb', 1, 'cb2:admin', 2)
+    check(not reached.admin and env.lastReply(1)[3] == 'denied',
+        ('CB2: a player without the ACE is refused (asked %s)'):format(tostring(asked)))
+    env.emit('cis_libs:cb', 2, 'cb2:admin', 3)
+    check(reached.admin == 1 and env.lastReply(2)[2] == true, 'CB2: a player with it is answered')
+
+    -- Schema.
+    env.emit('cis_libs:cb', 1, 'cb2:shaped', 4, { amount = 999999 })
+    check(not reached.shaped and env.lastReply(1)[3] == 'bad payload',
+        'CB2: a payload outside the schema never reaches the handler')
+    env.emit('cis_libs:cb', 1, 'cb2:shaped', 5, { amount = 5 })
+    check(reached.shaped == 1, 'CB2: a payload inside it does')
+
+    -- The default string cap applies to EVERY remote call, keys and values.
+    local big = string.rep('x', 5000)
+    env.emit('cis_libs:cb', 3, 'cb2:open', 6, { note = big })
+    check(not reached.open and env.lastReply(3)[3] == 'too large',
+        'CB2: a 5000-character string is refused by default')
+    env.emit('cis_libs:cb', 3, 'cb2:open', 7, { [big] = true })
+    check(not reached.open, 'CB2: so is a 5000-character KEY')
+    env.emit('cis_libs:cb', 3, 'cb2:open', 8, 'short')
+    check(reached.open == 1, 'CB2: an ordinary string is not')
+    env.emit('cis_libs:cb', 3, 'cb2:long', 9, big)
+    check(reached.long == 1, 'CB2: and a callback that raised its cap takes the long one')
+    env.reset()
+end
+
+-- ============================ CB3. flood handling
+--
+-- An unknown name was answered before any limiter ran, so a client spraying
+-- made-up names got an answer per request at whatever rate it could send. There
+-- was no budget across names at all, and no bound on how many handler
+-- coroutines one player could have parked.
+do
+    local env = callbackEnv({})
+    for i = 1, 100 do
+        env.emit('cis_libs:cb', 1, ('cb3:nope:%d'):format(i), i)
+    end
+    local unknown, rate = 0, 0
+    for _, r in ipairs(env.replies(1)) do
+        if r[3] == 'unknown' then unknown = unknown + 1 end
+        if r[3] == 'rate' then rate = rate + 1 end
+    end
+    check(unknown == 60 and rate == 40,
+        ('CB3: made-up names are rate-limited BEFORE they are answered (unknown=%d rate=%d)')
+            :format(unknown, rate))
+    check(CisRateBucketCount(1) == 0, 'CB3: and the budget allocated no per-name bucket')
+
+    -- The budget is per player and per window.
+    env.emit('cis_libs:cb', 2, 'cb3:nope', 1)
+    check(env.lastReply(2)[3] == 'unknown', 'CB3: another player has their own budget')
+    env.clock = env.clock + 1000
+    env.emit('cis_libs:cb', 1, 'cb3:nope', 1)
+    check(env.lastReply(1)[3] == 'unknown', 'CB3: and it refills with the window')
+
+    -- Configurable: three per name.
+    Config.CallbackLimits.PerName = 3
+    Config.CallbackLimits.MaxInFlight = 1
+    CisSecurityRebuild()
+    env.EXPORTS.RegisterCallback('cb3:real', function() return true end)
+    for i = 1, 4 do env.emit('cis_libs:cb', 4, 'cb3:real', i) end
+    check(env.lastReply(4)[3] == 'rate', 'CB3: Config.CallbackLimits.PerName is honoured')
+
+    -- In flight: a handler still running counts. Re-entering from inside it is
+    -- the harness's stand-in for a second request arriving while the first is
+    -- parked on a database await.
+    local nested
+    env.EXPORTS.RegisterCallback('cb3:slow', function(src)
+        env.emit('cis_libs:cb', src, 'cb3:slow', 'inner')
+        nested = env.lastReply(src)
+        return 'done'
+    end)
+    env.emit('cis_libs:cb', 5, 'cb3:slow', 'outer')
+    check(nested and nested[1] == 'inner' and nested[3] == 'busy',
+        ('CB3: a second request while one is in flight is answered busy (got %s)')
+            :format(tostring(nested and nested[3])))
+    check(env.lastReply(5)[1] == 'outer' and env.lastReply(5)[2] == true,
+        'CB3: and the first one still completes')
+    env.emit('cis_libs:cb', 5, 'cb3:slow', 'again')
+    check(env.lastReply(5)[1] == 'again' and env.lastReply(5)[2] == true,
+        'CB3: the slot is released when the handler returns')
+    env.reset()
+end
+
+-- ============================ CB4. replies, handlers and funcrefs
+do
+    local env = callbackEnv({})
+
+    -- A closure another resource passes to CallCallback arrives as a callable
+    -- reference table; type() == 'function' refused every one of them.
+    env.EXPORTS.RegisterCallback('cb4:get', function(_, v) return v * 2 end)
+    local got
+    local ref = setmetatable({ __cfx_functionReference = 'consumer:1:1' }, {
+        __call = function(_, ok, v) got = { ok, v } end,
+    })
+    env.EXPORTS.CallCallback('cb4:get', ref, 21)
+    check(got and got[1] == true and got[2] == 42,
+        'CB4: CallCallback accepts a cross-resource callback')
+
+    -- A later registration REPLACES an earlier one of the other kind. The
+    -- function used to win forever, because it was checked first.
+    exports.cb4_res = { Answer = function(_, src) return 'from the export' end }
+    env.EXPORTS.RegisterCallback('cb4:swap', function() return 'stale function' end)
+    env.EXPORTS.RegisterCallback('cb4:swap', 'cb4_res:Answer')
+    check(env.EXPORTS.AwaitCallback('cb4:swap') == 'from the export',
+        'CB4: re-registering a name as resource:export replaces the function')
+
+    -- A consumer's stop empties the ledger, not just the table.
+    env.invoking = 'cb4_consumer'
+    env.EXPORTS.RegisterCallback('cb4:owned', function() return 1 end)
+    env.invoking = nil
+    local function owned()
+        local probe = (env.EXPORTS.GetDiagnostics().probes or {}).callbacks
+        return probe and probe.owned
+    end
+    local before = owned()
+    env.fire('onResourceStop', 'cb4_consumer')
+    check(before and owned() == before - 1,
+        ('CB4: a stop forgets what it released (owned %s -> %s)'):format(tostring(before), tostring(owned())))
+
+    -- Replies: fifty in one second to one client all land (40 used to be the cap),
+    -- and an oversized one is refused WITH an answer.
+    local resolved = 0
+    for i = 1, 50 do
+        env.EXPORTS.CallCallbackClient('cb4:ui', 9, function() resolved = resolved + 1 end, i)
+    end
+    for _, e in ipairs(env.sentTo(9, 'cis_libs:cb')) do
+        env.emit('cis_libs:cb:serverRes', 9, e.args[2], true, 'ok')
+    end
+    check(resolved == 50, ('CB4: fifty replies in one window are all delivered (%d)'):format(resolved))
+
+    local answer
+    local key = env.EXPORTS.CallCallbackClient('cb4:big', 9, function(ok, why) answer = { ok, why } end)
+    env.emit('cis_libs:cb:serverRes', 9, key, true, string.rep('y', 100000))
+    check(answer and answer[1] == false and answer[2] == 'too large',
+        ('CB4: an oversized reply reaches the caller as a refusal (got %s, %s)')
+            :format(tostring(answer and answer[1]), tostring(answer and answer[2])))
+    env.reset()
+end
+
+-- ============================ P1. every door mutation is gated
+--
+-- AddDoorToSystem and AddDoorGroup asked CisInvokingAllowed; BreakDoor, FixDoor,
+-- LockDoors and UnlockDoors -- the four that change a door a player is standing
+-- at -- did not. Nor did PublishPlayerLoaded, which writes the same job
+-- histogram PublishJobUpdate is gated for, nor SetDropPlayerHandler, where the
+-- first caller took the security slot.
+do
+    local env = newEnv({ players = { [5] = {} } })
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    Security.AuthorizedResources = { 'cis_keys' }
+    loadModule('server/security.lua')
+    loadModule('server/player.lua')
+    loadModule('server/proxy.lua')
+    local calls = {}
+    CisRegistry.register('doors', function(method)
+        calls[#calls + 1] = method
+        if method == 'lock' or method == 'unlock' then return 1 end
+        return true
+    end)
+
+    env.invoking = 'cis_evil'
+    for _, name in ipairs({ 'BreakDoor', 'FixDoor', 'LockDoors', 'UnlockDoors' }) do
+        local value, why = env.EXPORTS[name]('bank_vault')
+        check(tostring(why):find('AuthorizedResources', 1, true) ~= nil,
+            ('P1: %s from a resource off the list is refused with the fix (got %s, %s)')
+                :format(name, tostring(value), tostring(why)))
+    end
+    check(#calls == 0, ('P1: and the doors provider was never reached (calls=%d)'):format(#calls))
+    local locked = env.EXPORTS.LockDoors('bank_vault')
+    check(locked == 0, 'P1: a refused LockDoors still answers a number')
+
+    local loaded, loadedWhy = env.EXPORTS.PublishPlayerLoaded({ name = 'police' }, 5)
+    check(loaded == false and tostring(loadedWhy):find('AuthorizedResources', 1, true) ~= nil,
+        'P1: PublishPlayerLoaded from a resource off the list is refused')
+    check(CisJobCount('police') == 0, 'P1: and wrote nothing to the job histogram')
+
+    local dropOk = env.EXPORTS.SetDropPlayerHandler('cis_evil:Drop')
+    check(dropOk == false and not CisRegistry.has('security'),
+        'P1: SetDropPlayerHandler from a resource off the list does not take the security slot')
+
+    env.invoking = 'cis_keys'
+    env.EXPORTS.BreakDoor('bank_vault')
+    check(calls[1] == 'breakDoor', 'P1: an allow-listed resource still reaches the provider')
+    CisRegistry.unregister('doors')
+    CisRegistry.unregister('security')
+    env.reset()
+end
+
+-- ============================ P2. a publisher names a connected player
+--
+-- PublishJobUpdate and PublishPlayerLoaded took any src and remembered the job
+-- under it. Only playerDropped clears an entry, so an id nobody held was counted
+-- -- as an on-duty officer, say -- until the server restarted.
+do
+    local env = newEnv({ players = { [5] = {} } })
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    Security.AuthorizedResources = { 'cis_core' }
+    loadModule('server/security.lua')
+    loadModule('server/player.lua')
+    loadModule('server/proxy.lua')
+    env.invoking = 'cis_core'
+
+    local ok, why = env.EXPORTS.PublishJobUpdate({ name = 'police', grade = 1 }, 99)
+    check(ok == false and tostring(why):find('not connected', 1, true) ~= nil,
+        ('P2: a job update for a player who is not here is refused (got %s)'):format(tostring(why)))
+    local ok2 = env.EXPORTS.PublishPlayerLoaded({ name = 'police', grade = 1 }, 99)
+    check(ok2 == false, 'P2: and so is a player-loaded')
+    check(CisJobCount('police') == 0,
+        ('P2: and the histogram counted nobody (count=%d)'):format(CisJobCount('police')))
+    -- The feeder itself refuses too, so a future caller that skips the export's
+    -- check still cannot count a ghost.
+    check(CisRememberJob(98, { name = 'police' }) == false and CisJobCount('police') == 0,
+        'P2: CisRememberJob refuses a src that is not connected')
+    check(env.EXPORTS.PublishPlayerLoaded({ name = 'police', grade = 1 }, 5) == true,
+        'P2: a connected player is still published')
+    check(CisJobCount('police') == 1, 'P2: and counted')
+    env.reset()
+end
+
+-- ============================ P3. the audit ring survives a capacity change
+--
+-- Every index was taken modulo a FRESH read of Config.AuditLines, under a ring
+-- laid out for the old value. A SetConfig that changed the line count mid-run
+-- made GetAuditLog come back with holes and entries out of order.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Config.AuditLines = 3
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+    local function auditOne(i)
+        env.EXPORTS.RegisterCapability(('nope_%d'):format(i), 'x:y')
+    end
+    for i = 1, 5 do auditOne(i) end
+    Config.AuditLines = 10
+    auditOne(6)
+    auditOne(7)
+    local log = env.EXPORTS.GetAuditLog()
+    local seen = {}
+    for i = 1, 5 do
+        local entry = log[i]
+        seen[i] = entry and entry.detail:match('slot=(nope_%d+)') or 'nil'
+    end
+    check(#log == 5 and table.concat(seen, ',') == 'nope_3,nope_4,nope_5,nope_6,nope_7',
+        ('P3: growing the ring keeps every entry, oldest first (got %d: %s)')
+            :format(#log, table.concat(seen, ',')))
+    Config.AuditLines = 2
+    log = env.EXPORTS.GetAuditLog()
+    check(#log == 2 and log[1].detail:find('nope_6', 1, true) and log[2].detail:find('nope_7', 1, true),
+        'P3: shrinking it keeps the newest')
+    env.reset()
+end
+
+-- ============================ P4. the operator can name the config supplier
+do
+    local env = newEnv({})
+    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_G, 'GetConvar') }
+    function GetConvar(name, default)
+        if name == 'cis_config_supplier' then return 'cis_core' end
+        return default
+    end
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+    env.invoking = 'cis_rogue'
+    local ok, why = env.EXPORTS.SetConfig({ CallbackTimeout = 2000 })
+    check(ok == false and tostring(why):find('cis_config_supplier', 1, true) ~= nil,
+        ('P4: a resource the convar does not name cannot supply config (got %s)'):format(tostring(why)))
+    check(Config.CallbackTimeout == 10000, 'P4: and nothing it sent was applied')
+    env.invoking = 'cis_core'
+    check(env.EXPORTS.SetConfig({ CallbackTimeout = 2000 }) == true, 'P4: the named one can')
+    env.reset()
+end
+
+-- ============================ K. Cis.command: removal, joiners, ACE, types
+local function commandEnv(opts)
+    local env = newEnv(opts or {})
+    env.commands = {}
+    env.registrations = {}
+    env.chat = {}
+    env.executed = {}
+    env.aceGrants = {}
+    function RegisterCommand(name, fn, restricted)
+        env.registrations[#env.registrations + 1] = name
+        env.commands[name] = { fn = fn, restricted = restricted }
+    end
+    env.saved[#env.saved + 1] = { name = 'IsPrincipalAceAllowed', value = rawget(_G, 'IsPrincipalAceAllowed') }
+    function IsPrincipalAceAllowed(principal, object)
+        return env.aceGrants[principal .. ' ' .. object] == true
+    end
+    env.saved[#env.saved + 1] = { name = 'ExecuteCommand', value = rawget(_G, 'ExecuteCommand') }
+    function ExecuteCommand(line) env.executed[#env.executed + 1] = line end
+    function GetResourceState(name)
+        if name == 'chat' then return env.chatStarted and 'started' or 'missing' end
+        return 'missing'
+    end
+    function TriggerClientEvent(name, target, ...)
+        env.chat[#env.chat + 1] = { name = name, target = target, args = table.pack(...) }
+    end
+    loadModule('server/command.lua')
+    function env.run(name, src, raw)
+        local registered = env.commands[name]
+        if registered then
+            registered.fn(src, {}, raw)
+        end
+    end
+    return env
+end
+
+do
+    local env = commandEnv({ players = { [5] = {}, [6] = {} } })
+    env.chatStarted = true
+
+    -- K1. Removing a command used to forget the entry and leave the platform's
+    -- closure running the handler.
+    local ran = 0
+    exports.CommandAdd('cis_k1', {}, function() ran = ran + 1 end)
+    exports.CommandRemove('cis_k1')
+    env.run('cis_k1', 5, 'cis_k1')
+    check(ran == 0, ('K1: a removed command runs nothing (ran=%d)'):format(ran))
+    local removed = false
+    for _, e in ipairs(env.chat) do
+        if e.name == 'chat:removeSuggestion' and e.args[1] == '/cis_k1' then removed = true end
+    end
+    check(removed, 'K1: and its chat suggestion is taken back')
+    local ran2 = 0
+    check(exports.CommandAdd('cis_k1', {}, function() ran2 = ran2 + 1 end) == true,
+        'K1: the name can be added again')
+    env.run('cis_k1', 5, 'cis_k1')
+    check(ran2 == 1 and ran == 0, 'K1: and the original closure now runs the NEW handler, once')
+    local count = 0
+    for _, n in ipairs(env.registrations) do if n == 'cis_k1' then count = count + 1 end end
+    check(count == 1, ('K1: RegisterCommand was called once for the name (calls=%d)'):format(count))
+
+    -- K2. A player who joins later gets the suggestions.
+    env.chat = {}
+    local saved = rawget(_G, 'source')
+    source = 12
+    env.fire('playerJoining')
+    _G.source = saved
+    local toJoiner = 0
+    for _, e in ipairs(env.chat) do
+        if e.name == 'chat:addSuggestion' and e.target == 12 then toJoiner = toJoiner + 1 end
+    end
+    check(toJoiner == 1, ('K2: a player who joins later is sent the suggestions (sent=%d)'):format(toJoiner))
+
+    -- K3. A funcref handler from a consumer is accepted, owned, and released.
+    local consumerRan = 0
+    local ref = setmetatable({ __cfx_functionReference = 'cis_consumer:1:1' }, {
+        __call = function() consumerRan = consumerRan + 1 end,
+    })
+    env.invoking = 'cis_consumer'
+    check(exports.CommandAdd('cis_k3', {}, ref) == true, 'K3: a handler from another resource is accepted')
+    env.invoking = nil
+    env.run('cis_k3', 5, 'cis_k3')
+    check(consumerRan == 1, 'K3: and runs')
+    env.fire('onResourceStop', 'cis_consumer')
+    env.run('cis_k3', 5, 'cis_k3')
+    check(consumerRan == 1, "K3: and stops running when its resource stops")
+
+    -- K4. Typed and optional params.
+    local got
+    local ok, why = exports.CommandAdd('cis_give', { params = {
+        { name = 'target', type = 'playerId', help = 'who' },
+        { name = 'amount', type = 'number', help = 'how many' },
+        { name = 'reason', type = 'longString', optional = true, help = 'why' },
+    } }, function(src, args) got = args end)
+    check(ok == true, ('K4: typed params register (%s)'):format(tostring(why)))
+    env.run('cis_give', 5, 'cis_give 6 10 for being nice')
+    check(got and got.target == 6 and got[2] == 10 and type(got.amount) == 'number'
+            and got.reason == 'for being nice',
+        ('K4: args are converted and named (target=%s amount=%s reason=%s)')
+            :format(tostring(got and got.target), tostring(got and got.amount), tostring(got and got.reason)))
+    got = nil
+    env.run('cis_give', 5, 'cis_give 99 10')
+    check(got == nil, 'K4: a playerId that is not connected is refused')
+    env.run('cis_give', 5, 'cis_give 6 ten')
+    check(got == nil, 'K4: a number that is not one is refused')
+    env.run('cis_give', 5, 'cis_give me 3')
+    check(got and got.target == 5 and got.reason == nil, "K4: 'me' is the caller, and optional may be absent")
+    local bad = exports.CommandAdd('cis_bad', { params = { { name = 'a', optional = true }, 'b' } }, function() end)
+    check(bad == false, 'K4: a required param after an optional one is refused')
+    local badType = exports.CommandAdd('cis_bad2', { params = { { name = 'a', type = 'float' } } }, function() end)
+    check(badType == false, 'K4: an unknown param type is refused')
+    env.reset()
+end
+
+-- K5. A restricted group is provisioned when cis_libs may run add_ace.
+do
+    local env = commandEnv({})
+    exports.CommandAdd('cis_nogrant', { restricted = 'group.mod' }, function() end)
+    check(#env.executed == 0, 'K5: without the add_ace grant nothing is executed')
+
+    env.aceGrants['resource.cis_libs command.add_ace'] = true
+    exports.CommandAdd('cis_mod', { restricted = 'group.mod' }, function() end)
+    check(env.executed[1] == 'add_ace group.mod command.cis_mod allow',
+        ('K5: with it, the group is granted the command (%s)'):format(tostring(env.executed[1])))
+    exports.CommandRemove('cis_mod')
+    check(env.executed[2] == 'remove_ace group.mod command.cis_mod allow',
+        ('K5: and the grant is taken back on removal (%s)'):format(tostring(env.executed[2])))
+    local inj, injWhy = exports.CommandAdd('cis_inj', { restricted = 'group.admin; quit' }, function() end)
+    check(inj == false and #env.executed == 2,
+        ('K5: a group that is not a principal is refused before it reaches a console line (%s)')
+            :format(tostring(injWhy)))
+    env.reset()
+end
+
+-- ============================ V1. the version check: lazily, and by order
+--
+-- The boot thread read Config.CheckVersion on its first tick. cis_libs starts
+-- before every consumer, so that read always saw the built-in default (false)
+-- and an operator who turned the check on in cis_core never got one. When it did
+-- run, the comparison was string equality: a build AHEAD of the published line
+-- was "outdated".
+local function versionRun(current, latest, supplier)
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Config.__owner = 'cis_libs'
+    Security = CisDefaults.security()
+    env.http = {}
+    env.saved[#env.saved + 1] = { name = 'PerformHttpRequest', value = rawget(_G, 'PerformHttpRequest') }
+    function PerformHttpRequest(url, cb)
+        env.http[#env.http + 1] = url
+        cb(200, latest .. '\nnotes')
+    end
+    env.saved[#env.saved + 1] = { name = 'GetResourceMetadata', value = rawget(_G, 'GetResourceMetadata') }
+    function GetResourceMetadata(_, key) return key == 'version' and current or nil end
+    loadModule('server/version.lua')
+    -- The thread starts BEFORE the supplier: the supplier's SetConfig lands on
+    -- the thread's first yield, which is the order a real boot has.
+    local thread = env.threads[#env.threads]
+    local realWait = Wait
+    local supplied = false
+    Wait = function(ms)
+        if not supplied and supplier then
+            supplied = true
+            supplier()
+        end
+        env.clock = env.clock + (tonumber(ms) or 0)
+    end
+    -- With no supplier the thread must still finish, on its own wait budget.
+    thread()
+    Wait = realWait
+    local outdated, upToDate = false, false
+    for _, l in ipairs(env.lines) do
+        if l:find('outdated', 1, true) then outdated = true end
+        if l:find('up to date', 1, true) then upToDate = true end
+    end
+    env.reset()
+    return #env.http, outdated, upToDate
+end
+
+do
+    local function turnOn()
+        Config.CheckVersion = true
+        Config.__owner = 'cis_core'
+    end
+    local requests, outdated, upToDate = versionRun('1.2.0', '1.1.9', turnOn)
+    check(requests == 1,
+        ('V1: Config.CheckVersion supplied AFTER boot is honoured (requests=%d)'):format(requests))
+    check(upToDate and not outdated, 'V1: a build AHEAD of the published version is not outdated')
+
+    local _, outdated2 = versionRun('1.9.0', '1.10.0', turnOn)
+    check(outdated2, 'V1: 1.9.0 is older than 1.10.0 (numeric, not string, order)')
+    local _, outdated3 = versionRun('1.2.0-beta', '1.2.0', turnOn)
+    check(outdated3, 'V1: a pre-release is older than its release')
+    local _, outdated4, upToDate4 = versionRun('v1.2.0', '1.2.0', turnOn)
+    check(upToDate4 and not outdated4, 'V1: a leading v is the same version')
+
+    local none = versionRun('1.2.0', '1.3.0', nil)
+    check(none == 0, 'V1: with nobody turning it on, nothing goes out')
+end
+
+-- ============================ SC1. the self-check sees what is running
+--
+-- Three dead or wrong paths: the "started before cis_libs" snapshot recorded
+-- every resource the server KNOWS, started or not; `cis_requires` was read with
+-- no index; and a declared requirement with no provider printed a line but never
+-- reached GetSelfCheck, so cis_doctor said "ok" with the problem on screen.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    local manifests = {
+        cis_needy = { dependency = { 'cis_libs' }, cis_requires = { 'doors', 'dataProbe' } },
+        cis_installed_only = { dependency = { 'cis_libs' } },
+    }
+    local state = { cis_needy = 'started', cis_installed_only = 'stopped' }
+    function GetResourceState(name) return state[name] or 'missing' end
+    function GetNumResources() return 2 end
+    function GetResourceByFindIndex(i) return ({ 'cis_installed_only', 'cis_needy' })[i + 1] end
+    function GetNumResourceMetadata(name, key)
+        local m = manifests[name]
+        if not m or type(key) ~= 'string' then return 0 end
+        return #(m[key] or {})
+    end
+    function GetResourceMetadata(name, key, index)
+        local values = manifests[name] and manifests[name][key]
+        if type(index) ~= 'number' then return nil end
+        return values and values[index + 1] or nil
+    end
+    local scheduled
+    SetTimeout = function(_, fn) scheduled = fn end
+    loadModule('server/selfcheck.lua')
+    scheduled()
+
+    local result = exports.GetSelfCheck()
+    local codes, messages = {}, {}
+    for _, p in ipairs(result.problems) do
+        codes[p.code] = (codes[p.code] or 0) + 1
+        messages[#messages + 1] = p.code .. ': ' .. tostring(p.message)
+    end
+    local all = table.concat(messages, ' | ')
+    check(codes.missing_provider == 2,
+        ('SC1: each requirement with no provider is a structured problem (%s)'):format(all))
+    check(all:find('cis_installed_only', 1, true) == nil,
+        ('SC1: a resource that is installed but not started did not "start before" us (%s)'):format(all))
+    check(codes.started_before_dependency == 1,
+        ('SC1: the one that was running is still reported (%s)'):format(all))
+    env.reset()
+end
+
+-- ============================ S7. the summary reports the posture in force
+--
+-- allowListConfigured read Security.AuthorizedResources, so with the list
+-- pinned by cis_authorized_resources the summary said "not configured" about a
+-- server that was.
+do
+    local env = newEnv({})
+    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_G, 'GetConvar') }
+    function GetConvar(name, default)
+        if name == 'cis_authorized_resources' then return 'cis_core' end
+        return default
+    end
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+    loadModule('server/initialize.lua')
+    CisReadyState.markReady()
+    local summary = env.EXPORTS.GetConfigSummary()
+    check(summary and summary.allowListConfigured == true,
+        'S7: a convar-pinned allow-list is reported as configured')
     env.reset()
 end
 

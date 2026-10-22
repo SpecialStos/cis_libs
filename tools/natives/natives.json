@@ -6,13 +6,13 @@
   },
   "counts": {
     "shippedFiles": 58,
-    "nativesUsed": 220,
+    "nativesUsed": 222,
     "byRealm": {
       "client": 145,
       "server": 5,
-      "shared": 70
+      "shared": 72
     },
-    "unresolvedPascalCaseGlobals": 73
+    "unresolvedPascalCaseGlobals": 77
   },
   "natives": {
     "AddDoorToSystem": {
@@ -609,6 +609,22 @@
         "client/ui.lua"
       ]
     },
+    "ExecuteCommand": {
+      "realm": "shared",
+      "evidence": [
+        "shared"
+      ],
+      "sources": [
+        "cfx"
+      ],
+      "namespaces": [],
+      "usedIn": [
+        "server"
+      ],
+      "files": [
+        "server/command.lua"
+      ]
+    },
     "FreezeEntityPosition": {
       "realm": "shared",
       "evidence": [
@@ -707,6 +723,7 @@
         "client/zones.lua",
         "init.lua",
         "server/callback.lua",
+        "server/command.lua",
         "server/security.lua",
         "server/selfcheck.lua",
         "server/sync.lua",
@@ -925,6 +942,7 @@
         "client/zones.lua",
         "init.lua",
         "server/callback.lua",
+        "server/logging.lua",
         "server/security.lua",
         "server/selfcheck.lua",
         "shared/diagnostics.lua",
@@ -1058,6 +1076,22 @@
       ],
       "files": [
         "client/vehicle.lua"
+      ]
+    },
+    "GetNumResourceMetadata": {
+      "realm": "shared",
+      "evidence": [
+        "shared"
+      ],
+      "sources": [
+        "cfx"
+      ],
+      "namespaces": [],
+      "usedIn": [
+        "server"
+      ],
+      "files": [
+        "server/selfcheck.lua"
       ]
     },
     "GetNumResources": {
@@ -1206,7 +1240,9 @@
       ],
       "files": [
         "server/callback.lua",
+        "server/command.lua",
         "server/interface.lua",
+        "server/player.lua",
         "server/proxy.lua",
         "server/security.lua"
       ]
@@ -2486,6 +2522,7 @@
         "server"
       ],
       "files": [
+        "server/callback.lua",
         "server/command.lua"
       ]
     },
@@ -4193,6 +4230,7 @@
         "init.lua",
         "server/initialize.lua",
         "server/sync.lua",
+        "server/version.lua",
         "server/zones.lua",
         "shared/loopguard.lua",
         "shared/ready.lua",
@@ -4204,6 +4242,8 @@
   "unresolvedGlobals": [
     "AddEventHandler",
     "CisCallable",
+    "CisCallbackLimits",
+    "CisCheckNetSchema",
     "CisCommandAdd",
     "CisCommandList",
     "CisCommandNames",
@@ -4231,6 +4271,8 @@
     "CisRaycastFromCoords",
     "CisRegisterCallback",
     "CisRememberJob",
+    "CisSecurityPinned",
+    "CisSecurityPosture",
     "CisSecurityRebuild",
     "CisSecurityReport",
     "CisServerZoneBox",

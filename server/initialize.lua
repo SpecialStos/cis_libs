@@ -70,8 +70,9 @@ exports('GetConfigSummary', function()
         syncEnabled = not (Config and Config.Sync and Config.Sync.Enabled == false),
         eventPrefix = (Security and Security.EventPrefix) or 'cis_libs',
         callbackTimeout = (Config and Config.CallbackTimeout) or 10000,
-        allowListConfigured = type(Security and Security.AuthorizedResources) == 'table'
-            and #Security.AuthorizedResources > 0,
+        -- The EFFECTIVE posture, which a server convar may have decided rather
+        -- than Security.AuthorizedResources.
+        allowListConfigured = CisSecurityPosture() == 'configured',
     }
 end)
 

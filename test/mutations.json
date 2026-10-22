@@ -4,8 +4,8 @@
     {
       "id": "M01",
       "file": "server/security.lua",
-      "find": "        local src = source\n        if type(src) ~= 'number' or src <= 0 then\n            return\n        end\n",
-      "replace": "        local src = source\n        if type(src) ~= 'number' then\n            return\n        end\n",
+      "find": "    local src = source\n    if type(src) ~= 'number' or src <= 0 then\n        return\n    end\n    local live = netBindings[name]\n",
+      "replace": "    local src = source\n    if type(src) ~= 'number' then\n        return\n    end\n    local live = netBindings[name]\n",
       "why": "Drop the `src <= 0` half of the guard. `source` is 0 for a server-side trigger and -1 for a scheduled one, so a net handler that accepts them can be invoked by anything that can raise the event locally, with no player behind it."
     },
     {
@@ -67,7 +67,7 @@
     {
       "id": "M14",
       "file": "server/security.lua",
-      "find": "    if allowAnyResource() then\n        applyPosture('permissive', 'Security.AllowAnyResource is set')\n        return\n    end\n",
+      "find": "    if allowAnyResource() then\n        applyPosture('permissive', 'AllowAnyResource is set')\n        return\n    end\n",
       "replace": "",
       "why": "Make an empty AuthorizedResources permissive again -- the exact behaviour 2.2 removes. Every resource on the server regains the right to add, break and rewrite every door and every synced entity, on a server whose operator was told the gate was closed. The refusal itself is unchanged, so nothing about the shape of the answer gives it away."
     },
@@ -445,15 +445,15 @@
     {
       "id": "M69",
       "file": "server/security.lua",
-      "find": "    if not bucket or now - bucket.started >= windowMs then",
-      "replace": "    if not bucket or now - bucket.started >= (windowMs / 1000) then",
+      "find": "    if now - bucket.started >= windowMs then\n",
+      "replace": "    if now - bucket.started >= (windowMs / 1000) then\n",
       "why": "Treat the window as SECONDS while the clock is still GetGameTimer MILLISECONDS, which is the exact mistake 5.2 warns about in a comment: every rate limit on the server becomes a thousand times looser, silently, and nothing logs. The plan says the security limiter and CisRate differ, and rate.lua itself says they differ \"in ONE thing that matters -- what happens at the window boundary\". They differ in three, and the unit is one of them. A reader who believed that header would write exactly this row, which is why the comparison against CisRate is pinned in contracts."
     },
     {
       "id": "M70",
       "file": "server/security.lua",
-      "find": "        if not bucket and (rateCounts[src] or 0) >= RATE_BUCKET_CAP then",
-      "replace": "        if not bucket and (rateCounts[src] or 0) >= 100000000 then",
+      "find": "        if (rateCounts[src] or 0) >= RATE_BUCKET_CAP then\n",
+      "replace": "        if (rateCounts[src] or 0) >= 100000000 then\n",
       "why": "Raise the per-source bucket cap out of reach. Event names arrive off the wire, so an unbounded map is a memory growth rate a client controls: one source sending a few hundred thousand distinct event names would grow the table without limit, and the resource that reads it -- a server under attack -- is the one paying."
     },
     {
@@ -523,8 +523,8 @@
     {
       "id": "M80",
       "file": "server/command.lua",
-      "find": "        if restricted and src ~= 0 then\n",
-      "replace": "        if false then\n",
+      "find": "    if entry.restricted and src ~= 0 then\n",
+      "replace": "    if false then\n",
       "why": "Skip the ACE check on a restricted command. RegisterCommand's restricted flag is one half; without this, a source that reached the handler -- a console that forwards a src, or a restricted flag the platform did not honour -- runs as anyone."
     },
     {
@@ -593,8 +593,8 @@
     {
       "id": "M90",
       "file": "server/security.lua",
-      "find": "        if live.opts.schema ~= nil then\n",
-      "replace": "        if live.opts.schema ~= nil and false then\n",
+      "find": "    if live.opts.schema ~= nil then\n",
+      "replace": "    if live.opts.schema ~= nil and false then\n",
       "why": "Skip the schema check. A client can then send count=999999 or a string where a table belongs and the handler still runs. 7.11 exists so a typed payload is a boundary, not a comment."
     },
     {
@@ -981,6 +981,279 @@
       "find": "    return src ~= nil and src ~= ''\n",
       "replace": "    return true\n",
       "why": "Accept getData and showNotification from a local TriggerEvent. Any client resource can then rewrite this client's config or show a notification that looks like the server's."
+    },
+    {
+      "id": "M146",
+      "file": "server/security.lua",
+      "find": "        bucket.started = now\n        bucket.hits = 1\n        return true\n",
+      "replace": "        bucket.started = now\n        bucket.hits = 1\n        rateCounts[src] = (rateCounts[src] or 0) + 1\n        return true\n",
+      "why": "Count a bucket on every window ROLL again. The per-src count then measures windows seen rather than buckets held, and a player who has been on the server for five minutes is refused every new event name for the rest of the session."
+    },
+    {
+      "id": "M147",
+      "file": "server/security.lua",
+      "find": "    if not netRegistered[name] then\n",
+      "replace": "    if true then\n",
+      "why": "Register the net event on every bind again. FiveM keeps the old handler after a consumer stops, so each restart adds one more and a single client event runs the handler N+1 times -- a payout paid N+1 times."
+    },
+    {
+      "id": "M148",
+      "file": "server/security.lua",
+      "find": "        if not state.announced then\n",
+      "replace": "        if true then\n",
+      "why": "Log the rate-limit line on every window roll again. A flood that lasts a minute is sixty lines on the cheating channel, sixty Discord posts, and the one line that matters is lost in them."
+    },
+    {
+      "id": "M149",
+      "file": "server/logging.lua",
+      "find": "    if seen and now - seen.at < DISCORD_DEDUPE_MS then\n",
+      "replace": "    if false then\n",
+      "why": "Forward every identical Discord line. A repeating error posts once per occurrence until the webhook answers 429 and drops the posts that mattered with the rest."
+    },
+    {
+      "id": "M150",
+      "file": "server/security.lua",
+      "find": "    local trap = Logging.Trap or debug.traceback\n    local ok, err\n",
+      "replace": "    local trap = function(e) return e end\n    local ok, err\n",
+      "why": "Trap nothing at the raise. The error is then located after the stack unwound, and every consumer handler's failure is filed under the dispatcher's own line in server/security.lua."
+    },
+    {
+      "id": "M151",
+      "file": "server/security.lua",
+      "find": "    if postureFromConvars() then\n        list = convarList('cis_authorized_resources')\n",
+      "replace": "    if false then\n        list = convarList('cis_authorized_resources')\n",
+      "why": "Ignore the operator's cis_authorized_resources convar. The allow-list then comes from whichever resource called SetConfig first, and that resource can hand itself every door and sync record."
+    },
+    {
+      "id": "M152",
+      "file": "server/security.lua",
+      "find": "    elseif CisCallable(fn) then\n",
+      "replace": "    elseif type(fn) == 'function' then\n",
+      "why": "Refuse a funcref handler. A function passed by another resource arrives as a callable reference table, so every consumer that hands SecureNetOn a function registers nothing."
+    },
+    {
+      "id": "M153",
+      "file": "server/callback.lua",
+      "find": "        elseif payload and payload.promise then\n            payload.promise:reject('player dropped')\n",
+      "replace": "        elseif false then\n            payload.promise:reject('player dropped')\n",
+      "why": "Leave a promise unsettled when its player drops. The pending entry is removed, so nothing will ever settle it, and the coroutine parked in AwaitCallbackClient waits forever."
+    },
+    {
+      "id": "M154",
+      "file": "server/callback.lua",
+      "find": "    if not entry or not entry.remote then\n",
+      "replace": "    if not entry then\n",
+      "why": "Let a client reach a callback registered remote = false. A callback that exists for other server code -- a payout, an admin action -- becomes callable by any modded client that knows its name."
+    },
+    {
+      "id": "M155",
+      "file": "server/callback.lua",
+      "find": "    if kind == 'string' then\n        return #value <= maxLen\n    end\n",
+      "replace": "    if kind == 'string' then\n        return true\n    end\n",
+      "why": "Drop the string-length cap. A client can send a multi-megabyte string as one argument, which every other bound counts as a single value, and every handler that logs or stores it pays for it."
+    },
+    {
+      "id": "M156",
+      "file": "server/callback.lua",
+      "find": "    if not playerBudgetOk(src, limits) then\n",
+      "replace": "    if false then\n",
+      "why": "Remove the per-player budget in front of the name lookup. A client spraying made-up callback names is answered 'unknown' as fast as it can send them, with no limiter anywhere on that path."
+    },
+    {
+      "id": "M157",
+      "file": "server/callback.lua",
+      "find": "    if slot.n >= limits.maxInFlight then\n",
+      "replace": "    if false then\n",
+      "why": "Uncap handlers in flight. A client can park any number of handler coroutines that are each waiting on a database, holding their memory and their connections."
+    },
+    {
+      "id": "M158",
+      "file": "client/callback.lua",
+      "find": "    return table.unpack(reply, 2, reply.n)\n",
+      "replace": "    return reply[2], reply[3]\n",
+      "why": "Return two values from the client await again. The server sends up to six and the docs promise six; the third onwards disappears with no error."
+    },
+    {
+      "id": "M159",
+      "file": "server/callback.lua",
+      "find": "    if not payloadWithinLimits(packed, MAX_CALLBACK_ARGS, CisCallbackLimits().maxStringLen) then\n",
+      "replace": "    if false then\n",
+      "why": "Accept any reply payload. A client's answer to a server callback is client data like any request, and an unbounded one is handed straight to the waiting server code."
+    },
+    {
+      "id": "M160",
+      "file": "server/callback.lua",
+      "find": "            CisOwned.forget(callbackOwned, 'callback', freed[i].id)\n",
+      "replace": "",
+      "why": "Release without forgetting. release() only lists what the owner held, so the ownership ledger keeps every stopped consumer's callback names for the life of the server."
+    },
+    {
+      "id": "M161",
+      "file": "server/callback.lua",
+      "find": "    if not CisCallable(cb) then\n        Logging.Error('Cis.callback.call needs a callback function')\n",
+      "replace": "    if type(cb) ~= 'function' then\n        Logging.Error('Cis.callback.call needs a callback function')\n",
+      "why": "Refuse a funcref callback. A closure passed to CallCallback by another resource arrives as a callable reference table, so every consumer's call is refused."
+    },
+    {
+      "id": "M162",
+      "file": "server/callback.lua",
+      "find": "    if entry.ace and not IsPrincipalAceAllowed(('player.%d'):format(src), entry.ace) then\n",
+      "replace": "    if false then\n",
+      "why": "Skip the ACE check. A callback registered with ace = 'cis.admin' answers any client."
+    },
+    {
+      "id": "M163",
+      "file": "server/proxy.lua",
+      "find": "exports('BreakDoor', function(identifier)\n    if not CisInvokingAllowed() then\n",
+      "replace": "exports('BreakDoor', function(identifier)\n    if false then\n",
+      "why": "Ungate BreakDoor. Any started resource can break any door a player is standing at, while its sibling AddDoorToSystem still asks the allow-list."
+    },
+    {
+      "id": "M164",
+      "file": "server/proxy.lua",
+      "find": "exports('PublishPlayerLoaded', function(job, src)\n    -- Gated like PublishJobUpdate: it writes the same histogram.\n    if not CisInvokingAllowed() then\n",
+      "replace": "exports('PublishPlayerLoaded', function(job, src)\n    -- Gated like PublishJobUpdate: it writes the same histogram.\n    if false then\n",
+      "why": "Ungate PublishPlayerLoaded. It writes the same job histogram PublishJobUpdate is gated for, so any resource can put fifty police on duty through the side door."
+    },
+    {
+      "id": "M165",
+      "file": "server/proxy.lua",
+      "find": "exports('SetDropPlayerHandler', function(provider)\n    if not CisInvokingAllowed() then\n",
+      "replace": "exports('SetDropPlayerHandler', function(provider)\n    if false then\n",
+      "why": "Ungate SetDropPlayerHandler. The first caller takes the security slot, which decides what happens to every player a report names."
+    },
+    {
+      "id": "M166",
+      "file": "server/player.lua",
+      "find": "    if type(src) ~= 'number' or src <= 0 or not GetPlayerName(src) then\n        return false\n    end\n",
+      "replace": "",
+      "why": "Remember a job under any src. Only playerDropped removes an entry, so an id nobody holds is counted until the server restarts."
+    },
+    {
+      "id": "M167",
+      "file": "server/proxy.lua",
+      "find": "        out[i] = auditRing[((auditNext - 1 - count + i - 1) % auditLaidOut) + 1]\n",
+      "replace": "        out[i] = auditRing[((auditNext - 1 - count + i - 1) % auditCapacity()) + 1]\n",
+      "why": "Index the audit ring by a fresh read of the configured capacity instead of the one it is laid out for. A capacity change mid-run returns holes and out-of-order entries."
+    },
+    {
+      "id": "M168",
+      "file": "server/proxy.lua",
+      "find": "    if pinned and supplier ~= pinned and supplier ~= 'cis_libs' then\n",
+      "replace": "    if false then\n",
+      "why": "Ignore cis_config_supplier. Configuration goes back to whichever resource calls SetConfig first, which is a race any early-starting resource can win."
+    },
+    {
+      "id": "M169",
+      "file": "server/command.lua",
+      "find": "    commands[entry.name] = nil\n    if entry.provisioned",
+      "replace": "    if entry.provisioned",
+      "why": "Remove a command without disabling it. The platform cannot unregister the closure, so a removed command -- or one whose resource stopped -- keeps running its handler."
+    },
+    {
+      "id": "M170",
+      "file": "server/command.lua",
+      "find": "    for _, entry in pairs(commands) do\n        suggest(src, entry)\n    end\n",
+      "replace": "",
+      "why": "Send suggestions only at registration. Every player who joins after a command was added -- which on a live server is almost all of them -- never sees it in chat."
+    },
+    {
+      "id": "M171",
+      "file": "server/command.lua",
+      "find": "    ExecuteCommand(('add_ace %s command.%s allow'):format(entry.restricted, entry.name))\n    return true\n",
+      "replace": "    return false\n",
+      "why": "Never provision the ACE, even when the operator granted cis_libs add_ace. A command restricted to group.mod then refuses every moderator until someone adds the line by hand."
+    },
+    {
+      "id": "M172",
+      "file": "server/command.lua",
+      "find": "            parsed[i] = v\n        elseif kind == 'playerId' then\n",
+      "replace": "        elseif kind == 'playerId' then\n",
+      "why": "Validate a number param without converting it. The handler receives the string '10' where it was promised a number, and arithmetic on it is a coercion surprise."
+    },
+    {
+      "id": "M173",
+      "file": "server/command.lua",
+      "find": "    if not CisCallable(handler) then\n",
+      "replace": "    if type(handler) ~= 'function' then\n",
+      "why": "Refuse a funcref handler. A function passed by another resource arrives as a callable reference table, so no consumer can add a command at all."
+    },
+    {
+      "id": "M174",
+      "file": "server/command.lua",
+      "find": "        if entry.owner == resource then\n            doomed[#doomed + 1] = entry\n",
+      "replace": "        if false then\n            doomed[#doomed + 1] = entry\n",
+      "why": "Keep a stopped resource's commands. Its handler is a reference into a resource that is gone, and the command stays live and owned by nobody."
+    },
+    {
+      "id": "M175",
+      "file": "server/command.lua",
+      "find": "    if type(restricted) == 'string' and not restricted:match('^[%w_%-%.:]+$') then\n",
+      "replace": "    if false then\n",
+      "why": "Accept any restricted string. It is written into an add_ace console line, so 'group.admin; quit' becomes a second console command."
+    },
+    {
+      "id": "M176",
+      "file": "shared/detect.lua",
+      "find": "            if known.name:upper() == configured then\n",
+      "replace": "            if known.name == configured then\n",
+      "why": "Compare the uppercased configured driver with the lowercase list name again. Every explicit Database.Type is then 'not a supported driver' and the install runs with no database."
+    },
+    {
+      "id": "M177",
+      "file": "server/version.lua",
+      "find": "    while convarSwitch() == nil and Config and Config.__owner == 'cis_libs'\n",
+      "replace": "    while false\n",
+      "why": "Read Config.CheckVersion on the boot thread's first tick. cis_libs starts before every consumer, so the read always sees the built-in false and an operator who turned the check on never gets one."
+    },
+    {
+      "id": "M178",
+      "file": "server/version.lua",
+      "find": "            elseif order >= 0 then\n",
+      "replace": "            elseif currentVersion == versionInfo.latestVersion then\n",
+      "why": "Compare versions by string equality. A build ahead of the published line, or one spelled v1.2.0, is announced as outdated on every boot."
+    },
+    {
+      "id": "M179",
+      "file": "server/selfcheck.lua",
+      "find": "        local ok, total = pcall(GetNumResourceMetadata, name, key)\n",
+      "replace": "        local ok, total = pcall(GetNumResourceMetadata, name)\n",
+      "why": "Ask for the metadata count without the key. The native counts per key and answers 0 without one, so every manifest check built on it never fires on a real server."
+    },
+    {
+      "id": "M180",
+      "file": "server/selfcheck.lua",
+      "find": "                            problem('missing_provider',\n",
+      "replace": "                            (function() end)('missing_provider',\n",
+      "why": "Print the missing-provider line without recording it. GetSelfCheck and cis_doctor then report ok with the problem on the console."
+    },
+    {
+      "id": "M181",
+      "file": "server/selfcheck.lua",
+      "find": "        if name and GetResourceState(name) == 'started' then\n            startedBeforeUs[name] = true\n",
+      "replace": "        if name then\n            startedBeforeUs[name] = true\n",
+      "why": "Snapshot every resource the server knows instead of the running ones. Every installed but stopped consumer is then reported as having started before cis_libs."
+    },
+    {
+      "id": "M182",
+      "file": "shared/registry.lua",
+      "find": "                held.nilProbeAt = nowMs()\n",
+      "replace": "",
+      "why": "Forget that a provider answered the no-method probe with nil. A dispatcher provider's export is then invoked twice on every call, forever."
+    },
+    {
+      "id": "M183",
+      "file": "shared/hooks.lua",
+      "find": "    if not CisCallable(fn) then\n        return nil, ('hook fn must be a function",
+      "replace": "    if type(fn) ~= 'function' then\n        return nil, ('hook fn must be a function",
+      "why": "Refuse a funcref hook. A function passed by another resource arrives as a callable reference table, so no consumer can register a veto."
+    },
+    {
+      "id": "M184",
+      "file": "server/initialize.lua",
+      "find": "        allowListConfigured = CisSecurityPosture() == 'configured',\n",
+      "replace": "        allowListConfigured = #Security.AuthorizedResources > 0,\n",
+      "why": "Report the Security table instead of the posture in force. A server whose allow-list is pinned by cis_authorized_resources is summarised as unconfigured."
     }
   ]
 }

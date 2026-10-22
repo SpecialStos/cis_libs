@@ -1,6 +1,8 @@
 -- Vetoable hooks. First refusal wins. An error is a veto (fail closed).
--- Functions cannot cross the exports boundary, so on() from a consumer
--- must pass a 'resource:Export' string, same as Cis.net.on.
+-- A function passed from a consumer crosses the exports boundary as a callable
+-- reference table, which is accepted (CisCallable); so is a 'resource:Export'
+-- string. Either way the hook is OWNED by the resource that registered it and
+-- removed when that resource stops.
 
 CisHooks = {
     byName = {},
@@ -22,7 +24,7 @@ function CisHooks.on(name, fn, opts)
     if type(name) ~= 'string' or name == '' then
         return nil, 'hook name must be a non-empty string'
     end
-    if type(fn) ~= 'function' then
+    if not CisCallable(fn) then
         return nil, ('hook fn must be a function, got %s'):format(type(fn))
     end
     opts = opts or {}
@@ -101,7 +103,7 @@ end
 
 pcall(function()
 exports('HookOn', function(name, fn, opts)
-    if type(fn) == 'function' then
+    if CisCallable(fn) then
         return CisHooks.on(name, fn, opts)
     end
     if type(fn) == 'string' then

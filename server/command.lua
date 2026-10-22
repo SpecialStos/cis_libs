@@ -1,11 +1,16 @@
 -- Server commands with argument validation, source injection and a usage line.
 --
--- cis_libs NEVER CALLS add_ace ITSELF. A command's `restricted` flag is a
--- DECLARATION, and
--- `RegisterCommand` does the check. When a command is declared restricted and
--- nobody has granted the ACE, it refuses -- and it prints the exact `add_ace`
--- line the operator needs, because a command that silently never runs is the
--- worst outcome available and an operator has no way to guess why.
+-- RESTRICTED COMMANDS AND THE ACE. A command's `restricted` flag is enforced
+-- twice: RegisterCommand is told, and the handler checks
+-- IsPrincipalAceAllowed itself. Granting the ACE is the operator's job, with
+-- one exception that mirrors ox_lib: when `restricted` names a GROUP and the
+-- operator has given cis_libs the right to run `add_ace`
+-- (`add_ace resource.cis_libs command.add_ace allow`), cis_libs provisions
+-- `add_ace <group> command.<name> allow` itself, and takes it back with
+-- `remove_ace` when the command goes. Without that grant nothing is executed:
+-- the exact `add_ace` line is printed once at registration and again on every
+-- refusal, because a command that silently never runs is the worst outcome
+-- available and an operator has no way to guess why.
 --
 -- THE INJECTED SOURCE IS NOT OPTIONAL and not a parameter. `source` inside a
 -- command handler is the platform's, and a command that exposes it as an
@@ -15,41 +20,57 @@
 
 local commands = {}
 local usageWarned = {}
+-- Names RegisterCommand has been called for. The platform cannot unregister a
+-- command, so each name is registered ONCE and its closure dispatches to the
+-- LIVE entry: a removed command finds no entry and does nothing, and a re-added
+-- one is reached through the same closure rather than a second one beside it.
+local registered = {}
+
+local PARAM_TYPES = { string = true, number = true, playerId = true, longString = true }
 
 -- Split a command line the way a shell does not, and the way a player expects:
 -- double quotes group, single quotes do not expand anything, and there is no
 -- backslash escape because the platform has none and inventing one would make
 -- a path with a backslash in it depend on this parser rather than on the OS.
+--
+-- Characters go into a BUFFER and are joined once per argument: appending to a
+-- string copied the whole argument per character, quadratic in its length.
 function CisCommandParse(raw)
     if type(raw) ~= 'string' then
         return {}
     end
     local args = {}
-    local current = nil
+    local buf, n = {}, 0
+    local open = false
     local quote = nil
-    local i = 1
-    while i <= #raw do
-        local c = raw:sub(i, i)
+    local byte = string.byte
+    for i = 1, #raw do
+        local c = byte(raw, i)
         if quote then
             if c == quote then
                 quote = nil
             else
-                current = (current or '') .. c
+                n = n + 1
+                buf[n] = raw:sub(i, i)
             end
-        elseif c == '"' or c == "'" then
+        elseif c == 34 or c == 39 then -- " or '
             quote = c
-            current = current or ''
-        elseif c:match('%s') then
-            if current ~= nil then
-                args[#args + 1] = current
-                current = nil
+            open = true
+        elseif c == 32 or (c >= 9 and c <= 13) then
+            if open then
+                args[#args + 1] = table.concat(buf, '', 1, n)
+                n = 0
+                open = false
             end
         else
-            current = (current or '') .. c
+            n = n + 1
+            buf[n] = raw:sub(i, i)
+            open = true
         end
-        i = i + 1
     end
-    if current ~= nil then args[#args + 1] = current end
+    if open then
+        args[#args + 1] = table.concat(buf, '', 1, n)
+    end
     return args
 end
 
@@ -60,6 +81,10 @@ local function paramName(p)
     return tostring(p)
 end
 
+local function isOptional(p)
+    return type(p) == 'table' and p.optional == true
+end
+
 function CisCommandNames()
     local out = {}
     for name in pairs(commands) do out[#out + 1] = name end
@@ -67,15 +92,22 @@ function CisCommandNames()
     return out
 end
 
+local function aceGroup(entry)
+    return type(entry.restricted) == 'string' and entry.restricted or 'group.admin'
+end
+
 local function buildUsage(entry)
     local parts = { entry.name }
     for _, p in ipairs(entry.params) do
-        parts[#parts + 1] = ('<%s>'):format(paramName(p))
+        local label = paramName(p)
+        if type(p) == 'table' and p.type and p.type ~= 'string' then
+            label = label .. ':' .. p.type
+        end
+        parts[#parts + 1] = (isOptional(p) and '[%s]' or '<%s>'):format(label)
     end
     local line = table.concat(parts, ' ')
     if entry.restricted then
-        local group = type(entry.restricted) == 'string' and entry.restricted or 'group.admin'
-        line = line .. ('   [restricted -- add_ace %s command.%s allow]'):format(group, entry.name)
+        line = line .. ('   [restricted -- add_ace %s command.%s allow]'):format(aceGroup(entry), entry.name)
     end
     return line
 end
@@ -84,12 +116,193 @@ local function suggestionParams(params)
     local out = {}
     for _, p in ipairs(params) do
         if type(p) == 'table' then
-            out[#out + 1] = { name = tostring(p.name or p.help or 'arg'), help = tostring(p.help or p.name or '') }
+            local help = tostring(p.help or p.name or '')
+            if p.type and p.type ~= 'string' then
+                help = ('%s (%s)'):format(help, p.type)
+            end
+            if p.optional then
+                help = help .. ' (optional)'
+            end
+            out[#out + 1] = { name = tostring(p.name or p.help or 'arg'), help = help }
         else
             out[#out + 1] = { name = tostring(p), help = '' }
         end
     end
     return out
+end
+
+local function chatStarted()
+    return GetResourceState and GetResourceState('chat') == 'started'
+end
+
+-- chat suggestions while `chat` is started. The seam is
+-- TriggerClientEvent('chat:addSuggestion', ...), allow-listed in the contract
+-- test. cis_libs does not ship chat.
+local function suggest(target, entry)
+    TriggerClientEvent('chat:addSuggestion', target, '/' .. entry.name, entry.help or '',
+        suggestionParams(entry.params))
+end
+
+local function warnUsage(entry, why)
+    local key = entry.name .. ':' .. (why or 'usage')
+    if usageWarned[key] then
+        return
+    end
+    usageWarned[key] = true
+    if CisLog then
+        CisLog('info', ('cis_libs: usage: %s%s'):format(buildUsage(entry),
+            why and ('  (' .. why .. ')') or ''))
+    end
+end
+
+-- Convert the parsed words to what each declared param says it is. Returns the
+-- args, or nil plus the reason the line was refused.
+local function typedArgs(entry, src, parsed)
+    local params = entry.params
+    for i, p in ipairs(params) do
+        local kind = type(p) == 'table' and p.type or 'string'
+        local word = parsed[i]
+        if word == nil then
+            if not isOptional(p) then
+                return nil, nil
+            end
+        elseif kind == 'number' then
+            local v = tonumber(word)
+            if not v or v ~= v or v == math.huge or v == -math.huge then
+                return nil, ('%s must be a number'):format(paramName(p))
+            end
+            parsed[i] = v
+        elseif kind == 'playerId' then
+            local v = (word == 'me' and src ~= 0) and src or tonumber(word)
+            if not v or v <= 0 or v % 1 ~= 0 or not GetPlayerName(v) then
+                return nil, ('%s must be the id of a connected player'):format(paramName(p))
+            end
+            parsed[i] = v
+        elseif kind == 'longString' then
+            -- Everything from here to the end, as one argument.
+            local rest = table.concat(parsed, ' ', i)
+            for j = #parsed, i + 1, -1 do
+                parsed[j] = nil
+            end
+            parsed[i] = rest
+        end
+        if type(p) == 'table' and type(p.name) == 'string' then
+            parsed[p.name] = parsed[i]
+        end
+    end
+    return parsed
+end
+
+local function provisionAce(entry)
+    if type(entry.restricted) ~= 'string' or type(ExecuteCommand) ~= 'function' then
+        return false
+    end
+    local self = 'resource.' .. GetCurrentResourceName()
+    if not IsPrincipalAceAllowed(self, 'command.add_ace') then
+        return false
+    end
+    ExecuteCommand(('add_ace %s command.%s allow'):format(entry.restricted, entry.name))
+    return true
+end
+
+local function release(entry)
+    if commands[entry.name] ~= entry then
+        return
+    end
+    commands[entry.name] = nil
+    if entry.provisioned and type(ExecuteCommand) == 'function' then
+        ExecuteCommand(('remove_ace %s command.%s allow'):format(entry.restricted, entry.name))
+    end
+    if chatStarted() then
+        TriggerClientEvent('chat:removeSuggestion', -1, '/' .. entry.name)
+    end
+end
+
+local function dispatch(name, src, args, rawCommand)
+    -- The LIVE entry. A removed command has none, and a stale closure must not
+    -- run a handler that belongs to a resource that has since stopped.
+    local entry = commands[name]
+    if not entry then
+        return
+    end
+    if entry.restricted and src ~= 0 then
+        -- IS_PRINCIPAL_ACE_ALLOWED (CFX, shared): (principal: char*, object: char*).
+        -- BOTH are strings. Passing the numeric source is a type error the
+        -- native answers by refusing, which looks like "the ACE is missing"
+        -- and prints the add_ace line forever.
+        local principal = ('player.%s'):format(src)
+        local object = ('command.%s'):format(name)
+        if not IsPrincipalAceAllowed(principal, object) then
+            if CisLog then
+                CisLog('warn', ('cis_libs: %q was refused for src %s. Grant it with: add_ace %s command.%s allow')
+                    :format(name, tostring(src), aceGroup(entry), name))
+            end
+            return
+        end
+    end
+
+    local parsed
+    if type(rawCommand) == 'string' and rawCommand ~= '' then
+        parsed = CisCommandParse(rawCommand)
+        if parsed[1] == name then
+            table.remove(parsed, 1)
+        end
+    else
+        parsed = type(args) == 'table' and args or {}
+    end
+
+    if #parsed < entry.required then
+        warnUsage(entry)
+        return
+    end
+    local typed, why = typedArgs(entry, src, parsed)
+    if not typed then
+        warnUsage(entry, why)
+        return
+    end
+
+    local ok, err = xpcall(entry.handler, Logging and Logging.Trap or debug.traceback, src, typed, rawCommand)
+    if not ok then
+        if Logging and Logging.AutoLogError then
+            Logging.AutoLogError(err, 'command ' .. name)
+        elseif CisLog then
+            CisLog('error', ('cis_libs: command %q raised: %s'):format(name, tostring(err)))
+        end
+    end
+end
+
+-- Checked before anything is stored or registered: a param list is a contract
+-- with every player who types the command, so a malformed one is refused rather
+-- than half-honoured.
+local function readParams(params)
+    if params == nil then
+        return {}, 0
+    end
+    if type(params) ~= 'table' then
+        return nil, 'params must be an array of names or { name, help, type, optional } tables'
+    end
+    local required, sawOptional = 0, false
+    for i, p in ipairs(params) do
+        if type(p) == 'table' then
+            if p.type ~= nil and not PARAM_TYPES[p.type] then
+                return nil, ("params[%d].type must be 'string', 'number', 'playerId' or 'longString'; got %s")
+                    :format(i, tostring(p.type))
+            end
+            if p.type == 'longString' and i ~= #params then
+                return nil, ('params[%d] is a longString, which takes the rest of the line, so it must be last'):format(i)
+            end
+        elseif type(p) ~= 'string' then
+            return nil, ('params[%d] must be a name or a table; got %s'):format(i, type(p))
+        end
+        if isOptional(p) then
+            sawOptional = true
+        elseif sawOptional then
+            return nil, ('params[%d] is required but follows an optional one; optional params must come last'):format(i)
+        else
+            required = required + 1
+        end
+    end
+    return params, required
 end
 
 function CisCommandAdd(name, options, handler)
@@ -99,8 +312,11 @@ function CisCommandAdd(name, options, handler)
     if type(options) ~= 'table' then
         return false, ('options must be a table; got %s'):format(type(options))
     end
-    if type(handler) ~= 'function' then
-        return false, 'the handler must be a function. A function cannot cross the exports boundary, so a command registered from a CONSUMER resource receives nil -- register it from cis_libs, or use RegisterCommand directly'
+    -- CisCallable: a function from ANOTHER resource arrives as a callable
+    -- reference table. It is owned by that resource and released when it stops.
+    if not CisCallable(handler) then
+        return false, ('the handler must be a function (a function passed from another resource is fine); got %s')
+            :format(type(handler))
     end
     if commands[name] then
         return false, ('a command named %q is already registered; remove it first'):format(name)
@@ -111,15 +327,21 @@ function CisCommandAdd(name, options, handler)
         return false, ("restricted must be true, false, or an ACE group string like 'group.admin'; got %s")
             :format(type(restricted))
     end
+    -- The group is written into an `add_ace` line, so it is held to the shape of
+    -- a principal and nothing else: no space, no `;`, no quote.
+    if type(restricted) == 'string' and not restricted:match('^[%w_%-%.:]+$') then
+        return false, ("restricted must be an ACE principal like 'group.admin'; got %q"):format(restricted)
+    end
 
-    local params = options.params
-    if params ~= nil and type(params) ~= 'table' then
-        return false, 'params must be an array of names'
+    local params, required = readParams(options.params)
+    if not params then
+        return false, required
     end
 
     local entry = {
         name = name,
-        params = params or {},
+        params = params,
+        required = required,
         help = options.help,
         restricted = restricted,
         handler = handler,
@@ -132,57 +354,23 @@ function CisCommandAdd(name, options, handler)
     -- strings WITHOUT the command name. rawCommand is the full line, including
     -- it. Parsing raw is what makes quoted arguments work; using args as-is
     -- splits on every space and cannot group.
-    RegisterCommand(name, function(src, args, rawCommand)
-        if restricted and src ~= 0 then
-            -- IS_PRINCIPAL_ACE_ALLOWED (CFX, shared): (principal: char*, object: char*).
-            -- BOTH are strings. Passing the numeric source is a type error the
-            -- native answers by refusing, which looks like "the ACE is missing"
-            -- and prints the add_ace line forever.
-            local principal = ('player.%s'):format(src)
-            local object = ('command.%s'):format(name)
-            if not IsPrincipalAceAllowed(principal, object) then
-                local group = type(restricted) == 'string' and restricted or 'group.admin'
-                if CisLog then
-                    CisLog('warn', ('cis_libs: %q was refused for src %s. Grant it with: add_ace %s command.%s allow')
-                        :format(name, tostring(src), group, name))
-                end
-                return
-            end
-        end
+    if not registered[name] then
+        registered[name] = true
+        RegisterCommand(name, function(src, args, rawCommand)
+            dispatch(name, src, args, rawCommand)
+        end, restricted and true or false)
+    end
 
-        local parsed
-        if type(rawCommand) == 'string' and rawCommand ~= '' then
-            parsed = CisCommandParse(rawCommand)
-            if parsed[1] == name then
-                table.remove(parsed, 1)
-            end
-        else
-            parsed = type(args) == 'table' and args or {}
+    if restricted then
+        entry.provisioned = provisionAce(entry)
+        if not entry.provisioned and CisLog then
+            CisLog('info', ('cis_libs: %q is restricted. Grant it with: add_ace %s command.%s allow')
+                :format(name, aceGroup(entry), name))
         end
+    end
 
-        local count = #entry.params
-        if #parsed < count then
-            local key = name .. ':usage'
-            if not usageWarned[key] then
-                usageWarned[key] = true
-                if CisLog then
-                    CisLog('info', ('cis_libs: usage: %s'):format(buildUsage(entry)))
-                end
-            end
-            return
-        end
-
-        local ok, err = pcall(entry.handler, src, parsed, rawCommand)
-        if not ok and CisLog then
-            CisLog('error', ('cis_libs: command %q raised: %s'):format(name, tostring(err)))
-        end
-    end, restricted and true or false)
-
-    -- chat suggestions while `chat` is started. The seam is
-    -- TriggerClientEvent('chat:addSuggestion', ...), allow-listed in the
-    -- contract test. cis_libs does not ship chat.
-    if GetResourceState and GetResourceState('chat') == 'started' then
-        TriggerClientEvent('chat:addSuggestion', -1, '/' .. name, entry.help or '', suggestionParams(entry.params))
+    if chatStarted() then
+        suggest(-1, entry)
     end
 
     return true
@@ -196,11 +384,55 @@ function CisCommandList()
     return out
 end
 
+-- A player who joins after a command was added never saw its suggestion, and
+-- neither did anyone if chat started after cis_libs. Both are sent here.
+AddEventHandler('playerJoining', function()
+    local src = source
+    if type(src) ~= 'number' or src <= 0 or not chatStarted() then
+        return
+    end
+    for _, entry in pairs(commands) do
+        suggest(src, entry)
+    end
+end)
+
+-- A resource that stops takes its commands with it: the platform keeps the
+-- closure, but it finds no entry and runs nothing.
+AddEventHandler('onResourceStop', function(resource)
+    if resource == GetCurrentResourceName() then
+        return
+    end
+    local doomed = {}
+    for _, entry in pairs(commands) do
+        if entry.owner == resource then
+            doomed[#doomed + 1] = entry
+        end
+    end
+    for i = 1, #doomed do
+        release(doomed[i])
+    end
+end)
+
+AddEventHandler('onResourceStart', function(resource)
+    if resource ~= 'chat' then
+        return
+    end
+    for _, entry in pairs(commands) do
+        suggest(-1, entry)
+    end
+end)
+
 exports('CommandAdd', CisCommandAdd)
 exports('CommandList', CisCommandList)
 exports('CommandRemove', function(name)
-    if not commands[name] then return false, ('no command named %q'):format(tostring(name)) end
-    commands[name] = nil
+    local entry = commands[name]
+    if not entry then return false, ('no command named %q'):format(tostring(name)) end
+    -- Only the resource that added it, or cis_libs.
+    local caller = GetInvokingResource() or 'cis_libs'
+    if caller ~= entry.owner and caller ~= GetCurrentResourceName() then
+        return false, ('command %q belongs to %s; only it can remove it'):format(name, tostring(entry.owner))
+    end
+    release(entry)
     return true
 end)
 exports('CommandParse', CisCommandParse)

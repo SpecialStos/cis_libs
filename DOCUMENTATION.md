@@ -115,8 +115,48 @@ database probe. Mutating exports (`SyncCreate`, door writes, …) refuse every
 foreign resource until the list names it, or until `AllowAnyResource = true`
 (loud on every boot; do not ship with it on).
 
+**Server convars outrank `SetConfig`.** `SetConfig` is honoured from whichever
+resource calls it first; a convar is set in `server.cfg` before any resource
+runs. So the security posture and the limits read a convar first, and only fall
+back to what `SetConfig` supplied when that convar is unset or blank:
+
+| Convar | Overrides | Default |
+|---|---|---|
+| `cis_authorized_resources` | `Security.AuthorizedResources` (comma or space separated) | unset |
+| `cis_allow_any_resource` | `Security.AllowAnyResource` (`true` / `false`) | unset |
+| `cis_config_supplier` | who may call `SetConfig` at all | unset: first caller |
+| `cis_cb_rate_per_name` | `Config.CallbackLimits.PerName` | 20 |
+| `cis_cb_rate_per_player` | `Config.CallbackLimits.PerPlayer` | 60 |
+| `cis_cb_window_ms` | `Config.CallbackLimits.WindowMs` | 1000 |
+| `cis_cb_max_inflight` | `Config.CallbackLimits.MaxInFlight` | 8 |
+| `cis_cb_max_string_len` | `Config.CallbackLimits.MaxStringLen` | 4096 |
+| `cis_check_version` | `Config.CheckVersion` (`true` / `false`) | unset |
+
+Precedence for the posture, in order:
+
+1. If **either** `cis_authorized_resources` or `cis_allow_any_resource` is set,
+   the convars decide and `Security.AuthorizedResources` /
+   `Security.AllowAnyResource` are **ignored whole** — `SetConfig` can neither
+   narrow nor extend them. A named list still wins over allow-any.
+2. Otherwise `Security` from `SetConfig` decides, exactly as in 1.0.0.
+3. Otherwise the built-in default: restrictive.
+
+```cfg
+set cis_authorized_resources "cis_core,cis_keys,my_resource"
+set cis_config_supplier "cis_core"
+```
+
+Use `set`, never `setr`: none of these may reach a client. The manifest
+declares them under a `convar_category`, so txAdmin lists them. Limits are
+re-read at most once a second, so a console `set` lands without a restart.
+
 The client payload is a whitelist. Webhook URLs, drop handlers, and
 `AuthorizedResources` do not leave the server.
+
+`Security.EventPrefix` is **not** a prefix on every net event: every
+`cis_libs:*` event is a literal. It prefixes only the legacy
+`<EventPrefix>:doorlock:requestState` a client sends when no `doorsClient`
+provider is registered, and `GetLibsPrefix()` reports it.
 
 ---
 
@@ -145,6 +185,15 @@ The client payload is a whitelist. Webhook URLs, drop handlers, and
   one threshold for enter and leave.
 - **Callbacks** across the wire return at most 6 values. `Cis.callback.await`
   errors on refusal by design; a translation layer must not inherit that.
+  `RegisterCallback(name, handler, opts?)` takes `{ remote, ace, schema,
+  maxStringLen }`; `remote = false` makes a callback server-only (a client is
+  told `'unknown'`). Every client request is checked, in order: the player's
+  budget across all names (`PerPlayer`), the name, the per-name rate
+  (`PerName`), the ACE, payload size and string length (`MaxStringLen`), the
+  schema, and handlers in flight (`MaxInFlight`). Refusals reach the client as
+  `'rate'`, `'unknown'`, `'denied'`, `'too large'`, `'bad payload'` or `'busy'`.
+  A player who drops rejects every await still waiting on them with
+  `'player dropped'`.
 - **Zones / points / hooks:** event names, not functions. Server zones exist
   (`Cis.zones.server.*`) and do not draw.
 
@@ -317,7 +366,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `ServerZonePoly` | server | `(points, opts?)` | 1.0.0 | Cis.zones.server.poly(points, opts) |
 | `ServerZoneRemove` | server | `(id)` | 1.0.0 | Cis.zones.server.remove(id) |
 | `ServerZoneSphere` | server | `(center, radius, opts?)` | 1.0.0 | Cis.zones.server.sphere(center, radius, opts) |
-| `SetConfig` | server | `(config?, security?, discord?)` | 1.0.0 | Called by cis_core at boot with (config, security, discord). First registration wins; a second is refused and named. `security.AllowAnyResource` is the 1.0.0 opt-in escape hatch: with it true an EMPTY AuthorizedResources stops meaning restrictive, and the console warns on every boot |
+| `SetConfig` | server | `(config?, security?, discord?)` | 1.0.0 | Called by cis_core at boot with (config, security, discord). First registration wins; a second is refused and named. When the server convar cis_config_supplier names a resource, only that resource may call it. When cis_authorized_resources or cis_allow_any_resource is set, the security posture comes from the convars and the AuthorizedResources / AllowAnyResource passed here are ignored (DOCUMENTATION.md section 3). `security.AllowAnyResource` is the 1.0.0 opt-in escape hatch: with it true an EMPTY AuthorizedResources stops meaning restrictive, and the console warns on every boot |
 | `SetDropPlayerHandler` | server | `(provider)` | 1.0.0 | Called by whoever ships the config, with "resource:Export". A FUNCTION cannot be sent across the boundary, which is why this exists |
 | `SetMenuOptions` | client | `(id, options, index?)` | 1.1.0 | exports.cis_libs:SetMenuOptions(id, options, index) |
 | `SetUiLocale` | client | `(strings)` | 1.1.0 | exports.cis_libs:SetUiLocale(strings) |
@@ -358,7 +407,8 @@ Generated from `api.lua`. Do not edit between the markers.
 
 | Event | Since | Payload |
 |---|---|---|
-| `chat:addSuggestion` | 1.0.0 | server to client, (name, help, params) while the chat resource is started. The one new standard-resource integration allowed, used only by Cis.command.add |
+| `chat:addSuggestion` | 1.0.0 | server to client, (name, help, params) while the chat resource is started. The one new standard-resource integration allowed, used only by Cis.command.add. Sent to -1 on add and when chat starts, and to each player as they join |
+| `chat:removeSuggestion` | 1.0.0 | server to client, (name) while the chat resource is started: the same seam, taking a suggestion back when its command is removed or its resource stops |
 | `cis_libs:capabilityChanged` | 1.0.0 | both realms: ({ slot, action, owner, previousOwner, resolved }) |
 | `cis_libs:cb` | 1.0.0 | client to server and server to client: (name, key, ...) |
 | `cis_libs:cb:res` | 1.0.0 | client: (key, ok, ...) resolving an outstanding callback |

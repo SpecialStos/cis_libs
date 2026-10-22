@@ -9,14 +9,6 @@ local function timeoutMs()
     return (Config and Config.CallbackTimeout) or 10000
 end
 
--- A function RETURNED from an export arrives as a callable reference table carrying
-local function isCallable(v)
-    if type(v) == 'function' then
-        return true
-    end
-    return type(v) == 'table' and rawget(v, '__cfx_functionReference') ~= nil
-end
-
 -- `remotes` is declared up here rather than beside its users, because the `cis_libs:cb`
 local remotes = {}
 
@@ -33,20 +25,22 @@ RegisterNetEvent('cis_libs:cb', function(name, key, ...)
     -- PACKED, NOT SIX NAMED LOCALS.
     local result
     if handler then
-        result = table.pack(pcall(handler, table.unpack(packed, 1, packed.n)))
+        result = table.pack(xpcall(handler, debug.traceback, table.unpack(packed, 1, packed.n)))
     else
         -- Resolved ON CALL, not captured at registration: a restarted resource exports
         local target = exports[remote.resource]
         local fn = target and target[remote.export]
-        if not isCallable(fn) then
+        if not CisCallable(fn) then
             TriggerServerEvent('cis_libs:cb:serverRes', key, false, 'error')
             return
         end
-        result = table.pack(pcall(fn, target, table.unpack(packed, 1, packed.n)))
+        result = table.pack(xpcall(fn, debug.traceback, target, table.unpack(packed, 1, packed.n)))
     end
 
     if not result[1] then
         -- A handler that throws is answered as a failure rather than being allowed to
+        -- take the reply with it. xpcall + traceback, so the trace logged is the
+        -- handler's own and not this dispatcher's after the stack unwound.
         Logging.AutoLogError(result[2], name)
         TriggerServerEvent('cis_libs:cb:serverRes', key, false, 'error')
         return
@@ -121,7 +115,7 @@ exports('RegisterCallback', function(name, fn)
         CisOwned.track(callbackOwned, owner, 'callback', name)
         return true
     end
-    if not isCallable(fn) then
+    if not CisCallable(fn) then
         Logging.Error(('RegisterCallback needs a function or "resource:export" for %s'):format(name))
         return false
     end
@@ -141,6 +135,8 @@ AddEventHandler('onResourceStop', function(resource)
         if freed[i].kind == 'callback' then
             handlers[freed[i].id] = nil
             remotes[freed[i].id] = nil
+            -- release() only LISTS; forget() is what empties the ledger.
+            CisOwned.forget(callbackOwned, 'callback', freed[i].id)
         end
     end
     if #freed > 0 then
@@ -176,12 +172,14 @@ local function awaitLocal(name, ...)
 end
 
 exports('AwaitCallback', function(name, ...)
-    local ok, a, b = awaitLocal(name, ...)
-    if not ok then
+    -- EVERY VALUE, not `local ok, a, b`: the server sends up to six, the docs
+    -- promise up to six, and two named locals silently dropped the rest.
+    local reply = table.pack(awaitLocal(name, ...))
+    if not reply[1] then
         -- The refusal NAMES the callback.
-        error(('callback %q: %s'):format(tostring(name), tostring(a)), 2)
+        error(('callback %q: %s'):format(tostring(name), tostring(reply[2])), 2)
     end
-    return a, b
+    return table.unpack(reply, 2, reply.n)
 end)
 
 -- The non-raising form (minor).

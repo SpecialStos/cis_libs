@@ -572,7 +572,7 @@ function AutoLogError.client(err, context) end
 ---@overload
   ---@param name string #a previously registered name, stringified into the raise message
   ---@param ... ... #the unbounded tail, forwarded bare
-  ---@return any, any #ONLY the handler's FIRST TWO results -- a third is dropped with no error, and that is a real defect rather than a documented cap. A refusal RAISES 
+  ---@return any #every value the server sent -- up to six, unpacked with their count so a nil in the middle survives. A refusal RAISES 
 -- Why `any`: the handler's own result list, whose arity and types the handler alone decides
 ---@overload
 function AwaitCallback.server(name, ...) end
@@ -588,15 +588,15 @@ function AwaitCallback.client(name, ...) end
 function AwaitCallbackClient(name, target, ...) end
 
 --- no proxy equivalent; exports["cis_libs"]:BreakDoor(identifier)
----@param identifier string|integer #the door identifier; deliberately NOT allow-list gated here
----@return any #the provider's value; nil when no doors provider is registered, and the nil is preserved on purpose rather than normalised to false 
+---@param identifier string|integer #the door identifier. Allow-list gated like every other door mutation
+---@return any, string|nil #the provider's value; nil when no doors provider is registered, and the nil is preserved on purpose rather than normalised to false; nil plus a reason naming Security.AuthorizedResources when the caller is not on the allow-list 
 -- Why `any`: the provider's value, and the nil-when-no-provider answer is preserved on purpose rather than normalised to false
 --- realm: server
 function BreakDoor(identifier) end
 
 ---@overload fun(...)
   ---@param name string #a previously registered name
-  ---@param cb? function #invoked with the whole reply; a non-function refuses and calls nothing at all
+  ---@param cb? function #invoked with the whole reply; a function passed from another resource (a callable reference table) is accepted. Anything not callable refuses and calls nothing at all
   ---@param ... ... #the unbounded tail, packed then forwarded whole -- nothing past N is dropped
   ---@return nil #nothing comes back on any path; the outcome only ever arrives as cb(false, 'unknown') or cb(false, 'error')
 ---@overload
@@ -680,9 +680,9 @@ function ClosestVehicle(coords, maxDistance, filter, opts) end
 
 --- Cis.command.add(name, { params, restricted, help }, handler)
 ---@param name string #letters, digits, underscore or hyphen only
----@param options table #params is an array of required argument NAMES -- a table of strings, which crosses fine. The HANDLER does not cross, and is refused at registration with a message saying so
----@param handler function #called as (src, args, raw). src is INJECTED and is not a parameter, so no caller can name anyone
----@return boolean, string|nil #true once registered, or false plus a reason. A restricted command is a DECLARATION: RegisterCommand does the ACE check, and when nobody has granted it the command refuses and prints the exact add_ace line. cis_libs never calls add_ace itself
+---@param options table #{ params, restricted, help }. params is an array of names, or of { name, help, type, optional } tables: type is 'string' (default), 'number', 'playerId' (a connected id, or 'me') or 'longString' (the rest of the line; must be last); optional params must come last. A line that does not fit is refused and the usage logged. restricted is true or an ACE principal like 'group.admin'
+---@param handler function #called as (src, args, raw). src is INJECTED and is not a parameter, so no caller can name anyone. args holds the converted values by position AND by param name. A function passed from another resource is accepted, owned by it, and stops running when it stops
+---@return boolean, string|nil #true once registered, or false plus a reason. A restricted command is checked by RegisterCommand and again by the handler. When restricted names a group and cis_libs has been granted command.add_ace, it runs add_ace <group> command.<name> allow itself (and remove_ace on removal); otherwise it prints that exact line. Chat suggestions reach players who join later
 --- realm: server
 function CommandAdd(name, options, handler) end
 
@@ -699,7 +699,7 @@ function CommandParse(raw) end
 
 --- Cis.command.remove(name)
 ---@param name string #the command name
----@return boolean, string|nil #true once removed, or false plus a reason when nothing holds that name
+---@return boolean, string|nil #true once removed -- the command then runs nothing and its suggestion is withdrawn -- or false plus a reason when nothing holds that name or the caller is not the resource that added it
 --- realm: server
 function CommandRemove(name) end
 
@@ -831,8 +831,8 @@ function DisableRadial(state) end
 function DrawText3D(x, y, z, text, settings) end
 
 --- no proxy equivalent; exports["cis_libs"]:FixDoor(identifier)
----@param identifier string|integer #the door identifier; deliberately NOT allow-list gated here
----@return any #the provider's value; nil when no doors provider is registered 
+---@param identifier string|integer #the door identifier. Allow-list gated like every other door mutation
+---@return any, string|nil #the provider's value; nil when no doors provider is registered; nil plus a reason when the caller is not on the allow-list 
 -- Why `any`: the provider's value, and the nil-when-no-provider answer is preserved on purpose rather than normalised to false
 --- realm: server
 function FixDoor(identifier) end
@@ -1081,7 +1081,7 @@ function HideTextUI() end
 
 --- Cis.hooks.on(name, fn, opts)
 ---@param name string #the hook name
----@param fn function|string #a function in this VM, or resource:Export. A function SENT from a consumer is dropped
+---@param fn function|string #a function -- including one passed from another resource, which arrives as a callable reference table -- or resource:Export. Owned by the registering resource and removed when it stops
 ---@param opts? table #priority, higher runs first
 ---@return integer|false, string|nil #a cookie, or false plus a reason
 --- realm: both
@@ -1204,7 +1204,7 @@ function Keybinds() end
 
 --- Cis.doors.setState(identifier, true)
 ---@param identifier string|integer #the group or door identifier
----@return integer #0 when no doors provider is registered
+---@return integer, string|nil #0 when no doors provider is registered; 0 plus a reason naming Security.AuthorizedResources when the caller is not on the allow-list
 --- realm: server
 function LockDoors(identifier) end
 
@@ -1371,14 +1371,14 @@ function PublishInventory(src) end
 --- Called by cis_core when a player changes job. Fires cis_libs:jobUpdated, so the event name stays owned by this library
 ---@param job table #the job record; a non-table is refused by name
 ---@param src? integer #the player to tell; nil broadcasts to every client
----@return boolean, string #true after the event is fired; false plus 'job must be a table', or a reason naming Security.AuthorizedResources
+---@return boolean, string #true after the event is fired; false plus 'job must be a table', a reason naming Security.AuthorizedResources, or a reason when src is given but is not a connected player
 --- realm: server
 function PublishJobUpdate(job, src) end
 
 --- Called by cis_core when a player object exists. Fires cis_libs:playerLoaded
 ---@param job table #the job record; only a table is remembered, but the value is sent as given
----@param src? integer #the one client to tell; nil means the event is never fired and true is still returned
----@return boolean #always true -- this export has no refusal shape at all, which is itself worth knowing before a caller writes one
+---@param src? integer #the one client to tell; nil means the event is never fired and true is still returned. A src that is not a connected player is refused
+---@return boolean, string|nil #true once published; false plus a reason when the caller is not on Security.AuthorizedResources (it writes the same job histogram PublishJobUpdate does) or src is not a connected player
 --- realm: server
 function PublishPlayerLoaded(job, src) end
 
@@ -1419,14 +1419,15 @@ function RaycastFromCoords(origin, target, flags, ignore, timeoutMs) end
 
 ---@overload fun(...)
   ---@param name string #a non-empty handler name, the key everything else is filed under
-  ---@param handler function|string|table #a function, a callable reference table, or a "resource:Export" string; nil fails all three
-  ---@return boolean #true once bound; a refusal's reason goes to the log and is NOT returned
+  ---@param handler function|string|table #a function, a callable reference table (a function passed from another resource; released when that resource stops), or a "resource:Export" string; nil fails all three. A later registration of the same name REPLACES the earlier one, whatever its kind
+  ---@param opts? table #{ remote = true|false, ace = 'object', schema = { field = { type, min, max, maxLen, optional } }, maxStringLen = n }. remote defaults to TRUE (1.0.0 behaviour); remote = false makes the callback unreachable from any client, which is answered 'unknown' exactly as for a missing name. ace is checked with IsPrincipalAceAllowed('player.<src>', ace) and refused 'denied'. schema checks the FIRST argument and refuses 'bad payload' (and reports the player). maxStringLen replaces the default string cap (Config.CallbackLimits.MaxStringLen, 4096) for this callback; every remote call is capped, keys and values. A malformed option is refused, never ignored
+  ---@return boolean, string|nil #true once bound; false plus the reason (also logged) on a refusal
 ---@overload
   ---@param name string #a non-empty handler name; a non-string or "" is refused before anything is stored
   ---@param fn function|string #a callable, or a "resource:Export" string
   ---@return boolean #true once stored; a refusal is a bare false with the reason only in the log
 ---@overload
-function RegisterCallback.server(name, handler) end
+function RegisterCallback.server(name, handler, opts) end
 function RegisterCallback.client(name, fn) end
 
 ---@overload fun(...)
@@ -1547,7 +1548,7 @@ function Scaleform(name, timeout) end
 
 --- Cis.net.on(name, fn, opts) -> true when the event was bound
 ---@param name string #the net event name, used verbatim with no prefix added
----@param fn function|string #a local function (cis_libs itself only) or a "resource:Export" string; anything else registers nothing
+---@param fn function|string|table #a function -- including one passed from another resource, which arrives as a callable reference table and is released when that resource stops -- or a "resource:Export" string; anything else registers nothing
 ---@param opts? table #windowMs and maxHits default to 1000 and 8. schema, if present, is a map of field -> { type, min, max, maxLen, optional } checked against the FIRST payload table before the handler runs. Without schema nothing changes
 ---@return boolean #true once bound -- and true says nothing about rate limiting, which happens at dispatch. false when the handler cannot be resolved, with a reason naming the resource and export
 --- realm: server
@@ -1613,17 +1614,17 @@ function ServerZoneRemove(id) end
 --- realm: server
 function ServerZoneSphere(center, radius, opts) end
 
---- Called by cis_core at boot with (config, security, discord). First registration wins; a second is refused and named. `security.AllowAnyResource` is the 1.0.0 opt-in escape hatch: with it true an EMPTY AuthorizedResources stops meaning restrictive, and the console warns on every boot
+--- Called by cis_core at boot with (config, security, discord). First registration wins; a second is refused and named. When the server convar cis_config_supplier names a resource, only that resource may call it. When cis_authorized_resources or cis_allow_any_resource is set, the security posture comes from the convars and the AuthorizedResources / AllowAnyResource passed here are ignored (DOCUMENTATION.md section 3). `security.AllowAnyResource` is the 1.0.0 opt-in escape hatch: with it true an EMPTY AuthorizedResources stops meaning restrictive, and the console warns on every boot
 ---@param config? table #merged over the defaults and validated on a COPY
 ---@param security? table #replaces Security outright and is never merged with the default
 ---@param discord? table #sanitised into DiscordConfig
----@return boolean, string #true once applied; false plus a reason naming the current owner, or listing the validation problems
+---@return boolean, string #true once applied; false plus a reason naming the current owner, the pinned supplier, or listing the validation problems
 --- realm: server
 function SetConfig(config, security, discord) end
 
 --- Called by whoever ships the config, with "resource:Export". A FUNCTION cannot be sent across the boundary, which is why this exists
 ---@param provider string #a "resource:Export" string in the same form RegisterCapability takes, for the same reason: a function cannot cross the boundary
----@return boolean, string #the raw result of the registry register: true, or false plus a reason
+---@return boolean, string #the raw result of the registry register: true, or false plus a reason. Allow-list gated: a caller off Security.AuthorizedResources is refused before the slot is touched, because the first caller takes it
 --- realm: server
 function SetDropPlayerHandler(provider) end
 
@@ -1818,7 +1819,7 @@ function UiTextUIShow(text, opts) end
 
 --- Cis.doors.setState(identifier, false)
 ---@param identifier string|integer #the group or door identifier
----@return integer #0 when no doors provider is registered
+---@return integer, string|nil #0 when no doors provider is registered; 0 plus a reason naming Security.AuthorizedResources when the caller is not on the allow-list
 --- realm: server
 function UnlockDoors(identifier) end
 
@@ -1923,7 +1924,7 @@ function Cis.callback.callClient(src, name, cb, ...) end
 ---@field forwardsTo string RegisterCallback
 ---@param name string #a non-empty handler name
 ---@param handler function|string #a function -- cis_libs itself only -- or a 'resource:Export' string, which is the form that works from a consumer
----@return boolean #true once bound. A refusal's reason goes to the log, NOT to the caller
+---@return boolean, string|nil #true once bound; false plus the reason on a refusal. Registration options (remote, ace, schema, maxStringLen) are taken by the RegisterCallback export
 function Cis.callback.register(name, handler) end
 
 ---@class Cis.callback.tryAwait

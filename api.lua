@@ -112,28 +112,28 @@ return {
             use = 'Cis.doors.setState(identifier, true)',
             realm = 'server',
             params = { { name = 'identifier', type = 'string|integer', doc = 'the group or door identifier' } },
-            returns = { { type = 'integer', doc = '0 when no doors provider is registered' } },
+            returns = { { type = 'integer, string|nil', doc = "0 when no doors provider is registered; 0 plus a reason naming Security.AuthorizedResources when the caller is not on the allow-list" } },
         },
         UnlockDoors = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.doors.setState(identifier, false)',
             realm = 'server',
             params = { { name = 'identifier', type = 'string|integer', doc = 'the group or door identifier' } },
-            returns = { { type = 'integer', doc = '0 when no doors provider is registered' } },
+            returns = { { type = 'integer, string|nil', doc = "0 when no doors provider is registered; 0 plus a reason naming Security.AuthorizedResources when the caller is not on the allow-list" } },
         },
         BreakDoor = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'no proxy equivalent; exports["cis_libs"]:BreakDoor(identifier)',
             realm = 'server',
-            note = 'DEPRECATED: Cis.keys -- door damage belongs with the key that opened it, so breaking and re-locking are one lifecycle rather than two unrelated calls.',            params = { { name = 'identifier', type = 'string|integer', doc = 'the door identifier; deliberately NOT allow-list gated here' } },
-            returns = { { type = 'any', why = "the provider's value, and the nil-when-no-provider answer is preserved on purpose rather than normalised to false", doc = "the provider's value; nil when no doors provider is registered, and the nil is preserved on purpose rather than normalised to false" } },
+            note = 'DEPRECATED: Cis.keys -- door damage belongs with the key that opened it, so breaking and re-locking are one lifecycle rather than two unrelated calls.',            params = { { name = 'identifier', type = 'string|integer', doc = 'the door identifier. Allow-list gated like every other door mutation' } },
+            returns = { { type = 'any, string|nil', why = "the provider's value, and the nil-when-no-provider answer is preserved on purpose rather than normalised to false", doc = "the provider's value; nil when no doors provider is registered, and the nil is preserved on purpose rather than normalised to false; nil plus a reason naming Security.AuthorizedResources when the caller is not on the allow-list" } },
         },
         FixDoor = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'no proxy equivalent; exports["cis_libs"]:FixDoor(identifier)',
             realm = 'server',
-            note = 'DEPRECATED: Cis.keys -- same: a repaired door is a re-keyed door, and only one of those two things is a state the platform should own.',            params = { { name = 'identifier', type = 'string|integer', doc = 'the door identifier; deliberately NOT allow-list gated here' } },
-            returns = { { type = 'any', why = "the provider's value, and the nil-when-no-provider answer is preserved on purpose rather than normalised to false", doc = "the provider's value; nil when no doors provider is registered" } },
+            note = 'DEPRECATED: Cis.keys -- same: a repaired door is a re-keyed door, and only one of those two things is a state the platform should own.',            params = { { name = 'identifier', type = 'string|integer', doc = 'the door identifier. Allow-list gated like every other door mutation' } },
+            returns = { { type = 'any, string|nil', why = "the provider's value, and the nil-when-no-provider answer is preserved on purpose rather than normalised to false", doc = "the provider's value; nil when no doors provider is registered; nil plus a reason when the caller is not on the allow-list" } },
         },
         RequestLockDoors = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -162,14 +162,14 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.callback.register(name, handler)',
             realm = 'both',
-            params = { server = { { name = 'name', type = 'string', doc = 'a non-empty handler name, the key everything else is filed under' }, { name = 'handler', type = 'function|string|table', doc = 'a function, a callable reference table, or a "resource:Export" string; nil fails all three' } }, client = { { name = 'name', type = 'string', doc = 'a non-empty handler name; a non-string or "" is refused before anything is stored' }, { name = 'fn', type = 'function|string', doc = 'a callable, or a "resource:Export" string' } } },
-            returns = { server = { { type = 'boolean', doc = "true once bound; a refusal's reason goes to the log and is NOT returned" } }, client = { { type = 'boolean', doc = 'true once stored; a refusal is a bare false with the reason only in the log' } } },
+            params = { server = { { name = 'name', type = 'string', doc = 'a non-empty handler name, the key everything else is filed under' }, { name = 'handler', type = 'function|string|table', doc = 'a function, a callable reference table (a function passed from another resource; released when that resource stops), or a "resource:Export" string; nil fails all three. A later registration of the same name REPLACES the earlier one, whatever its kind' }, { name = 'opts', type = 'table', optional = true, doc = "{ remote = true|false, ace = 'object', schema = { field = { type, min, max, maxLen, optional } }, maxStringLen = n }. remote defaults to TRUE (1.0.0 behaviour); remote = false makes the callback unreachable from any client, which is answered 'unknown' exactly as for a missing name. ace is checked with IsPrincipalAceAllowed('player.<src>', ace) and refused 'denied'. schema checks the FIRST argument and refuses 'bad payload' (and reports the player). maxStringLen replaces the default string cap (Config.CallbackLimits.MaxStringLen, 4096) for this callback; every remote call is capped, keys and values. A malformed option is refused, never ignored" } }, client = { { name = 'name', type = 'string', doc = 'a non-empty handler name; a non-string or "" is refused before anything is stored' }, { name = 'fn', type = 'function|string', doc = 'a callable, or a "resource:Export" string' } } },
+            returns = { server = { { type = 'boolean, string|nil', doc = "true once bound; false plus the reason (also logged) on a refusal" } }, client = { { type = 'boolean', doc = 'true once stored; a refusal is a bare false with the reason only in the log' } } },
         },
         CallCallback = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.callback.call(name, cb, ...)',
             realm = 'both',
-            params = { server = { { name = 'name', type = 'string', doc = 'a previously registered name' }, { name = 'cb', type = 'function', optional = true, doc = 'invoked with the whole reply; a non-function refuses and calls nothing at all' }, { name = '...', type = '...', optional = true, variadic = true, doc = 'the unbounded tail, packed then forwarded whole -- nothing past N is dropped' } }, client = { { name = 'name', type = 'string', doc = "the handler name, shipped as the event's first field" }, { name = 'cb', type = 'function', optional = true, doc = 'invoked as cb(ok, ...) with the whole reply. A NIL cb is legal and silently discards the answer' }, { name = '...', type = '...', optional = true, variadic = true, doc = 'the unbounded tail, forwarded bare; packing happens on arrival and values are serialised, so no function can cross' } } },
+            params = { server = { { name = 'name', type = 'string', doc = 'a previously registered name' }, { name = 'cb', type = 'function', optional = true, doc = 'invoked with the whole reply; a function passed from another resource (a callable reference table) is accepted. Anything not callable refuses and calls nothing at all' }, { name = '...', type = '...', optional = true, variadic = true, doc = 'the unbounded tail, packed then forwarded whole -- nothing past N is dropped' } }, client = { { name = 'name', type = 'string', doc = "the handler name, shipped as the event's first field" }, { name = 'cb', type = 'function', optional = true, doc = 'invoked as cb(ok, ...) with the whole reply. A NIL cb is legal and silently discards the answer' }, { name = '...', type = '...', optional = true, variadic = true, doc = 'the unbounded tail, forwarded bare; packing happens on arrival and values are serialised, so no function can cross' } } },
             returns = { server = { { type = 'nil', doc = "nothing comes back on any path; the outcome only ever arrives as cb(false, 'unknown') or cb(false, 'error')" } }, client = { { type = 'nil', doc = "nothing comes back and the pending key is discarded. A refusal is never a return: it arrives later as cb(false, reason), one of 'timeout', 'rate', 'unknown' or 'error'" } } },
         },
         AwaitCallback = {
@@ -177,7 +177,7 @@ return {
             use = 'Cis.callback.await(name, ...)',
             realm = 'both',
             params = { server = { { name = 'name', type = 'string', doc = 'a previously registered name, quoted in the raise message on refusal' }, { name = '...', type = '...', optional = true, variadic = true, doc = 'the unbounded tail, forwarded bare -- no pack, no local list, nothing dropped' } }, client = { { name = 'name', type = 'string', doc = 'a previously registered name, stringified into the raise message' }, { name = '...', type = '...', optional = true, variadic = true, doc = 'the unbounded tail, forwarded bare' } } },
-            returns = { server = { { type = 'any', why = "the handler's own result list, whose arity and types the handler alone decides", doc = "the handler's results, unpacked with their count so a nil in the middle survives. A refusal RAISES rather than returning, so a caller that does not pcall takes the hit" } }, client = { { type = 'any, any', why = "the handler's own result list, whose arity and types the handler alone decides", doc = "ONLY the handler's FIRST TWO results -- a third is dropped with no error, and that is a real defect rather than a documented cap. A refusal RAISES" } } },
+            returns = { server = { { type = 'any', why = "the handler's own result list, whose arity and types the handler alone decides", doc = "the handler's results, unpacked with their count so a nil in the middle survives. A refusal RAISES rather than returning, so a caller that does not pcall takes the hit" } }, client = { { type = 'any', why = "the handler's own result list, whose arity and types the handler alone decides", doc = "every value the server sent -- up to six, unpacked with their count so a nil in the middle survives. A refusal RAISES" } } },
         },
         -- The awaiting form that reports a refusal instead of raising,
         -- for callers that cannot have an exception thrown through their thread.
@@ -716,7 +716,7 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.hooks.on(name, fn, opts)',
             realm = 'both',
-            params = { { name = 'name', type = 'string', doc = 'the hook name' }, { name = 'fn', type = 'function|string', doc = 'a function in this VM, or resource:Export. A function SENT from a consumer is dropped' }, { name = 'opts', type = 'table', optional = true, doc = 'priority, higher runs first' } },
+            params = { { name = 'name', type = 'string', doc = 'the hook name' }, { name = 'fn', type = 'function|string', doc = 'a function -- including one passed from another resource, which arrives as a callable reference table -- or resource:Export. Owned by the registering resource and removed when it stops' }, { name = 'opts', type = 'table', optional = true, doc = 'priority, higher runs first' } },
             returns = { { type = 'integer|false, string|nil', doc = 'a cookie, or false plus a reason' } }
         },
         HookRun = {
@@ -758,8 +758,8 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.command.add(name, { params, restricted, help }, handler)',
             realm = 'server',
-            params = { { name = 'name', type = 'string', doc = 'letters, digits, underscore or hyphen only' }, { name = 'options', type = 'table', doc = 'params is an array of required argument NAMES -- a table of strings, which crosses fine. The HANDLER does not cross, and is refused at registration with a message saying so' }, { name = 'handler', type = 'function', doc = 'called as (src, args, raw). src is INJECTED and is not a parameter, so no caller can name anyone' } },
-            returns = { { type = 'boolean, string|nil', doc = 'true once registered, or false plus a reason. A restricted command is a DECLARATION: RegisterCommand does the ACE check, and when nobody has granted it the command refuses and prints the exact add_ace line. cis_libs never calls add_ace itself' } }
+            params = { { name = 'name', type = 'string', doc = 'letters, digits, underscore or hyphen only' }, { name = 'options', type = 'table', doc = "{ params, restricted, help }. params is an array of names, or of { name, help, type, optional } tables: type is 'string' (default), 'number', 'playerId' (a connected id, or 'me') or 'longString' (the rest of the line; must be last); optional params must come last. A line that does not fit is refused and the usage logged. restricted is true or an ACE principal like 'group.admin'" }, { name = 'handler', type = 'function', doc = 'called as (src, args, raw). src is INJECTED and is not a parameter, so no caller can name anyone. args holds the converted values by position AND by param name. A function passed from another resource is accepted, owned by it, and stops running when it stops' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true once registered, or false plus a reason. A restricted command is checked by RegisterCommand and again by the handler. When restricted names a group and cis_libs has been granted command.add_ace, it runs add_ace <group> command.<name> allow itself (and remove_ace on removal); otherwise it prints that exact line. Chat suggestions reach players who join later' } }
         },
         CommandList = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -773,7 +773,7 @@ return {
             use = 'Cis.command.remove(name)',
             realm = 'server',
             params = { { name = 'name', type = 'string', doc = 'the command name' } },
-            returns = { { type = 'boolean, string|nil', doc = 'true once removed, or false plus a reason when nothing holds that name' } }
+            returns = { { type = 'boolean, string|nil', doc = 'true once removed -- the command then runs nothing and its suggestion is withdrawn -- or false plus a reason when nothing holds that name or the caller is not the resource that added it' } }
         },
         CommandParse = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -1047,10 +1047,10 @@ return {
         -- code does not change when the platform underneath it does.
         SetConfig = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Called by cis_core at boot with (config, security, discord). First registration wins; a second is refused and named. `security.AllowAnyResource` is the 1.0.0 opt-in escape hatch: with it true an EMPTY AuthorizedResources stops meaning restrictive, and the console warns on every boot',
+            use = 'Called by cis_core at boot with (config, security, discord). First registration wins; a second is refused and named. When the server convar cis_config_supplier names a resource, only that resource may call it. When cis_authorized_resources or cis_allow_any_resource is set, the security posture comes from the convars and the AuthorizedResources / AllowAnyResource passed here are ignored (DOCUMENTATION.md section 3). `security.AllowAnyResource` is the 1.0.0 opt-in escape hatch: with it true an EMPTY AuthorizedResources stops meaning restrictive, and the console warns on every boot',
             realm = 'server',
             params = { { name = 'config', type = 'table', optional = true, doc = 'merged over the defaults and validated on a COPY' }, { name = 'security', type = 'table', optional = true, doc = 'replaces Security outright and is never merged with the default' }, { name = 'discord', type = 'table', optional = true, doc = 'sanitised into DiscordConfig' } },
-            returns = { { type = 'boolean, string', doc = 'true once applied; false plus a reason naming the current owner, or listing the validation problems' } },
+            returns = { { type = 'boolean, string', doc = 'true once applied; false plus a reason naming the current owner, the pinned supplier, or listing the validation problems' } },
         },
         GetDiscordConfig = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -1144,21 +1144,21 @@ return {
             use = 'Called by whoever ships the config, with "resource:Export". A FUNCTION cannot be sent across the boundary, which is why this exists',
             realm = 'server',
             params = { { name = 'provider', type = 'string', doc = 'a "resource:Export" string in the same form RegisterCapability takes, for the same reason: a function cannot cross the boundary' } },
-            returns = { { type = 'boolean, string', doc = 'the raw result of the registry register: true, or false plus a reason' } },
+            returns = { { type = 'boolean, string', doc = 'the raw result of the registry register: true, or false plus a reason. Allow-list gated: a caller off Security.AuthorizedResources is refused before the slot is touched, because the first caller takes it' } },
         },
         PublishJobUpdate = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Called by cis_core when a player changes job. Fires cis_libs:jobUpdated, so the event name stays owned by this library',
             realm = 'server',
             params = { { name = 'job', type = 'table', doc = 'the job record; a non-table is refused by name' }, { name = 'src', type = 'integer', optional = true, doc = 'the player to tell; nil broadcasts to every client' } },
-            returns = { { type = 'boolean, string', doc = "true after the event is fired; false plus 'job must be a table', or a reason naming Security.AuthorizedResources" } },
+            returns = { { type = 'boolean, string', doc = "true after the event is fired; false plus 'job must be a table', a reason naming Security.AuthorizedResources, or a reason when src is given but is not a connected player" } },
         },
         PublishPlayerLoaded = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Called by cis_core when a player object exists. Fires cis_libs:playerLoaded',
             realm = 'server',
-            params = { { name = 'job', type = 'table', doc = 'the job record; only a table is remembered, but the value is sent as given' }, { name = 'src', type = 'integer', optional = true, doc = 'the one client to tell; nil means the event is never fired and true is still returned' } },
-            returns = { { type = 'boolean', doc = 'always true -- this export has no refusal shape at all, which is itself worth knowing before a caller writes one' } },
+            params = { { name = 'job', type = 'table', doc = 'the job record; only a table is remembered, but the value is sent as given' }, { name = 'src', type = 'integer', optional = true, doc = 'the one client to tell; nil means the event is never fired and true is still returned. A src that is not a connected player is refused' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true once published; false plus a reason when the caller is not on Security.AuthorizedResources (it writes the same job histogram PublishJobUpdate does) or src is not a connected player' } },
         },
         NotifyClient = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -1277,7 +1277,7 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.net.on(name, fn, opts) -> true when the event was bound',
             realm = 'server',
-            params = { { name = 'name', type = 'string', doc = 'the net event name, used verbatim with no prefix added' }, { name = 'fn', type = 'function|string', doc = 'a local function (cis_libs itself only) or a "resource:Export" string; anything else registers nothing' }, { name = 'opts', type = 'table', optional = true, doc = 'windowMs and maxHits default to 1000 and 8. schema, if present, is a map of field -> { type, min, max, maxLen, optional } checked against the FIRST payload table before the handler runs. Without schema nothing changes' } },
+            params = { { name = 'name', type = 'string', doc = 'the net event name, used verbatim with no prefix added' }, { name = 'fn', type = 'function|string|table', doc = 'a function -- including one passed from another resource, which arrives as a callable reference table and is released when that resource stops -- or a "resource:Export" string; anything else registers nothing' }, { name = 'opts', type = 'table', optional = true, doc = 'windowMs and maxHits default to 1000 and 8. schema, if present, is a map of field -> { type, min, max, maxLen, optional } checked against the FIRST payload table before the handler runs. Without schema nothing changes' } },
             returns = { { type = 'boolean', doc = 'true once bound -- and true says nothing about rate limiting, which happens at dispatch. false when the handler cannot be resolved, with a reason naming the resource and export' } },
         },
         SecurityReport = {
@@ -1580,7 +1580,7 @@ return {
         realm = 'both',
         forwardsTo = 'RegisterCallback',
         params = { { name = 'name', type = 'string', doc = 'a non-empty handler name' }, { name = 'handler', type = 'function|string', doc = "a function -- cis_libs itself only -- or a 'resource:Export' string, which is the form that works from a consumer" } },
-        returns = { { type = 'boolean', doc = "true once bound. A refusal's reason goes to the log, NOT to the caller" } },
+        returns = { { type = 'boolean, string|nil', doc = "true once bound; false plus the reason on a refusal. Registration options (remote, ace, schema, maxStringLen) are taken by the RegisterCallback export" } },
     },
     ['Cis.callback.tryAwait'] = {
         since = '1.0.0',
@@ -2450,7 +2450,11 @@ return {
         },
         ['chat:addSuggestion'] = {
             since = '1.0.0',
-            payload = 'server to client, (name, help, params) while the chat resource is started. The one new standard-resource integration allowed, used only by Cis.command.add',
+            payload = 'server to client, (name, help, params) while the chat resource is started. The one new standard-resource integration allowed, used only by Cis.command.add. Sent to -1 on add and when chat starts, and to each player as they join',
+        },
+        ['chat:removeSuggestion'] = {
+            since = '1.0.0',
+            payload = 'server to client, (name) while the chat resource is started: the same seam, taking a suggestion back when its command is removed or its resource stops',
         },
     },
 }
