@@ -6,9 +6,9 @@
   },
   "counts": {
     "shippedFiles": 45,
-    "nativesUsed": 196,
+    "nativesUsed": 197,
     "byRealm": {
-      "client": 124,
+      "client": 125,
       "server": 5,
       "shared": 67
     },
@@ -364,6 +364,24 @@
       ],
       "files": [
         "client/vehicle.lua"
+      ]
+    },
+    "DoesWeaponTakeWeaponComponent": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "WEAPON"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/weapon.lua"
       ]
     },
     "DrawLine": {

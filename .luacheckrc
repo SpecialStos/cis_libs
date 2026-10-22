@@ -29,7 +29,7 @@ std = "lua54"
 -- both lists would be read-only here and writable below, and luacheck
 -- resolves that to read-only.
 --
--- 291 names, from 196 natives in use.
+-- 292 names, from 197 natives in use.
 read_globals = {
     "AddCommand", "AddDoorToSystem", "AddEventHandler", "AddStateBagChangeHandler",
     "AddTextComponentString", "AddTextComponentSubstringPlayerName",
@@ -38,8 +38,8 @@ read_globals = {
     "ClearVehicleCustomPrimaryColour", "ClearVehicleCustomSecondaryColour", "CreateObject",
     "CreateObjectNoOffset", "CreatePed", "CreateThread", "CreateVehicle",
     "CreateVehicleServerSetter", "DeleteEntity", "DoesAnimDictExist", "DoesEntityExist",
-    "DoesExtraExist", "DrawLine", "DrawMarker", "DrawRect", "DropPlayer",
-    "DropPlayerExtended", "EndResource", "EndTextCommandDisplayHelp",
+    "DoesExtraExist", "DoesWeaponTakeWeaponComponent", "DrawLine", "DrawMarker", "DrawRect",
+    "DropPlayer", "DropPlayerExtended", "EndResource", "EndTextCommandDisplayHelp",
     "EndTextCommandDisplayText", "EndTextCommandThefeedPostTicker", "ExecuteCommand",
     "FreezeEntityPosition", "GetActivePlayers", "GetAmmoInPedWeapon", "GetClosestVehicle",
     "GetCloudTimeAsInt", "GetConvar", "GetConvarBool", "GetConvarInt",

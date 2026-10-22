@@ -64,7 +64,21 @@ CreateThread(function()
     end
 end)
 
+-- FROM THE SERVER, OR NOT AT ALL. A handler registered with RegisterNetEvent is
+-- ALSO reachable by a plain TriggerEvent from any client resource -- the runtime
+-- sets `source` to the empty string for that local call and to the server's net
+-- id (65535) for one that arrived over the network. Without this check any
+-- client script could rewrite this client's whole config, or put arbitrary text
+-- in a notification that looks like it came from the server.
+local function fromServer()
+    local src = source
+    return src ~= nil and src ~= ''
+end
+
 RegisterNetEvent('cis_libs:client:getData', function(data)
+    if not fromServer() then
+        return
+    end
     data = data or {}
     payloadReceived = true
     -- Merged, not replaced. The payload is a whitelist and therefore necessarily
@@ -81,6 +95,9 @@ RegisterNetEvent('cis_libs:client:getData', function(data)
 end)
 
 RegisterNetEvent('cis_libs:client:showNotification', function(message, kind)
+    if not fromServer() then
+        return
+    end
     -- Routed through the framework capability when one is registered, and to the native
     if CisRegistry.has('framework') then
         local ok = CisRegistry.call('framework', 'ShowNotification', message, kind)

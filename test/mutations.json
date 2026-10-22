@@ -953,6 +953,34 @@
       "find": "    if type(coords) ~= 'table' and type(coords) ~= 'vector3' and type(coords) ~= 'vector4' then\n        DebugLog('CisCreatePed received no coords: ' .. tostring(coords))\n        return 0\n    end\n",
       "replace": "",
       "why": "Drop the nil-coords guard on CreatePed. The export raises inside the caller's call instead of answering the documented 0."
+    },
+    {
+      "id": "M142",
+      "file": "client/weapon.lua",
+      "find": "    local name = WEAPON_NAME_BY_HASH[weaponHash]\n    if name then\n",
+      "replace": "    local name = WEAPON_NAME_BY_HASH[weaponHash]\n    if name and false then\n",
+      "why": "Consider only the generic COMPONENT_AT_* attachments, the original 24-name table's blind spot. A weapon's clips, MK2 rounds, finishes and camos are never reported."
+    },
+    {
+      "id": "M143",
+      "file": "client/weapon.lua",
+      "find": "    takes[weaponHash] = list\n",
+      "replace": "",
+      "why": "Stop caching which components a weapon takes. Every attachment read then asks DoesWeaponTakeWeaponComponent about the whole superset again -- a hundred natives per weapon swap instead of once per session."
+    },
+    {
+      "id": "M144",
+      "file": "client/target.lua",
+      "find": "    if caller ~= 'cis_libs' and caller ~= entry.owner then\n",
+      "replace": "    if false then\n",
+      "why": "Drop the owner check on RemoveTarget and UpdateTarget. A target name is a guessable string, so any resource removes another resource's targets from the provider."
+    },
+    {
+      "id": "M145",
+      "file": "client/initialize.lua",
+      "find": "    return src ~= nil and src ~= ''\n",
+      "replace": "    return true\n",
+      "why": "Accept getData and showNotification from a local TriggerEvent. Any client resource can then rewrite this client's config or show a notification that looks like the server's."
     }
   ]
 }

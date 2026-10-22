@@ -631,14 +631,14 @@ return {
             use = 'Cis.target.remove(name, isPed)',
             realm = 'client',
             params = { { name = 'name', type = 'string', doc = 'the name; a miss is refused with the name in the reason' }, { name = 'isPed', type = 'boolean', optional = true, doc = 'asserts the target was created for a LOCAL entity. Its ABSENCE is how a box or sphere target removes' } },
-            returns = { { type = 'boolean, string', doc = 'true on success; every refusal is false plus a reason' } },
+            returns = { { type = 'boolean, string', doc = 'true on success; every refusal is false plus a reason, including a target owned by another resource (only the owner, or cis_libs, may remove it)' } },
         },
         UpdateTarget = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.target.update(name, options)',
             realm = 'client',
             params = { { name = 'name', type = 'string', doc = 'the name; a name that is not live is refused' }, { name = 'newOptions', type = 'table', optional = true, doc = 'the new options, passed straight to a create -- update is a remove and re-create, not a patch on the provider' } },
-            returns = { { type = 'boolean, string', doc = 'false with NO reason for an unknown name; otherwise whatever the implicit create returned' } },
+            returns = { { type = 'boolean, string', doc = 'false with NO reason for an unknown name; false plus a reason when another resource owns it; otherwise whatever the implicit create returned' } },
         },
         TargetExists = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -1782,7 +1782,7 @@ return {
         realm = 'client',
         forwardsTo = 'UpdateTarget',
         params = { { name = 'name', type = 'string', doc = 'the target name' }, { name = 'options', type = 'CisTargetOptions', optional = true, doc = 'the new options' } },
-        returns = { { type = 'boolean, string', doc = 'false with NO reason for an unknown name; otherwise whatever the implicit create returned' } },
+        returns = { { type = 'boolean, string', doc = 'false with NO reason for an unknown name; false plus a reason when another resource owns it; otherwise whatever the implicit create returned' } },
     },
     ['Cis.waitFor'] = {
         since = '1.0.0',

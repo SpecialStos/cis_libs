@@ -27,7 +27,7 @@ self = false
 -- In shipped code an unused parameter is a real smell and stays reported.
 unused_args = false
 
--- 451 names writable in this directory.
+-- 452 names writable in this directory.
 globals = {
     "AddCommand", "AddDoorToSystem", "AddEventHandler", "AddStateBagChangeHandler",
     "AddTextComponentString", "AddTextComponentSubstringPlayerName",
@@ -58,17 +58,17 @@ globals = {
     "ClearVehicleCustomSecondaryColour", "Config", "CreateObject", "CreateObjectNoOffset",
     "CreatePed", "CreateThread", "CreateVehicle", "CreateVehicleServerSetter", "DebugLog",
     "DeleteEntity", "DiscordConfig", "DoesAnimDictExist", "DoesEntityExist",
-    "DoesExtraExist", "DrawLine", "DrawMarker", "DrawRect", "DrawText3D", "DropPlayer",
-    "DropPlayerExtended", "EndResource", "EndTextCommandDisplayHelp",
-    "EndTextCommandDisplayText", "EndTextCommandThefeedPostTicker", "ExecuteCommand",
-    "FreezeEntityPosition", "GetActivePlayers", "GetAmmoInPedWeapon", "GetClosestVehicle",
-    "GetCloudTimeAsInt", "GetConvar", "GetConvarBool", "GetConvarInt",
-    "GetCurrentResourceName", "GetCurrentWeaponData", "GetDistanceBetweenCoords",
-    "GetDriftTyresEnabled", "GetEntityCollisionEnabled", "GetEntityCoords",
-    "GetEntityHeading", "GetEntityHealth", "GetEntityInvincible", "GetEntityMaxHealth",
-    "GetEntityModel", "GetEntityRoutingBucket", "GetEntityType", "GetFrameCount",
-    "GetGameBuildNumber", "GetGamePool", "GetGameTimer", "GetGameplayCamCoord",
-    "GetGameplayCamFov", "GetGameplayCamRot", "GetInvokingResource",
+    "DoesExtraExist", "DoesWeaponTakeWeaponComponent", "DrawLine", "DrawMarker", "DrawRect",
+    "DrawText3D", "DropPlayer", "DropPlayerExtended", "EndResource",
+    "EndTextCommandDisplayHelp", "EndTextCommandDisplayText",
+    "EndTextCommandThefeedPostTicker", "ExecuteCommand", "FreezeEntityPosition",
+    "GetActivePlayers", "GetAmmoInPedWeapon", "GetClosestVehicle", "GetCloudTimeAsInt",
+    "GetConvar", "GetConvarBool", "GetConvarInt", "GetCurrentResourceName",
+    "GetCurrentWeaponData", "GetDistanceBetweenCoords", "GetDriftTyresEnabled",
+    "GetEntityCollisionEnabled", "GetEntityCoords", "GetEntityHeading", "GetEntityHealth",
+    "GetEntityInvincible", "GetEntityMaxHealth", "GetEntityModel", "GetEntityRoutingBucket",
+    "GetEntityType", "GetFrameCount", "GetGameBuildNumber", "GetGamePool", "GetGameTimer",
+    "GetGameplayCamCoord", "GetGameplayCamFov", "GetGameplayCamRot", "GetInvokingResource",
     "GetIsVehiclePrimaryColourCustom", "GetIsVehicleSecondaryColourCustom",
     "GetNumPlayerIdentifiers", "GetNumPlayerIndices", "GetNumResourceMetadata",
     "GetNumResources", "GetNumberOfStreamingRequests", "GetOffsetFromEntityInWorldCoords",

@@ -105,8 +105,26 @@ Target.Create = function(zoneType, name, coords, size, options)
     return true
 end
 
+-- ONLY THE OWNER, or cis_libs, may change a target. A target name is a string
+-- any resource can guess, and the provider removes whatever it is told to.
+local function refuseForeign(name)
+    local entry = CreatedZones[name]
+    if not entry then
+        return nil
+    end
+    local caller = GetInvokingResource() or 'cis_libs'
+    if caller ~= 'cis_libs' and caller ~= entry.owner then
+        return ('target %q belongs to %s, not %s'):format(tostring(name), tostring(entry.owner), caller)
+    end
+    return nil
+end
+
 -- Success is decided from our own bookkeeping, not from the provider's return:
 Target.Remove = function(name, isPed)
+    local foreign = refuseForeign(name)
+    if foreign then
+        return false, foreign
+    end
     if not Target.Available() then
         CreatedZones[name] = nil
         CisOwned.forget(owned, 'target', name)
@@ -159,6 +177,10 @@ end)
 Target.Update = function(name, newOptions)
     if not CreatedZones[name] then
         return false
+    end
+    local foreign = refuseForeign(name)
+    if foreign then
+        return false, foreign
     end
     local zoneInfo = CreatedZones[name]
     Target.Remove(name, zoneInfo.zoneType == 'ped')

@@ -2116,6 +2116,20 @@ do
     check(createdT == 2,
         ('the provider was asked exactly twice (A initial, A update), '
             .. 'never for the refused one (asked %d)'):format(createdT))
+
+    -- ONLY THE OWNER REMOVES OR UPDATES. res_b still cannot reach res_a's
+    -- target by name, and the provider is never asked to.
+    env.invoking = 'res_b'
+    local rmB, rmWhy = env.EXPORTS.RemoveTarget('t')
+    check(rmB == false and tostring(rmWhy):find('res_a', 1, true) ~= nil,
+        ('RemoveTarget by another resource is refused (got %s, %s)'):format(tostring(rmB), tostring(rmWhy)))
+    local upB = env.EXPORTS.UpdateTarget('t', {})
+    check(upB == false, 'UpdateTarget by another resource is refused')
+    check(#removed == 0, ('and the provider was never asked to remove it (removed=%d)'):format(#removed))
+    check(env.EXPORTS.TargetExists('t') == true, 'the target still exists')
+    env.invoking = 'res_a'
+    check(env.EXPORTS.UpdateTarget('t', {}) == true, 'its owner can update it')
+    check(env.EXPORTS.RemoveTarget('t') == true, 'and remove it')
     env.reset()
 end
 
@@ -4129,9 +4143,89 @@ do
     env.reset()
 end
 
+-- ===================================================== initialize: server-only events
+--
+-- A RegisterNetEvent handler is also reachable by a local TriggerEvent from any
+-- client resource; the runtime sets `source` to '' for that and to 65535 for
+-- one from the server. Only the second may rewrite the config or notify.
+do
+    local env = newEnv({})
+    env.save('CisLibReady')
+    env.save('CisLibFailed')
+    env.save('CisReadyState')
+    env.save('BeginTextCommandThefeedPost')
+    env.save('AddTextComponentSubstringPlayerName')
+    env.save('EndTextCommandThefeedPostTicker')
+    CisReadyState = { ready = false, failed = false, markReady = function() CisReadyState.ready = true end,
+        wait = function() return true end }
+    Config = CisDefaults.config()
+    local notified = {}
+    function BeginTextCommandThefeedPost() end
+    function AddTextComponentSubstringPlayerName(t) notified[#notified + 1] = t end
+    function EndTextCommandThefeedPostTicker() end
+    loadModule('client/initialize.lua')
+    local before = Config.CallbackTimeout
+    env.net('cis_libs:client:getData', '', { Config = { CallbackTimeout = 1234 } })
+    check(Config.CallbackTimeout == before and CisReadyState.ready == false,
+        ('initialize: a LOCAL TriggerEvent of getData (source \'\') is ignored (timeout=%s)')
+            :format(tostring(Config.CallbackTimeout)))
+    env.net('cis_libs:client:showNotification', '', 'forged')
+    check(#notified == 0, 'initialize: a local showNotification is ignored')
+    env.net('cis_libs:client:getData', 65535, { Config = { CallbackTimeout = 1234 } })
+    check(Config.CallbackTimeout == 1234 and CisReadyState.ready == true,
+        ('initialize: the server\'s getData (source 65535) is applied (timeout=%s)'):format(tostring(Config.CallbackTimeout)))
+    env.net('cis_libs:client:showNotification', 65535, 'real')
+    check(notified[1] == 'real', 'initialize: and the server\'s notification is shown')
+    env.reset()
+end
+
+-- ===================================================== weapon attachments
+--
+-- The attachment list used to be 24 generic COMPONENT_AT_* names, so a pistol's
+-- extended clip or a finish was never reported. The game decides which
+-- components a weapon takes; the stub answers that question for a pistol.
+do
+    local env = newEnv({})
+    local takesAsked = 0
+    local pistol = joaat('WEAPON_PISTOL')
+    local takes = {
+        [joaat('COMPONENT_PISTOL_CLIP_02')] = true,
+        [joaat('COMPONENT_AT_PI_FLSH')] = true,
+        [joaat('COMPONENT_PISTOL_VARMOD_LUXE')] = true,
+    }
+    local has = {
+        [joaat('COMPONENT_PISTOL_CLIP_02')] = true,
+        [joaat('COMPONENT_PISTOL_VARMOD_LUXE')] = true,
+    }
+    function DoesWeaponTakeWeaponComponent(weapon, component)
+        takesAsked = takesAsked + 1
+        return weapon == pistol and takes[component] == true
+    end
+    function HasPedGotWeaponComponent(_, weapon, component)
+        assert(takes[component], 'HasPedGotWeaponComponent asked about a component the weapon cannot take')
+        return weapon == pistol and has[component] == true
+    end
+    loadModule('client/weapon.lua')
+    local got = GetWeaponAttachments(7, pistol)
+    local set = {}
+    for _, c in ipairs(got) do set[c] = true end
+    check(#got == 2 and set[joaat('COMPONENT_PISTOL_CLIP_02')] and set[joaat('COMPONENT_PISTOL_VARMOD_LUXE')],
+        ('weapon: a pistol reports its extended clip and its finish, not only AT_* parts (got %d)'):format(#got))
+    local asked = takesAsked
+    GetWeaponAttachments(7, pistol)
+    check(takesAsked == asked,
+        ('weapon: which components a weapon takes is asked once and cached (asked again %d times)')
+            :format(takesAsked - asked))
+    check(#GetWeaponAttachments(7, 0) == 0, 'weapon: no weapon has no attachments')
+    env.reset()
+end
+
 -- ===================================================== 7.4 Cis.raycast
 --
--- Bounded poll, camera forward in RADIANS, ignore default 0, LOS options 7.
+-- Bounded poll, camera forward in RADIANS, ignore defaults to the player, LOS
+-- options 7. The shape-test stub answers what the native answers: status 1
+-- while pending, 2 when done, 0 for a dead handle, and `hit` as the INTEGER
+-- 0 or 1 that CfxLua returns for a BOOL* out-parameter.
 local function raycastEnv(opts)
     opts = opts or {}
     local env = newEnv({})

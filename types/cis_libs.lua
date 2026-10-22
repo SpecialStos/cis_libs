@@ -1358,7 +1358,7 @@ function RemoveStatebagHandler(cookie) end
 --- Cis.target.remove(name, isPed)
 ---@param name string #the name; a miss is refused with the name in the reason
 ---@param isPed? boolean #asserts the target was created for a LOCAL entity. Its ABSENCE is how a box or sphere target removes
----@return boolean, string #true on success; every refusal is false plus a reason
+---@return boolean, string #true on success; every refusal is false plus a reason, including a target owned by another resource (only the owner, or cis_libs, may remove it)
 --- realm: client
 function RemoveTarget(name, isPed) end
 
@@ -1636,7 +1636,7 @@ function UnregisterCapability(slot) end
 --- Cis.target.update(name, options)
 ---@param name string #the name; a name that is not live is refused
 ---@param newOptions? table #the new options, passed straight to a create -- update is a remove and re-create, not a patch on the provider
----@return boolean, string #false with NO reason for an unknown name; otherwise whatever the implicit create returned
+---@return boolean, string #false with NO reason for an unknown name; false plus a reason when another resource owns it; otherwise whatever the implicit create returned
 --- realm: client
 function UpdateTarget(name, newOptions) end
 
@@ -2374,7 +2374,7 @@ function Cis.target.remove(name, isPed) end
 ---@field forwardsTo string UpdateTarget
 ---@param name string #the target name
 ---@param options? CisTargetOptions #the new options
----@return boolean, string #false with NO reason for an unknown name; otherwise whatever the implicit create returned
+---@return boolean, string #false with NO reason for an unknown name; false plus a reason when another resource owns it; otherwise whatever the implicit create returned
 function Cis.target.update(name, options) end
 
 ---@class Cis.ui.confirm
