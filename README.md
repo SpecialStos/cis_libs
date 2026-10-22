@@ -68,15 +68,19 @@ Never `shared_script` a module file. `init.lua` is the only one.
 
 ## Handlers
 
-Zone, point, hook, and callback handlers that cross the exports boundary cannot
-be Lua functions. A function arrives `nil`. Use an event name or
-`'resource:export'`.
+Zones, points and keybinds made through `init.lua` run in **your** resource's
+VM, so their handlers are plain functions and nothing crosses per frame
+(DOCUMENTATION.md §5.2). They survive a cis_libs restart.
 
 ```lua
-Cis.zones.box('shop', { x = 1.0, y = 2.0, z = 3.0 }, { x = 4.0, y = 4.0, z = 3.0 }, {
-    onEnterEvent = 'shop:client:enterShop',
+Cis.zones.box('shop', vector3(1.0, 2.0, 3.0), vector3(4.0, 4.0, 3.0), {
+    onEnter = function(zone) Cis.ui.textUI.show('[E] Shop') end,
+    onExit = function(zone) Cis.ui.textUI.hide() end,
 })
 ```
+
+Hook and callback handlers still cross the exports boundary: use an event name
+or `'resource:export'` there.
 
 ## Trust
 

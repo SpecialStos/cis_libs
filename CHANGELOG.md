@@ -14,6 +14,27 @@ under **Changed** so nobody upgrades into them blind.
 
 ### Changed
 
+- **Per-frame client work runs in the consumer's own VM** (DOCUMENTATION.md
+  §5.2). Through `init.lua`, `Cis.zones.*`, `Cis.points.*`, `Cis.keybind.add`,
+  `Cis.raycast.*` and `Cis.streaming.*` no longer cross into cis_libs: each
+  loads its engine from `client/core/*.lua` on first use and runs it locally.
+  Zone, point and keybind handlers are plain local functions (no funcrefs),
+  and these objects survive a cis_libs restart. `Cis.player.vehicle`, `seat`,
+  `weapon`, `serverId`, `playerId` and `on` read a local mirror of the cache:
+  one `GetCacheSnapshot` on the first read, then zero export calls.
+  The export API (`CreateZone`, `CreatePoint`, `KeybindAdd`, ...) is unchanged
+  and still serves callers of the exports. What a consumer can observe:
+  - `Cis.zones.contains` and `Cis.points.getClosest` answer about the
+    **calling resource's own** zones and points, not every resource's.
+  - `Cis.keybind.add` registers the commands and the key mapping **under the
+    calling resource**. A rebind a player saved under `cis_libs` does not
+    carry over; the handle's methods now work.
+  - `Cis.player.on` returns a real unsubscribe function and a local id (not
+    an id for `RemovePlayerCacheListener`).
+  - The `Config.Framework.Zones.Enabled` switch gates the exports only.
+- **The cache pushes every change** as the local client event
+  `cis_libs:cache` `(key, value, seat, silent)`; a pass that changes nothing
+  pushes nothing.
 - **Security posture is read from convars first.** `cis_authorized_resources`,
   `cis_allow_any_resource`, `cis_config_supplier`, `cis_check_version` and the
   `cis_cb_*` callback limits outrank `SetConfig`; a `convar_category` shows
@@ -70,6 +91,25 @@ under **Changed** so nobody upgrades into them blind.
 
 ### Added
 
+- **Consumer-side client helpers** (ox_lib parity), each loaded on first use
+  and running in the caller's VM: `Cis.world.getClosestPed`,
+  `Cis.world.getNearbyPeds` and their vehicle, object and player variants,
+  `Cis.vehicle.getProperties` / `setProperties`, `Cis.marker.add` / `remove` /
+  `clear` (one culled draw thread per resource, only while markers exist),
+  `Cis.scaleform.new` (typed method calls, fullscreen / 3D draw, dispose),
+  `Cis.dui.new`, `Cis.anim.play` (requests and releases the dictionary),
+  `Cis.controls.disable` / `enable` / `isDisabled` (refcounted holds),
+  `Cis.streaming.release`, `Cis.cache(key)` and `Cis.onCache(key, fn)`.
+  Scaleforms and DUI pages still held are released when the resource stops.
+- **`GetCacheSnapshot`** export: the mirror's one snapshot.
+- **`client/core/`**: one source for the zone, point, keybind, world, shape
+  test, streaming and vehicle engines, run by cis_libs behind its exports and
+  by every consumer through `init.lua`. `npm run check-realms` and
+  `gen-natives` now also check the client files listed in `files {}`.
+- **Performance gates** in `test/contracts.lua` §19: a consumer with nothing
+  registered runs zero threads; after the snapshot, 500 rounds of player
+  reads, `zones.contains` and `points.getClosest` make zero export calls; a
+  zone or point pass allocates nothing in the steady state.
 - **First-party NUI** with no build step and no dependencies: `Toast`,
   `ProgressBar`/`ProgressCircle`, text UI, `AlertDialog`, `InputDialog`
   (11 field types), context menus, list menus, a radial menu, `SkillCheck`,
@@ -95,6 +135,8 @@ under **Changed** so nobody upgrades into them blind.
 
 ### Fixed
 
+- The point pass allocated a closure on every discovery refresh; its grid
+  visitor is now file-level, like the zone visitor.
 - **Exploitable:** a net event handler was registered again on every consumer
   restart, so one client event ran N+1 times. The rate limiter counted window
   rolls as buckets and locked active players out of new events for the
