@@ -1665,7 +1665,15 @@ do
     check(warningsAbout('already registered by') > after,
         'H5: and a DIFFERENT requester colliding with the same name is reported once')
 
-    check(exports.RemoveZone('shop') == true, 'remove() works on the surviving zone')
+    -- ONLY THE OWNER REMOVES. res_c is still the caller here, and a name is a
+    -- guessable string: without the check it removes res_a's zone and fires
+    -- res_a's onExit.
+    local stolen, stolenWhy = exports.RemoveZone('shop')
+    check(stolen == false and type(stolenWhy) == 'string' and stolenWhy:find('res_a', 1, true),
+        ('remove() by a resource that does not own the zone is refused (got %s, %s)')
+            :format(tostring(stolen), tostring(stolenWhy)))
+    env.invoking = 'res_a'
+    check(exports.RemoveZone('shop') == true, 'remove() works on the surviving zone, for its owner')
     env.reset()
 end
 
@@ -2130,6 +2138,134 @@ do
     check(drawing() == true,
         '3.4b: and the refused zone did not disturb the thread')
 
+    env.reset()
+end
+
+-- WHAT THE DEBUG THREAD DRAWS, against DRAW_MARKER's and DRAW_LINE's real
+-- parameter lists. The stubs refuse a call whose scale or colour slots hold the
+-- wrong thing, which is how the sphere's shifted arguments went unseen.
+do
+    local env = zoneEnv()
+    env.lines, env.markers = {}, {}
+    function DrawLine(...)
+        local a = table.pack(...)
+        assert(a.n == 10, 'DrawLine takes 10 arguments')
+        env.lines[#env.lines + 1] = a
+    end
+    function DrawMarker(...)
+        local a = table.pack(...)
+        -- type, pos(3), dir(3), rot(3), scale(3), r, g, b, a, bob, face, p19,
+        -- rotate, dict, name, drawOnEnts.
+        assert(a.n == 24, ('DrawMarker takes 24 arguments, got %d'):format(a.n))
+        for i = 14, 17 do
+            assert(math.type(a[i]) == 'integer' and a[i] >= 0 and a[i] <= 255,
+                ('DrawMarker colour slot %d must be an integer 0..255'):format(i))
+        end
+        env.markers[#env.markers + 1] = a
+    end
+    Cis.player.coords = function() return vector3(0.0, 0.0, 0.0) end
+
+    exports.CreateZone('sphere', 'ball', { x = 0.0, y = 0.0, z = 0.0 }, 4.0, { debug = true })
+    env.tick(1)
+    local m = env.markers[1]
+    check(m ~= nil and m[11] == 4.0 and m[12] == 4.0 and m[13] == 4.0,
+        ('3.4b: a debug sphere is drawn with scale = radius on all three axes (got %s,%s,%s)')
+            :format(tostring(m and m[11]), tostring(m and m[12]), tostring(m and m[13])))
+    exports.RemoveZone('ball')
+
+    -- A ROTATED BOX IS DRAWN ROTATED. A 10 x 2 box turned 90 degrees has a corner
+    -- at (1, 5), and the unrotated outline never touches it.
+    env.lines = {}
+    exports.CreateZone('box', 'turned', { x = 0.0, y = 0.0, z = 0.0 },
+        { x = 10.0, y = 2.0, z = 2.0 }, { debug = true, heading = 90.0 })
+    env.tick(1)
+    local sawCorner = false
+    for _, l in ipairs(env.lines) do
+        if math.abs(l[1] - 1.0) < 0.01 and math.abs(l[2] - 5.0) < 0.01 then sawCorner = true end
+    end
+    check(#env.lines > 0 and sawCorner,
+        ('3.4b: a rotated box outline follows its heading (lines=%d)'):format(#env.lines))
+    exports.RemoveZone('turned')
+
+    -- AND ONLY NEAR THE PLAYER.
+    env.lines = {}
+    exports.CreateZone('box', 'faraway', { x = 3000.0, y = 0.0, z = 0.0 },
+        { x = 4.0, y = 4.0, z = 4.0 }, { debug = true })
+    env.tick(1)
+    check(#env.lines == 0, ('3.4b: a debug zone across the map is not drawn (lines=%d)'):format(#env.lines))
+    env.reset()
+end
+
+-- A ROTATED BOX MUST BE ENTERABLE IN ITS CORNERS. The index box used the
+-- unrotated half-extents, so a 20 x 2 box turned 45 degrees indexed y within
+-- +-1.5 m while its far end reaches y = 6.4: standing there was never a
+-- candidate, so it never fired.
+do
+    local env = zoneEnv()
+    local entered = 0
+    exports.CreateZone('box', 'diag', { x = 0.0, y = 0.0, z = 0.0 },
+        { x = 20.0, y = 2.0, z = 4.0 }, { heading = 45.0, onEnter = function() entered = entered + 1 end })
+    Cis.player.coords = function() return vector3(6.0, 6.0, 0.0) end
+    check(exports.ZoneContains('diag', { x = 6.0, y = 6.0, z = 0.0 }) == true,
+        'rotated box: (6, 6) is inside a 20 x 2 box turned 45 degrees')
+    local SENT = {}
+    local n = 0
+    local realWait = Wait
+    Wait = function(ms) env.clock = env.clock + (tonumber(ms) or 0); n = n + 1; if n >= 2 then error(SENT, 0) end end
+    local ok, err = pcall(env.threads[1])
+    Wait = realWait
+    if not ok and err ~= SENT then error(err, 0) end
+    check(entered == 1, ('rotated box: a player in its far end is found by the pass (onEnter=%d)'):format(entered))
+    env.reset()
+end
+
+-- THE ZONE LOOP NEVER GIVES UP ON READINESS. `wait(15000)` answering false used
+-- to `return` from the thread: initialize.lua marks ready at the same 15 s, so
+-- losing that race ended zones for the session.
+do
+    local env = zoneEnv()
+    local calls = 0
+    CisReadyState = {
+        wait = function() calls = calls + 1; return calls > 1 end,
+        ready = false,
+    }
+    local entered = 0
+    exports.CreateZone('box', 'late', { x = 0.0, y = 0.0, z = 0.0 },
+        { x = 10.0, y = 10.0, z = 10.0 }, { onEnter = function() entered = entered + 1 end })
+    Cis.player.coords = function() return vector3(0.0, 0.0, 0.0) end
+    local SENT = {}
+    local realWait = Wait
+    Wait = function(ms) env.clock = env.clock + (tonumber(ms) or 0); error(SENT, 0) end
+    local ok, err = pcall(env.threads[1])
+    Wait = realWait
+    if not ok and err ~= SENT then error(err, 0) end
+    check(calls >= 2 and entered == 1,
+        ('a zone loop whose first ready wait timed out keeps waiting and then runs (waits=%d onEnter=%d)')
+            :format(calls, entered))
+    env.reset()
+end
+
+-- A PASS DOES NOT BUILD DEBUG STATE: no sort, and the list is right when asked.
+do
+    local env = zoneEnv()
+    Cis.player.coords = function() return vector3(0.0, 0.0, 0.0) end
+    exports.CreateZone('box', 'b1', { x = 0.0, y = 0.0, z = 0.0 }, { x = 10.0, y = 10.0, z = 10.0 }, {})
+    exports.CreateZone('box', 'a1', { x = 0.0, y = 0.0, z = 0.0 }, { x = 10.0, y = 10.0, z = 10.0 }, {})
+    local realSort = table.sort
+    local sorts = 0
+    table.sort = function(...) sorts = sorts + 1; return realSort(...) end
+    local SENT = {}
+    local n = 0
+    local realWait = Wait
+    Wait = function(ms) env.clock = env.clock + 200; n = n + 1; if n >= 3 then error(SENT, 0) end end
+    local ok, err = pcall(env.threads[1])
+    Wait = realWait
+    table.sort = realSort
+    if not ok and err ~= SENT then error(err, 0) end
+    check(sorts == 0, ('a zone pass performs no sort (sorts=%d)'):format(sorts))
+    local dbg = exports.GetZoneDebug()
+    check(dbg.insideCount == 2 and dbg.insideNames[1] == 'a1' and dbg.insideNames[2] == 'b1',
+        ('and GetZoneDebug still lists what the player is inside, sorted (count=%s)'):format(tostring(dbg.insideCount)))
     env.reset()
 end
 

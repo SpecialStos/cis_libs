@@ -708,6 +708,55 @@
       "find": "    if caller ~= 'cis_libs' and caller ~= b.owner then\n        return nil, ('keybind %s belongs to %s, not %s')",
       "replace": "    if false then\n        return nil, ('keybind %s belongs to %s, not %s')",
       "why": "Drop the owner check on the id-based controls. Ids are 1, 2, 3..., so any resource can disable or remove every other resource's bindings."
+    },
+    {
+      "id": "M107",
+      "file": "client/zones.lua",
+      "find": "        local ex = zone.hx * c + zone.hy * s\n        local ey = zone.hx * s + zone.hy * c\n",
+      "replace": "        local ex = zone.hx + 0 * c\n        local ey = zone.hy + 0 * s\n",
+      "why": "Index a rotated box with its UNROTATED half-extents. The corners of a turned box fall outside the grid index, so a player standing in them is never a candidate and that part of the zone never fires."
+    },
+    {
+      "id": "M108",
+      "file": "client/zones.lua",
+      "find": "    if caller ~= 'cis_libs' and caller ~= zone.owner then\n",
+      "replace": "    if false then\n",
+      "why": "Drop the owner check on RemoveZone. A zone name is a guessable string, so any resource removes another's zones and fires their onExit."
+    },
+    {
+      "id": "M109",
+      "file": "client/zones.lua",
+      "find": "            0.0, 0.0, 0.0, zone.radius + 0.0, zone.radius + 0.0, zone.radius + 0.0,\n            colour[1], colour[2], colour[3], 80,\n",
+      "replace": "            0.0, 0.0, 0.0, zone.radius + 0.0, 80, colour[1], colour[2], colour[3],\n",
+      "why": "Restore the sphere DrawMarker argument order that passed the alpha as scaleY and shifted every colour one slot. The debug sphere is then a squashed shape in the wrong colour."
+    },
+    {
+      "id": "M110",
+      "file": "client/zones.lua",
+      "find": "                    if dx * dx + dy * dy <= DEBUG_DRAW_RANGE * DEBUG_DRAW_RANGE then\n",
+      "replace": "                    if dx * dx + dy * dy >= 0 then\n",
+      "why": "Draw every debug zone every frame regardless of distance. A debug zone across the map costs a frame of DrawLine calls nobody can see."
+    },
+    {
+      "id": "M111",
+      "file": "client/zones.lua",
+      "find": "local function awaitReady()\n    while not CisReadyState.wait(15000) do\n        if CisReadyState.failed then\n            return\n        end\n    end\nend\n",
+      "replace": "local function awaitReady()\n    if not CisReadyState.wait(15000) then\n        error('cis_libs never became ready', 0)\n    end\nend\n",
+      "why": "End the zone threads when the first ready wait times out. initialize.lua marks ready at the same 15 s, so losing that race ends zones for the session -- the defect the retry loop replaced."
+    },
+    {
+      "id": "M112",
+      "file": "client/zones.lua",
+      "find": "    debugStats.lastPassMs = GetGameTimer() - started\n    debugStats.lastPassAt = GetGameTimer()\n",
+      "replace": "    debugStats.insideNames = {}\n    for id in pairs(inside) do debugStats.insideNames[#debugStats.insideNames + 1] = id end\n    table.sort(debugStats.insideNames)\n    debugStats.lastPassMs = GetGameTimer() - started\n    debugStats.lastPassAt = GetGameTimer()\n",
+      "why": "Rebuild and sort the debug inside-list on every pass again. That is an allocation and a sort per pass for a view nobody is reading."
+    },
+    {
+      "id": "M113",
+      "file": "client/zones.lua",
+      "find": "    local rad = math.rad(zone.heading or 0.0)\n    local c, s = math.cos(rad), math.sin(rad)\n    local hx, hy = zone.hx, zone.hy\n",
+      "replace": "    local rad = 0.0\n    local c, s = math.cos(rad), math.sin(rad)\n    local hx, hy = zone.hx, zone.hy\n",
+      "why": "Draw a box's debug outline unrotated. The outline then disagrees with the containment test for every box with a heading, which is the opposite of what a debug view is for."
     }
   ]
 }

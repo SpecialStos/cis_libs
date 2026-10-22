@@ -1357,7 +1357,7 @@ function RemoveTarget(name, isPed) end
 
 --- Cis.zones.remove(name)
 ---@param name string #the name. Removing a zone twice, or one that never existed, is a no-op and not an error
----@return boolean #false when no zone holds that name, true once removed. A player still inside gets its onExit fired first, with the PLAYER's coordinates rather than the zone centre
+---@return boolean, string|nil #false when no zone holds that name, true once removed; false plus a reason when another resource owns it (only the owner, or cis_libs, may remove a zone). A player still inside gets its onExit fired first, with the PLAYER's coordinates rather than the zone centre
 --- realm: client
 function RemoveZone(name) end
 
@@ -2481,7 +2481,7 @@ function Cis.zones.poly(name, points, options) end
 ---@field realm "client"
 ---@field forwardsTo string RemoveZone
 ---@param name string #the zone name. Removing a zone twice, or one that never existed, is a no-op and not an error
----@return boolean #false when no zone holds that name, true once removed. A player still inside gets its onExit fired first, with the PLAYER's coordinates and not the zone centre
+---@return boolean, string|nil #false when no zone holds that name, true once removed; false plus a reason when another resource owns it. A player still inside gets its onExit fired first, with the PLAYER's coordinates and not the zone centre
 function Cis.zones.remove(name) end
 
 ---@class Cis.zones.server.box

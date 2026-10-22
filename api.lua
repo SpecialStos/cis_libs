@@ -594,7 +594,7 @@ return {
             use = 'Cis.zones.remove(name)',
             realm = 'client',
             params = { { name = 'name', type = 'string', doc = 'the name. Removing a zone twice, or one that never existed, is a no-op and not an error' } },
-            returns = { { type = 'boolean', doc = "false when no zone holds that name, true once removed. A player still inside gets its onExit fired first, with the PLAYER's coordinates rather than the zone centre" } },
+            returns = { { type = 'boolean, string|nil', doc = "false when no zone holds that name, true once removed; false plus a reason when another resource owns it (only the owner, or cis_libs, may remove a zone). A player still inside gets its onExit fired first, with the PLAYER's coordinates rather than the zone centre" } },
         },
         ZoneContains = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -1991,7 +1991,7 @@ return {
         realm = 'client',
         forwardsTo = 'RemoveZone',
         params = { { name = 'name', type = 'string', doc = 'the zone name. Removing a zone twice, or one that never existed, is a no-op and not an error' } },
-        returns = { { type = 'boolean', doc = "false when no zone holds that name, true once removed. A player still inside gets its onExit fired first, with the PLAYER's coordinates and not the zone centre" } },
+        returns = { { type = 'boolean, string|nil', doc = "false when no zone holds that name, true once removed; false plus a reason when another resource owns it. A player still inside gets its onExit fired first, with the PLAYER's coordinates and not the zone centre" } },
     },
     ['Cis.zones.sphere'] = {
         since = '1.0.0',

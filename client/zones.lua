@@ -1,4 +1,4 @@
--- Grid zones. Proximity pass only after half-cell movement. Per-zone inside interval.
+-- Grid zones. Discovery is a one-cell grid query every 200 ms. Per-zone inside interval.
 
 local zones = {}
 local grid = CisGrid.new()
@@ -15,9 +15,13 @@ local debugStats = {
     debugDrawing = false,
 }
 
-local HALF_CELL = CisGrid.CELL * 0.5
--- Cadence for re-testing zones we are already inside, so onExit is not delayed until
+-- Cadence for discovery: a one-cell grid query plus a sweep of what we are inside.
+-- Bounded by the zones near the player, not by how many exist, so it runs for a
+-- standing player too -- the only way one who stands still is ever found.
 local RECHECK_MS = 200
+-- Debug outlines further than this from the player are not drawn: a debug zone
+-- across the map cost a frame of DrawLine calls for something nobody can see.
+local DEBUG_DRAW_RANGE = 150.0
 
 -- THE FLOOR FOR AN `insideEvent`, and the reason it exists.
 local MIN_EVENT_INTERVAL_MS = 250
@@ -51,7 +55,9 @@ end
 -- A Lua callback cannot be sent across the exports boundary: an options table carrying
 local function invoke(zone, name, ...)
     local fn = zone[name]
-    if fn then
+    -- CisCallable: a consumer's handler is a funcref table, and anything else that
+    -- is merely truthy would raise inside the pcall on every pass.
+    if CisCallable(fn) then
         local ok, err = pcall(fn, zone, ...)
         if not ok then
             CisLog('error', ('zone %s %s: %s'):format(zone.name, name, err))
@@ -90,7 +96,9 @@ local function register(zone)
 end
 
 -- Forward declarations, for the reason the file already relies on: an upvalue is
-local ensureDebugDraw, startDebugDraw, drawZone, hasDebugZone
+local ensureDebugDraw, startDebugDraw, drawZone, hasDebugZone, removeZone
+-- Set by any create or remove, so the next pass runs discovery at once.
+local zonesDirty = true
 
 function CisZonesCreate(kind, name, a, b, options)
     -- Every refusal returns a reason as a second value.
@@ -131,7 +139,7 @@ function CisZonesCreate(kind, name, a, b, options)
         return false, 'a box zone needs a size; it arrived as nil'
     end
     if zones[name] then
-        CisZonesRemove(name)
+        removeZone(name)
     end
     local zone = {
         name = name,
@@ -188,7 +196,15 @@ function CisZonesCreate(kind, name, a, b, options)
         zone.cx, zone.cy, zone.cz = center.x, center.y, center.z
         zone.hx, zone.hy, zone.hz = sx * 0.5, sy * 0.5, sz * 0.5
         zone.heading = options.heading or options.rotation or 0.0
-        zone.aabb = CisGrid.aabbFromCenter(zone.cx, zone.cy, zone.cz, zone.hx + 0.5, zone.hy + 0.5, zone.hz + 0.5)
+        -- THE INDEX BOX OF A ROTATED BOX IS THE ROTATED FOOTPRINT'S BOUNDS. The
+        -- unrotated half-extents leave the corners of a turned box outside the
+        -- index, and a player standing in a corner is never a candidate -- part
+        -- of the zone that never triggers.
+        local rad = math.rad(zone.heading)
+        local c, s = math.abs(math.cos(rad)), math.abs(math.sin(rad))
+        local ex = zone.hx * c + zone.hy * s
+        local ey = zone.hx * s + zone.hy * c
+        zone.aabb = CisGrid.aabbFromCenter(zone.cx, zone.cy, zone.cz, ex + 0.5, ey + 0.5, zone.hz + 0.5)
     elseif kind == 'sphere' then
         local center = asVec3(a)
         zone.cx, zone.cy, zone.cz = center.x, center.y, center.z
@@ -205,6 +221,7 @@ function CisZonesCreate(kind, name, a, b, options)
         return false, registerWhy
     end
     -- AFTER a successful registration, so a refused zone cannot start a thread that
+    zonesDirty = true
     if zone.debug then
         ensureDebugDraw()
     end
@@ -234,7 +251,14 @@ startDebugDraw = function()
             local coords = Cis.player.coords()
             for _, zone in pairs(zones) do
                 if zone.debug then
-                    drawZone(zone, coords)
+                    -- Culled by the index box, so a large zone the player is near
+                    -- still draws while one across the map costs nothing.
+                    local b = zone.aabb
+                    local dx = math.max(b.minX - coords.x, 0.0, coords.x - b.maxX)
+                    local dy = math.max(b.minY - coords.y, 0.0, coords.y - b.maxY)
+                    if dx * dx + dy * dy <= DEBUG_DRAW_RANGE * DEBUG_DRAW_RANGE then
+                        drawZone(zone, coords)
+                    end
                 end
             end
             -- NO SLEEP HERE. The body decides when it next runs, so a frame that drew
@@ -264,14 +288,20 @@ drawZone = function(zone, coords)
     local colour = inZone and { 0, 255, 0, 200 } or { 255, 0, 0, 160 }
 
     if zone.kind == 'sphere' then
-        DrawMarker(1, zone.cx, zone.cy, zone.cz + zone.radius, 0.0, 0.0, 0.0,
-            0.0, 0.0, 0.0, zone.radius, colour[4] or 200, colour[1], colour[2], colour[3],
+        -- DRAW_MARKER: type, pos xyz, dir xyz, rot xyz, SCALE xyz, r, g, b, a,
+        -- bob, faceCamera, p19, rotate, textureDict, textureName, drawOnEnts.
+        -- Type 28 is the debug sphere, whose scale is its radius. The old call
+        -- passed the alpha as scaleY and shifted every colour one slot left.
+        DrawMarker(28, zone.cx, zone.cy, zone.cz, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, zone.radius + 0.0, zone.radius + 0.0, zone.radius + 0.0,
+            colour[1], colour[2], colour[3], 80,
             false, false, 2, false, nil, nil, false)
         return
     end
 
-    local minZ = zone.minZ or (zone.cz - 5.0)
-    local maxZ = zone.maxZ or (zone.cz + 5.0)
+    -- A box's own height, not a guess: minZ/maxZ belong to poly zones.
+    local minZ = zone.minZ or (zone.cz - (zone.hz or 5.0))
+    local maxZ = zone.maxZ or (zone.cz + (zone.hz or 5.0))
     if zone.kind == 'poly' and zone.points then
         -- The polygon, one edge per segment, plus its walls.
         local n = #zone.points
@@ -285,22 +315,30 @@ drawZone = function(zone, coords)
         return
     end
 
-    local x1 = zone.cx - zone.hx
-    local x2 = zone.cx + zone.hx
-    local y1 = zone.cy - zone.hy
-    local y2 = zone.cy + zone.hy
-    -- The footprint, at both heights.
-    for _, z in ipairs({ minZ, maxZ }) do
-        DrawLine(x1, y1, z, x2, y1, z, colour[1], colour[2], colour[3], 255)
-        DrawLine(x2, y1, z, x2, y2, z, colour[1], colour[2], colour[3], 255)
-        DrawLine(x2, y2, z, x1, y2, z, colour[1], colour[2], colour[3], 255)
-        DrawLine(x1, y2, z, x1, y1, z, colour[1], colour[2], colour[3], 255)
-    end
-    for _, p in ipairs({
-        { x1, y1 }, { x2, y1 }, { x2, y2 }, { x1, y2 },
-    }) do
-        DrawLine(p[1], p[2], minZ, p[1], p[2], maxZ, colour[1], colour[2], colour[3], 255)
-    end
+    -- The four corners, TURNED BY THE HEADING the containment test uses
+    -- (CisGrid.pointInBox rotates the point by -heading, so a corner is rotated by
+    -- +heading). The outline used to be the unrotated box, which is not the zone.
+    local rad = math.rad(zone.heading or 0.0)
+    local c, s = math.cos(rad), math.sin(rad)
+    local hx, hy = zone.hx, zone.hy
+    local ax, ay = zone.cx - hx * c + hy * s, zone.cy - hx * s - hy * c
+    local bx, by = zone.cx + hx * c + hy * s, zone.cy + hx * s - hy * c
+    local qx, qy = zone.cx + hx * c - hy * s, zone.cy + hx * s + hy * c
+    local dx, dy = zone.cx - hx * c - hy * s, zone.cy - hx * s + hy * c
+    local r, g, b = colour[1], colour[2], colour[3]
+    -- The footprint, at both heights, and the four uprights.
+    DrawLine(ax, ay, minZ, bx, by, minZ, r, g, b, 255)
+    DrawLine(bx, by, minZ, qx, qy, minZ, r, g, b, 255)
+    DrawLine(qx, qy, minZ, dx, dy, minZ, r, g, b, 255)
+    DrawLine(dx, dy, minZ, ax, ay, minZ, r, g, b, 255)
+    DrawLine(ax, ay, maxZ, bx, by, maxZ, r, g, b, 255)
+    DrawLine(bx, by, maxZ, qx, qy, maxZ, r, g, b, 255)
+    DrawLine(qx, qy, maxZ, dx, dy, maxZ, r, g, b, 255)
+    DrawLine(dx, dy, maxZ, ax, ay, maxZ, r, g, b, 255)
+    DrawLine(ax, ay, minZ, ax, ay, maxZ, r, g, b, 255)
+    DrawLine(bx, by, minZ, bx, by, maxZ, r, g, b, 255)
+    DrawLine(qx, qy, minZ, qx, qy, maxZ, r, g, b, 255)
+    DrawLine(dx, dy, minZ, dx, dy, maxZ, r, g, b, 255)
     if coords and zone.hx and zone.hy then
         -- A cross at the centre, so an operator can see which point the zone was
         DrawLine(zone.cx - 0.5, zone.cy, minZ, zone.cx + 0.5, zone.cy, minZ,
@@ -310,7 +348,9 @@ drawZone = function(zone, coords)
     end
 end
 
-function CisZonesRemove(name)
+-- The removal itself, with no owner check: the stop sweep and a same-owner
+-- re-create use it directly. CisZonesRemove below is the checked entry point.
+removeZone = function(name)
     if not zones[name] then
         return false
     end
@@ -329,8 +369,23 @@ function CisZonesRemove(name)
     zones[name] = nil
     -- Removed the ordinary way, so the ledger stops owing it.
     CisOwned.forget(owned, 'zone', name)
+    zonesDirty = true
     -- The draw thread notices on its next pass, one frame later.
     return true
+end
+
+-- ONLY THE OWNER, or cis_libs. A zone name is a string anyone can guess, so any
+-- resource could otherwise remove another's zones and fire their onExit.
+function CisZonesRemove(name)
+    local zone = zones[name]
+    if not zone then
+        return false
+    end
+    local caller = GetInvokingResource() or 'cis_libs'
+    if caller ~= 'cis_libs' and caller ~= zone.owner then
+        return false, ('zone %q belongs to %s, not %s'):format(tostring(name), tostring(zone.owner), caller)
+    end
+    return removeZone(name)
 end
 
 function CisZonesContains(name, point)
@@ -346,24 +401,36 @@ function CisZonesContains(name, point)
     return contains(zone, p)
 end
 
-local function refreshInside(coords)
-    local seen = {}
-    -- queryPoint is sufficient: insert() registers an id in every cell its AABB
-    CisGrid.queryPoint(grid, coords.x, coords.y, coords.z, function(id, item)
-        local zone = item.data
-        seen[id] = true
-        if contains(zone, coords) then
-            if not inside[id] then
-                inside[id] = { lastInside = 0 }
-                invoke(zone, 'onEnter', coords)
-            end
-        elseif inside[id] then
-            inside[id] = nil
-            invoke(zone, 'onExit', coords)
+-- DISCOVERY WITHOUT ALLOCATION. The pass used to build a `seen` table on every
+-- refresh; a stamp on each inside-state does the same job. The visitor is a
+-- module-level function so the query does not allocate a closure either.
+local passStamp = 0
+local visitCoords
+local function visitZone(id, item)
+    local zone = item.data
+    local state = inside[id]
+    if contains(zone, visitCoords) then
+        if state then
+            state.stamp = passStamp
+        else
+            inside[id] = { lastInside = 0, stamp = passStamp }
+            invoke(zone, 'onEnter', visitCoords)
         end
-    end)
-    for id in pairs(inside) do
-        if not seen[id] then
+    elseif state then
+        inside[id] = nil
+        invoke(zone, 'onExit', visitCoords)
+    end
+end
+
+local function refreshInside(coords)
+    passStamp = passStamp + 1
+    visitCoords = coords
+    -- queryPoint is sufficient: insert() registers an id in every cell its AABB
+    -- overlaps, so the player's own cell holds every zone that can contain them.
+    CisGrid.queryPoint(grid, coords.x, coords.y, coords.z, visitZone)
+    -- Inside, but not a candidate this pass: the player left its index box.
+    for id, state in pairs(inside) do
+        if state.stamp ~= passStamp then
             local zone = zones[id]
             inside[id] = nil
             if zone then
@@ -371,106 +438,78 @@ local function refreshInside(coords)
             end
         end
     end
+    visitCoords = nil
 end
 
--- The grid pass above only runs after half a cell of movement, which is cheap but
-local function recheckInside(coords)
-    if next(inside) == nil then
-        return false
-    end
-    local changed = false
-    for id in pairs(inside) do
-        local zone = zones[id]
-        if zone and not contains(zone, coords) then
-            inside[id] = nil
-            invoke(zone, 'onExit', coords)
-            changed = true
+-- NEVER GIVE UP ON READINESS. initialize.lua marks the library ready at the same
+-- 15 s this used to wait, so a waiter could lose that race, get `false`, and
+-- return -- ending the zone loop for the session. A failed boot still runs on the
+-- built-in defaults, like every other client module.
+local function awaitReady()
+    while not CisReadyState.wait(15000) do
+        if CisReadyState.failed then
+            return
         end
     end
-    return changed
+end
+
+local lastRefresh
+
+local function zonePass()
+    if next(zones) == nil then
+        local tIdle = CisTiming and CisTiming.now()
+        if CisTiming and tIdle ~= nil then
+            CisTiming.observe('zonePass', CisTiming.now() - tIdle)
+        end
+        -- Returned, never waited on inside the guard: see the note on the loop.
+        return 500
+    end
+    local started = GetGameTimer()
+    local t0 = CisTiming and CisTiming.now()
+    local coords = Cis.player.coords()
+    -- Discovery on any change to the zone set, and every RECHECK_MS. There is no
+    -- movement gate: the old one refreshed whenever fewer zones were inside than
+    -- existed -- always -- after counting every zone to find that out.
+    if zonesDirty or lastRefresh == nil or started - lastRefresh >= RECHECK_MS then
+        zonesDirty = false
+        lastRefresh = started
+        refreshInside(coords)
+    end
+
+    local now = GetGameTimer()
+    local waitMs = 250
+    for id, state in pairs(inside) do
+        local zone = zones[id]
+        if zone and (zone.inside or zone.insideEvent) then
+            local interval = zone.insideInterval or 500
+            if interval > 0 then
+                if now - state.lastInside >= interval then
+                    state.lastInside = now
+                    invoke(zone, 'inside', coords)
+                end
+                local remain = interval - (now - state.lastInside)
+                if remain < waitMs then
+                    waitMs = math.max(0, remain)
+                end
+            end
+        end
+    end
+    debugStats.lastPassMs = GetGameTimer() - started
+    debugStats.lastPassAt = GetGameTimer()
+    if CisTiming and t0 ~= nil then
+        CisTiming.observe('zonePass', CisTiming.now() - t0)
+    end
+    -- THE INTERVAL IS RETURNED, NOT WAITED ON HERE.
+    return waitMs
 end
 
 CreateThread(function()
-    if not CisReadyState.wait(15000) then
-        return
-    end
-    local lastCellX, lastCellY
-    local lastPos
-    local lastRecheck = 0
+    awaitReady()
     -- GUARDED (3.10). One raise in here used to end this loop for good: the thread
-    local tick = CisLoopGuard.Body('client.zones.pass', function()
-                if next(zones) == nil then
-                    -- debugStats is rebuilt inside the pass below, which only runs when
-                    local tIdle = CisTiming and CisTiming.now()
-                    debugStats.insideCount = 0
-                    debugStats.insideNames = {}
-                    if CisTiming and tIdle ~= nil then
-                        CisTiming.observe('zonePass', CisTiming.now() - tIdle)
-                    end
-                    -- Returned, never waited on inside the guard: see the note on the
-                    return 500
-                else
-                    local started = GetGameTimer()
-                    local t0 = CisTiming and CisTiming.now()
-                    local coords = Cis.player.coords()
-                    local cx, cy = CisGrid.cell(coords.x, coords.y)
-                    local moved = not lastPos or #(coords - lastPos) >= HALF_CELL or cx ~= lastCellX or cy ~= lastCellY
-                    if moved then
-                        lastPos = coords
-                        lastCellX, lastCellY = cx, cy
-                        refreshInside(coords)
-                        lastRecheck = GetGameTimer()
-                    elseif GetGameTimer() - lastRecheck >= RECHECK_MS then
-                        lastRecheck = GetGameTimer()
-                        -- DISCOVERY WAS GATED ON MOVEMENT, AND NOTHING ELSE.
-                        local insideCount = 0
-                        for _ in pairs(inside) do insideCount = insideCount + 1 end
-                        local zoneCount = 0
-                        for _ in pairs(zones) do zoneCount = zoneCount + 1 end
-                        if insideCount < zoneCount then
-                            refreshInside(coords)
-                        else
-                            recheckInside(coords)
-                        end
-                    end
-
-                    local now = GetGameTimer()
-                    local waitMs = 250
-                    for id, state in pairs(inside) do
-                        local zone = zones[id]
-                        if zone and (zone.inside or zone.insideEvent) then
-                            local interval = zone.insideInterval or 500
-                            if interval > 0 then
-                                if now - state.lastInside >= interval then
-                                    state.lastInside = now
-                                    invoke(zone, 'inside', coords)
-                                end
-                                local remain = interval - (now - state.lastInside)
-                                if remain < waitMs then
-                                    waitMs = math.max(0, remain)
-                                end
-                            end
-                        end
-                    end
-                    -- WHICH zones the library currently believes the player is inside.
-                    debugStats.insideCount = 0
-                    debugStats.insideNames = {}
-                    for id in pairs(inside) do
-                        debugStats.insideCount = debugStats.insideCount + 1
-                        debugStats.insideNames[#debugStats.insideNames + 1] = id
-                    end
-                    table.sort(debugStats.insideNames)
-debugStats.lastPassMs = GetGameTimer() - started
-            debugStats.lastPassAt = GetGameTimer()
-                    if CisTiming and t0 ~= nil then
-                        CisTiming.observe('zonePass', CisTiming.now() - t0)
-                    end
-            -- THE INTERVAL IS RETURNED, NOT WAITED ON HERE.
-            return waitMs
-                end
-    end)
+    -- unwound and never came back.
+    local tick = CisLoopGuard.Body('client.zones.pass', zonePass)
     -- The interval this pass uses when the guarded body raises and therefore cannot
-    -- from out here is an undefined global, which luacheck caught.
+    -- return one.
     local PASS_DEFAULT_MS = 250
     while true do
         -- The Wait is HERE, outside the guard's pcall, so a yield cannot be swallowed
@@ -479,9 +518,7 @@ debugStats.lastPassMs = GetGameTimer() - started
 end)
 
 CreateThread(function()
-    if not CisReadyState.wait(15000) then
-        return
-    end
+    awaitReady()
     -- GUARDED (3.10): an `inside` callback raising used to end this loop for good, and
     local tickInside = CisLoopGuard.Body('client.zones.inside', function()
         local drew = false
@@ -510,7 +547,7 @@ AddEventHandler('onResourceStop', function(resource)
     for i = 1, #freed do
         if freed[i].kind == 'zone' then
             -- Under pcall: `onExitEvent` is a TriggerServerEvent into a resource that
-            pcall(CisZonesRemove, freed[i].id)
+            pcall(removeZone, freed[i].id)
         end
     end
     if #freed > 0 then
@@ -522,7 +559,16 @@ exports('CreateZone', CisZonesCreate)
 exports('RemoveZone', CisZonesRemove)
 exports('ZoneContains', CisZonesContains)
 
+-- Built on request rather than on every pass: the pass used to rebuild and SORT
+-- this list for a debug view nobody was reading.
 exports('GetZoneDebug', function()
+    local names = {}
+    for id in pairs(inside) do
+        names[#names + 1] = id
+    end
+    table.sort(names)
+    debugStats.insideCount = #names
+    debugStats.insideNames = names
     return debugStats
 end)
 
