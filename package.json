@@ -6,9 +6,10 @@
   "license": "SEE LICENSE IN LICENSE.md",
   "scripts": {
     "test": "node test/run.js",
+    "test:web": "node test/web/run.mjs",
     "test:api": "node tools/validate-api.js --api api.lua --resource .",
     "test:api-selftest": "node tools/validate-api.js --selftest",
-    "test:all": "npm run lint && npm run check:luacheck && npm run check-realms && npm run test:syntax && npm run test && npm run test:lua54 && npm run test:scanner && npm run test:api-selftest && npm run test:api && npm run gen-types:check && npm run docs-check && npm run package",
+    "test:all": "npm run lint && npm run check:luacheck && npm run check-realms && npm run test:syntax && npm run test && npm run test:web && npm run test:lua54 && npm run test:scanner && npm run test:api-selftest && npm run test:api && npm run gen-types:check && npm run docs-check && npm run package",
     "docs-check": "node tools/docs-check.js",
     "package": "node tools/check-package.js",
     "test:syntax": "node tools/syntax-check.js",

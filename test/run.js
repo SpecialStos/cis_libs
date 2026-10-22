@@ -24,6 +24,7 @@ const SUITES = [
   ['test/contracts.lua', 'exports and init boundary'],
   ['test/modules.lua', 'algo and util modules'],
   ['test/client.lua', 'client modules'],
+  ['test/interface.lua', 'NUI interface layer'],
   ['test/server.lua', 'server modules'],
   ['test/ctl-allow.lua', 'cis_ctl command allow-list'],
   ['test/examples.lua', 'lua example fences'],

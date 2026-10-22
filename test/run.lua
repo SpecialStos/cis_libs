@@ -91,7 +91,7 @@ if not CIS_SUITE_MODE then
     for _, v in ipairs(ALGO_UTIL) do BOTH[#BOTH + 1] = v end
     local SUITES = {
         'test/run.lua', 'test/binding.lua', 'test/contracts.lua',
-        'test/modules.lua', 'test/client.lua', 'test/server.lua',
+        'test/modules.lua', 'test/client.lua', 'test/interface.lua', 'test/server.lua',
         'test/ctl-allow.lua', 'test/examples.lua',
     }
     local PRELOAD = {
@@ -100,6 +100,7 @@ if not CIS_SUITE_MODE then
         ['test/contracts.lua'] = BOTH,
         ['test/modules.lua'] = BOTH,
         ['test/client.lua'] = BOTH,
+        ['test/interface.lua'] = SHARED,
         ['test/server.lua'] = BOTH,
         -- The cis_ctl allow-list on its own: it is pure Lua and depends on none
         -- of the library's modules, so loading them would only give this suite
