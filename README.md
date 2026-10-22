@@ -107,13 +107,17 @@ caller VM does not collect cis_libs.
 Report a still-exploitable mutator bypass as a **private** GitHub security
 advisory on this repository. Do not file a public issue for that.
 
-Work on branch `cis_libs-2.2`. Do not push `main`. Do not tag.
+## Development
 
 ```
-npm test
-npm run test:all
-npm run test:mutate
+npm ci
+npm test              # every suite under fengari (Lua 5.3 semantics)
+npm run test:all      # the full gate CI runs, including a real Lua 5.4
+npm run test:mutate   # every known defect must break the suite
 ```
+
+`npm run test:lua54` needs `lua5.4` on PATH (or `LUAC_LUA54`). Without one it
+skips with a warning locally and fails when `CI` is set.
 
 `npm run live:run` stops `cis_libs` and kills client scripts for anyone joined.
 After a `cis_libs` restart, they reconnect. Never log player names or IPs.

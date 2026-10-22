@@ -1,7 +1,8 @@
 # cis_libs — documentation
 
-**Version 1.0.0.** Contract **`api = 1`**. The archived monolith document is
-`docs/archive/DOCUMENTATION-1.x.md`. It is not current.
+**Version 1.0.0**, the first public release. Contract **`api = 1`**.
+`docs/archive/DOCUMENTATION-1.x.md` describes the unpublished development
+builds that preceded 1.0.0. It is not current and documents no release.
 
 The machine-readable contract is `api.lua`. It is not listed in `fxmanifest.lua`.
 Load it with `loadfile`. `npm run test:api` fails if `api.lua` and the
@@ -16,8 +17,9 @@ Three facts the suite enforces:
 
 1. **`cis_libs` owns no table, reads no config file, and calls no third-party
    resource by name.** It is a boundary, not an implementation.
-2. **The `Cis.*` names did not change in the 2.0 split.** A 1.x consumer keeps
-   the same manifest line and the same calls. The contract major is still `1`.
+2. **The contract is versioned on its own.** `api.lua` declares `api = 1`; the
+   product version (1.0.0) can move without it. A consumer checks the
+   contract major, not the product version.
 3. **A missing product is a refusal with a reason**, not a nil that looks like
    "not found". Run `cis_debug` on the server console.
 
@@ -787,7 +789,7 @@ Generated from `api.lua`. Do not edit between the markers.
 The generated event table is in §6. Doorlock names belong to `cis_keys`.
 Framework event names belong to `cis_core`. `jobUpdated` and `playerLoaded` are
 fired here when a product calls `PublishJobUpdate` / `PublishPlayerLoaded`.
-`DoorData` was removed from the `getData` payload in 2.0.0.
+The `getData` payload carries no `DoorData`.
 
 ---
 

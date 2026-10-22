@@ -6,9 +6,98 @@ All notable changes to `cis_libs`. The format follows
 
 The **contract** is versioned separately and is still `api = 1`.
 
-## [1.0.0] — 2026-10-06
+## [Unreleased]
 
-First public product version.
+Correctness work on the fifteen `Cis.require` modules, the loader, CI and
+packaging. Several fixes change a documented answer; they are listed under
+**Changed** so nobody upgrades into them blind.
+
+### Changed
+
+- **`interp.headingToVector` / `vectorToHeading` follow GTA.** Heading 0 faces
+  +Y and 90 faces −X, the vector `GetEntityForwardVector` answers:
+  `(-sin h, cos h)`. They were 180° off.
+- **`interp.headingDelta` is the shortest signed arc**, in [-180, 180), so
+  `lerpHeading(10, 350, .5)` is 0 rather than 180.
+- **`semver` is SemVer 2.0.0-strict by default.** `'1'`, `'1.2'`, `'v1.2.3'`,
+  padded input, `'1..2'`, empty or `_` identifiers and leading zeros are
+  refused with a reason; pass `{ loose = true }` to read hand-written versions.
+  A version table is validated. Ranges follow node-semver, including `^0.x`,
+  X-ranges with operators, `~>`, hyphen ranges and `includePrerelease`; an
+  empty range or empty `||` alternative means any release, as in npm.
+- **`json.checkEncodable` (and so `json.encode`) refuses tables codecs
+  disagree on**: mixed string/number keys, sparse arrays, fractional or
+  sub-1 number keys, each named by path.
+- **`table.deepCopy` keeps keys by identity** and copies only values;
+  **`table.map` keeps a nil result as nil** instead of `false`;
+  **`table.reduce({}, fn)`** with no initial value answers `nil, reason`.
+- **`rate`**: an omitted `now` reads `GetGameTimer() / 1000` (`os.time()`
+  outside FiveM); a NaN or non-number `now` raises. It was coerced to 0, which
+  pinned a fixed window shut forever.
+- **`random.integer` and `generator:int` round fractional bounds inward**
+  (`integer(1.5, 3.5)` draws 2 or 3) and refuse a range with no integer in it.
+- **`string.truncate` counts characters**, not bytes, and floors a fractional
+  `max`.
+- **`heap.push` refuses nil** (and NaN under the default ordering) with
+  `nil, reason`.
+
+### Added
+
+- **`Cis.require` loads your own modules**: `'folder.file'`, `'folder/file'`
+  and `'./file'` from the calling resource, `'@resource/folder/file'` from any
+  resource. Read once per Lua state, text-only, in a private environment; see
+  DOCUMENTATION.md §5.1.
+- **A per-module function reference** (DOCUMENTATION.md §5.1) and typed module
+  fields in `types/cis_libs.lua`, both generated from `---@param`/`---@return`
+  annotations that every module function now carries.
+- `.github/workflows/release.yml` refuses a tag that is not
+  `v<package.json version>`.
+
+### Fixed
+
+- `Cis.require`: a circular require raised a stack overflow naming nothing; it
+  now raises at once with the chain. `Cis.moduleInfo` handed out the loader's
+  live `deps` list. `Cis.require('lru')` was typed as `table`.
+- `Cis.waitFor` raised on a fractional `timeoutMs` (`%d` in Lua 5.4).
+- `interp` and `curve` answered zeros for FiveM `vector2/3/4` points.
+- `curve`: centripetal (alpha > 0) Catmull-Rom tangents lacked the knot
+  scaling; they now match Barry-Goldman.
+- `interp.moveTowardsVec3` never moved a 2D point; `smoothDamp` raised on a
+  negative `maxSpeed`.
+- `lru.each` looped forever or indexed nil when the callback called `get`,
+  `remove` or `clear`.
+- `rate`: a sliding-window key whose first call was refused raised on its next
+  call.
+- `random.sample(list, 2.5)` returned the whole list.
+- `window.newDedupe` raised sub-second windows to one second; `window` stats
+  mishandled negative timestamps.
+- `sparse.clear` (soft) kept references to every former member.
+- `id.uuid` raised on a `CisRandom` generator object.
+- `json.decode` read a codec's `nil, err` (or dkjson's `nil, pos, err`) as a
+  successful JSON null; `json.checkEncodable` and `table.findCycle` /
+  `deepMerge` were exponential on shared subtables.
+- `table.keys`/`values`/`each` invented or lost keys on arrays with holes;
+  `table.sortBy` was not stable with a boolean comparator; `table.depth`
+  could miss the deeper route to a shared table.
+- `time.relative`/`formatDuration` and `validate` length/entry bounds raised
+  on `%d` of a huge or fractional number; `validate.isInteger(math.huge)` was
+  true.
+- CI: both workflows used `runs-on: ${{ env.RUNNER }}`, which GitHub cannot
+  evaluate, so neither could start. They now pin `ubuntu-24.04`, run with a
+  read-only token (release: `contents: write`), and `tests` no longer runs
+  twice for each commit on a pull-request branch.
+- `npm run test:lua54` exits non-zero when no interpreter is found and `CI` is
+  set (it skipped with exit 0).
+- `npm run package` builds a reproducible zip: fixed timestamps, entries in
+  name order, verified by building twice.
+- `.luarc.json` declared LuaJIT; FiveM runs CfxLua 5.4.
+
+## [1.0.0] — 2026-10-07
+
+First public release. There is no earlier published version. Where an entry
+below says "before 1.0.0", "used to" or "gone", it compares against the
+unpublished development builds described in `docs/archive/DOCUMENTATION-1.x.md`,
+for anyone who ran one of those.
 
 ### Licence
 
@@ -22,7 +111,7 @@ First public product version.
   injected into consumers, where `GetCurrentResourceName()` is the consumer.
 - Corrected the platform spelling to Cisoko.
 
-1.x alias exports are gone: `Database*`, `GetFramework`, `GetGlobals`,
+The development builds' alias exports are not in 1.0.0: `Database*`, `GetFramework`, `GetGlobals`,
 `GetPolyzones`, `CreateSafeCallback`, `CheckResourceVersion`. Use `DbQuery` /
 `Cis.db.*`, `GetNormalizedPlayer`, `Cis.player.*`, `Cis.zones.*`,
 `Cis.callback.register`. Door exports (`GetDoorState`, `LockDoors`, …) stay;
@@ -108,7 +197,7 @@ careful configuration is never the weaker one.
   options table. Before this it emitted `---@param x any` for all 258
   parameters, and declared nothing at all about the `Cis.*` surface — which is
   the half a consumer actually calls. A consumer adds one path to their
-  `.luarc.json` `workspace.library`; see DOCUMENTATION.md §4.9. `.luarc.json`
+  `.luarc.json` `workspace.library`; see DOCUMENTATION.md §1. `.luarc.json`
   ships for contributors.
 - **`Cis.require(name)` is typed as the module, not as `table`.** One
   `---@overload` per module, generated from the same `modules` block the
@@ -146,7 +235,7 @@ careful configuration is never the weaker one.
   value. `false` is "not yet". Timeout answers `nil, reason` and names `msg`;
   it does not raise. Default 10000 ms. NaN and infinity are refused — both
   would loop forever.
-- **`Cis.ui` (client, ).** `Cis.ui.notify`, `Cis.ui.textUI.show/hide/isOpen`
+- **`Cis.ui` (client).** `Cis.ui.notify`, `Cis.ui.textUI.show/hide/isOpen`
   with native fallbacks (GTA feed and help text); `Cis.ui.progress`,
   `Cis.ui.confirm`, `Cis.ui.input` forward only and answer `false, 'no ui provider'`
   without a provider. cis_libs still ships no NUI. This is not
