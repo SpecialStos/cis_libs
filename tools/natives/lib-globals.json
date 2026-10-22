@@ -106,6 +106,14 @@
         "server/player.lua"
       ]
     },
+    "CisGetClosestVehicle": {
+      "realms": [
+        "client"
+      ],
+      "files": [
+        "client/vehicle.lua"
+      ]
+    },
     "CisGrid": {
       "realms": [
         "shared"
@@ -694,14 +702,6 @@
       ],
       "files": [
         "client/utils.lua"
-      ]
-    },
-    "GetClosestVehicle": {
-      "realms": [
-        "client"
-      ],
-      "files": [
-        "client/vehicle.lua"
       ]
     },
     "GetCurrentWeaponData": {

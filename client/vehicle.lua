@@ -1,17 +1,21 @@
 -- Vehicle property capture and apply.
 --
--- `lastApplied` is the reason this file is stateful: SetVehicleProperties
--- diffs every field against its own last-applied snapshot so that calling it
--- on a moving synced vehicle is cheap and skips unchanged fields. Drop the
--- table and every apply becomes a full rewrite of every mod. It is keyed by
--- handle, and handles are recycled, so it is swept (see the thread below).
+-- FIELD-COMPATIBLE WITH ox_lib's getVehicleProperties / setVehicleProperties:
+-- the same field names, the same value shapes and the same meanings, so a row a
+-- garage saved through either library applies through the other. Where this
+-- file used to disagree it was wrong on a live server, not merely different:
+-- `bulletProofTyres` held the inverse of its name, extras 0 and 16-20 were never
+-- read, and five fields were read and never written back.
 --
--- Get returns EVERYTHING; Set applies only what changed and only what is
--- present. A partial props table is therefore safe to pass in -- missing keys
--- are left alone rather than zeroed.
-
-local GetClosestVehicleNative = GetClosestVehicle
-local lastApplied = {}
+-- Get returns EVERYTHING; Set applies what is PRESENT and nothing else, so a
+-- partial props table is safe -- missing keys are left alone rather than zeroed.
+--
+-- THERE IS NO DIFF. Set used to compare every field against a snapshot of what
+-- it last applied, keyed by entity handle. Anything else that changed the
+-- vehicle -- gameplay damage, another resource, a repair -- made the snapshot a
+-- lie, so a re-apply of the saved props was skipped exactly when it was needed;
+-- and handles are recycled, so a new vehicle inherited the old one's snapshot.
+-- Every field is a handful of natives, applied when asked.
 
 local function gameBuild()
     if Globals and Globals.ServerInfo and Globals.ServerInfo.GameBuild then
@@ -20,25 +24,28 @@ local function gameBuild()
     return GetGameBuildNumber()
 end
 
-local function sameValue(a, b)
-    if a == b then
-        return true
-    end
-    if type(a) ~= 'table' or type(b) ~= 'table' then
-        return false
-    end
-    for k, v in pairs(a) do
-        if not sameValue(v, b[k]) then
-            return false
-        end
-    end
-    for k in pairs(b) do
-        if a[k] == nil then
-            return false
-        end
-    end
-    return true
-end
+-- Tyre indices, as SET_VEHICLE_TYRE_BURST numbers them: 0-5 for the four (or
+-- six) road wheels, 6-7 for a bike, and 45 / 47 for the middle pair of a
+-- six-wheeled trailer.
+local TYRES = { 0, 1, 2, 3, 4, 5, 6, 7, 45, 47 }
+
+-- Every mod slot SetVehicleMod writes by index. 18, 20, 21 and 22 are toggles
+-- and are handled separately; 23 and 24 carry the custom-tyre flag; 48 is the
+-- livery and is applied with SetVehicleLivery as well.
+local MODS = {
+    modSpoilers = 0, modFrontBumper = 1, modRearBumper = 2, modSideSkirt = 3, modExhaust = 4,
+    modFrame = 5, modGrille = 6, modHood = 7, modFender = 8, modRightFender = 9, modRoof = 10,
+    modEngine = 11, modBrakes = 12, modTransmission = 13, modHorns = 14, modSuspension = 15,
+    modArmor = 16, modNitrous = 17, modSubwoofer = 19, modPlateHolder = 25, modVanityPlate = 26,
+    modTrimA = 27, modOrnaments = 28, modDashboard = 29, modDial = 30, modDoorSpeaker = 31,
+    modSeats = 32, modSteeringWheel = 33, modShifterLeavers = 34, modAPlate = 35, modSpeakers = 36,
+    modTrunk = 37, modHydrolic = 38, modEngineBlock = 39, modAirFilter = 40, modStruts = 41,
+    modArchCover = 42, modAerials = 43, modTrimB = 44, modTank = 45, modWindows = 46,
+    modDoorR = 47, modLightbar = 49,
+}
+
+-- The VMT_* toggles (TOGGLE_VEHICLE_MOD / IS_TOGGLE_MOD_ON), as ox_lib reads them.
+local TOGGLES = { modTurbo = 18, modSmokeEnabled = 20, modHydraulics = 21, modXenon = 22 }
 
 function GetVehicleProperties(vehicle)
     if not DoesEntityExist(vehicle) then
@@ -59,12 +66,11 @@ function GetVehicleProperties(vehicle)
         colorSecondary = { GetVehicleCustomSecondaryColour(vehicle) }
     end
 
-    -- Extras are stored as the native's `disable` flag, not as a boolean: 0 is an
-    -- extra that was ON, 1 is one that was OFF. `IsVehicleExtraTurnedOn` is the
-    -- getter here -- there is no `GetVehicleExtra` native, and a call to one
-    -- raises "attempt to call a nil value" rather than failing quietly.
+    -- Extras 0..20, stored as the native's `disable` flag: 0 is an extra that was
+    -- ON, 1 is one that was OFF. `IsVehicleExtraTurnedOn` is the getter -- there
+    -- is no `GetVehicleExtra` native.
     local extras = {}
-    for i = 1, 15 do
+    for i = 0, 20 do
         if DoesExtraExist(vehicle, i) then
             extras[i] = IsVehicleExtraTurnedOn(vehicle, i) and 0 or 1
         end
@@ -93,7 +99,7 @@ function GetVehicleProperties(vehicle)
             damage.doors[doors] = i
         end
     end
-    for i = 0, 7 do
+    for _, i in ipairs(TYRES) do
         if IsVehicleTyreBurst(vehicle, i, false) then
             damage.tyres[i] = IsVehicleTyreBurst(vehicle, i, true) and 2 or 1
         end
@@ -104,11 +110,12 @@ function GetVehicleProperties(vehicle)
         neons[i + 1] = IsVehicleNeonLightEnabled(vehicle, i)
     end
 
-    return {
+    local props = {
         model = GetEntityModel(vehicle),
         plate = GetVehicleNumberPlateText(vehicle),
         plateIndex = GetVehicleNumberPlateTextIndex(vehicle),
-        -- 0 is unlocked. GET_VEHICLE_DOOR_LOCK_STATUS -> int.
+        -- 0 is unlocked. GET_VEHICLE_DOOR_LOCK_STATUS -> int. Not an ox_lib field;
+        -- an extra one, applied only when present.
         lockState = GetVehicleDoorLockStatus(vehicle),
         bodyHealth = math.floor(GetVehicleBodyHealth(vehicle) + 0.5),
         engineHealth = math.floor(GetVehicleEngineHealth(vehicle) + 0.5),
@@ -133,322 +140,206 @@ function GetVehicleProperties(vehicle)
         neonColor = { GetVehicleNeonLightsColour(vehicle) },
         extras = extras,
         tyreSmokeColor = { GetVehicleTyreSmokeColor(vehicle) },
-        modSpoilers = GetVehicleMod(vehicle, 0),
-        modFrontBumper = GetVehicleMod(vehicle, 1),
-        modRearBumper = GetVehicleMod(vehicle, 2),
-        modSideSkirt = GetVehicleMod(vehicle, 3),
-        modExhaust = GetVehicleMod(vehicle, 4),
-        modFrame = GetVehicleMod(vehicle, 5),
-        modGrille = GetVehicleMod(vehicle, 6),
-        modHood = GetVehicleMod(vehicle, 7),
-        modFender = GetVehicleMod(vehicle, 8),
-        modRightFender = GetVehicleMod(vehicle, 9),
-        modRoof = GetVehicleMod(vehicle, 10),
-        modEngine = GetVehicleMod(vehicle, 11),
-        modBrakes = GetVehicleMod(vehicle, 12),
-        modTransmission = GetVehicleMod(vehicle, 13),
-        modHorns = GetVehicleMod(vehicle, 14),
-        modSuspension = GetVehicleMod(vehicle, 15),
-        modArmor = GetVehicleMod(vehicle, 16),
-        modNitrous = GetVehicleMod(vehicle, 17),
-        modTurbo = IsToggleModOn(vehicle, 18),
-        modSubwoofer = GetVehicleMod(vehicle, 19),
-        modSmokeEnabled = IsToggleModOn(vehicle, 20),
-        modHydraulics = IsToggleModOn(vehicle, 21),
-        modXenon = IsToggleModOn(vehicle, 22),
         modFrontWheels = GetVehicleMod(vehicle, 23),
         modBackWheels = GetVehicleMod(vehicle, 24),
         modCustomTiresF = GetVehicleModVariation(vehicle, 23),
         modCustomTiresR = GetVehicleModVariation(vehicle, 24),
-        modPlateHolder = GetVehicleMod(vehicle, 25),
-        modVanityPlate = GetVehicleMod(vehicle, 26),
-        modTrimA = GetVehicleMod(vehicle, 27),
-        modOrnaments = GetVehicleMod(vehicle, 28),
-        modDashboard = GetVehicleMod(vehicle, 29),
-        modDial = GetVehicleMod(vehicle, 30),
-        modDoorSpeaker = GetVehicleMod(vehicle, 31),
-        modSeats = GetVehicleMod(vehicle, 32),
-        modSteeringWheel = GetVehicleMod(vehicle, 33),
-        modShifterLeavers = GetVehicleMod(vehicle, 34),
-        modAPlate = GetVehicleMod(vehicle, 35),
-        modSpeakers = GetVehicleMod(vehicle, 36),
-        modTrunk = GetVehicleMod(vehicle, 37),
-        modHydrolic = GetVehicleMod(vehicle, 38),
-        modEngineBlock = GetVehicleMod(vehicle, 39),
-        modAirFilter = GetVehicleMod(vehicle, 40),
-        modStruts = GetVehicleMod(vehicle, 41),
-        modArchCover = GetVehicleMod(vehicle, 42),
-        modAerials = GetVehicleMod(vehicle, 43),
-        modTrimB = GetVehicleMod(vehicle, 44),
-        modTank = GetVehicleMod(vehicle, 45),
-        modWindows = GetVehicleMod(vehicle, 46),
-        modDoorR = GetVehicleMod(vehicle, 47),
         modLivery = modLivery,
         -- livery (GetVehicleLivery) and modLivery (mod 48) are not the same
         -- number on every vehicle.
         livery = GetVehicleLivery(vehicle),
         modRoofLivery = GetVehicleRoofLivery(vehicle),
-        modLightbar = GetVehicleMod(vehicle, 49),
         windows = damage.windows,
         doors = damage.doors,
         tyres = damage.tyres,
-        bulletProofTyres = GetVehicleTyresCanBurst(vehicle),
+        -- THE NAME IS THE MEANING. GET_VEHICLE_TYRES_CAN_BURST answers whether
+        -- the tyres CAN burst, so a bulletproof set is the negation -- as ox_lib
+        -- and qb store it. Storing the native's answer as-is made every saved
+        -- "bulletproof" vehicle burstable and the reverse.
+        bulletProofTyres = not GetVehicleTyresCanBurst(vehicle),
         driftTyres = gameBuild() >= 2372 and GetDriftTyresEnabled(vehicle),
     }
+    for key, index in pairs(MODS) do
+        props[key] = GetVehicleMod(vehicle, index)
+    end
+    for key, index in pairs(TOGGLES) do
+        props[key] = IsToggleModOn(vehicle, index)
+    end
+    return props
 end
 
--- Returns whether this client is allowed to modify the vehicle at all --
--- networked and not owned by anyone else. A consumer that ignores the return
--- writes to vehicles it has no authority over, which the server sees as a
--- desync it cannot explain.
-function SetVehicleProperties(vehicle, props, fixVehicle)
-    if not DoesEntityExist(vehicle) or type(props) ~= 'table' then
-        return false
-    end
-
-    local prev = lastApplied[vehicle]
-    local function changed(key)
-        if props[key] == nil then
-            return false
-        end
-        if prev and sameValue(prev[key], props[key]) then
-            return false
-        end
+-- WRITING NEEDS NETWORK CONTROL. A client writing to a networked vehicle it
+-- does not control is overwritten by the owner's next sync, so the write looks
+-- like it worked and silently does not. Control is requested and the call
+-- answers `false, reason` at once rather than blocking: the caller -- a sync
+-- loop, a garage -- retries on its own schedule.
+local function hasControl(vehicle)
+    if not NetworkGetEntityIsNetworked(vehicle) then
         return true
     end
+    if NetworkHasControlOfEntity(vehicle) then
+        return true
+    end
+    NetworkRequestControlOfEntity(vehicle)
+    return false
+end
 
-    SetVehicleModKit(vehicle, 0)
+-- Applies what `props` names and nothing else.
+-- @return true, or false plus a reason. Nothing is written on a refusal.
+function SetVehicleProperties(vehicle, props, fixVehicle)
+    if not DoesEntityExist(vehicle) then
+        return false, 'the vehicle does not exist'
+    end
+    if type(props) ~= 'table' then
+        return false, ('props arrived as %s, not a table'):format(type(props))
+    end
+    if not hasControl(vehicle) then
+        return false, 'this client does not control the vehicle; control was requested, retry'
+    end
 
+    -- Read BEFORE anything is written, so an omitted colour keeps the vehicle's own.
     local colorPrimary, colorSecondary = GetVehicleColours(vehicle)
     local pearlescentColor, wheelColor = GetVehicleExtraColours(vehicle)
 
-    -- THE COLOURS DIFF AGAINST THE VEHICLE, NOT AGAINST THE SNAPSHOT ().
-    --
-    -- Every other field is a property of the vehicle that only cis_libs writes,
-    -- so the snapshot is an accurate record of it. A colour is not: another
-    -- resource can repaint a synced vehicle, the game can, and a repair shop can.
-    -- The snapshot would still say "colour 55 was applied", the props would still
-    -- say 55, and the two agree -- while the vehicle is a different colour. So
-    -- the vehicle is asked instead, and the snapshot is only a fallback for the
-    -- custom-RGB case where there is no single number to read back.
-    --
-    -- Two natives per apply, against a function that already calls a dozen. That
-    -- is what it costs to notice a colour somebody else changed.
-    local function colourChanged(which)
-        local wanted = props[which]
-        if wanted == nil then
-            return false
-        end
-        if type(wanted) == 'number' then
-            local live = which == 'color1' and colorPrimary or colorSecondary
-            return live ~= wanted
-        end
-        -- A custom RGB: compare against the snapshot, which records what was
-        -- applied last time. Nothing on the vehicle answers "is the custom
-        -- primary colour exactly this RGB" without a second native pair, and the
-        -- snapshot is right for every change cis_libs itself made.
-        if prev and sameValue(prev[which], wanted) then
-            return false
-        end
-        return true
+    SetVehicleModKit(vehicle, 0)
+
+    -- REPAIR FIRST. SetVehicleFixed restores health, glass, doors and tyres, so
+    -- running it after the props were applied undid the saved damage it was
+    -- handed -- a vehicle stored with two burst tyres came back pristine.
+    if fixVehicle then
+        SetVehicleFixed(vehicle)
     end
 
-    -- What this apply actually sets, recorded below for the snapshot.
-    --
-    -- It starts EMPTY rather than at the live colours. An omitted key has to
-    -- record nil, not the vehicle's current value: recording the live value
-    -- would make the snapshot claim a colour was applied when it was not, and a
-    -- later props that DOES name it would diff against it and be skipped.
-    local appliedColor1, appliedColor2
-
-    -- lockState 0 is a real state (unlocked). `changed` uses ~= nil, so 0 applies.
-    -- SET_VEHICLE_DOORS_LOCKED (0xB664292EA429E1DC).
-    if changed('lockState') then SetVehicleDoorsLocked(vehicle, props.lockState) end
-    if changed('plate') then SetVehicleNumberPlateText(vehicle, props.plate) end
-    if changed('plateIndex') then SetVehicleNumberPlateTextIndex(vehicle, props.plateIndex) end
-    if changed('bodyHealth') then SetVehicleBodyHealth(vehicle, props.bodyHealth + 0.0) end
-    if changed('engineHealth') then SetVehicleEngineHealth(vehicle, props.engineHealth + 0.0) end
-    if changed('tankHealth') then SetVehiclePetrolTankHealth(vehicle, props.tankHealth + 0.0) end
-    if changed('fuelLevel') then SetVehicleFuelLevel(vehicle, props.fuelLevel + 0.0) end
-    if changed('oilLevel') then SetVehicleOilLevel(vehicle, props.oilLevel + 0.0) end
-    if changed('dirtLevel') then SetVehicleDirtLevel(vehicle, props.dirtLevel + 0.0) end
-
-    if colourChanged('color1') then
-        if type(props.color1) == 'number' then
-            ClearVehicleCustomPrimaryColour(vehicle)
-            -- THE LIVE secondary, never `props.color2`: a props table that sets
-            -- only color1 must not blank the secondary it never mentioned.
-            SetVehicleColours(vehicle, props.color1, colorSecondary)
-            appliedColor1 = props.color1
-        else
-            if props.paintType1 then SetVehicleModColor_1(vehicle, props.paintType1, colorPrimary, pearlescentColor) end
-            SetVehicleCustomPrimaryColour(vehicle, props.color1[1], props.color1[2], props.color1[3])
-            -- Recorded as a table, but a FRESH one built from the applied values
-            -- rather than the caller's, so the comparison next pass is against
-            -- what the vehicle has.
-            appliedColor1 = { props.color1[1], props.color1[2], props.color1[3] }
-        end
-    end
-
-    if colourChanged('color2') then
-        if type(props.color2) == 'number' then
-            ClearVehicleCustomSecondaryColour(vehicle)
-            SetVehicleColours(vehicle, appliedColor1, props.color2)
-            appliedColor2 = props.color2
-        else
-            if props.paintType2 then SetVehicleModColor_2(vehicle, props.paintType2, colorSecondary) end
-            SetVehicleCustomSecondaryColour(vehicle, props.color2[1], props.color2[2], props.color2[3])
-            appliedColor2 = { props.color2[1], props.color2[2], props.color2[3] }
-        end
-    end
-
-    if changed('pearlescentColor') or changed('wheelColor') then
-        SetVehicleExtraColours(vehicle, props.pearlescentColor or pearlescentColor, props.wheelColor or wheelColor)
-    end
-
-    if changed('wheels') then SetVehicleWheelType(vehicle, props.wheels) end
-    if changed('windowTint') then SetVehicleWindowTint(vehicle, props.windowTint) end
-
-    if changed('neonEnabled') then
-        for i = 1, #props.neonEnabled do
-            SetVehicleNeonLightEnabled(vehicle, i - 1, props.neonEnabled[i])
-        end
-    end
-
-    if changed('extras') then
-        -- THE NATIVE'S THIRD PARAMETER IS `disable`, and the getter above stores
-        -- 0 for an extra that was ON and 1 for one that was OFF, so the stored
-        -- value IS that flag. Comparing it the other way round inverts every
-        -- restored extra.
-        --
-        -- SENT AS AN INTEGER. The declaration types it `BOOL disable`, but
-        -- carries the note "Confirmed p2 does not work as a bool. Changed to
-        -- int. [0=on, 1=off]" (citizenfx/natives, SET_VEHICLE_EXTRA.md), so a
-        -- Lua `true` is a value the native's own documentation says it does not
-        -- accept. `disable == 1 and 1 or 0` produces the documented 1/0 rather
-        -- than relying on the marshaller's handling of a boolean.
+    if props.extras then
+        -- THE NATIVE'S THIRD PARAMETER IS `disable`, and the getter stores 0 for
+        -- an extra that was ON and 1 for one that was OFF, so the stored value IS
+        -- that flag. SENT AS AN INTEGER: the declaration carries the note
+        -- "Confirmed p2 does not work as a bool. Changed to int. [0=on, 1=off]"
+        -- (citizenfx/natives, SET_VEHICLE_EXTRA.md).
         for id, disable in pairs(props.extras) do
             SetVehicleExtra(vehicle, tonumber(id), disable == 1 and 1 or 0)
         end
     end
 
-    if changed('windows') then
+    -- lockState 0 is a real state (unlocked), so presence is `~= nil`.
+    if props.lockState ~= nil then SetVehicleDoorsLocked(vehicle, props.lockState) end
+    if props.plate then SetVehicleNumberPlateText(vehicle, props.plate) end
+    if props.plateIndex then SetVehicleNumberPlateTextIndex(vehicle, props.plateIndex) end
+    if props.bodyHealth then SetVehicleBodyHealth(vehicle, props.bodyHealth + 0.0) end
+    if props.engineHealth then SetVehicleEngineHealth(vehicle, props.engineHealth + 0.0) end
+    if props.tankHealth then SetVehiclePetrolTankHealth(vehicle, props.tankHealth + 0.0) end
+    if props.fuelLevel then SetVehicleFuelLevel(vehicle, props.fuelLevel + 0.0) end
+    if props.oilLevel then SetVehicleOilLevel(vehicle, props.oilLevel + 0.0) end
+    if props.dirtLevel then SetVehicleDirtLevel(vehicle, props.dirtLevel + 0.0) end
+
+    -- COLOURS. A palette colour is a NUMBER, a custom one an { r, g, b } table,
+    -- and the two are written by different natives.
+    --
+    -- SetVehicleColours takes BOTH indices, so the side the props do not name as
+    -- a palette number keeps the vehicle's live index. It used to be handed
+    -- "whatever color1 applied", which was nil when only color2 was given (the
+    -- primary reset to black) and a TABLE when color1 was custom (the native
+    -- raised, and every property after it was never applied).
+    local c1, c2 = props.color1, props.color2
+    local palette1 = type(c1) == 'number'
+    local palette2 = type(c2) == 'number'
+    if palette1 or palette2 then
+        -- The finish first: SET_VEHICLE_MOD_COLOR_* sets the paint type and an
+        -- index within it, and SetVehicleColours then sets the palette colour.
+        if palette1 then
+            ClearVehicleCustomPrimaryColour(vehicle)
+            if props.paintType1 then SetVehicleModColor_1(vehicle, props.paintType1, 0, props.pearlescentColor or pearlescentColor) end
+        end
+        if palette2 then
+            ClearVehicleCustomSecondaryColour(vehicle)
+            if props.paintType2 then SetVehicleModColor_2(vehicle, props.paintType2, 0) end
+        end
+        SetVehicleColours(vehicle, palette1 and c1 or colorPrimary, palette2 and c2 or colorSecondary)
+    end
+    if type(c1) == 'table' then
+        if props.paintType1 then SetVehicleModColor_1(vehicle, props.paintType1, 0, props.pearlescentColor or pearlescentColor) end
+        SetVehicleCustomPrimaryColour(vehicle, c1[1], c1[2], c1[3])
+    end
+    if type(c2) == 'table' then
+        if props.paintType2 then SetVehicleModColor_2(vehicle, props.paintType2, 0) end
+        SetVehicleCustomSecondaryColour(vehicle, c2[1], c2[2], c2[3])
+    end
+
+    if props.pearlescentColor or props.wheelColor then
+        SetVehicleExtraColours(vehicle, props.pearlescentColor or pearlescentColor, props.wheelColor or wheelColor)
+    end
+    if props.interiorColor then SetVehicleInteriorColor(vehicle, props.interiorColor) end
+    if props.dashboardColor then SetVehicleDashboardColor(vehicle, props.dashboardColor) end
+
+    if props.wheels then SetVehicleWheelType(vehicle, props.wheels) end
+    if props.windowTint then SetVehicleWindowTint(vehicle, props.windowTint) end
+
+    if props.neonEnabled then
+        for i = 1, #props.neonEnabled do
+            SetVehicleNeonLightEnabled(vehicle, i - 1, props.neonEnabled[i])
+        end
+    end
+    if props.neonColor then
+        SetVehicleNeonLightsColour(vehicle, props.neonColor[1], props.neonColor[2], props.neonColor[3])
+    end
+
+    if props.windows then
         for i = 1, #props.windows do
             RemoveVehicleWindow(vehicle, props.windows[i])
         end
     end
-
-    if changed('doors') then
+    if props.doors then
         for i = 1, #props.doors do
             SetVehicleDoorBroken(vehicle, props.doors[i], true)
         end
     end
-
-    if changed('tyres') then
+    if props.tyres then
         for tyre, state in pairs(props.tyres) do
             SetVehicleTyreBurst(vehicle, tonumber(tyre), state == 2, 1000.0)
         end
     end
 
-    if changed('neonColor') then
-        SetVehicleNeonLightsColour(vehicle, props.neonColor[1], props.neonColor[2], props.neonColor[3])
-    end
-
-    if changed('modSmokeEnabled') then ToggleVehicleMod(vehicle, 20, props.modSmokeEnabled) end
-    if changed('tyreSmokeColor') then
+    if props.tyreSmokeColor then
         SetVehicleTyreSmokeColor(vehicle, props.tyreSmokeColor[1], props.tyreSmokeColor[2], props.tyreSmokeColor[3])
     end
 
-    local mods = {
-        modSpoilers = 0, modFrontBumper = 1, modRearBumper = 2, modSideSkirt = 3, modExhaust = 4,
-        modFrame = 5, modGrille = 6, modHood = 7, modFender = 8, modRightFender = 9, modRoof = 10,
-        modEngine = 11, modBrakes = 12, modTransmission = 13, modHorns = 14, modSuspension = 15,
-        modArmor = 16, modNitrous = 17, modSubwoofer = 19, modPlateHolder = 25, modVanityPlate = 26,
-        modTrimA = 27, modOrnaments = 28, modDashboard = 29, modDial = 30, modDoorSpeaker = 31,
-        modSeats = 32, modSteeringWheel = 33, modShifterLeavers = 34, modAPlate = 35, modSpeakers = 36,
-        modTrunk = 37, modHydrolic = 38, modEngineBlock = 39, modAirFilter = 40, modStruts = 41,
-        modArchCover = 42, modAerials = 43, modTrimB = 44, modTank = 45, modWindows = 46, modLightbar = 49,
-    }
-    for key, index in pairs(mods) do
-        if changed(key) then
+    for key, index in pairs(MODS) do
+        if props[key] then
             SetVehicleMod(vehicle, index, props[key], false)
         end
     end
+    for key, index in pairs(TOGGLES) do
+        if props[key] ~= nil then
+            ToggleVehicleMod(vehicle, index, props[key] and true or false)
+        end
+    end
+    if props.xenonColor then SetVehicleXenonLightsColor(vehicle, props.xenonColor) end
+    if props.modFrontWheels then
+        SetVehicleMod(vehicle, 23, props.modFrontWheels, props.modCustomTiresF and true or false)
+    end
+    if props.modBackWheels then
+        SetVehicleMod(vehicle, 24, props.modBackWheels, props.modCustomTiresR and true or false)
+    end
+    -- AFTER the wheel mods: SET_VEHICLE_WHEEL_SIZE / _WIDTH only work on
+    -- non-default wheels, so on a fresh vehicle they need the rims first.
+    if props.wheelSize then SetVehicleWheelSize(vehicle, props.wheelSize + 0.0) end
+    if props.wheelWidth then SetVehicleWheelWidth(vehicle, props.wheelWidth + 0.0) end
 
-    if changed('modTurbo') then ToggleVehicleMod(vehicle, 18, props.modTurbo) end
-    if changed('modHydraulics') then ToggleVehicleMod(vehicle, 21, props.modHydraulics) end
-    if changed('modXenon') then ToggleVehicleMod(vehicle, 22, props.modXenon) end
-    if changed('modFrontWheels') then
-        SetVehicleMod(vehicle, 23, props.modFrontWheels, props.modCustomTiresF)
-    end
-    if changed('modBackWheels') then
-        SetVehicleMod(vehicle, 24, props.modBackWheels, props.modCustomTiresR)
-    end
-    if changed('modLivery') then
+    if props.modLivery then
         SetVehicleMod(vehicle, 48, props.modLivery, false)
         SetVehicleLivery(vehicle, props.modLivery)
     end
-    if changed('livery') then
-        SetVehicleLivery(vehicle, props.livery)
+    if props.livery then SetVehicleLivery(vehicle, props.livery) end
+    if props.modRoofLivery then SetVehicleRoofLivery(vehicle, props.modRoofLivery) end
+    if props.bulletProofTyres ~= nil then
+        SetVehicleTyresCanBurst(vehicle, not props.bulletProofTyres)
     end
-    if changed('modRoofLivery') then SetVehicleRoofLivery(vehicle, props.modRoofLivery) end
-    if changed('bulletProofTyres') then SetVehicleTyresCanBurst(vehicle, props.bulletProofTyres) end
-    if gameBuild() >= 2372 and changed('driftTyres') then
+    if gameBuild() >= 2372 and props.driftTyres ~= nil then
         SetDriftTyresEnabled(vehicle, props.driftTyres and true or false)
     end
 
-    if fixVehicle then
-        SetVehicleFixed(vehicle)
-    end
-
-    local merged = {}
-    if prev then
-        for k, v in pairs(prev) do
-            merged[k] = v
-        end
-    end
-    for k, v in pairs(props) do
-        merged[k] = v
-    end
-    -- WHAT WAS APPLIED TO THE VEHICLE, NOT WHAT THE CALLER PASSED ().
-    --
-    -- The snapshot's whole job is "has this field already been applied?", so it
-    -- has to record the value the vehicle ended up with. Recording the caller's
-    -- table instead made the comparison meaningless for a custom RGB: the
-    -- snapshot held `{10,20,30}` forever, so every later apply of the same props
-    -- diffed equal to it and was skipped -- even after something else on the
-    -- server had moved the vehicle's actual colour.
-    --
-    -- A palette NUMBER is recorded as itself. A custom RGB is recorded as what
-    -- was actually set, so a re-apply with different RGB compares unequal and
-    -- runs, and a re-apply with the SAME RGB compares equal and is skipped --
-    -- which is the diff doing its job rather than being defeated by it.
-    merged.color1 = appliedColor1
-    merged.color2 = appliedColor2
-    lastApplied[vehicle] = merged
-    local playerId = PlayerId()
-    return not NetworkGetEntityIsNetworked(vehicle) or NetworkGetEntityOwner(vehicle) == playerId
+    return true
 end
-
--- lastApplied holds one snapshot per vehicle handle ever touched. Handles are
--- recycled by the game, so drop entries whose entity is gone instead of
--- letting the table grow for the lifetime of the client.
--- GUARDED (3.10): this loop is what stops `lastApplied` growing for the
--- lifetime of the client, so a raise in here was a slow memory leak that also
--- never reported itself.
-CreateThread(CisLoopGuard.Run('client.vehicle.reap', 30000, function()
-    for vehicle in pairs(lastApplied) do
-        if not DoesEntityExist(vehicle) then
-            lastApplied[vehicle] = nil
-        end
-    end
-end))
-
-AddEventHandler('onResourceStop', function(resource)
-    if resource == GetCurrentResourceName() then
-        lastApplied = {}
-    end
-end)
 
 -- The cache first, and only the cache when it holds an answer. This is on the
 -- door interaction path, which runs every frame while a door is in range, so
@@ -475,28 +366,54 @@ function GetPlayerVehicleSeat()
     return nil
 end
 
--- A 5m aim probe first: a raycast returns the vehicle actually being looked at,
--- which is what a door/vehicle interaction means, and GetClosestVehicle cannot
--- distinguish "under the crosshair" from "nearest to the player". The native is
--- the fallback, and 0 is returned rather than nil to match the game's own
--- convention.
-function GetClosestVehicle()
+local CLOSEST_RANGE = 5.0
+-- START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE flags: 2 = vehicles.
+local PROBE_VEHICLES = 2
+
+-- The vehicle the player means: the one under a 5 m forward probe if there is
+-- one, otherwise the nearest within 5 m from the vehicle pool. 0 when there is
+-- none, the game's own "no entity".
+--
+-- A CIS-PREFIXED GLOBAL. This used to be a global named GetClosestVehicle, which
+-- REPLACED the native of that name for every file in cis_libs -- and its own
+-- fallback then called the native, which misses most parked and player
+-- vehicles anyway. The export keeps its published name.
+function CisGetClosestVehicle()
     local ped = (CisCache and CisCache.ped ~= 0 and CisCache.ped) or PlayerPedId()
-    local playerCoords = GetEntityCoords(ped)
-    local inDirection = GetOffsetFromEntityInWorldCoords(ped, 0.0, 5.0, 0.0)
-    local rayHandle = StartExpensiveSynchronousShapeTestLosProbe(playerCoords, inDirection, 10, ped, 0)
-    local _, hit, _, _, entityHit = GetShapeTestResult(rayHandle)
-    if hit == 1 and GetEntityType(entityHit) == 2 then
-        return entityHit
+    local from = GetEntityCoords(ped)
+    if not from or from.x == nil then
+        return 0
     end
-    local vehicle = GetClosestVehicleNative(playerCoords.x, playerCoords.y, playerCoords.z, 5.0, 0, 71)
-    if vehicle ~= 0 then
-        return vehicle
+    local to = GetOffsetFromEntityInWorldCoords(ped, 0.0, CLOSEST_RANGE, 0.0)
+    if to and to.x ~= nil then
+        -- SIX FLOATS, not two vectors: the probe takes x1, y1, z1, x2, y2, z2.
+        local handle = StartExpensiveSynchronousShapeTestLosProbe(
+            from.x, from.y, from.z, to.x, to.y, to.z, PROBE_VEHICLES, ped, 7)
+        local status, hit, _, _, entityHit = GetShapeTestResult(handle)
+        -- `hit` is a BOOL out-parameter; CfxLua hands those back as 0/1. Both
+        -- spellings are accepted so a runtime that answers a boolean agrees.
+        if status == 2 and (hit == true or hit == 1) and entityHit and entityHit ~= 0
+            and GetEntityType(entityHit) == 2 then
+            return entityHit
+        end
     end
-    return 0
+    local best, best2 = 0, CLOSEST_RANGE * CLOSEST_RANGE
+    local pool = GetGamePool('CVehicle')
+    for i = 1, #pool do
+        local vehicle = pool[i]
+        local c = GetEntityCoords(vehicle)
+        if c and c.x ~= nil then
+            local dx, dy, dz = c.x - from.x, c.y - from.y, c.z - from.z
+            local d2 = dx * dx + dy * dy + dz * dz
+            if d2 <= best2 then
+                best, best2 = vehicle, d2
+            end
+        end
+    end
+    return best
 end
 
 exports('GetVehicleProperties', GetVehicleProperties)
 exports('SetVehicleProperties', SetVehicleProperties)
 exports('GetPlayerVehicleSeat', GetPlayerVehicleSeat)
-exports('GetClosestVehicle', GetClosestVehicle)
+exports('GetClosestVehicle', CisGetClosestVehicle)

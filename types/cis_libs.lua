@@ -365,7 +365,7 @@ local CisTime = {}
 local CisValidate = {}
 
 ---@class CisVehicleProps
--- GetVehicleProperties and SetVehicleProperties. A PARTIAL table is safe to set: absent keys are left alone rather than zeroed, which is the opposite of most setters. Set also answers whether THIS CLIENT is allowed to modify the vehicle at all.
+-- GetVehicleProperties and SetVehicleProperties, field-compatible with ox_lib getVehicleProperties (same names and meanings), plus lockState and livery. A PARTIAL table is safe to set: absent keys are left alone rather than zeroed. The mod slots (modSpoilers 0 through modLightbar 49, including modDoorR 47) are integers as GetVehicleMod answers them.
 ---@field model? integer written by get, never read by set -- passing it is a no-op
 ---@field plate? string the number plate text
 ---@field plateIndex? integer the plate index
@@ -377,8 +377,8 @@ local CisValidate = {}
 ---@field fuelLevel? number 0.0 to 1.0
 ---@field oilLevel? number 0.0 to 1.0
 ---@field dirtLevel? number 0.0 to 15.0
----@field paintType1? integer a modifier on the custom-RGB path
----@field paintType2? integer a modifier on the custom-RGB path
+---@field paintType1? integer the primary finish (0 normal, 1 metallic, 2 pearl, 3 matte, 4 metal, 5 chrome); applied before the colour on both the palette and the custom-RGB path
+---@field paintType2? integer the secondary finish; applied before the colour on both paths
 ---@field color1? integer|integer[] a palette number, or { r, g, b } when custom
 ---@field color2? integer|integer[] a palette number, or { r, g, b } when custom
 ---@field pearlescentColor? integer the pearlescent finish
@@ -391,20 +391,20 @@ local CisValidate = {}
 ---@field tyreSmokeColor? integer[] { r, g, b }
 ---@field windows? integer[] an index array of broken window ids 0-7
 ---@field doors? integer[] an index array of broken door ids 0-5
----@field tyres? table<integer, integer> id -> 1 burst and 2 un-burst
+---@field tyres? table<integer, integer> tyre index (0-7, and 45 / 47 for a six-wheeled trailer) -> 1 burst, 2 burst to the rim
 ---@field modTurbo? boolean toggle mod 18
 ---@field modSmokeEnabled? boolean toggle mod 20
 ---@field modHydraulics? boolean toggle mod 21
 ---@field modXenon? boolean toggle mod 22
 ---@field modLivery? integer mod 48 plus SetVehicleLivery
 ---@field modRoofLivery? integer a second livery
----@field bulletProofTyres? boolean the bulletproof flag
+---@field bulletProofTyres? boolean true when the tyres CANNOT burst -- `not GetVehicleTyresCanBurst`, as ox_lib and qb store it
 ---@field driftTyres? boolean applied only when the game build is 2372 or later, and the gate is in the code rather than in the type
----@field interiorColor? integer written by get, never read by set
----@field dashboardColor? integer written by get, never read by set
----@field wheelWidth? integer written by get, never read by set
----@field wheelSize? integer written by get, never read by set
----@field xenonColor? integer written by get, never read by set
+---@field interiorColor? integer GetVehicleInteriorColor / SetVehicleInteriorColor
+---@field dashboardColor? integer GetVehicleDashboardColour / SetVehicleDashboardColor
+---@field wheelWidth? number applied after the wheel mods: the native only takes on non-default rims
+---@field wheelSize? number applied after the wheel mods: the native only takes on non-default rims
+---@field xenonColor? integer GetVehicleXenonLightsColor / SetVehicleXenonLightsColor
 local CisVehicleProps = {}
 
 ---@class CisWeaponData
@@ -868,7 +868,7 @@ function GetClosestDoor() end
 --- realm: client
 function GetClosestPoint() end
 
---- no proxy equivalent; a 5 unit forward ray, then a 5 unit radius search
+--- no proxy equivalent; a 5 unit forward ray, then the nearest vehicle in the CVehicle pool within 5 units. The Lua global is CisGetClosestVehicle; the native GetClosestVehicle is left alone
 ---@return integer #the aimed-at vehicle within 5m, else the nearest within 5m, else 0 -- and 0, not nil
 --- realm: client
 function GetClosestVehicle() end
@@ -1489,11 +1489,11 @@ function SetConfig(config, security, discord) end
 --- realm: server
 function SetDropPlayerHandler(provider) end
 
---- no proxy equivalent; diffs against the last applied snapshot
+--- no proxy equivalent; applies every field present, every time (there is no diff)
 ---@param vehicle integer #the entity handle; a non-existent entity refuses
 ---@param props table #a PARTIAL table is safe -- absent keys are left alone rather than zeroed, which is the opposite of most setters and worth knowing
----@param fixVehicle? boolean #truthy calls SetVehicleFixed after the apply
----@return boolean #false on a dead entity or a non-table props; otherwise whether this client is allowed to modify the vehicle at all -- non-networked or locally owned
+---@param fixVehicle? boolean #truthy calls SetVehicleFixed FIRST, so saved damage in props survives the repair
+---@return boolean, string|nil #true once applied; false plus a reason on a dead entity, a non-table props, or a networked vehicle this client does not control -- control is requested and NOTHING is written, so retry
 --- realm: client
 function SetVehicleProperties(vehicle, props, fixVehicle) end
 

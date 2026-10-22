@@ -820,6 +820,69 @@
       "find": "    refreshVehicle(refreshPed())\nend)\n",
       "replace": "    refreshPed()\n    setVehicleSeat(args[2], nil)\nend)\n",
       "why": "Trust the vehicle handle in gameEventTriggered's arguments. Any client resource can TriggerEvent that name and write whatever vehicle it likes into the cache."
+    },
+    {
+      "id": "M123",
+      "file": "client/vehicle.lua",
+      "find": "        SetVehicleColours(vehicle, palette1 and c1 or colorPrimary, palette2 and c2 or colorSecondary)\n",
+      "replace": "        SetVehicleColours(vehicle, palette1 and c1 or nil, palette2 and c2 or colorSecondary)\n",
+      "why": "Hand SetVehicleColours nil for a primary the props did not name, the original `appliedColor1` defect. A props table with only color2 resets the primary to black; the stub refuses a non-integer index."
+    },
+    {
+      "id": "M124",
+      "file": "client/vehicle.lua",
+      "find": "        bulletProofTyres = not GetVehicleTyresCanBurst(vehicle),\n",
+      "replace": "        bulletProofTyres = GetVehicleTyresCanBurst(vehicle),\n",
+      "why": "Store GetVehicleTyresCanBurst as bulletProofTyres, inverted against ox_lib and qb. Every saved bulletproof vehicle comes back burstable and every normal one bulletproof."
+    },
+    {
+      "id": "M125",
+      "file": "client/vehicle.lua",
+      "find": "    if props.xenonColor then SetVehicleXenonLightsColor(vehicle, props.xenonColor) end\n",
+      "replace": "",
+      "why": "Read xenonColor and never write it back. A garage round trip loses the headlight colour silently."
+    },
+    {
+      "id": "M126",
+      "file": "client/vehicle.lua",
+      "find": "    modDoorR = 47, modLightbar = 49,\n",
+      "replace": "    modLightbar = 49,\n",
+      "why": "Drop mod 47 (modDoorR) from the mod table. It is neither read nor written, so the right-door mod is lost on every round trip."
+    },
+    {
+      "id": "M127",
+      "file": "client/vehicle.lua",
+      "find": "    if not hasControl(vehicle) then\n",
+      "replace": "    if false then\n",
+      "why": "Write to a networked vehicle without network control. The owner's next sync overwrites every field, so the apply looks like it worked and silently did not."
+    },
+    {
+      "id": "M128",
+      "file": "client/vehicle.lua",
+      "find": "    for i = 0, 20 do\n        if DoesExtraExist(vehicle, i) then\n",
+      "replace": "    for i = 1, 15 do\n        if DoesExtraExist(vehicle, i) then\n",
+      "why": "Read extras 1..15 only. Extras 0 and 16..20 exist on real vehicles (and ox_lib reads 0..20), so they are never saved."
+    },
+    {
+      "id": "M129",
+      "file": "client/vehicle.lua",
+      "find": "local TYRES = { 0, 1, 2, 3, 4, 5, 6, 7, 45, 47 }\n",
+      "replace": "local TYRES = { 0, 1, 2, 3, 4, 5, 6, 7 }\n",
+      "why": "Forget the trailer tyres 45 and 47. A burst middle tyre on a six-wheeled trailer is neither saved nor restored."
+    },
+    {
+      "id": "M130",
+      "file": "client/vehicle.lua",
+      "find": "exports('GetClosestVehicle', CisGetClosestVehicle)\n",
+      "replace": "GetClosestVehicle = CisGetClosestVehicle\nexports('GetClosestVehicle', CisGetClosestVehicle)\n",
+      "why": "Overwrite the GetClosestVehicle native with the wrapper again. Every file in cis_libs that means the native now gets a different signature."
+    },
+    {
+      "id": "M131",
+      "file": "client/vehicle.lua",
+      "find": "    if fixVehicle then\n        SetVehicleFixed(vehicle)\n    end\n\n    if props.extras then\n",
+      "replace": "    if props.extras then\n",
+      "why": "Ignore fixVehicle. A caller asking for a repaired vehicle gets the damaged one; the test that orders SetVehicleFixed before the saved damage sees no repair at all."
     }
   ]
 }

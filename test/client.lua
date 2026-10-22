@@ -76,7 +76,7 @@ local function newEnv(opts)
         'CreateVehicle', 'DeleteEntity', 'DoesEntityExist', 'FreezeEntityPosition',
         'SetEntityCoords', 'SetEntityHeading', 'PlayerPedId', 'GetPlayerPed',
         'GetEntityCoords', 'IsEntityDead', 'GetGameBuildNumber',
-        'AddEventHandler', 'PlayerId', 'NetworkGetEntityOwner', 'CisCache',
+        'AddEventHandler', 'PlayerId', 'CisCache',
     }) do
         env.save(name)
     end
@@ -146,7 +146,6 @@ local function newEnv(opts)
     function IsEntityDead() return false end
     function vec4(x, y, z, w) return { x = x, y = y, z = z, w = w } end
     function PlayerId() return 0 end
-    function NetworkGetEntityOwner() return 1 end
     -- Event handlers are recorded rather than dropped: and assert on
     -- what a stop sweep is bound to, so the harness has to be able to fire one.
     env.handlers = {}
@@ -1720,26 +1719,244 @@ do
     check(not leaked,
         'a table color1 is never passed to SetVehicleColours, which wants a number')
 
-    -- THE DIFF STILL WORKS, and it is asserted on a field the fix did not touch.
-    --
-    -- A fix that simply always applied would pass every assertion above while
-    -- making every sync tick a full repaint -- which is the reason the diff
-    -- exists at all, on a moving vehicle, at 500ms. `plate` is an ordinary
-    -- snapshot-diffed field, so it is the honest place to check that skipping
-    -- still happens.
+    -- THERE IS NO DIFF. A re-apply of the same props applies again: the
+    -- snapshot it used to diff against went stale the moment gameplay, another
+    -- resource or a repair touched the vehicle, and was keyed by a recycled
+    -- handle -- so the apply that was skipped was exactly the one needed.
     calls = {}
     SetVehicleProperties(9, { plate = 'ABC123' })
     local firstPlate = #calls
     calls = {}
     SetVehicleProperties(9, { plate = 'ABC123' })
-    check(firstPlate > 0 and #calls == 0,
-        ('an unchanged re-apply is still skipped, so the diff survives '
-            .. 'the fix (first apply made %d calls, second made %d)')
+    check(firstPlate > 0 and #calls == firstPlate,
+        ('an identical re-apply is applied again, not skipped by a stale snapshot '
+            .. '(first apply made %d calls, second made %d)')
             :format(firstPlate, #calls))
 
     calls = {}
     SetVehicleProperties(9, { plate = 'XYZ789' })
     check(#calls > 0, 'and a CHANGED plate is still applied')
+    env.reset()
+end
+
+-- ====================================== 7b. vehicle properties, field by field
+--
+-- A recorder for every setter, and getters answering a known vehicle, so the
+-- round trip get -> set can be asserted field by field against ox_lib's shape.
+local VEH_SETTERS = {
+    'SetVehicleModKit', 'SetVehicleFixed', 'SetVehicleExtra', 'SetVehicleDoorsLocked',
+    'SetVehicleNumberPlateText', 'SetVehicleNumberPlateTextIndex', 'SetVehicleBodyHealth',
+    'SetVehicleEngineHealth', 'SetVehiclePetrolTankHealth', 'SetVehicleFuelLevel', 'SetVehicleOilLevel',
+    'SetVehicleDirtLevel', 'ClearVehicleCustomPrimaryColour', 'ClearVehicleCustomSecondaryColour',
+    'SetVehicleModColor_1', 'SetVehicleModColor_2', 'SetVehicleColours', 'SetVehicleCustomPrimaryColour',
+    'SetVehicleCustomSecondaryColour', 'SetVehicleExtraColours', 'SetVehicleInteriorColor',
+    'SetVehicleDashboardColor', 'SetVehicleWheelType', 'SetVehicleWindowTint', 'SetVehicleNeonLightEnabled',
+    'SetVehicleNeonLightsColour', 'RemoveVehicleWindow', 'SetVehicleDoorBroken', 'SetVehicleTyreBurst',
+    'SetVehicleTyreSmokeColor', 'SetVehicleMod', 'ToggleVehicleMod', 'SetVehicleXenonLightsColor',
+    'SetVehicleWheelSize', 'SetVehicleWheelWidth', 'SetVehicleLivery', 'SetVehicleRoofLivery',
+    'SetVehicleTyresCanBurst', 'SetDriftTyresEnabled', 'NetworkRequestControlOfEntity',
+}
+local function vehEnv()
+    local env = newEnv({})
+    env.calls = {}
+    -- Into _ENV, not _G: under the lua54 driver each suite runs in its own
+    -- environment, and an earlier test's `function SetVehicleColours()` lives
+    -- THERE, shadowing anything written to _G. Restored by env.reset.
+    local previous = {}
+    for _, name in ipairs(VEH_SETTERS) do
+        previous[name] = rawget(_ENV, name)
+    end
+    local baseReset = env.reset
+    env.reset = function()
+        for _, name in ipairs(VEH_SETTERS) do
+            rawset(_ENV, name, previous[name])
+        end
+        baseReset()
+    end
+    for _, name in ipairs(VEH_SETTERS) do
+        _ENV[name] = function(...)
+            local a = table.pack(...)
+            -- SetVehicleColours takes two palette INDICES; anything else is the
+            -- defect that reset or aborted the apply.
+            if name == 'SetVehicleColours' then
+                assert(math.type(a[2]) == 'integer' and math.type(a[3]) == 'integer',
+                    ('SetVehicleColours wants two integers, got %s, %s'):format(type(a[2]), type(a[3])))
+            end
+            env.calls[#env.calls + 1] = { name = name, args = a }
+        end
+    end
+    env.extrasAsked = {}
+    env.tyresAsked = {}
+    function DoesEntityExist() return true end
+    function GetVehicleColours() return 5, 6 end
+    function GetVehicleExtraColours() return 7, 8 end
+    function GetVehicleModColor_1() return 3, 0, 0 end
+    function GetVehicleModColor_2() return 1, 0 end
+    function GetIsVehiclePrimaryColourCustom() return false end
+    function GetIsVehicleSecondaryColourCustom() return false end
+    function DoesExtraExist(_, i) env.extrasAsked[#env.extrasAsked + 1] = i; return i == 0 or i == 20 end
+    function IsVehicleExtraTurnedOn(_, i) return i == 0 end
+    function GetVehicleLiveryCount() return 3 end
+    function GetVehicleLivery() return 1 end
+    function GetVehicleMod(_, i) return i == 47 and 2 or -1 end
+    function IsVehicleWindowIntact() return true end
+    function IsVehicleDoorDamaged() return false end
+    function IsVehicleTyreBurst(_, i) env.tyresAsked[i] = true; return i == 45 end
+    function IsVehicleNeonLightEnabled() return false end
+    function GetVehicleInteriorColor() return 11 end
+    function GetVehicleDashboardColour() return 12 end
+    function GetVehicleWheelWidth() return 0.75 end
+    function GetVehicleWheelSize() return 0.8 end
+    function GetVehicleXenonLightsColor() return 4 end
+    function GetVehicleTyresCanBurst() return false end
+    function IsToggleModOn(_, i) return i == 21 end
+    function GetDriftTyresEnabled() return false end
+    loadModule('client/vehicle.lua')
+    function env.called(name)
+        local out = {}
+        for i, c in ipairs(env.calls) do
+            if c.name == name then out[#out + 1] = c; c.at = i end
+        end
+        return out
+    end
+    return env
+end
+
+do
+    local env = vehEnv()
+    -- color2 ALONE keeps the live primary. It used to pass `appliedColor1`,
+    -- nil here, which reset the primary to black.
+    SetVehicleProperties(9, { color2 = 33 })
+    local sc = env.called('SetVehicleColours')[1]
+    check(sc and sc.args[2] == 5 and sc.args[3] == 33,
+        ('vehicle: color2 alone keeps the live primary (got %s, %s)')
+            :format(tostring(sc and sc.args[2]), tostring(sc and sc.args[3])))
+
+    -- A CUSTOM color1 WITH A PALETTE color2 does not hand SetVehicleColours a
+    -- table, and the props after the colours are still applied.
+    env.calls = {}
+    local ok, err = pcall(SetVehicleProperties, 9, { color1 = { 1, 2, 3 }, color2 = 40, plate = 'AFTER' })
+    check(ok, ('vehicle: custom color1 + palette color2 does not raise (%s)'):format(tostring(err)))
+    sc = env.called('SetVehicleColours')[1]
+    check(sc and sc.args[2] == 5 and sc.args[3] == 40, 'vehicle: and the palette secondary lands beside the live primary')
+    check(#env.called('SetVehicleCustomPrimaryColour') == 1, 'vehicle: the custom primary is applied')
+    check(#env.called('SetVehicleNumberPlateText') == 1, 'vehicle: and the fields after the colours still apply')
+    env.reset()
+end
+
+-- GET -> SET ROUND TRIP. Every field the getter reads, the setter writes, with
+-- ox_lib's meaning.
+do
+    local env = vehEnv()
+    local props = GetVehicleProperties(9)
+    check(props.bulletProofTyres == true,
+        'vehicle: bulletProofTyres is NOT GetVehicleTyresCanBurst -- tyres that cannot burst are bulletproof')
+    check(props.modDoorR == 2, ('vehicle: modDoorR is read from mod 47 (got %s)'):format(tostring(props.modDoorR)))
+    check(props.modHydraulics == true, 'vehicle: modHydraulics is the VMT_HYDRAULICS toggle, as ox_lib reads it')
+    check(props.extras[0] == 0 and props.extras[20] == 1,
+        'vehicle: extras 0 and 20 are read (the range is 0..20, not 1..15)')
+    check(env.tyresAsked[45] and env.tyresAsked[47] and props.tyres[45] ~= nil,
+        'vehicle: the trailer tyres 45 and 47 are read')
+    env.calls = {}
+    local ok, err = pcall(SetVehicleProperties, 9, props)
+    check(ok, ('vehicle: the getter output applies cleanly (%s)'):format(tostring(err)))
+    local function argOf(name, slot)
+        local c = env.called(name)[1]
+        return c and c.args[slot]
+    end
+    check(argOf('SetVehicleXenonLightsColor', 2) == 4, 'vehicle: xenonColor is written back')
+    check(argOf('SetVehicleInteriorColor', 2) == 11, 'vehicle: interiorColor is written back')
+    check(argOf('SetVehicleDashboardColor', 2) == 12, 'vehicle: dashboardColor is written back')
+    check(argOf('SetVehicleWheelWidth', 2) == 0.75, 'vehicle: wheelWidth is written back')
+    check(argOf('SetVehicleWheelSize', 2) == 0.8, 'vehicle: wheelSize is written back')
+    check(argOf('SetVehicleTyresCanBurst', 2) == false, 'vehicle: a bulletproof set is written as CAN NOT burst')
+    check(argOf('SetVehicleModColor_1', 2) == 3, 'vehicle: paintType1 is written for a palette colour too')
+    local doorR = false
+    for _, c in ipairs(env.called('SetVehicleMod')) do
+        if c.args[2] == 47 and c.args[3] == 2 then doorR = true end
+    end
+    check(doorR, 'vehicle: modDoorR is written to mod 47')
+    local hyd = false
+    for _, c in ipairs(env.called('ToggleVehicleMod')) do
+        if c.args[2] == 21 and c.args[3] == true then hyd = true end
+    end
+    check(hyd, 'vehicle: modHydraulics is toggled back on')
+    local tyre45 = false
+    for _, c in ipairs(env.called('SetVehicleTyreBurst')) do
+        if c.args[2] == 45 then tyre45 = true end
+    end
+    check(tyre45, 'vehicle: a burst trailer tyre is restored')
+    -- Wheel size and width only take on non-default rims, so they come after them.
+    local wheelsAt, sizeAt
+    for i, c in ipairs(env.calls) do
+        if c.name == 'SetVehicleMod' and c.args[2] == 23 then wheelsAt = i end
+        if c.name == 'SetVehicleWheelSize' then sizeAt = i end
+    end
+    check(wheelsAt and sizeAt and sizeAt > wheelsAt, 'vehicle: wheel size is applied after the wheel mod')
+    env.reset()
+end
+
+-- REPAIR FIRST, so saved damage survives a fixVehicle apply.
+do
+    local env = vehEnv()
+    SetVehicleProperties(9, { tyres = { [0] = 2 }, bodyHealth = 500 }, true)
+    local fixAt, burstAt
+    for i, c in ipairs(env.calls) do
+        if c.name == 'SetVehicleFixed' then fixAt = i end
+        if c.name == 'SetVehicleTyreBurst' then burstAt = i end
+    end
+    check(fixAt and burstAt and fixAt < burstAt,
+        ('vehicle: SetVehicleFixed runs BEFORE the saved damage, not after it (fix=%s burst=%s)')
+            :format(tostring(fixAt), tostring(burstAt)))
+    env.reset()
+end
+
+-- NETWORK CONTROL. A networked vehicle this client does not control is not
+-- written: control is requested and the caller is told why.
+do
+    local env = vehEnv()
+    function NetworkGetEntityIsNetworked() return true end
+    function NetworkHasControlOfEntity() return false end
+    local ok, why = SetVehicleProperties(9, { plate = 'NOPE' })
+    check(ok == false and type(why) == 'string' and why:find('control', 1, true),
+        ('vehicle: no control answers false and a reason (got %s, %s)'):format(tostring(ok), tostring(why)))
+    check(#env.called('NetworkRequestControlOfEntity') == 1, 'vehicle: and control is requested')
+    check(#env.called('SetVehicleNumberPlateText') == 0, 'vehicle: and nothing is written')
+    function NetworkHasControlOfEntity() return true end
+    check(SetVehicleProperties(9, { plate = 'YES' }) == true, 'vehicle: with control it applies and answers true')
+    env.reset()
+end
+
+-- GetClosestVehicle IS NOT REPLACED, and the export finds a parked vehicle.
+do
+    local env = newEnv({})
+    local native = function() return 'native' end
+    GetClosestVehicle = native
+    env.save('GetGamePool')
+    env.save('GetOffsetFromEntityInWorldCoords')
+    env.save('StartExpensiveSynchronousShapeTestLosProbe')
+    env.save('GetShapeTestResult')
+    env.save('GetEntityType')
+    local pos = { [1] = { x = 0.0, y = 0.0, z = 0.0 }, [300] = { x = 3.0, y = 0.0, z = 0.0 }, [301] = { x = 4.0, y = 0.0, z = 0.0 } }
+    function GetEntityCoords(e) return pos[e] end
+    function GetOffsetFromEntityInWorldCoords() return { x = 0.0, y = 5.0, z = 0.0 } end
+    local probe
+    function StartExpensiveSynchronousShapeTestLosProbe(...)
+        probe = table.pack(...)
+        return 1
+    end
+    function GetShapeTestResult() return 2, 0, { x = 0, y = 0, z = 0 }, { x = 0, y = 0, z = 0 }, 0 end
+    function GetEntityType() return 0 end
+    function GetGamePool(name)
+        assert(name == 'CVehicle', 'GetGamePool: unknown pool ' .. tostring(name))
+        return { 301, 300 }
+    end
+    loadModule('client/vehicle.lua')
+    check(GetClosestVehicle == native, 'vehicle: loading cis_libs does not replace the GetClosestVehicle native')
+    local got = exports.GetClosestVehicle()
+    check(got == 300, ('vehicle: the export walks the vehicle pool for the nearest (got %s)'):format(tostring(got)))
+    check(probe and probe.n == 9 and type(probe[1]) == 'number' and type(probe[6]) == 'number',
+        'vehicle: the aim probe is given six floats, not two vectors')
     env.reset()
 end
 

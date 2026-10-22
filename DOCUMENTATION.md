@@ -212,7 +212,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `GetClientLogging` | client | `()` | 1.0.0 | Cis.log.debug / info / warn / error |
 | `GetClosestDoor` | client | `()` | 1.0.0 | no proxy equivalent; exports["cis_libs"]:GetClosestDoor() |
 | `GetClosestPoint` | client | `()` | 1.0.0 | Cis.points.getClosest() |
-| `GetClosestVehicle` | client | `()` | 1.0.0 | no proxy equivalent; a 5 unit forward ray, then a 5 unit radius search |
+| `GetClosestVehicle` | client | `()` | 1.0.0 | no proxy equivalent; a 5 unit forward ray, then the nearest vehicle in the CVehicle pool within 5 units. The Lua global is CisGetClosestVehicle; the native GetClosestVehicle is left alone |
 | `GetConfigSummary` | server | `()` | 1.0.0 | no proxy equivalent; the non-secret half of the server config |
 | `GetCurrentWeaponData` | client | `(ped?)` | 1.0.0 | Cis.player.weapon() |
 | `GetDiagnostics` | both | `(opts?)` | 1.0.0 | Counts, never player data: capability slots and owners, sync records by owner, pending callbacks, net handlers, error and warning counters, memory, uptime, and pass timings. The harness diffs counters and probes only; timings are a sibling so a pass does not fail every case |
@@ -295,7 +295,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `ServerZoneSphere` | server | `(center, radius, opts?)` | 1.0.0 | Cis.zones.server.sphere(center, radius, opts) |
 | `SetConfig` | server | `(config?, security?, discord?)` | 1.0.0 | Called by cis_core at boot with (config, security, discord). First registration wins; a second is refused and named. `security.AllowAnyResource` is the 1.0.0 opt-in escape hatch: with it true an EMPTY AuthorizedResources stops meaning restrictive, and the console warns on every boot |
 | `SetDropPlayerHandler` | server | `(provider)` | 1.0.0 | Called by whoever ships the config, with "resource:Export". A FUNCTION cannot be sent across the boundary, which is why this exists |
-| `SetVehicleProperties` | client | `(vehicle, props, fixVehicle?)` | 1.0.0 | no proxy equivalent; diffs against the last applied snapshot |
+| `SetVehicleProperties` | client | `(vehicle, props, fixVehicle?)` | 1.0.0 | no proxy equivalent; applies every field present, every time (there is no diff) |
 | `StatebagOnEntity` | both | `(key, handler, timeoutMs?)` | 1.0.0 | Cis.statebag.onEntity(key, handler, timeoutMs) |
 | `StatebagOnPlayer` | both | `(key, handler, timeoutMs?)` | 1.0.0 | Cis.statebag.onPlayer(key, handler, timeoutMs) |
 | `SyncClear` | server | `()` | 1.0.0 | Cis.sync.clear() |

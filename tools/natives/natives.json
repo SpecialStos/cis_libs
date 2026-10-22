@@ -6,13 +6,13 @@
   },
   "counts": {
     "shippedFiles": 45,
-    "nativesUsed": 190,
+    "nativesUsed": 196,
     "byRealm": {
-      "client": 117,
+      "client": 124,
       "server": 5,
-      "shared": 68
+      "shared": 67
     },
-    "unresolvedPascalCaseGlobals": 65
+    "unresolvedPascalCaseGlobals": 70
   },
   "natives": {
     "AddDoorToSystem": {
@@ -586,7 +586,6 @@
         "client/sync.lua",
         "client/target.lua",
         "client/ui.lua",
-        "client/vehicle.lua",
         "client/zones.lua",
         "init.lua",
         "server/callback.lua",
@@ -772,6 +771,7 @@
         "client"
       ],
       "files": [
+        "client/vehicle.lua",
         "client/world.lua"
       ]
     },
@@ -2311,22 +2311,6 @@
         "client/vehicle.lua"
       ]
     },
-    "NetworkGetEntityOwner": {
-      "realm": "shared",
-      "evidence": [
-        "shared"
-      ],
-      "sources": [
-        "cfx"
-      ],
-      "namespaces": [],
-      "usedIn": [
-        "client"
-      ],
-      "files": [
-        "client/vehicle.lua"
-      ]
-    },
     "NetworkGetNetworkIdFromEntity": {
       "realm": "shared",
       "evidence": [
@@ -2347,6 +2331,42 @@
         "server/sync.lua"
       ]
     },
+    "NetworkHasControlOfEntity": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "NETWORK"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/vehicle.lua"
+      ]
+    },
+    "NetworkRequestControlOfEntity": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "NETWORK"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/vehicle.lua"
+      ]
+    },
     "PlayerId": {
       "realm": "client",
       "evidence": [
@@ -2364,7 +2384,6 @@
       ],
       "files": [
         "client/cache.lua",
-        "client/vehicle.lua",
         "client/world.lua",
         "init.lua"
       ]
@@ -3072,6 +3091,24 @@
         "client/vehicle.lua"
       ]
     },
+    "SetVehicleDashboardColor": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "VEHICLE"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/vehicle.lua"
+      ]
+    },
     "SetVehicleDirtLevel": {
       "realm": "shared",
       "evidence": [
@@ -3213,6 +3250,24 @@
         "cfx"
       ],
       "namespaces": [],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/vehicle.lua"
+      ]
+    },
+    "SetVehicleInteriorColor": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "VEHICLE"
+      ],
       "usedIn": [
         "client"
       ],
@@ -3490,6 +3545,22 @@
         "client/vehicle.lua"
       ]
     },
+    "SetVehicleWheelSize": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "cfx"
+      ],
+      "namespaces": [],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/vehicle.lua"
+      ]
+    },
     "SetVehicleWheelType": {
       "realm": "client",
       "evidence": [
@@ -3508,7 +3579,41 @@
         "client/vehicle.lua"
       ]
     },
+    "SetVehicleWheelWidth": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "cfx"
+      ],
+      "namespaces": [],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/vehicle.lua"
+      ]
+    },
     "SetVehicleWindowTint": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "VEHICLE"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/vehicle.lua"
+      ]
+    },
+    "SetVehicleXenonLightsColor": {
       "realm": "client",
       "evidence": [
         "client"
@@ -3640,9 +3745,14 @@
     "CisCommandNames",
     "CisCommandParse",
     "CisForgetPlayer",
+    "CisGetClosestVehicle",
     "CisInvokingAllowed",
     "CisJobCount",
     "CisKeybindAdd",
+    "CisKeybindDisable",
+    "CisKeybindEnable",
+    "CisKeybindIsPressed",
+    "CisKeybindRemove",
     "CisLog",
     "CisNetOn",
     "CisPointsCreate",
