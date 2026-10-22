@@ -6,13 +6,13 @@
   },
   "counts": {
     "shippedFiles": 58,
-    "nativesUsed": 222,
+    "nativesUsed": 225,
     "byRealm": {
       "client": 145,
-      "server": 5,
-      "shared": 72
+      "server": 6,
+      "shared": 74
     },
-    "unresolvedPascalCaseGlobals": 77
+    "unresolvedPascalCaseGlobals": 79
   },
   "natives": {
     "AddDoorToSystem": {
@@ -281,7 +281,6 @@
         "server"
       ],
       "files": [
-        "client/sync.lua",
         "client/utils.lua",
         "server/sync.lua"
       ]
@@ -435,15 +434,13 @@
       ],
       "usedIn": [
         "client",
-        "server",
-        "shared"
+        "server"
       ],
       "files": [
         "client/interface/progress.lua",
         "client/sync.lua",
         "client/vehicle.lua",
-        "server/sync.lua",
-        "shared/statebag.lua"
+        "server/sync.lua"
       ]
     },
     "DoesExtraExist": {
@@ -639,11 +636,13 @@
         "ENTITY"
       ],
       "usedIn": [
-        "client"
+        "client",
+        "server"
       ],
       "files": [
         "client/sync.lua",
-        "client/utils.lua"
+        "client/utils.lua",
+        "server/sync.lua"
       ]
     },
     "GetActivePlayers": {
@@ -797,6 +796,22 @@
         "server/zones.lua"
       ]
     },
+    "GetEntityFromStateBagName": {
+      "realm": "shared",
+      "evidence": [
+        "shared"
+      ],
+      "sources": [
+        "cfx"
+      ],
+      "namespaces": [],
+      "usedIn": [
+        "shared"
+      ],
+      "files": [
+        "shared/statebag.lua"
+      ]
+    },
     "GetEntityHeading": {
       "realm": "shared",
       "evidence": [
@@ -945,6 +960,7 @@
         "server/logging.lua",
         "server/security.lua",
         "server/selfcheck.lua",
+        "server/sync.lua",
         "shared/diagnostics.lua",
         "shared/loopguard.lua",
         "shared/ready.lua",
@@ -1019,7 +1035,8 @@
       "namespaces": [],
       "usedIn": [
         "client",
-        "server"
+        "server",
+        "shared"
       ],
       "files": [
         "client/cache.lua",
@@ -1027,6 +1044,7 @@
         "client/interface/nui.lua",
         "client/keybind.lua",
         "client/points.lua",
+        "client/sync.lua",
         "client/target.lua",
         "client/ui.lua",
         "client/zones.lua",
@@ -1035,7 +1053,8 @@
         "server/proxy.lua",
         "server/security.lua",
         "server/sync.lua",
-        "server/zones.lua"
+        "server/zones.lua",
+        "shared/statebag.lua"
       ]
     },
     "GetIsVehiclePrimaryColourCustom": {
@@ -1222,6 +1241,22 @@
         "client/vehicle.lua"
       ]
     },
+    "GetPlayerFromStateBagName": {
+      "realm": "shared",
+      "evidence": [
+        "shared"
+      ],
+      "sources": [
+        "cfx"
+      ],
+      "namespaces": [],
+      "usedIn": [
+        "shared"
+      ],
+      "files": [
+        "shared/statebag.lua"
+      ]
+    },
     "GetPlayerName": {
       "realm": "shared",
       "evidence": [
@@ -1262,12 +1297,14 @@
       ],
       "usedIn": [
         "client",
-        "server"
+        "server",
+        "shared"
       ],
       "files": [
         "client/world.lua",
         "server/sync.lua",
-        "server/zones.lua"
+        "server/zones.lua",
+        "shared/statebag.lua"
       ]
     },
     "GetPlayerServerId": {
@@ -1285,7 +1322,8 @@
       ],
       "files": [
         "client/cache.lua",
-        "init.lua"
+        "init.lua",
+        "shared/statebag.lua"
       ]
     },
     "GetResourceByFindIndex": {
@@ -2065,7 +2103,8 @@
       ],
       "files": [
         "client/interface/progress.lua",
-        "client/streaming.lua"
+        "client/streaming.lua",
+        "client/sync.lua"
       ]
     },
     "HasNamedPtfxAssetLoaded": {
@@ -2656,26 +2695,6 @@
         "init.lua"
       ]
     },
-    "NetworkGetEntityFromNetworkId": {
-      "realm": "shared",
-      "evidence": [
-        "client",
-        "server"
-      ],
-      "sources": [
-        "gta",
-        "cfx"
-      ],
-      "namespaces": [
-        "NETWORK"
-      ],
-      "usedIn": [
-        "client"
-      ],
-      "files": [
-        "client/sync.lua"
-      ]
-    },
     "NetworkGetEntityIsNetworked": {
       "realm": "client",
       "evidence": [
@@ -2692,6 +2711,22 @@
       ],
       "files": [
         "client/vehicle.lua"
+      ]
+    },
+    "NetworkGetEntityOwner": {
+      "realm": "shared",
+      "evidence": [
+        "shared"
+      ],
+      "sources": [
+        "cfx"
+      ],
+      "namespaces": [],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/sync.lua"
       ]
     },
     "NetworkGetNetworkIdFromEntity": {
@@ -2785,6 +2820,7 @@
       ],
       "files": [
         "client/cache.lua",
+        "client/sync.lua",
         "client/world.lua",
         "init.lua"
       ]
@@ -3174,6 +3210,7 @@
         "client"
       ],
       "files": [
+        "client/sync.lua",
         "client/utils.lua"
       ]
     },
@@ -3217,6 +3254,22 @@
         "server/sync.lua"
       ]
     },
+    "SetEntityDistanceCullingRadius": {
+      "realm": "server",
+      "evidence": [
+        "server"
+      ],
+      "sources": [
+        "cfx"
+      ],
+      "namespaces": [],
+      "usedIn": [
+        "server"
+      ],
+      "files": [
+        "server/sync.lua"
+      ]
+    },
     "SetEntityHeading": {
       "realm": "shared",
       "evidence": [
@@ -3254,6 +3307,7 @@
         "client"
       ],
       "files": [
+        "client/sync.lua",
         "client/utils.lua"
       ]
     },
@@ -4177,6 +4231,7 @@
       ],
       "files": [
         "client/interface/progress.lua",
+        "client/sync.lua",
         "client/utils.lua"
       ]
     },
@@ -4299,6 +4354,7 @@
     "CreateThread",
     "DebugLog",
     "DrawText3D",
+    "Entity",
     "GetCurrentWeaponData",
     "GetPlayerVehicleSeat",
     "GetPlayers",
@@ -4314,6 +4370,7 @@
     "SetVehicleProperties",
     "TriggerClientEvent",
     "TriggerEvent",
+    "TriggerLatentClientEvent",
     "TriggerServerEvent",
     "WaitForLibReady",
     "World3dToScreen2d"

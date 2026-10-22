@@ -674,21 +674,21 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.zones.server.box(center, size, opts)',
             realm = 'server',
-            params = { { name = 'center', type = 'vector3|table', doc = 'the centre' }, { name = 'size', type = 'number|vector3|table', doc = 'full size; stored as half-extents, same as client zones' }, { name = 'opts', type = 'table', optional = true, doc = 'heading, onEnterEvent, onExitEvent' } },
+            params = { { name = 'center', type = 'vector3|table', doc = 'the centre' }, { name = 'size', type = 'number|vector3|table', doc = 'full size; stored as half-extents, same as client zones' }, { name = 'opts', type = 'table', optional = true, doc = 'heading, bucket (the routing bucket, default 0; a player in another bucket is never inside), onEnterEvent, onExitEvent. Exits also fire when a player drops and when the zone is removed or its owner stops' } },
             returns = { { type = 'integer|false, string|nil', doc = 'a numeric id, never reused' } }
         },
         ServerZoneSphere = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.zones.server.sphere(center, radius, opts)',
             realm = 'server',
-            params = { { name = 'center', type = 'vector3|table', doc = 'the centre' }, { name = 'radius', type = 'number', doc = 'metres' }, { name = 'opts', type = 'table', optional = true, doc = 'onEnterEvent, onExitEvent' } },
+            params = { { name = 'center', type = 'vector3|table', doc = 'the centre' }, { name = 'radius', type = 'number', doc = 'metres' }, { name = 'opts', type = 'table', optional = true, doc = 'bucket (the routing bucket, default 0; a player in another bucket is never inside), onEnterEvent, onExitEvent. Exits also fire when a player drops and when the zone is removed or its owner stops' } },
             returns = { { type = 'integer|false, string|nil', doc = 'a numeric id, never reused' } }
         },
         ServerZonePoly = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.zones.server.poly(points, opts)',
             realm = 'server',
-            params = { { name = 'points', type = 'table', doc = 'at least 3 points' }, { name = 'opts', type = 'table', optional = true, doc = 'minZ, maxZ, onEnterEvent, onExitEvent' } },
+            params = { { name = 'points', type = 'table', doc = 'at least 3 points' }, { name = 'opts', type = 'table', optional = true, doc = 'minZ, maxZ, bucket (the routing bucket, default 0; a player in another bucket is never inside), onEnterEvent, onExitEvent. Exits also fire when a player drops and when the zone is removed or its owner stops' } },
             returns = { { type = 'integer|false, string|nil', doc = 'a numeric id, never reused' } }
         },
         ServerZoneContains = {
@@ -737,14 +737,14 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.statebag.onEntity(key, handler, timeoutMs)',
             realm = 'both',
-            params = { { name = 'key', type = 'string', doc = 'the state key, or the * wildcard. NOT empty' }, { name = 'handler', type = 'fun(entity: integer, value: any, replicated: boolean, deleted: boolean)', doc = 'the last two are not reconstructible from value: a delete leaves the key ABSENT rather than nil, so value == nil is true for both a delete and a key that was never set' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'how long the CLIENT waits for the entity to exist, default 2000' } },
-            returns = { { type = 'integer|nil, string|nil', doc = 'a COOKIE, not a boolean. RemoveStateBagChangeHandler needs one, and a watcher that cannot be removed is a leak whose symptom is a handler still firing for a resource that stopped' } }
+            params = { { name = 'key', type = 'string', doc = 'the state key, or the * wildcard. NOT empty' }, { name = 'handler', type = 'fun(entity: integer, value: any, replicated: boolean, deleted: boolean)', doc = 'a function, or one passed from another resource (it arrives as a callable reference). The entity is RESOLVED from the bag with GetEntityFromStateBagName -- never the netId in its name -- and a PLAYER bag resolves to that player\'s ped. deleted is value == nil, which is the only shape a delete has' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'how long the CLIENT keeps a change whose entity does not exist yet, default 2000. Waiting changes share one bounded queue and the newest value per bag wins; the server never waits' } },
+            returns = { { type = 'integer|nil, string|nil', doc = 'a COOKIE, not a boolean. The watcher belongs to the resource that registered it and is removed when that resource stops' } }
         },
         StatebagOnPlayer = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.statebag.onPlayer(key, handler, timeoutMs)',
             realm = 'both',
-            params = { { name = 'key', type = 'string', doc = 'the state key or *' }, { name = 'handler', type = 'fun(player: integer, value: any, replicated: boolean, deleted: boolean)', doc = 'as on the entity watcher, with the player server id' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'client-only; a server has no streaming problem so it does not wait' } },
+            params = { { name = 'key', type = 'string', doc = 'the state key or *' }, { name = 'handler', type = 'fun(player: integer, value: any, replicated: boolean, deleted: boolean)', doc = 'as on the entity watcher, with the player SERVER id on both sides (resolved with GetPlayerFromStateBagName; a client turns the handle it answers back into the server id)' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'accepted for symmetry and unused: a server id is known from the bag, so nothing waits' } },
             returns = { { type = 'integer|nil, string|nil', doc = 'a cookie, or nil plus a reason' } }
         },
         RemoveStatebagHandler = {
@@ -752,7 +752,7 @@ return {
             use = 'Cis.statebag.remove(cookie)',
             realm = 'both',
             params = { { name = 'cookie', type = 'integer', doc = 'the number the watcher returned' } },
-            returns = { { type = 'boolean, string|nil', doc = 'true once removed, or false plus a reason when the cookie is not a number' } }
+            returns = { { type = 'boolean, string|nil', doc = 'true once removed, or false plus a reason: not a number, no such watcher, or a watcher another resource owns' } }
         },
         CommandAdd = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -893,8 +893,8 @@ return {
             use = 'Cis.sync.ped / Cis.sync.prop / Cis.sync.vehicle',
             realm = 'server',
             params = { { name = 'kind', type = 'string', doc = "'prop', 'vehicle' or 'ped' -- never type-guarded, and the branch is on exactly these literals" }, { name = 'data', type = 'table', doc = 'the record. Not type-guarded either: the first hard requirement is data.coords, which raises on a non-table' } },
-            returns = { { type = 'string|nil, string|nil', doc = 'the record id, and a reason in exactly one case -- a networked kind with no server-side creation native. EVERY OTHER REFUSAL IS A BARE NIL, because a nil first value truncates the return list at the exports boundary' } },
-            note = 'A caller-managed `data.id` lives in a namespace of its own: two resources can both use "door1" and both get their own record. A numeric id is converted to its string here. Returns the caller\'s own id, never the namespaced key the client receives. `networked = true` asks the SERVER for one entity, created per kind and placed in the record\'s routing bucket; a vehicle also takes `vehicleType` (automobile, bike, boat, heli, plane, submarine, trailer; default automobile). A kind the server has no creation for is refused with a reason rather than downgraded. Caller data travels to the client ONLY in `data.clientData`, capped at 256 entries; any other field on `data` is server-side and is not sent.',
+            returns = { { type = 'string|nil, string|nil', doc = 'the record id, and a reason when a networked record is refused -- a kind with no server-side creation native, an entity the server could not create, or a removal that overtook the creation. EVERY OTHER REFUSAL IS A BARE NIL (and a logged reason), because a nil first value truncates the return list at the exports boundary' } },
+            note = 'A caller-managed `data.id` lives in a namespace of its own: two resources can both use "door1" and both get their own record. A numeric id is converted to its string here. Returns the caller\'s own id, never the namespaced key the client receives. `networked = true` asks the SERVER for one entity, created per kind and placed in the record\'s routing bucket; a vehicle also takes `vehicleType` (automobile, bike, boat, heli, plane, submarine, trailer; default automobile). A kind the server has no creation for is refused with a reason rather than downgraded, and so is an entity the server could not create. A networked entity is streamed by OneSync, never over the sync events; its record rides the entity\'s `cis_sync` state bag, an update that names the same coordinates does not move it, and an entity removed behind the library\'s back is re-created unless `respawn = false`. Client-local records are streamed by distance and re-sent only when their revision changes, one batched event per player per pass. Caller data travels to the client ONLY in `data.clientData` (and a vehicle\'s `props`), together capped at 256 entries and 16 KB of strings; any other field on `data` is server-side and is not sent. An upsert that is still creating its entity holds its id: a second upsert of the same id waits for it, and a remove during it wins.',
         },
         SyncRemove = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -947,7 +947,7 @@ return {
             since = '1.0.0', ['until'] = false, stable = false, deprecated = false,
             use = 'Cis.sync.onSpawn(fn)',
             realm = 'client',
-            params = { { name = 'fn', type = 'function', doc = 'a non-function is REFUSED rather than stored -- storing it is a nil call on the spawn path one step later' } },
+            params = { { name = 'fn', type = 'function', doc = 'a function, or one passed from another resource (it arrives as a callable reference and is released when that resource stops). Anything that cannot be called is REFUSED rather than stored' } },
             returns = { { type = 'boolean, string', doc = "true alone on success. Never a handle: there is no deregister. The handler is called pcall'd as (key, record, entity), and fires only after the generation check, so an entity created and immediately deleted never announces itself" } },
             note = 'Registers a consumer hook fired with `(key, record, entity)` once a synced entity has actually spawned -- which can be up to five seconds after the request, during a model load. An entity created and then immediately deleted because the player left during the wait does NOT fire. The hook runs under pcall: a consumer hook that raises must not take the spawn, or the despawn that deletes the entity, with it. A raise is logged, never swallowed. Refuses anything that is not a function. On the server it answers `false, \'server only\'`.',
         },
@@ -955,7 +955,7 @@ return {
             since = '1.0.0', ['until'] = false, stable = false, deprecated = false,
             use = 'Cis.sync.onDespawn(fn)',
             realm = 'client',
-            params = { { name = 'fn', type = 'function', doc = 'a non-function is refused rather than stored' } },
+            params = { { name = 'fn', type = 'function', doc = 'a function or a cross-resource reference, released when its resource stops; anything that cannot be called is refused' } },
             returns = { { type = 'boolean, string', doc = "true alone on success. The handler is called pcall'd as (key) and only when this client actually held something" } },
             note = 'Registers a consumer hook fired with `(key)` when this client drops a synced entity it was actually holding. A remove for a key it never had does not fire -- that is routine, the player walked out of range and came back -- and telling a consumer to clean up an entity it was never given is worse than saying nothing. Runs under pcall for the same reason as onSpawn, and the despawn is the more dangerous of the two: an unprotected raise there strands a client-local prop with nothing left to remove it. Refuses anything that is not a function. On the server it answers `false, \'server only\'`.',
         },
@@ -1337,6 +1337,14 @@ return {
             realm = 'both',
             params = { { name = 'timeout', type = 'integer', optional = true, doc = 'the deadline in ms, default 15000. ONE deadline for the whole call, not one per stage' } },
             returns = { { type = 'boolean', doc = 'true once the gate settled ready, false if it failed or the deadline passed' } },
+        },
+        ReadyState = {
+            since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Cis.isReady and Cis.isFailed, which read through to this in a consumer',
+            realm = 'both',
+            params = {},
+            returns = { { type = 'boolean, boolean, string|nil', doc = 'ready, failed, and the failure reason. Never blocks; NOT-YET is false, false' } },
+            note = 'The gate as another Lua state can see it. cis_libs writes `Cis.isReady` into its OWN Cis table, which a consumer never sees, so a consumer\'s `Cis.isReady` and `Cis.isFailed` read through to this export (lazily, and only until the gate settles).',
         },
         GetDiscordQueueDepth = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -1950,14 +1958,14 @@ return {
         since = '1.0.0',
         realm = 'both',
         forwardsTo = 'AddSyncDespawnHandler',
-        params = { { name = 'fn', type = 'function', doc = 'a non-function is refused rather than stored' } },
+        params = { { name = 'fn', type = 'function', doc = 'a function or a cross-resource reference, released when its resource stops; anything that cannot be called is refused' } },
         returns = { { type = 'boolean, string', doc = "true on success. Called pcall'd as (key), and only when this client actually held something" } },
     },
     ['Cis.sync.onSpawn'] = {
         since = '1.0.0',
         realm = 'both',
         forwardsTo = 'AddSyncSpawnHandler',
-        params = { { name = 'fn', type = 'function', doc = 'a non-function is refused rather than stored; storing it is a nil call on the spawn path one step later' } },
+        params = { { name = 'fn', type = 'function', doc = 'a function or a cross-resource reference, released when its resource stops; anything that cannot be called is refused' } },
         returns = { { type = 'boolean, string', doc = "true on success, and never a handle -- there is no deregister. Called pcall'd as (key, record, entity)" } },
     },
     ['Cis.sync.ped'] = {
@@ -2096,14 +2104,14 @@ return {
         since = '1.0.0',
         realm = 'both',
         forwardsTo = 'StatebagOnEntity',
-        params = { { name = 'key', type = 'string', doc = 'the key or *' }, { name = 'handler', type = 'function', doc = 'a FUNCTION, and a function passed from a consumer is dropped by the boundary' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'how long the client waits for the entity, default 2000. The server does not wait' } },
+        params = { { name = 'key', type = 'string', doc = 'the key or *' }, { name = 'handler', type = 'function', doc = 'called (entity, value, replicated, deleted); crosses the boundary as a callable reference and is released when the calling resource stops' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'how long the client keeps a change whose entity has not streamed in, default 2000. The server does not wait' } },
         returns = { { type = 'integer|nil, string|nil', doc = 'a cookie, or nil plus a reason' } },
     },
     ['Cis.statebag.onPlayer'] = {
         since = '1.0.0',
         realm = 'both',
         forwardsTo = 'StatebagOnPlayer',
-        params = { { name = 'key', type = 'string', doc = 'the key or *' }, { name = 'handler', type = 'function', doc = 'dropped across the boundary from a consumer' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'client-only wait; a server has no streaming problem' } },
+        params = { { name = 'key', type = 'string', doc = 'the key or *' }, { name = 'handler', type = 'function', doc = 'called (serverId, value, replicated, deleted); released when the calling resource stops' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'unused: a player watcher never waits' } },
         returns = { { type = 'integer|nil, string|nil', doc = 'a cookie, or nil plus a reason' } },
     },
     ['Cis.statebag.remove'] = {
@@ -2145,14 +2153,14 @@ return {
         since = '1.0.0',
         realm = 'server',
         forwardsTo = 'ServerZoneBox',
-        params = { { name = 'center', type = 'vector3|table', doc = 'the centre' }, { name = 'size', type = 'number|vector3|table', doc = 'full size' }, { name = 'opts', type = 'table', optional = true, doc = 'heading, onEnterEvent, onExitEvent' } },
+        params = { { name = 'center', type = 'vector3|table', doc = 'the centre' }, { name = 'size', type = 'number|vector3|table', doc = 'full size; every axis must be positive and finite' }, { name = 'opts', type = 'table', optional = true, doc = 'heading, bucket (default 0), onEnterEvent, onExitEvent' } },
         returns = { { type = 'integer|false, string|nil', doc = 'numeric id. Containment uses SERVER ped coords' } },
     },
     ['Cis.zones.server.sphere'] = {
         since = '1.0.0',
         realm = 'server',
         forwardsTo = 'ServerZoneSphere',
-        params = { { name = 'center', type = 'vector3|table', doc = 'the centre' }, { name = 'radius', type = 'number', doc = 'metres' }, { name = 'opts', type = 'table', optional = true, doc = 'onEnterEvent, onExitEvent' } },
+        params = { { name = 'center', type = 'vector3|table', doc = 'the centre' }, { name = 'radius', type = 'number', doc = 'metres' }, { name = 'opts', type = 'table', optional = true, doc = 'bucket (default 0), onEnterEvent, onExitEvent' } },
         returns = { { type = 'integer|false, string|nil', doc = 'numeric id' } },
     },
     ['Cis.zones.server.poly'] = {
@@ -2335,7 +2343,7 @@ return {
     },
     CisSyncRecord = {
         doc = 'The record Cis.sync.ped / prop / vehicle accept. `kind` leads and is the discriminator, so the three collapse into one export with no ambiguity. Calling again with the same id MOVES the entity rather than respawning it, as long as the model and kind are unchanged.',
-        fields = { { name = 'id', type = 'string|integer', doc = "the caller's own id, namespaced internally by the calling resource. A number is stringified at the boundary" }, { name = 'kind', type = 'string', doc = "'prop', 'vehicle' or 'ped'" }, { name = 'model', type = 'integer|string', doc = 'a hash or a model name' }, { name = 'coords', type = 'vector3|vector4|table', doc = 'a vector3, a vector4, or an { x, y, z } table. A non-finite number is refused with a reason' }, { name = 'heading', type = 'number', optional = true, doc = 'from w when the coords are a vector4, or from this key' }, { name = 'networked', type = 'boolean', optional = true, doc = 'asks the SERVER to create one entity rather than telling each client to spawn locally. A kind the server has no creation native for is REFUSED with a reason and never silently downgraded' }, { name = 'dynamic', type = 'boolean', optional = true, doc = 'the entity is placed at request time and does not need to persist' }, { name = 'bucket', type = 'integer', optional = true, doc = 'the routing bucket, applied on the server' }, { name = 'vehicleType', type = 'string', optional = true, doc = "only for kind = 'vehicle': automobile, bike, boat, heli, plane, submarine or trailer. Default automobile" }, { name = 'clientData', type = 'table', optional = true, doc = 'THE ONLY field that reaches the client, capped at 256 entries. Anything else on the record is server-side' } },
+        fields = { { name = 'id', type = 'string|integer', doc = "the caller's own id, namespaced internally by the calling resource. A number is stringified at the boundary" }, { name = 'kind', type = 'string', doc = "'prop', 'vehicle' or 'ped'" }, { name = 'model', type = 'integer|string', doc = 'a hash or a model name' }, { name = 'coords', type = 'vector3|vector4|table', doc = 'a vector3, a vector4, or an { x, y, z } table. A non-finite number is refused with a reason' }, { name = 'heading', type = 'number', optional = true, doc = 'from w when the coords are a vector4, or from this key' }, { name = 'networked', type = 'boolean', optional = true, doc = 'asks the SERVER to create one entity (orphan mode KeepEntity, in the record\'s bucket) that OneSync streams. It never travels over the sync events and clients never move it; its metadata rides the entity\'s `cis_sync` state bag and is applied by the OWNING client. Refused with a reason when the kind has no server creation native or the server could not create it -- never stored without an entity, never downgraded' }, { name = 'respawn', type = 'boolean', optional = true, doc = 'networked only, default true: an entity removed behind the library\'s back (entityRemoved) is re-created, at most 3 times a minute; false drops the record with it' }, { name = 'scope', type = 'number', optional = true, doc = 'the streaming radius in metres, (0, 10000], default 80. Anything else is refused. On a networked record it is the entity\'s OneSync culling radius' }, { name = 'dynamic', type = 'boolean', optional = true, doc = 'the entity is placed at request time and does not need to persist. Counted in diagnostics; it does NOT make the record re-send: every record is sent when its revision changes, and only then' }, { name = 'bucket', type = 'integer', optional = true, doc = 'the routing bucket, applied on the server' }, { name = 'vehicleType', type = 'string', optional = true, doc = "only for kind = 'vehicle': automobile, bike, boat, heli, plane, submarine or trailer. Default automobile" }, { name = 'props', type = 'table', optional = true, doc = 'vehicle properties, applied with SetVehicleProperties. Shares the clientData cap' }, { name = 'freeze', type = 'boolean', optional = true, doc = 'a prop is frozen unless this is false; anything else only when true. Applied by the server for a networked record' }, { name = 'invincible', type = 'boolean', optional = true, doc = 'applied by the client that spawns it, or by the owner of a networked entity' }, { name = 'blockEvents', type = 'boolean', optional = true, doc = 'peds only; as invincible' }, { name = 'scenario', type = 'string', optional = true, doc = 'peds only; a scenario name, started in place' }, { name = 'clientData', type = 'table', optional = true, doc = 'caller data that reaches the client. clientData and props together are capped at 256 entries and 16 KB of strings at every depth. Anything else on the record is server-side' } },
     },
     CisSyncSummary = {
         doc = 'One row of Cis.sync.list(). A summary, not the record: the clientData is left out and model and scope are not defaulted, so either can be nil.',
@@ -2424,17 +2432,17 @@ return {
             since = '1.0.0',
             payload = 'client to server: no arguments, requests an inventory snapshot',
         },
-        ['cis_libs:client:syncUpsert'] = {
+        ['cis_libs:client:syncBatch'] = {
             since = '1.0.0',
-            payload = 'server to client: (record) for a nearby synced entity. The record\'s identity is `record.key` -- the caller\'s id namespaced by the owning resource -- and that is what a client keys its entity on. `record.id` is the caller\'s own id, carried for reference.',
-        },
-        ['cis_libs:client:syncRemove'] = {
-            since = '1.0.0',
-            payload = 'server to client: (key) despawn a synced entity. The same namespaced key the upsert carried.',
+            payload = 'server to client: (n, upserts, removes). ONE event per player per pass, latent when it carries 32 entries or more. `n` numbers the batches sent to that player, and a client applies an entry only if no later batch has touched that key, so a reliable batch overtaking a latent one is safe. `upserts` are CLIENT-LOCAL records (identity `record.key`, the caller\'s id namespaced by its owning resource; `record.rev` is its revision); a networked record is never on this wire. `removes` are keys to despawn.',
         },
         ['cis_libs:server:syncSnapshot'] = {
             since = '1.0.0',
-            payload = 'client to server: no arguments, sent by the client when its sync scripts load. The server forgets what it believed this player held and re-sends everything currently visible, which is how a client restart recovers instead of staying permanently out of sync.',
+            payload = 'client to server: (held) sent when the client\'s sync scripts load, `held` being { [key] = rev } of what it still holds (nothing, on a fresh start). The server reconciles what it believed this player held against the claim, answers with one capped batch and lets the pass deliver the rest. Honoured once per 10 s per player.',
+        },
+        ['cis_libs:server:syncGaveUp'] = {
+            since = '1.0.0',
+            payload = 'client to server: (key) the client could not load that record\'s model after its retries. The server stops believing the client holds it and holds back that revision for 30 s.',
         },
         ['cis_libs:jobUpdated'] = {
             since = '1.0.0',

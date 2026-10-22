@@ -2136,6 +2136,74 @@ do
     _G.Cis = saved.Cis
 end
 
+-- Cis.isReady / Cis.isFailed IN A CONSUMER VM.
+--
+-- api.lua tells a consumer to read `Cis.isReady`. Only cis_libs' own VM ever
+-- wrote it (CisReadyState.markReady sets the field on the Cis table in THAT Lua
+-- state), so every consumer read false forever, ready or not. The consumer's
+-- copy now reads through to the gate.
+do
+    local saved = {
+        GetCurrentResourceName = GetCurrentResourceName,
+        IsDuplicityVersion = IsDuplicityVersion,
+        AddEventHandler = AddEventHandler,
+        exports = exports,
+        Cis = rawget(_G, 'Cis'),
+    }
+    local gate = { ready = false, failed = false }
+    local asked = 0
+    local stopHandlers = {}
+    AddEventHandler = function(name, fn)
+        if name == 'onResourceStop' then stopHandlers[#stopHandlers + 1] = fn end
+    end
+    exports = {
+        cis_libs = {
+            ReadyState = function(_)
+                asked = asked + 1
+                return gate.ready, gate.failed, gate.failed and 'boom' or nil
+            end,
+        },
+    }
+    GetCurrentResourceName = function() return 'consumer' end
+    for _, realm in ipairs({ 'server', 'client' }) do
+        IsDuplicityVersion = function() return realm == 'server' end
+        gate.ready, gate.failed, asked, stopHandlers = false, false, 0, {}
+        Cis = nil
+        assert(loadfile('./init.lua'))()
+        check(Cis.isReady == false and Cis.isFailed == false,
+            ('isReady (%s): a consumer reads false before cis_libs is ready'):format(realm))
+        gate.ready = true
+        check(Cis.isReady == true,
+            ('isReady (%s): and TRUE once it is -- not a field stuck at its load-time value')
+                :format(realm))
+        local before = asked
+        for _ = 1, 10 do local _ = Cis.isReady end
+        check(asked == before,
+            ('isReady (%s): a settled gate is not asked again on every read (%d calls)')
+                :format(realm, asked - before))
+        -- cis_libs restarting unsettles it.
+        for _, fn in ipairs(stopHandlers) do fn('cis_libs') end
+        gate.ready = false
+        check(Cis.isReady == false,
+            ('isReady (%s): a cis_libs restart is seen, not cached over'):format(realm))
+        gate.failed = true
+        check(Cis.isFailed == true and Cis.isReady == false,
+            ('isFailed (%s): a failed gate reads failed in the consumer'):format(realm))
+    end
+
+    -- cis_libs itself keeps the plain fields that markReady writes.
+    GetCurrentResourceName = function() return 'cis_libs' end
+    IsDuplicityVersion = function() return true end
+    Cis = nil
+    assert(loadfile('./init.lua'))()
+    check(rawget(Cis, 'isReady') == false,
+        'isReady: cis_libs\' own copy is the plain field CisReadyState writes')
+
+    GetCurrentResourceName, IsDuplicityVersion = saved.GetCurrentResourceName, saved.IsDuplicityVersion
+    AddEventHandler, exports = saved.AddEventHandler, saved.exports
+    _G.Cis = saved.Cis
+end
+
 -- 7.8 Cis.waitFor. Pure, in the consumer VM. Timeout does not raise, and
 -- treats any non-nil as success; this answers nil, reason and treats false
 -- as "not yet".

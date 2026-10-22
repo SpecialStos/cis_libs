@@ -151,14 +151,22 @@ end)
 -- handler in cis_libs and every refusal case passed without anything arriving.
 --
 -- HARNESS plumbing. It adds nothing to cis_libs and is not part of any contract.
+--
+-- The wire is a numbered batch, (n, upserts, removes), and a client applies an
+-- entry only if no later batch touched that key. The harness numbers its own
+-- batches far above anything the library's per-player counter reaches, so a raw
+-- record is never mistaken for a stale one.
+local rawBatch = 1000000000
 RegisterNetEvent('cis_test:rawSync', function(record)
-    TriggerClientEvent('cis_libs:client:syncUpsert', source, record)
+    rawBatch = rawBatch + 1
+    TriggerClientEvent('cis_libs:client:syncBatch', source, rawBatch, { record }, {})
 end)
 
 -- And the matching remove, so a successful spawn is cleaned up through the same
 -- route rather than by a local call that would not reach cis_libs either.
 RegisterNetEvent('cis_test:rawSyncRemove', function(key)
-    TriggerClientEvent('cis_libs:client:syncRemove', source, key)
+    rawBatch = rawBatch + 1
+    TriggerClientEvent('cis_libs:client:syncBatch', source, rawBatch, {}, { key })
 end)
 
 

@@ -57,6 +57,8 @@ local function newEnv(opts)
         'NetworkGetEntityFromNetworkId', 'Entity', 'DoesEntityExist',
         'DeleteEntity', 'SetEntityCoords', 'SetEntityHeading',
         'SetNetworkedEntityLocallyVisible', 'SetNetworkedEntityLocallyInvisible',
+        'TriggerLatentClientEvent', 'FreezeEntityPosition', 'CreateObjectNoOffset',
+        'CreateVehicleServerSetter', 'CreatePed', 'SetEntityRoutingBucket', 'SetEntityOrphanMode',
         'promise', 'Citizen', 'collectgarbage',
     }) do
         env.saved[#env.saved + 1] = { name = name, value = rawget(_G, name) }
@@ -265,11 +267,6 @@ local function newEnv(opts)
         env.byNetId[netId] = e
         return netId
     end
-    function NetworkGetEntityFromNetworkId(netId)
-        local e = env.byNetId[netId]
-        if e and env.entities[e] and env.entities[e].alive then return e end
-        return 0
-    end
     function DoesEntityExist(e)
         local entry = env.entities[e]
         return (entry ~= nil and entry.alive == true) and true or false
@@ -286,7 +283,6 @@ local function newEnv(opts)
         env.natives[#env.natives + 1] =
             { name = 'SetEntityHeading', entity = entity, heading = heading }
     end
-    function FreezeEntityPosition() end
     -- The pre-4.5 spawn, recorded for the same reason: a server file that still
     -- calls CreateObject for every kind is the defect, not a style choice.
     function CreateObject(hash, x, y, z, networked)
@@ -308,11 +304,52 @@ local function newEnv(opts)
     env.EXPORTS = EXPORTS
     exports = EXPORTS
 
-    function TriggerClientEvent(name, target, ...)
+    -- THE SYNC WIRE IS BATCHED: one `cis_libs:client:syncBatch` per player per
+    -- call, carrying (n, upserts, removes). Every raw event is kept in env.raw --
+    -- that is what a bandwidth assertion counts -- and each batch is ALSO split
+    -- into one logical `syncUpsert` (args[1] = the record) or `syncRemove`
+    -- (args[1] = the key) entry per element in env.sent, which is the question
+    -- nearly every test here asks: was THIS player told about THIS record.
+    env.raw = {}
+    local function recordSent(name, target, latent, ...)
         local n = select('#', ...)
         local args = { n = n }
         for i = 1, n do args[i] = select(i, ...) end
-        env.sent[#env.sent + 1] = { name = name, target = target, args = args }
+        env.raw[#env.raw + 1] = { name = name, target = target, args = args, latent = latent }
+        if name == 'cis_libs:client:syncBatch' then
+            for _, key in ipairs(args[3] or {}) do
+                env.sent[#env.sent + 1] = { name = 'cis_libs:client:syncRemove', target = target,
+                    args = { key, n = 1 }, batch = args[1], latent = latent }
+            end
+            for _, record in ipairs(args[2] or {}) do
+                env.sent[#env.sent + 1] = { name = 'cis_libs:client:syncUpsert', target = target,
+                    args = { record, n = 1 }, batch = args[1], latent = latent }
+            end
+            return
+        end
+        env.sent[#env.sent + 1] = { name = name, target = target, args = args, latent = latent }
+    end
+    function TriggerClientEvent(name, target, ...)
+        recordSent(name, target, false, ...)
+    end
+    function TriggerLatentClientEvent(name, target, bps, ...)
+        env.latentBps = bps
+        recordSent(name, target, true, ...)
+    end
+    -- Entity state bags, recorded per entity.
+    env.bags = {}
+    function Entity(entity)
+        return {
+            state = {
+                set = function(_, key, value, replicated)
+                    env.bags[entity] = env.bags[entity] or {}
+                    env.bags[entity][key] = { value = value, replicated = replicated }
+                end,
+            },
+        }
+    end
+    function FreezeEntityPosition(entity, toggle)
+        env.natives[#env.natives + 1] = { name = 'FreezeEntityPosition', entity = entity, toggle = toggle }
     end
 
     -- THE PROMISES AND `Citizen.Await`, MATCHING THE REAL NATIVE.
@@ -837,74 +874,78 @@ do
     env.reset()
 end
 
--- A caller that explicitly asks for a networked entity still gets one, and the
--- server spawns it ONCE and sends the netId rather than the coordinates. That is
--- the difference: a networked entity belongs to the server, so every client
--- receives the same one rather than making its own.
+-- A caller that explicitly asks for a networked entity still gets one: the server
+-- spawns it ONCE and OneSync streams it. Nothing about it travels over the sync
+-- events -- a networked record on that wire is what made every client spawn its
+-- own networked copy -- and its identity and metadata ride the entity's own
+-- `cis_sync` state bag instead.
 do
     local env = newEnv({
         players = { [1] = { coords = { x = 5.0, y = 0.0, z = 0.0 } } },
         netOk = true,
     })
     loadSync(env)
-    env.EXPORTS.SyncCreate('prop', {
+    local id = env.EXPORTS.SyncCreate('prop', {
         model = 'prop_barrier_05a',
         coords = { x = 0.0, y = 0.0, z = 0.0 },
         networked = true,
+        clientData = { label = 'gate' },
     })
+    check(type(id) == 'string', 'a caller asking for networked=true still gets one')
     env.tick()
-    local upserts = env.sentTo(1, 'cis_libs:client:syncUpsert')
-    local record = upserts[1] and upserts[1].args[1]
-    check(record and record.networked == true,
-        'a caller asking for networked=true still gets one')
-    check(record and record.netId ~= nil,
-        'a networked record carries the netId of the entity the server spawned')
-    check(record and record.spawnHere == false,
-        'a networked record tells the client NOT to spawn its own copy')
+    check(#env.sentTo(1, 'cis_libs:client:syncUpsert') == 0,
+        'a networked record is NEVER sent over the sync events: OneSync streams the entity')
 
-    -- Spawned ONCE, on the server. One creation call for two records of the same
-    -- shape would be the duplicate bug wearing a different hat. Counted across
-    -- all three server creation natives, so this asserts the property rather
-    -- than the particular native that happens to implement it today.
-    local spawns = 0
+    -- Spawned ONCE, on the server. Counted across all three server creation
+    -- natives, so this asserts the property rather than the native.
+    local spawns, made = 0, nil
     for i = 1, #env.natives do
         local n = env.natives[i].name
         if n == 'CreateObjectNoOffset' or n == 'CreateVehicleServerSetter'
             or n == 'CreatePed' or n == 'CreateObject' then
             spawns = spawns + 1
+            made = env.natives[i]
         end
     end
     check(spawns == 1,
         'a networked entity is spawned once, on the server, not once per client')
-    local made
-    for i = 1, #env.natives do
-        if env.natives[i].name == 'CreateObjectNoOffset' then made = env.natives[i] end
-    end
     check(made ~= nil and made.networked == true,
         'the server-side spawn is itself networked, so every client shares it')
+    local bag = made and env.bags[made.entity] and env.bags[made.entity].cis_sync
+    check(bag ~= nil and bag.replicated == true,
+        'the entity carries a REPLICATED cis_sync state bag')
+    check(bag ~= nil and type(bag.value.key) == 'string' and bag.value.id == id
+            and type(bag.value.rev) == 'number',
+        'the bag names the record (key, id, rev) so a client can resolve it')
+    check(bag ~= nil and bag.value.clientData and bag.value.clientData.label == 'gate',
+        'and carries the record\'s clientData')
+    check(bag ~= nil and bag.value.coords == nil,
+        'and NOT its coordinates: where a networked entity is, is the entity\'s business')
     env.reset()
 end
 
--- A networked spawn that FAILS must not lose the entity. Falling back to a
--- client-local copy is wrong-but-visible; dropping the record is wrong-and-
--- invisible, and invisible is the one that gets reported as "the prop is
--- missing and nothing is in the console".
+-- A networked spawn that FAILS is refused with a reason. Storing it anyway --
+-- networked = true with no entity and no netId -- is what made every client in
+-- range spawn its own networked copy, and nothing ever deleted them.
 do
     local env = newEnv({
         players = { [1] = { coords = { x = 5.0, y = 0.0, z = 0.0 } } },
         netOk = false,
     })
     loadSync(env)
-    local id = env.EXPORTS.SyncCreate('prop', {
+    local id, why = env.EXPORTS.SyncCreate('prop', {
+        id = 'nope',
         model = 'prop_barrier_05a',
         coords = { x = 0.0, y = 0.0, z = 0.0 },
         networked = true,
     })
-    check(id ~= nil, 'a failed networked spawn still yields a record')
+    check(id == nil and type(why) == 'string' and why ~= '',
+        ('a failed networked spawn is refused with a reason (%s)'):format(tostring(why)))
     env.tick()
-    local upserts = env.sentTo(1, 'cis_libs:client:syncUpsert')
-    check(#upserts == 1,
-        'a record whose networked spawn failed is still streamed to the player')
+    check(#env.sentTo(1, 'cis_libs:client:syncUpsert') == 0,
+        'and nothing is streamed: no client is ever told to make a networked entity')
+    local list = env.EXPORTS.SyncList()
+    check(type(list) == 'table' and #list == 0, 'and no record without an entity is kept')
     env.reset()
 end
 
@@ -3969,6 +4010,606 @@ do
     })
     check(seen[again] == true,
         '4.12: and re-asking for one of them still resolves to the same record')
+    env.reset()
+end
+
+-- ======================================== 4.13 · networked records, the OneSync way
+--
+-- A networked record is ONE server entity that OneSync streams. The old shape
+-- also streamed the record over sync events, from its SPAWN coordinates, and
+-- re-sent it: every update made each client SetEntityCoords a driven vehicle
+-- back to where it was created, and a same-shape update rebuilt the record
+-- without its netId, after which every client spawned its own networked copy
+-- that nothing ever deleted.
+do
+    local env = newEnv({
+        players = { [1] = { coords = { x = 5.0, y = 0.0, z = 0.0 } } },
+        netOk = true,
+    })
+    loadSync(env)
+    env.EXPORTS.SyncCreate('vehicle', {
+        id = 'car', model = 'adder', coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = true,
+    })
+    local made = callsNamed(env, 'CreateVehicleServerSetter')
+    local e = made[1] and made[1].entity
+    local bag1 = e and env.bags[e] and env.bags[e].cis_sync
+    check(bag1 ~= nil, '4.13: the networked vehicle carries its cis_sync bag')
+
+    -- The consumer updates the car's props, naming the coords it spawned it at.
+    env.EXPORTS.SyncCreate('vehicle', {
+        id = 'car', model = 'adder', coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = true,
+        props = { plate = 'CIS 1' },
+    })
+    check(#callsNamed(env, 'CreateVehicleServerSetter') == 1,
+        '4.13: a same-shape update creates nothing')
+    check(#callsNamed(env, 'SetEntityCoords') == 0,
+        '4.13: an update naming the SAME coordinates does not teleport the entity '
+            .. '(a driven vehicle stays where its driver put it)')
+    local bag2 = e and env.bags[e] and env.bags[e].cis_sync
+    check(bag2 ~= nil and bag1 ~= nil and bag2.value.rev > bag1.value.rev
+            and bag2.value.props and bag2.value.props.plate == 'CIS 1',
+        '4.13: the update reaches the OWNING client through the bag, at a newer revision')
+    env.tick()
+    env.tick()
+    check(#env.sentTo(1, 'cis_libs:client:syncUpsert') == 0,
+        '4.13: and is never streamed over the sync events, so no client spawns a copy')
+    env.reset()
+end
+
+-- entityRemoved: the entity went away behind the library's back.
+do
+    local env = newEnv({
+        players = { [1] = { coords = { x = 5.0, y = 0.0, z = 0.0 } } },
+        netOk = true,
+    })
+    loadSync(env)
+    env.EXPORTS.SyncCreate('prop', {
+        id = 'gate', model = 'prop_gate', coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = true,
+    })
+    local first = callsNamed(env, 'CreateObjectNoOffset')[1].entity
+    env.entities[first].alive = false
+    env.fire('entityRemoved', first)
+    local made = callsNamed(env, 'CreateObjectNoOffset')
+    check(#made == 2,
+        ('4.13: a networked entity removed behind the library\'s back is re-created (%d creates)')
+            :format(#made))
+    local second = made[2] and made[2].entity
+    check(second and env.bags[second] and env.bags[second].cis_sync
+            and env.bags[second].cis_sync.value.id == 'gate',
+        '4.13: and the new entity carries the record\'s bag')
+
+    -- respawn = false: the record goes with its entity.
+    env.EXPORTS.SyncCreate('prop', {
+        id = 'once', model = 'prop_gate', coords = { x = 10.0, y = 0.0, z = 0.0 },
+        networked = true, respawn = false,
+    })
+    local allMade = callsNamed(env, 'CreateObjectNoOffset')
+    env.fire('entityRemoved', allMade[#allMade].entity)
+    local listed = {}
+    for _, r in ipairs(env.EXPORTS.SyncList()) do listed[r.id] = true end
+    check(listed.once == nil and listed.gate == true,
+        '4.13: respawn = false drops the record with its entity, and only that record')
+
+    -- A budget, so something that deletes it on sight is not a spawn loop.
+    local function latestFor(id)
+        local all = callsNamed(env, 'CreateObjectNoOffset')
+        for i = #all, 1, -1 do
+            local bag = env.bags[all[i].entity] and env.bags[all[i].entity].cis_sync
+            if bag and bag.value.id == id then return all[i].entity end
+        end
+    end
+    for _ = 1, 5 do
+        env.fire('entityRemoved', latestFor('gate'))
+    end
+    local total = #callsNamed(env, 'CreateObjectNoOffset')
+    listed = {}
+    for _, r in ipairs(env.EXPORTS.SyncList()) do listed[r.id] = true end
+    -- gate: 1 original + 3 budgeted re-creations; once: 1.
+    check(total == 5 and listed.gate == nil,
+        ('4.13: re-creation is budgeted, then the record is dropped (%d creates)'):format(total))
+
+    -- The server's OWN delete is not a loss.
+    env.EXPORTS.SyncCreate('prop', {
+        id = 'mine', model = 'prop_gate', coords = { x = 20.0, y = 0.0, z = 0.0 }, networked = true,
+    })
+    local before = #callsNamed(env, 'CreateObjectNoOffset')
+    local mineEntity = before > 0 and callsNamed(env, 'CreateObjectNoOffset')[before].entity
+    env.EXPORTS.SyncRemove('mine')
+    env.fire('entityRemoved', mineEntity)
+    check(#callsNamed(env, 'CreateObjectNoOffset') == before,
+        '4.13: an entity the server deleted itself is not re-created')
+    env.reset()
+end
+
+-- ========================================== 4.14 · removal is targeted and batched
+--
+-- A remove went to -1 whenever nobody was known to hold the record, and one event
+-- per record per holder otherwise. An owner with 300 records stopping on a full
+-- server was thousands of reliable events in one tick -- the channel overflows
+-- and players are dropped.
+do
+    local env = newEnv({
+        players = {
+            [1] = { coords = { x = 5.0, y = 0.0, z = 0.0 } },
+            [2] = { coords = { x = 5000.0, y = 0.0, z = 0.0 } },
+        },
+    })
+    loadSync(env)
+    env.invoking = 'res_a'
+    for i = 1, 50 do
+        env.EXPORTS.SyncCreate('prop', {
+            id = 'a' .. i, model = 'prop_barrel_01', coords = { x = i * 0.5, y = 0.0, z = 0.0 },
+        })
+    end
+    env.EXPORTS.SyncCreate('prop', {
+        id = 'nobody', model = 'prop_barrel_01', coords = { x = 9000.0, y = 9000.0, z = 0.0 },
+    })
+    env.invoking = 'cis_anyProduct'
+
+    local before = #env.raw
+    env.invoking = 'res_a'
+    env.EXPORTS.SyncRemove('nobody')
+    env.invoking = 'cis_anyProduct'
+    check(#env.raw == before,
+        ('4.14: removing a record nobody holds sends NOTHING (%d events, none to -1)')
+            :format(#env.raw - before))
+
+    before = #env.raw
+    env.fire('onResourceStop', 'res_a')
+    local toOne, toOthers, entries = 0, 0, 0
+    for i = before + 1, #env.raw do
+        local e = env.raw[i]
+        if e.target == 1 then
+            toOne = toOne + 1
+            entries = entries + (type(e.args[3]) == 'table' and #e.args[3] or 0)
+        else
+            toOthers = toOthers + 1
+        end
+    end
+    check(toOne == 1 and entries == 50,
+        ('4.14: an owner stopping tells each holder ONCE, with every key (%d events, %d keys)')
+            :format(toOne, entries))
+    check(toOthers == 0, '4.14: and nobody who held none of them, and never -1')
+
+    -- cis_libs stopping sends nothing: its clients stop with it.
+    env.EXPORTS.SyncCreate('prop', {
+        id = 'last', model = 'prop_barrel_01', coords = { x = 1.0, y = 0.0, z = 0.0 },
+    })
+    before = #env.raw
+    env.fire('onResourceStop', 'cis_libs')
+    check(#env.raw == before,
+        ('4.14: cis_libs stopping broadcasts nothing (%d events)'):format(#env.raw - before))
+    env.reset()
+end
+
+-- ======================================== 4.15 · an upsert that yields is locked
+--
+-- A networked upsert waits for its entity to exist, and that is a yield. During
+-- it, a remove found no record ("no such id") and the creation then stored one
+-- anyway -- a record the caller had removed; a second upsert of the same id made
+-- a second entity and leaked the first.
+do
+    local env = newEnv({
+        players = { [1] = { coords = { x = 5.0, y = 0.0, z = 0.0 } } },
+        netOk = true,
+    })
+    loadSync(env)
+    -- The entity becomes addressable after two frames.
+    local realExists = DoesEntityExist
+    local frames = 0
+    DoesEntityExist = function(e)
+        if frames < 2 then return false end
+        return realExists(e)
+    end
+    local removed
+    Wait = function()
+        frames = frames + 1
+        if frames == 1 then
+            removed = { env.EXPORTS.SyncRemove('racer') }
+        end
+    end
+    local made = env.EXPORTS.SyncCreate('prop', {
+        id = 'racer', model = 'prop_barrel_01', coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = true,
+    })
+    DoesEntityExist = realExists
+    check(removed and removed[1] == true,
+        '4.15: a remove during the creation is accepted, not answered "no such id"')
+    check(made == nil, '4.15: and the creation it overtook does not come back as a record')
+    local list = env.EXPORTS.SyncList()
+    check(#list == 0, '4.15: nothing is left in the list')
+    local created = callsNamed(env, 'CreateObjectNoOffset')
+    check(#created == 1 and env.entities[created[1].entity].alive == false,
+        '4.15: and the entity it made is deleted, not leaked')
+    env.reset()
+end
+
+do
+    -- Two upserts of one id, interleaved by a yield.
+    local env = newEnv({
+        players = { [1] = { coords = { x = 5.0, y = 0.0, z = 0.0 } } },
+        netOk = true,
+    })
+    loadSync(env)
+    local realExists = DoesEntityExist
+    local gate = false
+    DoesEntityExist = function(e)
+        if not gate then return false end
+        return realExists(e)
+    end
+    Wait = function() coroutine.yield() end
+    local function create(x)
+        return coroutine.create(function()
+            return env.EXPORTS.SyncCreate('prop', {
+                id = 'twin', model = 'prop_barrel_01', coords = { x = x, y = 0.0, z = 0.0 }, networked = true,
+            })
+        end)
+    end
+    local a, b = create(0.0), create(4.0)
+    coroutine.resume(a)
+    coroutine.resume(b)
+    gate = true
+    for _ = 1, 10 do
+        if coroutine.status(a) ~= 'dead' then coroutine.resume(a) end
+        if coroutine.status(b) ~= 'dead' then coroutine.resume(b) end
+    end
+    DoesEntityExist = realExists
+    local made = callsNamed(env, 'CreateObjectNoOffset')
+    local alive = 0
+    for _, n in ipairs(made) do
+        if env.entities[n.entity].alive then alive = alive + 1 end
+    end
+    check(#made == 1 and alive == 1,
+        ('4.15: two interleaved upserts of one id make ONE entity (%d made, %d alive)')
+            :format(#made, alive))
+    local moves = callsNamed(env, 'SetEntityCoords')
+    check(#moves == 1 and moves[1].x == 4.0, '4.15: and the second one moves it')
+    env.reset()
+end
+
+do
+    -- THE WAIT IS IN MILLISECONDS. It counted iterations, so "5000 ms" was 5000
+    -- frames: at a 16 ms frame, eighty seconds of a stuck export call.
+    local env = newEnv({ players = {}, netOk = true })
+    loadSync(env)
+    local realExists = DoesEntityExist
+    DoesEntityExist = function() return false end
+    local waits = 0
+    Wait = function() waits = waits + 1; env.clock = env.clock + 16 end
+    local made = env.EXPORTS.SyncCreate('prop', {
+        id = 'never', model = 'prop_barrel_01', coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = true,
+    })
+    DoesEntityExist = realExists
+    check(made == nil, '4.15: an entity that never exists is refused')
+    check(waits > 0 and waits <= 400,
+        ('4.15: after ~5000 ms of frames, not 5000 frames (%d waits)'):format(waits))
+    env.reset()
+end
+
+-- ============================================ 4.16 · what travels, and how often
+do
+    -- A player in the hysteresis band who HOLDS a record is sent its updates.
+    local env = newEnv({ players = { [1] = { coords = { x = 5.0, y = 0.0, z = 0.0 } } } })
+    loadSync(env)
+    local function make(label)
+        return env.EXPORTS.SyncCreate('prop', {
+            id = 'band', model = 'prop_barrel_01', coords = { x = 0.0, y = 0.0, z = 0.0 },
+            scope = 80.0, clientData = { label = label },
+        })
+    end
+    make('one')
+    env.players[1].coords = { x = 90.0, y = 0.0, z = 0.0 }
+    env.tick()
+    check(env.removesOf('band') == 0, '4.16: 90 m is inside the exit radius, so the player keeps it')
+    make('two')
+    check(env.upsertsTo(1, 'band') == 2,
+        ('4.16: a holder in the hysteresis band is sent the update (%d sends)')
+            :format(env.upsertsTo(1, 'band')))
+    env.reset()
+end
+
+do
+    -- An unchanged record is not re-sent, `dynamic` or not, and the wire carries
+    -- the revision a client compares against.
+    local env = newEnv({ players = { [1] = { coords = { x = 5.0, y = 0.0, z = 0.0 } } } })
+    loadSync(env)
+    env.EXPORTS.SyncCreate('prop', {
+        id = 'dyn', model = 'prop_barrel_01', coords = { x = 0.0, y = 0.0, z = 0.0 }, dynamic = true,
+    })
+    for _ = 1, 3 do env.tick() end
+    check(env.upsertsTo(1, 'dyn') == 1,
+        ('4.16: an unchanged dynamic record is not re-sent every pass (%d sends)')
+            :format(env.upsertsTo(1, 'dyn')))
+    local wire = env.sentTo(1, 'cis_libs:client:syncUpsert')[1].args[1]
+    check(type(wire.rev) == 'number', '4.16: the record carries its revision')
+    env.reset()
+end
+
+do
+    -- ONE event per player per pass, latent when it is large, and ONE payload
+    -- table per revision shared by every player it goes to.
+    local env = newEnv({
+        players = {
+            [1] = { coords = { x = 5000.0, y = 0.0, z = 0.0 } },
+            [2] = { coords = { x = 5000.0, y = 0.0, z = 0.0 } },
+        },
+    })
+    loadSync(env)
+    for i = 1, 40 do
+        env.EXPORTS.SyncCreate('prop', {
+            id = 'b' .. i, model = 'prop_barrel_01', coords = { x = i * 1.0, y = 0.0, z = 0.0 },
+        })
+    end
+    env.players[1].coords = { x = 0.0, y = 0.0, z = 0.0 }
+    env.players[2].coords = { x = 1.0, y = 0.0, z = 0.0 }
+    local before = #env.raw
+    env.tick()
+    local events, latent, sizes = 0, 0, {}
+    for i = before + 1, #env.raw do
+        local e = env.raw[i]
+        events = events + 1
+        if e.latent then latent = latent + 1 end
+        sizes[e.target] = type(e.args[2]) == 'table' and #e.args[2] or 0
+    end
+    check(events == 2 and sizes[1] == 40 and sizes[2] == 40,
+        ('4.16: 40 records reach each player in ONE event per pass (%d events)'):format(events))
+    check(latent == 2, '4.16: and a batch that large goes latent, off the reliable channel')
+    local function firstOf(e)
+        local list = e and e.args[2]
+        return type(list) == 'table' and list[1] or nil
+    end
+    local one, two = firstOf(env.raw[before + 1]), firstOf(env.raw[before + 2])
+    check(one ~= nil and rawequal(one, two),
+        '4.16: the payload is built once per revision and shared, not rebuilt per player')
+    env.reset()
+end
+
+-- ============================================ 4.17 · the snapshot is not a door
+do
+    local env = newEnv({ players = { [1] = { coords = { x = 5.0, y = 0.0, z = 0.0 } } } })
+    loadSync(env)
+    env.EXPORTS.SyncCreate('prop', {
+        id = 'snap', model = 'prop_barrel_01', coords = { x = 0.0, y = 0.0, z = 0.0 },
+    })
+    env.emit('cis_libs:server:syncSnapshot', 1)
+    env.emit('cis_libs:server:syncSnapshot', 1)
+    env.emit('cis_libs:server:syncSnapshot', 1)
+    check(env.upsertsTo(1, 'snap') == 2,
+        ('4.17: a snapshot is honoured once per cooldown, not per request (%d sends)')
+            :format(env.upsertsTo(1, 'snap')))
+
+    -- A claim at the current revision is adopted, not re-sent.
+    local wire = env.sentTo(1, 'cis_libs:client:syncUpsert')[1].args[1]
+    env.clock = env.clock + 10001
+    env.emit('cis_libs:server:syncSnapshot', 1, { [wire.key] = wire.rev, ['junk\0key'] = 3 })
+    check(env.upsertsTo(1, 'snap') == 2,
+        '4.17: a record the client says it holds at the current revision is not re-sent')
+    local junkRemoved = 0
+    for _, e in ipairs(env.sentTo(1, 'cis_libs:client:syncRemove')) do
+        if e.args[1] == 'junk\0key' then junkRemoved = junkRemoved + 1 end
+    end
+    check(junkRemoved == 1, '4.17: and one it should not hold is taken back')
+    env.reset()
+end
+
+do
+    -- CAPPED. 300 records in range: one snapshot answers 200, the pass the rest.
+    local env = newEnv({ players = { [1] = { coords = { x = 5000.0, y = 0.0, z = 0.0 } } } })
+    loadSync(env)
+    for i = 1, 300 do
+        env.EXPORTS.SyncCreate('prop', {
+            id = 'c' .. i, model = 'prop_barrel_01',
+            coords = { x = (i % 20) * 2.0, y = math.floor(i / 20) * 2.0, z = 0.0 },
+        })
+    end
+    env.players[1].coords = { x = 0.0, y = 0.0, z = 0.0 }
+    env.emit('cis_libs:server:syncSnapshot', 1)
+    local first = #env.sentTo(1, 'cis_libs:client:syncUpsert')
+    check(first == 200, ('4.17: one snapshot sends at most 200 records (%d)'):format(first))
+    env.tick()
+    check(#env.sentTo(1, 'cis_libs:client:syncUpsert') == 300,
+        '4.17: and the pass delivers the rest')
+    env.reset()
+end
+
+-- ============================================ 4.18 · a client that gave up
+do
+    local env = newEnv({ players = { [1] = { coords = { x = 5.0, y = 0.0, z = 0.0 } } } })
+    loadSync(env)
+    env.EXPORTS.SyncCreate('prop', {
+        id = 'missing', model = 'prop_nope', coords = { x = 0.0, y = 0.0, z = 0.0 },
+    })
+    local key = env.wireKeyOf('missing')
+    env.emit('cis_libs:server:syncGaveUp', 1, key)
+    env.tick()
+    check(env.upsertsTo(1, 'missing') == 1, '4.18: a revision the client gave up on is held back')
+    env.players[1].coords = { x = 5000.0, y = 0.0, z = 0.0 }
+    env.tick()
+    check(env.removesTo(1, 'missing') == 0,
+        '4.18: and a client that never had it is not told to remove it')
+    env.players[1].coords = { x = 5.0, y = 0.0, z = 0.0 }
+    env.clock = env.clock + 30001
+    env.tick()
+    check(env.upsertsTo(1, 'missing') == 2,
+        '4.18: after the backoff it is offered again, rather than never')
+    env.reset()
+end
+
+-- ============================================ 4.19 · the caps and the radius
+do
+    local env = newEnv({ players = { [1] = { coords = { x = 5.0, y = 0.0, z = 0.0 } } } })
+    loadSync(env)
+    local nested = {}
+    for i = 1, 10 do
+        local inner = {}
+        for j = 1, 100 do inner['k' .. j] = j end
+        nested['t' .. i] = inner
+    end
+    local props = {}
+    for i = 1, 5000 do props['p' .. i] = i end
+    env.EXPORTS.SyncCreate('vehicle', {
+        id = 'fat', model = 'adder', coords = { x = 0.0, y = 0.0, z = 0.0 },
+        clientData = nested, props = props,
+    })
+    local wire = env.sentTo(1, 'cis_libs:client:syncUpsert')[1].args[1]
+    local function count(t)
+        local n = 0
+        for _, v in pairs(t or {}) do
+            n = n + 1
+            if type(v) == 'table' then n = n + count(v) end
+        end
+        return n
+    end
+    local total = count(wire.props) + count(wire.clientData)
+    check(total <= 256,
+        ('4.19: props and nested clientData share ONE cap of 256 entries (%d sent)'):format(total))
+
+    -- Nesting alone: ten tables of a hundred is 1010 entries, and every level
+    -- spends the SAME budget.
+    env.EXPORTS.SyncCreate('prop', {
+        id = 'deep', model = 'prop_barrel_01', coords = { x = 1.0, y = 0.0, z = 0.0 },
+        clientData = nested,
+    })
+    local deep
+    for _, e in ipairs(env.sentTo(1, 'cis_libs:client:syncUpsert')) do
+        if e.args[1].id == 'deep' then deep = e.args[1] end
+    end
+    local deepTotal = deep and count(deep.clientData) or -1
+    check(deepTotal >= 1 and deepTotal <= 256,
+        ('4.19: a table of tables is capped in TOTAL, not per level (%d sent)'):format(deepTotal))
+
+    for _, bad in ipairs({ '100', -5, 0, 0 / 0, math.huge }) do
+        local made = env.EXPORTS.SyncCreate('prop', {
+            id = 'scoped', model = 'prop_barrel_01', coords = { x = 0.0, y = 0.0, z = 0.0 }, scope = bad,
+        })
+        check(made == nil, ('4.19: scope %s is refused'):format(tostring(bad)))
+    end
+    env.reset()
+end
+
+-- ===================================================== 7.5 server zones
+--
+-- FOUR DEFECTS, all invisible with one player and one zone:
+--   * every player was tested against every zone every pass, with no index;
+--   * routing buckets were ignored, so a zone fired for a player in another world;
+--   * a player who dropped, and everyone inside a removed zone, never got the exit;
+--   * a box checked only its x size, and a NaN centre was accepted.
+local function zonesEnv(players)
+    local env = newEnv({ players = players })
+    env.saved[#env.saved + 1] = { name = 'CisServerZoneBox', value = rawget(_G, 'CisServerZoneBox') }
+    env.events = {}
+    function TriggerEvent(name, ...)
+        env.events[#env.events + 1] = { name = name, args = table.pack(...) }
+    end
+    loadModule('server/zones.lua')
+    env.EXPORTS = exports
+    function env.count(name, src, id)
+        local n = 0
+        for _, e in ipairs(env.events) do
+            if e.name == name and (src == nil or e.args[2] == src) and (id == nil or e.args[1] == id) then
+                n = n + 1
+            end
+        end
+        return n
+    end
+    return env
+end
+
+do
+    local env = zonesEnv({
+        [1] = { coords = { x = 1.0, y = 1.0, z = 0.0 } },
+        [2] = { coords = { x = 1.0, y = 1.0, z = 0.0 }, bucket = 3 },
+    })
+    local opts = { onEnterEvent = 'z:in', onExitEvent = 'z:out' }
+    local main = env.EXPORTS.ServerZoneBox({ x = 0.0, y = 0.0, z = 0.0 }, 10.0, opts)
+    local inst = env.EXPORTS.ServerZoneSphere({ x = 0.0, y = 0.0, z = 0.0 }, 10.0,
+        { onEnterEvent = 'z:in', onExitEvent = 'z:out', bucket = 3 })
+    check(type(main) == 'number' and type(inst) == 'number', '7.5: zones are created')
+    env.tick()
+    check(env.count('z:in', 1, main) == 1, '7.5: a player inside gets the enter')
+    check(env.count('z:in', 2, main) == 0,
+        '7.5: a player in ANOTHER routing bucket is not inside a bucket-0 zone')
+    check(env.count('z:in', 2, inst) == 1 and env.count('z:in', 1, inst) == 0,
+        '7.5: a bucket-3 zone fires for the bucket-3 player and nobody else')
+    local inside = env.EXPORTS.ServerZonePlayers(main)
+    check(#inside == 1 and inside[1] == 1, '7.5: players() reports who is inside, from server coords')
+
+    -- Moving buckets is leaving the zone, without walking a metre.
+    env.players[1].bucket = 3
+    env.tick()
+    check(env.count('z:out', 1, main) == 1 and env.count('z:in', 1, inst) == 1,
+        '7.5: a bucket change exits the old world\'s zone and enters the new one')
+
+    -- REMOVAL owes the exit to everyone inside.
+    env.EXPORTS.ServerZoneRemove(inst)
+    check(env.count('z:out', 1, inst) == 1 and env.count('z:out', 2, inst) == 1,
+        ('7.5: removing a zone fires the exit for every player inside (%d, %d)')
+            :format(env.count('z:out', 1, inst), env.count('z:out', 2, inst)))
+
+    -- A DROP owes it too.
+    env.players[1].bucket = 0
+    env.tick()
+    check(env.count('z:in', 1, main) == 2, '7.5: back in bucket 0, back in the zone')
+    local saved = rawget(_G, 'source')
+    source = 1
+    env.fire('playerDropped', 'quit')
+    _G.source = saved
+    check(env.count('z:out', 1, main) == 2,
+        '7.5: a player who drops gets the exit for the zone they were in')
+    env.players[1] = nil
+    env.tick()
+    check(env.count('z:out', 1, main) == 2, '7.5: and only once')
+    env.reset()
+end
+
+-- The OWNER stopping takes its zones, and their occupants are told.
+do
+    local env = zonesEnv({ [1] = { coords = { x = 0.0, y = 0.0, z = 0.0 } } })
+    env.invoking = 'res_a'
+    local id = env.EXPORTS.ServerZonePoly({ { x = -5, y = -5 }, { x = 5, y = -5 }, { x = 5, y = 5 }, { x = -5, y = 5 } },
+        { onExitEvent = 'z:out', onEnterEvent = 'z:in' })
+    env.invoking = nil
+    env.tick()
+    check(env.count('z:in', 1, id) == 1, '7.5: a poly zone is entered')
+    env.fire('onResourceStop', 'res_a')
+    check(env.count('z:out', 1, id) == 1, '7.5: its owner stopping fires the exit')
+    check(env.EXPORTS.ServerZonePlayers(id) == false, '7.5: and the zone is gone')
+    env.reset()
+end
+
+-- THE INDEX. One player and 500 zones on the far side of the map: the old pass
+-- ran 500 containment tests every 500 ms for a player near none of them.
+do
+    local env = zonesEnv({ [1] = { coords = { x = 0.0, y = 0.0, z = 0.0 } } })
+    for i = 1, 500 do
+        env.EXPORTS.ServerZoneSphere({ x = 3000.0 + (i % 25) * 40, y = 3000.0 + math.floor(i / 25) * 40, z = 0.0 }, 5.0)
+    end
+    local near = env.EXPORTS.ServerZoneBox({ x = 2.0, y = 2.0, z = 0.0 }, { 10.0, 10.0, 10.0 }, { onEnterEvent = 'z:in' })
+    local realContains = CisZoneGeom.contains
+    local tests = 0
+    CisZoneGeom.contains = function(zone, c) tests = tests + 1; return realContains(zone, c) end
+    env.tick()
+    CisZoneGeom.contains = realContains
+    check(tests <= 2,
+        ('7.5: a pass tests only the zones near the player, not all 501 (%d containment tests)'):format(tests))
+    check(env.count('z:in', 1, near) == 1, '7.5: and still finds the one it is in')
+    env.reset()
+end
+
+-- VALIDATION. Every axis, and a finite centre.
+do
+    local env = zonesEnv({})
+    local okBox = env.EXPORTS.ServerZoneBox({ x = 0, y = 0, z = 0 }, { 4.0, 2.0, 3.0 })
+    check(type(okBox) == 'number', '7.5: a well-formed box is accepted')
+    local negY, whyY = env.EXPORTS.ServerZoneBox({ x = 0, y = 0, z = 0 }, { 4.0, -1.0, 3.0 })
+    check(negY == false and type(whyY) == 'string', '7.5: a negative y size is refused')
+    local nanZ = env.EXPORTS.ServerZoneBox({ x = 0, y = 0, z = 0 }, { 4.0, 4.0, 0 / 0 })
+    check(nanZ == false, '7.5: a NaN z size is refused')
+    local nanC = env.EXPORTS.ServerZoneBox({ x = 0 / 0, y = 0, z = 0 }, 4.0)
+    check(nanC == false, '7.5: a NaN centre is refused')
+    local infS = env.EXPORTS.ServerZoneSphere({ x = 0, y = math.huge, z = 0 }, 4.0)
+    check(infS == false, '7.5: an infinite centre is refused')
+    local badBucket = env.EXPORTS.ServerZoneSphere({ x = 0, y = 0, z = 0 }, 4.0, { bucket = -1 })
+    check(badBucket == false, '7.5: a negative bucket is refused')
     env.reset()
 end
 

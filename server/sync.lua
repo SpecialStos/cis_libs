@@ -1,13 +1,46 @@
--- Server-authoritative entity sync, streamed by distance.
+-- Server-authoritative entity sync.
+--
+-- TWO KINDS OF RECORD, AND TWO TRANSPORTS.
+--
+--   client-local (the default). The server streams the RECORD by distance and
+--   each client in range spawns its own non-networked copy. What a client holds
+--   is tracked per player (`has`), every change carries a revision, and a player
+--   is sent a record only when the revision they hold is older than the record's.
+--   One batched event per player per pass, latent when it is large.
+--
+--   networked. The server creates ONE entity (orphan mode KeepEntity, in the
+--   record's routing bucket) and OneSync streams it -- that is what OneSync is
+--   for, and doing it again over events was a second, worse copy. The record's
+--   metadata rides an entity state bag (`cis_sync`) that the owning client
+--   applies. Clients NEVER create a networked entity and never move one: a moving
+--   vehicle is where its driver put it, not where it was spawned. If the entity
+--   is removed behind the library's back (`entityRemoved`), it is re-created or
+--   the record dropped, per `respawn`.
 
 local records = {}
 local seq = 0
 local revisions = 0
 
--- src -> { [recordKey] = true }.
+-- src -> { [recordKey] = rev that player was sent }.
 local has = {}
 
--- HOW MANY RECORDS ARE DYNAMIC.
+-- src -> { [recordKey] = { rev, untilMs } }: a model the client gave up on.
+local refused = {}
+
+-- src -> the sequence number of the last batch sent to that player. A client
+-- applies an entry only if no LATER batch has already touched that key, which is
+-- what makes a latent batch safe next to a reliable one that overtakes it.
+local batchSeq = {}
+
+-- src -> GetGameTimer of the last snapshot honoured.
+local lastSnapshot = {}
+
+-- recordKey -> { owner, cancelled } while an upsert for it may yield.
+local inflight = {}
+-- contentKey -> true while an idless upsert for that content may yield.
+local inflightContent = {}
+
+local stats = { networkedFailed = 0, respawned = 0, truncated = 0, snapshotsRefused = 0 }
 
 -- Server-issued, and never taken from the caller unless the caller supplied one.
 local function nextId(kind)
@@ -62,12 +95,34 @@ end
 
 -- The default streaming radius, in game units.
 local DEFAULT_SCOPE = 80.0
+-- The largest radius a record may ask for: the whole map is about 8 km across.
+local MAX_SCOPE = 10000.0
 
 -- How often the streaming pass runs.
 local STREAM_MS = 1000
 
--- How long a networked spawn waits for its model.
-local MODEL_TIMEOUT_MS = 5000
+-- How long a networked spawn waits for its entity to become addressable, in
+-- MILLISECONDS on the game clock. It used to count loop iterations, so the
+-- "5 second" timeout was 5000 frames.
+local ENTITY_WAIT_MS = 5000
+-- A runaway guard for a clock that does not move.
+local ENTITY_WAIT_TICKS = 20000
+
+-- A batch this large goes over the latent channel instead of the reliable one.
+local LATENT_MIN_ENTRIES = 32
+local LATENT_BPS = 256000
+
+-- A snapshot is a recovery, not a feed: one per player per this long.
+local SNAPSHOT_COOLDOWN_MS = 10000
+-- The most keys a client may claim to hold in one snapshot request.
+local MAX_HELD_CLAIMS = 512
+
+-- A client that gave up on a model is not re-sent that revision for this long.
+local REFUSED_BACKOFF_MS = 30000
+
+-- entityRemoved re-creations allowed per record per window before it is dropped.
+local RESPAWN_MAX = 3
+local RESPAWN_WINDOW_MS = 60000
 
 -- The only distance question this file asks.
 local function nearByDistance(p, coords, radius)
@@ -170,8 +225,9 @@ end
 -- id<-> content index, so the implicit lookup below is O(1) rather than a scan of every
 local byContent = {}
 
--- recordKey -> server entity handle, for NETWORKED records only.
+-- recordKey -> server entity handle, for NETWORKED records only, and the reverse.
 local handles = {}
+local byEntity = {}
 
 -- \0 is the same boundary `recordKey` uses, and for the same reason: it cannot occur in
 local function contentKey(owner, kind, print_)
@@ -193,51 +249,124 @@ local function unindexRecord(id, stored)
     end
 end
 
--- What actually goes over the wire.
-local CLIENT_FIELDS = {
-    key = true, id = true, kind = true, model = true, coords = true,
-    heading = true, networked = true, netId = true, spawnHere = true,
-    freeze = true, invincible = true, blockEvents = true, scenario = true,
-    props = true, clientData = true,
-}
-
--- How much of a caller's own data may travel.
+-- How much of a caller's own data may travel: ONE budget for the whole record --
+-- clientData and vehicle props together, at every depth. The nested copy used to
+-- be handed the budget by value, so a table of tables spent its allowance once
+-- per level and the cap was a cap on the top level only.
 local MAX_CLIENT_DATA_NODES = 256
+local MAX_CLIENT_DATA_BYTES = 16384
+local MAX_DEPTH = 4
 
--- Copy at most `budget` entries.
+-- Copy at most the budget's entries and string bytes. `budget` is shared and
+-- charged as it goes, so nesting cannot multiply it.
 local function copyCapped(value, budget, depth)
-    if type(value) ~= 'table' or depth > 4 then
+    if type(value) ~= 'table' or depth > MAX_DEPTH then
         return nil
     end
     local out = {}
-    local spent = 0
     for k, v in pairs(value) do
-        if spent >= budget then
-            Logging.Error('Cis.sync: clientData truncated at the size cap')
-            break
-        end
-        spent = spent + 1
-        if type(v) == 'table' then
-            out[k] = copyCapped(v, budget - spent, depth + 1)
+        local tk, tv = type(k), type(v)
+        if tk ~= 'string' and tk ~= 'number' then
+            budget.truncated = true
         else
-            out[k] = v
+            budget.nodes = budget.nodes - 1
+            if tk == 'string' then
+                budget.bytes = budget.bytes - #k
+            end
+            if tv == 'string' then
+                budget.bytes = budget.bytes - #v
+            end
+            if budget.nodes < 0 or budget.bytes < 0 then
+                budget.truncated = true
+                break
+            end
+            if tv == 'table' then
+                local nested = copyCapped(v, budget, depth + 1)
+                if nested == nil then
+                    budget.truncated = true
+                else
+                    out[k] = nested
+                end
+                if budget.nodes < 0 or budget.bytes < 0 then
+                    break
+                end
+            elseif tv == 'string' or tv == 'number' or tv == 'boolean' then
+                out[k] = v
+            else
+                -- A function or userdata cannot cross the network.
+                budget.truncated = true
+            end
         end
     end
     return out
 end
 
-local function payload(record)
-    local out = {}
-    for k in pairs(CLIENT_FIELDS) do
-        local v = record[k]
-        if v ~= nil then
-            out[k] = v
-        end
+-- WHAT GOES OVER THE WIRE, built ONCE per revision and shared by every send of
+-- it. An allow-list: a field nobody named here does not travel.
+local function buildWire(record)
+    local c = record.coords
+    local out = {
+        key = record.key, id = record.id, kind = record.kind, model = record.model,
+        coords = { x = c.x, y = c.y, z = c.z }, heading = record.heading,
+        networked = false, rev = record.rev,
+        freeze = record.freeze, invincible = record.invincible,
+        blockEvents = record.blockEvents,
+    }
+    if type(record.scenario) == 'string' then
+        out.scenario = record.scenario
     end
-    if out.clientData ~= nil then
-        out.clientData = copyCapped(record.clientData, MAX_CLIENT_DATA_NODES, 1)
+    local budget = { nodes = MAX_CLIENT_DATA_NODES, bytes = MAX_CLIENT_DATA_BYTES }
+    if type(record.props) == 'table' then
+        out.props = copyCapped(record.props, budget, 1)
+    end
+    if type(record.clientData) == 'table' then
+        out.clientData = copyCapped(record.clientData, budget, 1)
+    end
+    if budget.truncated then
+        stats.truncated = stats.truncated + 1
+        Logging.Error(('Cis.sync: record %s clientData/props truncated at the size cap '
+            .. '(%d entries, %d bytes)'):format(tostring(record.id),
+            MAX_CLIENT_DATA_NODES, MAX_CLIENT_DATA_BYTES))
     end
     return out
+end
+
+-- What a networked entity carries in its `cis_sync` state bag: everything the
+-- OWNING client applies, and nothing about where the entity is.
+local function buildBag(record)
+    local budget = { nodes = MAX_CLIENT_DATA_NODES, bytes = MAX_CLIENT_DATA_BYTES }
+    local out = {
+        key = record.key, id = record.id, kind = record.kind, rev = record.rev,
+        invincible = record.invincible, blockEvents = record.blockEvents,
+        scenario = type(record.scenario) == 'string' and record.scenario or nil,
+    }
+    if type(record.props) == 'table' then
+        out.props = copyCapped(record.props, budget, 1)
+    end
+    if type(record.clientData) == 'table' then
+        out.clientData = copyCapped(record.clientData, budget, 1)
+    end
+    return out
+end
+
+-- ------------------------------------------------------------------ the wire
+local EMPTY = {}
+
+-- ONE event per player per call: upserts and removes together, numbered.
+local function send(src, ups, rems)
+    local nUps = ups and #ups or 0
+    local nRems = rems and #rems or 0
+    if nUps + nRems == 0 then
+        return
+    end
+    local n = (batchSeq[src] or 0) + 1
+    batchSeq[src] = n
+    if nUps + nRems >= LATENT_MIN_ENTRIES then
+        TriggerLatentClientEvent('cis_libs:client:syncBatch', src, LATENT_BPS, n,
+            ups or EMPTY, rems or EMPTY)
+    else
+        TriggerClientEvent('cis_libs:client:syncBatch', src, n, ups or EMPTY, rems or EMPTY)
+    end
 end
 
 -- Spawn a networked entity ONCE, on the server, and return its handle.
@@ -256,6 +385,14 @@ local function modelHashOf(model)
         return model
     end
     return joaat(tostring(model))
+end
+
+-- Props are frozen unless asked not to be; anything else only when asked.
+local function wantsFreeze(record)
+    if record.kind == 'prop' then
+        return record.freeze ~= false
+    end
+    return record.freeze == true
 end
 
 -- One entity, created the way THIS KIND has to be created, plus the two calls that
@@ -297,16 +434,18 @@ local function createEntity(record)
             :format(tostring(record.kind), tostring(record.model))
     end
 
-    -- The handle comes back immediately, but the entity is not necessarily addressable
+    -- The handle comes back immediately, but the entity is not necessarily
+    -- addressable yet. A deadline on the game clock, in milliseconds.
     if type(DoesEntityExist) == 'function' then
-        local waited = 0
-        while not DoesEntityExist(entity) and waited < MODEL_TIMEOUT_MS do
+        local deadline = GetGameTimer() + ENTITY_WAIT_MS
+        local ticks = 0
+        while not DoesEntityExist(entity) do
+            if GetGameTimer() >= deadline or ticks >= ENTITY_WAIT_TICKS then
+                return nil, ('the server created %s %s but it never came into existence')
+                    :format(tostring(record.kind), tostring(record.model))
+            end
+            ticks = ticks + 1
             Wait(0)
-            waited = waited + 1
-        end
-        if not DoesEntityExist(entity) then
-            return nil, ('the server created %s %s but it never came into existence')
-                :format(tostring(record.kind), tostring(record.model))
         end
     end
 
@@ -324,6 +463,7 @@ local function destroyEntity(entity)
     if not entity or entity == 0 then
         return
     end
+    byEntity[entity] = nil
     if type(DoesEntityExist) == 'function' and not DoesEntityExist(entity) then
         return
     end
@@ -332,14 +472,52 @@ local function destroyEntity(entity)
     end
 end
 
--- Move an entity the server already owns.
-local function moveEntity(entity, record)
-    local c = record.coords
-    if type(SetEntityCoords) == 'function' then
-        SetEntityCoords(entity, c.x, c.y, c.z)
+-- The server-side half of a networked record's look: heading, freeze, the
+-- streaming radius, and the bag the owning client reads the rest from.
+local function applyServerSide(entity, record, previous)
+    if previous == nil then
+        -- The object native takes no heading; the vehicle and ped ones did.
+        if record.kind == 'prop' and type(SetEntityHeading) == 'function' then
+            SetEntityHeading(entity, record.heading or 0.0)
+        end
+    else
+        -- AN EXPLICIT MOVE ONLY. A re-upsert that names the same coordinates -- a
+        -- consumer updating a vehicle's props, say -- must not teleport an entity a
+        -- player is driving back to where it was spawned.
+        local pc, c = previous.coords, record.coords
+        local moved = pc.x ~= c.x or pc.y ~= c.y or pc.z ~= c.z
+        if moved and type(SetEntityCoords) == 'function' then
+            SetEntityCoords(entity, c.x, c.y, c.z, false, false, false, false)
+        end
+        if (moved or previous.heading ~= record.heading) and type(SetEntityHeading) == 'function' then
+            SetEntityHeading(entity, record.heading or 0.0)
+        end
+        if previous.bucket ~= record.bucket and type(SetEntityRoutingBucket) == 'function' then
+            SetEntityRoutingBucket(entity, record.bucket or 0)
+        end
     end
-    if type(SetEntityHeading) == 'function' then
-        SetEntityHeading(entity, record.heading or 0.0)
+    local freeze = wantsFreeze(record)
+    if (previous == nil and freeze) or (previous ~= nil and wantsFreeze(previous) ~= freeze) then
+        if type(FreezeEntityPosition) == 'function' then
+            FreezeEntityPosition(entity, freeze)
+        end
+    end
+    -- `scope` on a networked record is OneSync's own culling radius for it: the
+    -- streaming distance is then measured from where the entity actually IS.
+    if record.scope and (previous == nil or previous.scope ~= record.scope)
+        and type(SetEntityDistanceCullingRadius) == 'function' then
+        SetEntityDistanceCullingRadius(entity, record.scope + 0.0)
+    end
+    if Entity then
+        Entity(entity).state:set('cis_sync', buildBag(record), true)
+    end
+end
+
+local function attach(key, record, entity)
+    handles[key] = entity
+    byEntity[entity] = key
+    if type(NetworkGetNetworkIdFromEntity) == 'function' then
+        record.netId = NetworkGetNetworkIdFromEntity(entity)
     end
 end
 
@@ -388,6 +566,188 @@ local function normalizeCoords(value, heading)
     return { x = x, y = y, z = z, heading = (type(h) == 'number') and h or 0.0 }
 end
 
+local function refuse(kind, why)
+    Logging.Error(('Cis.sync.%s rejected: %s'):format(tostring(kind), why))
+    return nil
+end
+
+-- Wait for another upsert of the same key (or content) to finish its yield.
+local function awaitFree(locks, k)
+    if not locks[k] then
+        return true
+    end
+    local deadline = GetGameTimer() + ENTITY_WAIT_MS * 2
+    local ticks = 0
+    while locks[k] do
+        if GetGameTimer() >= deadline or ticks >= ENTITY_WAIT_TICKS then
+            return false
+        end
+        ticks = ticks + 1
+        Wait(0)
+    end
+    return true
+end
+
+-- Tell every player who holds the key, or who is in range of it now. Holders are
+-- told even from the hysteresis band, where the pass would not have SENT it but
+-- would also not have taken it away.
+local function push(key, record)
+    local positions = playerPositions()
+    for i = 1, #positions do
+        local p = positions[i]
+        local set = has[p.src]
+        local held = set and set[key] ~= nil
+        if (held and stillNear(p, record)) or isNear(p, record) then
+            if not set then
+                set = {}
+                has[p.src] = set
+            end
+            set[key] = record.rev
+            send(p.src, { record.wire }, nil)
+        end
+    end
+end
+
+-- Forget a key for every holder and collect who must be told, per player.
+local function collectHolders(key, out)
+    for src, set in pairs(has) do
+        if set[key] ~= nil then
+            set[key] = nil
+            local list = out[src]
+            if not list then
+                list = {}
+                out[src] = list
+            end
+            list[#list + 1] = key
+        end
+    end
+end
+
+local function flushRemoves(out)
+    for src, list in pairs(out) do
+        send(src, nil, list)
+    end
+end
+
+-- Take one record out of every index. Clients are told by the caller, batched.
+local function unlink(key)
+    local record = records[key]
+    if not record then
+        return nil
+    end
+    unindexRecord(key, record)
+    gridForget(key)
+    records[key] = nil
+    -- A networked entity belongs to the server, so the SERVER deletes it.
+    local entity = handles[key]
+    if entity then
+        handles[key] = nil
+        destroyEntity(entity)
+    end
+    local lock = inflight[key]
+    if lock then
+        lock.cancelled = true
+    end
+    return record
+end
+
+-- Remove many keys and tell each holder ONCE, with every key it held.
+local function removeMany(keys)
+    local tell = {}
+    local taken = 0
+    for i = 1, #keys do
+        if unlink(keys[i]) then
+            taken = taken + 1
+            collectHolders(keys[i], tell)
+        end
+    end
+    flushRemoves(tell)
+    return taken
+end
+
+local function upsertLocked(rec, key, print_)
+    local previous = records[key]
+    if previous and previous.print == print_ then
+        return previous.id
+    end
+
+    -- Monotonic, so a client can tell "newer" from "older" without comparing payloads.
+    revisions = revisions + 1
+    rec.rev = revisions
+    rec.print = print_
+    rec.key = key
+
+    if rec.networked then
+        local entity = handles[key]
+        local sameShape = previous and previous.networked and previous.kind == rec.kind
+            and modelHashOf(previous.model) == modelHashOf(rec.model)
+        if entity and sameShape then
+            rec.netId = previous.netId
+            rec.respawns = previous.respawns
+            applyServerSide(entity, rec, previous)
+        else
+            -- Create the replacement BEFORE destroying what is there. This can YIELD.
+            local created, why, unsupported = createEntity(rec)
+            if unsupported then
+                -- THIS KIND CANNOT BE NETWORKED.
+                Logging.Error(('Cis.sync.%s rejected: %s'):format(
+                    tostring(rec.id), tostring(why)))
+                return nil, why
+            end
+            if not created then
+                -- NEVER A NETWORKED RECORD WITHOUT AN ENTITY. The old shape stored it
+                -- with no netId and every client spawned its own networked copy.
+                stats.networkedFailed = stats.networkedFailed + 1
+                Logging.Error(('Cis.sync.%s networked: %s'):format(
+                    tostring(rec.id), tostring(why)))
+                return nil, why
+            end
+            -- RE-CHECK AFTER THE YIELD. A remove, a clear or the owner stopping may
+            -- have happened while the entity was being created.
+            local lock = inflight[key]
+            if lock and lock.cancelled then
+                destroyEntity(created)
+                return nil, 'removed while its entity was being created'
+            end
+            previous = records[key]
+            local old = handles[key]
+            if old then
+                -- The shape changed, so the old entity no longer describes this record.
+                handles[key] = nil
+                destroyEntity(old)
+            end
+            attach(key, rec, created)
+            applyServerSide(created, rec, nil)
+        end
+        if previous and not previous.networked then
+            -- It was streamed client-local; holders drop their copies.
+            local tell = {}
+            collectHolders(key, tell)
+            flushRemoves(tell)
+            gridForget(key)
+        end
+        unindexRecord(key, previous)
+        records[key] = rec
+        indexRecord(key, rec)
+        return rec.id
+    end
+
+    if handles[key] then
+        -- No longer asked to be networked.
+        local entity = handles[key]
+        handles[key] = nil
+        destroyEntity(entity)
+    end
+
+    rec.wire = buildWire(rec)
+    unindexRecord(key, previous)
+    records[key] = rec
+    indexRecord(key, rec)
+    gridInsert(key, rec)
+    push(key, rec)
+    return rec.id
+end
+
 local function upsert(kind, data)
     -- Two refusals before any work, both returning nil rather than raising: a caller
     if not CisInvokingAllowed() then
@@ -396,156 +756,111 @@ local function upsert(kind, data)
     if not CisSyncEnabled() then
         return nil
     end
-    data = data or {}
+    if type(data) ~= 'table' then
+        return refuse(kind, ('data must be a table, got %s'):format(type(data)))
+    end
+
+    -- A COPY. The caller's table is never written to or retained.
+    local rec = {}
+    for k, v in pairs(data) do
+        rec[k] = v
+    end
 
     -- THE COORDINATES, IN EVERY SHAPE A CONSUMER WRITES THEM.
-    local coords, coordsWhy = normalizeCoords(data.coords, data.heading)
+    local coords, coordsWhy = normalizeCoords(rec.coords, rec.heading)
     if not coords then
-        Logging.Error(('Cis.sync.%s rejected: %s'):format(tostring(kind), coordsWhy))
-        return nil
+        return refuse(kind, coordsWhy)
     end
-    data.coords = coords
-    data.heading = data.heading or coords.heading or 0.0
-    data.kind = kind
-    data.heading = data.heading or 0.0
+    rec.coords = coords
+    local heading = rec.heading or coords.heading or 0.0
+    if type(heading) ~= 'number' or heading ~= heading
+        or heading == math.huge or heading == -math.huge then
+        return refuse(kind, 'heading must be a finite number')
+    end
+    rec.heading = heading
+    rec.kind = kind
+    local modelType = type(rec.model)
+    if modelType ~= 'string' and modelType ~= 'number' then
+        return refuse(kind, ('model must be a name or a hash, got %s'):format(modelType))
+    end
     -- CLIENT-LOCAL BY DEFAULT (D2).
-    data.networked = data.networked == true
-    data.dynamic = data.dynamic and true or false
-    -- WHICH WORLD. A routing bucket is a separate instance of the map, so a record is
-    if data.bucket ~= nil then
-        local bucket = tonumber(data.bucket)
-        if not bucket or bucket < 0 or bucket % 1 ~= 0 then
-            Logging.Error(('Cis.sync.%s rejected: bucket must be a non-negative whole number, got %s')
-                :format(tostring(kind), tostring(data.bucket)))
-            return nil
+    rec.networked = rec.networked == true
+    rec.dynamic = rec.dynamic and true or false
+    rec.respawn = rec.respawn ~= false
+    -- THE STREAMING RADIUS. A string, a negative, NaN or infinity used to reach
+    -- the pass, where `nil ^ 2`, a negative radius or a NaN comparison broke every
+    -- record for every player, or none.
+    if rec.scope ~= nil then
+        local s = rec.scope
+        if type(s) ~= 'number' or s ~= s or s <= 0 or s > MAX_SCOPE then
+            return refuse(kind, ('scope must be a number of metres in (0, %d], got %s')
+                :format(MAX_SCOPE, tostring(s)))
         end
-        data.bucket = bucket
+    end
+    -- WHICH WORLD. A routing bucket is a separate instance of the map, so a record is
+    if rec.bucket ~= nil then
+        local bucket = tonumber(rec.bucket)
+        if not bucket or bucket < 0 or bucket % 1 ~= 0 then
+            return refuse(kind, ('bucket must be a non-negative whole number, got %s')
+                :format(tostring(rec.bucket)))
+        end
+        rec.bucket = bucket
     else
-        data.bucket = 0
+        rec.bucket = 0
     end
     -- the owning resource, so a consumer that stops takes its records with it.
-    data.owner = GetInvokingResource() or 'cis_libs'
+    rec.owner = GetInvokingResource() or 'cis_libs'
 
     -- THE CALLER'S ID, BEFORE IT IS USED AS PART OF A KEY.
-    if data.id ~= nil then
-        local id = normalizeId(data.id)
+    if rec.id ~= nil then
+        local id = normalizeId(rec.id)
         local idType = type(id)
         if id ~= '' and idType ~= 'string' and idType ~= 'number' then
-            Logging.Error(('Cis.sync.%s rejected: id must be a string or a number, got %s')
-                :format(tostring(kind), idType))
-            return nil
+            return refuse(kind, ('id must be a string or a number, got %s'):format(idType))
         end
         if idType == 'string' and id:find('\0', 1, true) then
-            Logging.Error(('Cis.sync.%s rejected: id must not contain a NUL')
-                :format(tostring(kind)))
-            return nil
+            return refuse(kind, 'id must not contain a NUL')
         end
-        data.id = id
+        rec.id = id
     end
 
     -- Fingerprint AFTER the defaults are applied and BEFORE an id is chosen, so two
-    local print_ = fingerprint(data)
+    local print_ = fingerprint(rec)
 
-    if data.id then
-        -- Caller-managed identity: the id is authoritative and the fingerprint only
-        local previous = records[recordKey(data.owner, data.id)]
-        if previous and previous.print == print_ then
-            return previous.id
+    local contentLock = nil
+    if not rec.id then
+        -- No id supplied. An identical payload is the SAME entity, so reuse the record.
+        -- One idless creation per content at a time, or two that yield together
+        -- would both miss the index and make two.
+        local ckey = contentKey(rec.owner, kind, print_)
+        if not awaitFree(inflightContent, ckey) then
+            return refuse(kind, 'an identical record is still being created')
         end
-    else
-        -- No id supplied. An identical payload is the SAME entity, so reuse the record
-        local existing = byContent[contentKey(data.owner, kind, print_)]
+        local existing = byContent[ckey]
         if existing and records[existing] then
             return records[existing].id
         end
-        data.id = nextId(kind)
+        rec.id = nextId(kind)
+        contentLock = ckey
+        inflightContent[ckey] = true
     end
 
     -- The key this record is stored and streamed under.
-    local key = recordKey(data.owner, data.id)
-
-    -- Monotonic, so a client can tell "newer" from "older" without comparing payloads.
-    revisions = revisions + 1
-    -- Copy, do not retain the caller's table.
-    local stored = {}
-    for k, v in pairs(data) do
-        stored[k] = v
+    local key = recordKey(rec.owner, rec.id)
+    if not awaitFree(inflight, key) then
+        if contentLock then inflightContent[contentLock] = nil end
+        return refuse(kind, ('record %s is still being created'):format(tostring(rec.id)))
     end
-    stored.rev = revisions
-    stored.print = print_
-    stored.key = key
-
-    -- A NETWORKED record is one entity the server owns.
-    local previous = records[key]
-    if stored.networked then
-        local entity = handles[key]
-        local sameShape = previous and previous.kind == stored.kind
-            and modelHashOf(previous.model) == modelHashOf(stored.model)
-        if entity and sameShape then
-            moveEntity(entity, stored)
-        else
-            -- Create the replacement BEFORE destroying what is there.
-            local created, why, unsupported = createEntity(stored)
-            if unsupported then
-                -- THIS KIND CANNOT BE NETWORKED.
-                Logging.Error(('Cis.sync.%s rejected: %s'):format(
-                    tostring(stored.id), tostring(why)))
-                return nil, why
-            end
-            if entity then
-                -- The shape changed, so the old entity no longer describes this record.
-                destroyEntity(entity)
-                handles[key] = nil
-            end
-            if created then
-                handles[key] = created
-                if type(NetworkGetNetworkIdFromEntity) == 'function' then
-                    stored.netId = NetworkGetNetworkIdFromEntity(created)
-                end
-                stored.spawnHere = false
-            else
-                -- The server tried and could not.
-                Logging.Error(('Cis.sync.%s networked: %s'):format(
-                    tostring(stored.id), tostring(why)))
-            end
-        end
-    elseif handles[key] then
-        -- No longer asked to be networked.
-        destroyEntity(handles[key])
-        handles[key] = nil
+    inflight[key] = { owner = rec.owner, cancelled = false }
+    local ok, a, b = pcall(upsertLocked, rec, key, print_)
+    inflight[key] = nil
+    if contentLock then
+        inflightContent[contentLock] = nil
     end
-
-    unindexRecord(key, previous)
-    records[key] = stored
-    indexRecord(key, stored)
-    gridInsert(key, stored)
-
-    -- Tell whoever is ALREADY in range right now.
-    local positions = playerPositions()
-    for i = 1, #positions do
-        local p = positions[i]
-        if isNear(p, stored) then
-            local set = has[p.src]
-            if not set then
-                set = {}
-                has[p.src] = set
-            end
-            set[key] = true
-            TriggerClientEvent('cis_libs:client:syncUpsert', p.src, payload(stored))
-        end
+    if not ok then
+        error(a, 0)
     end
-    return stored.id
-end
-
--- Forget one record key in a player's set.
-local function forget(src, key)
-    local set = has[src]
-    if set then
-        set[key] = nil
-        if next(set) == nil then
-            has[src] = nil
-        end
-    end
+    return a, b
 end
 
 -- Takes the INTERNAL key. Every caller resolves its own id to one first, so there is
@@ -554,38 +869,100 @@ local function remove(key)
         return false
     end
     -- false for "no such entity", which is a different answer from true and is what
-    local record = records[key]
-    if not record then
+    if not records[key] then
+        local lock = inflight[key]
+        if lock then
+            -- Still being created: the creation sees this after its yield.
+            lock.cancelled = true
+            return true
+        end
         return false
     end
-    unindexRecord(key, record)
-    gridForget(key)
-    records[key] = nil
-
-    -- A networked entity belongs to the server, so the SERVER deletes it.
-    local entity = handles[key]
-    if entity then
-        destroyEntity(entity)
-        handles[key] = nil
-    end
-
-    -- Tell every player who HOLDS it, and clear their `has` entry.
-    local told = 0
-    for src in pairs(has) do
-        if has[src] and has[src][key] then
-            forget(src, key)
-            TriggerClientEvent('cis_libs:client:syncRemove', src, key)
-            told = told + 1
-        end
-    end
-    -- Nobody in range holds it, but a client that received it earlier and has since
-    if told == 0 then
-        TriggerClientEvent('cis_libs:client:syncRemove', -1, key)
-    end
-    return true
+    return removeMany({ key }) == 1
 end
 
--- ONE STREAMING PASS: every player against every record.
+-- ------------------------------------------------------------------ the pass
+-- Hoisted per-player state, so a pass allocates no closure per player.
+local passPlayer, passSet, passUps, passSent, passRefused, passNow = nil, nil, nil, 0, nil, 0
+
+-- NO PCALL PER RECORD, on purpose. The per-record step used to BUILD the payload
+-- and could raise for one bad record; the payload is now built once, at upsert,
+-- where a failure is the caller's. What is left here is arithmetic on fields the
+-- upsert validated, and the per-player pcall in the pass still bounds any raise.
+local function consider(key)
+    local record = records[key]
+    if not record or record.networked then
+        return
+    end
+    local have = passSet[key]
+    if have == record.rev then
+        return
+    end
+    if have ~= nil then
+        -- HELD, and in the hysteresis band or nearer: it gets the update, or it
+        -- holds a stale copy until it walks out and back.
+        if not stillNear(passPlayer, record) then
+            return
+        end
+    else
+        if not isNear(passPlayer, record) then
+            return
+        end
+        local r = passRefused and passRefused[key]
+        if r then
+            if r.rev == record.rev and r.untilMs > passNow then
+                return
+            end
+            passRefused[key] = nil
+        end
+    end
+    if passSent >= MAX_UPDATES_PER_PLAYER then
+        return
+    end
+    passSent = passSent + 1
+    passSet[key] = record.rev
+    if not passUps then
+        passUps = {}
+    end
+    passUps[#passUps + 1] = record.wire
+end
+
+local function passFor(p)
+    local set = has[p.src]
+    -- A player who has just joined has no set at all.
+    if not set then
+        set = {}
+        has[p.src] = set
+    end
+
+    -- Anything they hold that has gone, or that is past the EXIT radius -- not
+    local rems = nil
+    for key in pairs(set) do
+        local record = records[key]
+        if not record or not stillNear(p, record) then
+            rems = rems or {}
+            rems[#rems + 1] = key
+        end
+    end
+    if rems then
+        for i = 1, #rems do
+            set[rems[i]] = nil
+        end
+    end
+
+    passPlayer, passSet, passUps, passSent = p, set, nil, 0
+    passRefused = refused[p.src]
+    -- `z` is nil on purpose: the grid then does not filter on height, and the
+    CisGrid.queryPoint(streamGrid, p.x, p.y, nil, consider)
+    for key in pairs(unindexed) do
+        consider(key)
+    end
+    local ups = passUps
+    passPlayer, passSet, passUps, passRefused = nil, nil, nil, nil
+    send(p.src, ups, rems)
+end
+
+-- ONE STREAMING PASS: every player against the records near them.
 local function streamPass()
     if not CisSyncEnabled() then
         return
@@ -594,74 +971,27 @@ local function streamPass()
     if #positions == 0 then
         return
     end
+    passNow = GetGameTimer()
 
     -- PER PLAYER, UNDER PCALL.
-    for _, p in ipairs(positions) do
-        local ok, err = pcall(function()
-            local set = has[p.src]
-            -- A player who has just joined has no set at all.
-            if not set then
-                set = {}
-                has[p.src] = set
-            end
-
-            -- Anything they hold that has gone, or that is past the EXIT radius -- not
-            local stale = nil
-            for key in pairs(set) do
-                local record = records[key]
-                if not record or not stillNear(p, record) then
-                    stale = stale or {}
-                    stale[#stale + 1] = key
-                end
-            end
-            if stale then
-                for i = 1, #stale do
-                    local gone = stale[i]
-                    set[gone] = nil
-                    TriggerClientEvent('cis_libs:client:syncRemove', p.src, gone)
-                end
-            end
-
-            -- PER RECORD, UNDER PCALL. One record with a payload that cannot be built
-            local sent = 0
-            local function consider(key)
-                local record = records[key]
-                if not record then
-                    return
-                end
-                local okRecord, recordErr = pcall(function()
-                    local near = isNear(p, record)
-                    if near and not set[key] then
-                        if sent < MAX_UPDATES_PER_PLAYER then
-                            set[key] = true
-                            TriggerClientEvent('cis_libs:client:syncUpsert', p.src, payload(record))
-                            sent = sent + 1
-                        end
-                    elseif near and record.dynamic then
-                        TriggerClientEvent('cis_libs:client:syncUpsert', p.src, payload(record))
-                    end
-                end)
-                if not okRecord then
-                    -- Counted, and named, rather than swallowed.
-                    Logging.Error(('Cis.sync: record %s skipped: %s')
-                        :format(tostring(record.id), tostring(recordErr)))
-                end
-            end
-            -- `z` is nil on purpose: the grid then does not filter on height, and the
-            CisGrid.queryPoint(streamGrid, p.x, p.y, nil, consider)
-            for key in pairs(unindexed) do
-                consider(key)
-            end
-        end)
+    for i = 1, #positions do
+        local ok, err = pcall(passFor, positions[i])
         if not ok then
+            passPlayer, passSet, passUps, passRefused = nil, nil, nil, nil
             Logging.Error(('Cis.sync: streaming pass failed for a player: %s')
                 :format(tostring(err)))
         end
     end
 end
 
--- `has[src]` is the server's belief about what a player holds, and the pass only sends
-local function snapshotFor(src)
+-- ------------------------------------------------------------------ snapshot
+-- A client that has just loaded holds nothing and says what it DOES hold (an
+-- empty claim on a fresh start). The server reconciles `has` against the claim
+-- instead of wiping it, answers with one capped batch, and lets the pass deliver
+-- the rest. Honoured once per SNAPSHOT_COOLDOWN_MS per player: it used to wipe
+-- and resend everything, uncapped, up to the event limiter's 8 a second -- a
+-- request that cost nothing to send and a full world to answer.
+local function snapshotFor(src, held)
     local set = has[src]
     if not set then
         set = {}
@@ -682,39 +1012,90 @@ local function snapshotFor(src)
         bucket = playerBucket(src),
     }
 
-    local sent = 0
-    local function offer(key)
-        local record = records[key]
-        if not record or set[key] then
-            return
-        end
-        local ok = pcall(function()
-            if isNear(p, record) then
-                set[key] = true
-                TriggerClientEvent('cis_libs:client:syncUpsert', src, payload(record))
-                sent = sent + 1
+    -- What the client claims, bounded and type-checked.
+    local claimed = {}
+    if type(held) == 'table' then
+        local n = 0
+        for k, v in pairs(held) do
+            if n >= MAX_HELD_CLAIMS then
+                break
             end
-        end)
-        if not ok then
-            Logging.Error(('Cis.sync: snapshot skipped record %s')
-                :format(tostring(record.id)))
+            if type(k) == 'string' and type(v) == 'number' then
+                claimed[k] = v
+                n = n + 1
+            end
         end
     end
 
-    CisGrid.queryPoint(streamGrid, p.x, p.y, nil, offer)
-    for key in pairs(unindexed) do
-        offer(key)
+    -- FORGET WHAT THE CLIENT DOES NOT HOLD, at the revision it holds it.
+    for key, rev in pairs(set) do
+        if claimed[key] ~= rev then
+            set[key] = nil
+        end
     end
+    -- And take back what it holds and should not.
+    local rems = nil
+    for key, rev in pairs(claimed) do
+        if set[key] == nil then
+            local record = records[key]
+            if record and not record.networked and record.rev == rev and stillNear(p, record) then
+                set[key] = rev
+            else
+                rems = rems or {}
+                rems[#rems + 1] = key
+            end
+        end
+    end
+    refused[src] = nil
+
+    passPlayer, passSet, passUps, passSent, passRefused = p, set, nil, 0, nil
+    passNow = GetGameTimer()
+    CisGrid.queryPoint(streamGrid, p.x, p.y, nil, consider)
+    for key in pairs(unindexed) do
+        consider(key)
+    end
+    local ups, sent = passUps, passSent
+    passPlayer, passSet, passUps = nil, nil, nil
+    send(src, ups, rems)
     return sent
 end
 
-CisNetOn('cis_libs:server:syncSnapshot', function(src)
+CisNetOn('cis_libs:server:syncSnapshot', function(src, held)
     if type(src) ~= 'number' or src <= 0 then
         return
     end
-    -- FORGET, THEN ANSWER. Clearing `has` first is what makes this a recovery rather
-    has[src] = nil
-    snapshotFor(src)
+    local now = GetGameTimer()
+    local last = lastSnapshot[src]
+    if last and now - last < SNAPSHOT_COOLDOWN_MS then
+        stats.snapshotsRefused = stats.snapshotsRefused + 1
+        return
+    end
+    lastSnapshot[src] = now
+    snapshotFor(src, held)
+end)
+
+-- A client that could not load a model after its retries says so. The server
+-- forgets that it holds the record -- so it is not removed from a client that
+-- never had it -- and holds back that revision for a while, so a missing asset
+-- is not a resend loop. A new revision, or the backoff ending, sends it again.
+CisNetOn('cis_libs:server:syncGaveUp', function(src, key)
+    if type(src) ~= 'number' or src <= 0 or type(key) ~= 'string' then
+        return
+    end
+    local set = has[src]
+    if not set or set[key] == nil then
+        return
+    end
+    set[key] = nil
+    local record = records[key]
+    if record then
+        local mine = refused[src]
+        if not mine then
+            mine = {}
+            refused[src] = mine
+        end
+        mine[key] = { rev = record.rev, untilMs = GetGameTimer() + REFUSED_BACKOFF_MS }
+    end
 end)
 
 -- The streaming loop.
@@ -731,36 +1112,105 @@ end))
 -- A player who drops takes their whole set with them.
 AddEventHandler('playerDropped', function()
     has[source] = nil
+    refused[source] = nil
+    batchSeq[source] = nil
+    lastSnapshot[source] = nil
+end)
+
+-- A NETWORKED ENTITY REMOVED BEHIND THE LIBRARY'S BACK: a client deleted it, a
+-- cleanup script swept it, an admin tool removed it. KeepEntity only stops the
+-- SERVER from reaping it. The record is re-created (default) or dropped when it
+-- asked for `respawn = false`, and re-creation is budgeted so something that
+-- deletes it on sight cannot turn this into a spawn loop.
+AddEventHandler('entityRemoved', function(entity)
+    local key = byEntity[entity]
+    if not key then
+        return
+    end
+    byEntity[entity] = nil
+    if handles[key] ~= entity then
+        return
+    end
+    handles[key] = nil
+    local record = records[key]
+    if not record then
+        return
+    end
+    local now = GetGameTimer()
+    local window = record.respawns
+    if not window or now - window.since >= RESPAWN_WINDOW_MS then
+        window = { since = now, n = 0 }
+        record.respawns = window
+    end
+    if not record.respawn or window.n >= RESPAWN_MAX then
+        Logging.Error(('Cis.sync: networked record %s lost its entity%s; the record is dropped')
+            :format(tostring(record.id), record.respawn and ' too often' or ''))
+        removeMany({ key })
+        return
+    end
+    window.n = window.n + 1
+    if not awaitFree(inflight, key) then
+        return
+    end
+    inflight[key] = { owner = record.owner, cancelled = false }
+    local created = createEntity(record)
+    local lock = inflight[key]
+    inflight[key] = nil
+    if not created then
+        stats.networkedFailed = stats.networkedFailed + 1
+        removeMany({ key })
+        return
+    end
+    if lock.cancelled or records[key] ~= record or handles[key] then
+        destroyEntity(created)
+        return
+    end
+    stats.respawned = stats.respawned + 1
+    attach(key, record, created)
+    applyServerSide(created, record, nil)
 end)
 
 -- Records owned by a consumer that stops go with it ().
 AddEventHandler('onResourceStop', function(resource)
     if resource == GetCurrentResourceName() then
-        -- cis_libs itself is stopping: tell every client to drop everything, because
+        -- cis_libs itself is stopping. Its clients stop with it and despawn their
+        -- client-local copies on their own onResourceStop, so nothing is sent: a
+        -- remove per record to every player was the largest burst this file ever
+        -- produced, at the moment it could least afford one. The server's own
+        -- networked entities are the server's to delete.
         for key in pairs(records) do
-            TriggerClientEvent('cis_libs:client:syncRemove', -1, key)
             local entity = handles[key]
             if entity then
-                destroyEntity(entity)
                 handles[key] = nil
+                destroyEntity(entity)
             end
         end
-        -- ALL FOUR, AND ONLY HERE. This reset used to run on EVERY stop, for every
+        -- ALL OF IT, AND ONLY HERE. This reset used to run on EVERY stop, for every
         records = {}
         byContent = {}
         has = {}
         handles = {}
+        byEntity = {}
         unindexed = {}
+        refused = {}
         streamGrid = CisGrid.new()
         return
     end
 
-    -- `remove` IS the fix for another resource stopping.
-    for key, record in pairs(records) do
-        if record.owner == resource then
-            remove(key)
+    -- Creations still in flight for the stopping owner are cancelled.
+    for _, lock in pairs(inflight) do
+        if lock.owner == resource then
+            lock.cancelled = true
         end
     end
+    -- `remove` IS the fix for another resource stopping, batched per player.
+    local doomed = {}
+    for key, record in pairs(records) do
+        if record.owner == resource then
+            doomed[#doomed + 1] = key
+        end
+    end
+    removeMany(doomed)
 end)
 
 exports('SyncCreate', function(kind, data)
@@ -788,7 +1238,7 @@ exports('SyncRemove', function(id)
     end
     local owner = GetInvokingResource() or 'cis_libs'
     local key = recordKey(owner, normalized)
-    if records[key] then
+    if records[key] or inflight[key] then
         return remove(key)
     end
     if heldByAnotherOwner(normalized) then
@@ -833,27 +1283,23 @@ exports('SyncClear', function()
         return nil, 'this resource is not in Security.AuthorizedResources'
     end
     local owner = GetInvokingResource() or 'cis_libs'
-    -- Collected first, then removed.
+    -- Collected first, then removed, and every holder told ONCE.
     local doomed = {}
     for key, record in pairs(records) do
         if record.owner == owner then
             doomed[#doomed + 1] = key
         end
     end
-    local taken = 0
-    for i = 1, #doomed do
-        if remove(doomed[i]) then
-            taken = taken + 1
-        end
-    end
-    return taken
+    return removeMany(doomed)
 end)
 
 -- Registered rather than counted by the diagnostics module, because the records table
 CisDiagnostics.Register('server', 'syncRecords', function()
     local out = {
         total = 0, byOwner = {}, networked = 0, clientLocal = 0,
-        entities = 0, refused = 0, dynamic = 0,
+        entities = 0, refused = stats.networkedFailed, dynamic = 0,
+        respawned = stats.respawned, truncated = stats.truncated,
+        snapshotsRefused = stats.snapshotsRefused,
     }
     for _, record in pairs(records) do
         local owner = record.owner or '<none>'
@@ -863,9 +1309,7 @@ CisDiagnostics.Register('server', 'syncRecords', function()
         else out.clientLocal = out.clientLocal + 1 end
         -- Counted HERE, on the walk this function was making anyway to answer `total`.
         if record.dynamic then out.dynamic = out.dynamic + 1 end
-        -- `networked` counts what the caller ASKED for.
         if handles[record.key] then out.entities = out.entities + 1 end
-        if record.networked and not record.netId then out.refused = out.refused + 1 end
     end
     return out
 end)

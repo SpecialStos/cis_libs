@@ -6,6 +6,7 @@
     "Citizen",
     "ClearTimeout",
     "CreateThread",
+    "Entity",
     "ExecuteCommand",
     "GetCloudTimeAsInt",
     "GetConvar",

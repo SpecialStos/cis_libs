@@ -1,9 +1,16 @@
 -- Pass timings for Stage 8. This is NOT CisHistogram: that file counts jobs.
 --
--- GetGameTimer is integer milliseconds. A single zone pass is often 0 ms on
--- that clock. os.clock is seconds as a float and is what measure() uses when
--- it moves; fengari's os.clock is 0, so unit tests call observe() with a
--- number rather than trusting measure().
+-- THE CLOCK. A wall clock, never os.clock: os.clock is PROCESS CPU time, and on
+-- a Linux server that is every thread of FXServer added together, so a 0.1 ms
+-- pass on a busy box read as whatever the other threads burned meanwhile. The
+-- CfxLua runtime has a high-resolution monotonic os.nanotime (and os.microtime);
+-- they are feature-detected, and GetGameTimer -- integer milliseconds, so a
+-- short pass often reads 0 -- is the floor where neither exists.
+--
+-- YIELDS ARE NOT WORK. A measured body that waits on a model load would report
+-- the load as pass time. `CisTiming.exclude(fn, ...)` runs fn and subtracts its
+-- wall time from the measurement it is nested in (per coroutine, because a
+-- yielded measurement interleaves with others).
 --
 -- GetDiagnostics.Collect copies snapshot() into `timings`, a sibling of
 -- `probes`. CisDiagnostics.Diff does not walk it: a live harness that diffs
@@ -29,17 +36,24 @@ local function nowMs()
     if type(CisTiming._now) == 'function' then
         return CisTiming._now()
     end
-    if os and type(os.clock) == 'function' then
-        local c = os.clock()
-        if type(c) == 'number' and c == c and c > 0 then
-            return c * 1000
-        end
+    -- rawget: these are CfxLua extensions, absent from stock Lua's os table.
+    local nano = rawget(os, 'nanotime')
+    if type(nano) == 'function' then
+        return nano() / 1e6
+    end
+    local micro = rawget(os, 'microtime')
+    if type(micro) == 'function' then
+        return micro() / 1e3
     end
     if type(GetGameTimer) == 'function' then
         return GetGameTimer()
     end
     return 0
 end
+
+-- coroutine -> the innermost open measurement in it. Weak, so a coroutine that
+-- died mid-measurement does not pin its frame.
+local frames = setmetatable({}, { __mode = 'k' })
 
 function CisTiming.now()
     return nowMs()
@@ -94,10 +108,31 @@ function CisTiming.measure(name, fn)
     if type(fn) ~= 'function' then
         return nil, 'measure needs a function'
     end
+    local co = coroutine.running()
+    local frame = { excluded = 0, parent = frames[co] }
+    frames[co] = frame
     local t0 = nowMs()
-    local a, b, c, d = fn()
-    CisTiming.observe(name, nowMs() - t0)
+    local ok, a, b, c, d = pcall(fn)
+    frames[co] = frame.parent
+    if not ok then
+        error(a, 0)
+    end
+    local ms = nowMs() - t0 - frame.excluded
+    CisTiming.observe(name, ms > 0 and ms or 0)
     return a, b, c, d
+end
+
+--- Run fn, and keep its wall time out of the measurement it is nested in.
+--- For the part of a measured body that WAITS (a model load) rather than works.
+function CisTiming.exclude(fn, ...)
+    local co = coroutine.running()
+    local t0 = nowMs()
+    local packed = table.pack(fn(...))
+    local frame = frames[co]
+    if frame then
+        frame.excluded = frame.excluded + (nowMs() - t0)
+    end
+    return table.unpack(packed, 1, packed.n)
 end
 
 function CisTiming.measureN(name, n, fn)

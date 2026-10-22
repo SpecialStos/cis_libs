@@ -283,11 +283,18 @@ local CisString = {}
 ---@field model integer|string a hash or a model name
 ---@field coords vector3|vector4|table a vector3, a vector4, or an { x, y, z } table. A non-finite number is refused with a reason
 ---@field heading? number from w when the coords are a vector4, or from this key
----@field networked? boolean asks the SERVER to create one entity rather than telling each client to spawn locally. A kind the server has no creation native for is REFUSED with a reason and never silently downgraded
----@field dynamic? boolean the entity is placed at request time and does not need to persist
+---@field networked? boolean asks the SERVER to create one entity (orphan mode KeepEntity, in the record's bucket) that OneSync streams. It never travels over the sync events and clients never move it; its metadata rides the entity's `cis_sync` state bag and is applied by the OWNING client. Refused with a reason when the kind has no server creation native or the server could not create it -- never stored without an entity, never downgraded
+---@field respawn? boolean networked only, default true: an entity removed behind the library's back (entityRemoved) is re-created, at most 3 times a minute; false drops the record with it
+---@field scope? number the streaming radius in metres, (0, 10000], default 80. Anything else is refused. On a networked record it is the entity's OneSync culling radius
+---@field dynamic? boolean the entity is placed at request time and does not need to persist. Counted in diagnostics; it does NOT make the record re-send: every record is sent when its revision changes, and only then
 ---@field bucket? integer the routing bucket, applied on the server
 ---@field vehicleType? string only for kind = 'vehicle': automobile, bike, boat, heli, plane, submarine or trailer. Default automobile
----@field clientData? table THE ONLY field that reaches the client, capped at 256 entries. Anything else on the record is server-side
+---@field props? table vehicle properties, applied with SetVehicleProperties. Shares the clientData cap
+---@field freeze? boolean a prop is frozen unless this is false; anything else only when true. Applied by the server for a networked record
+---@field invincible? boolean applied by the client that spawns it, or by the owner of a networked entity
+---@field blockEvents? boolean peds only; as invincible
+---@field scenario? string peds only; a scenario name, started in place
+---@field clientData? table caller data that reaches the client. clientData and props together are capped at 256 entries and 16 KB of strings at every depth. Anything else on the record is server-side
 local CisSyncRecord = {}
 
 ---@class CisSyncSummary
@@ -481,7 +488,7 @@ local CisZoneDebug = {}
 ---@field rotation? number an alias for the box heading
 local CisZoneOptions = {}
 
--- ================================================= RAW EXPORTS (193)
+-- ================================================= RAW EXPORTS (194)
 
 ---@overload fun(...)
   ---@param groupData table #the group record handed to the provider's addGroup
@@ -512,13 +519,13 @@ function AddDoorToSystem.client(data) end
 function AddRadialItem(data) end
 
 --- Cis.sync.onDespawn(fn)
----@param fn function #a non-function is refused rather than stored
+---@param fn function #a function or a cross-resource reference, released when its resource stops; anything that cannot be called is refused
 ---@return boolean, string #true alone on success. The handler is called pcall'd as (key) and only when this client actually held something
 --- realm: client
 function AddSyncDespawnHandler(fn) end
 
 --- Cis.sync.onSpawn(fn)
----@param fn function #a non-function is REFUSED rather than stored -- storing it is a nil call on the spawn path one step later
+---@param fn function #a function, or one passed from another resource (it arrives as a callable reference and is released when that resource stops). Anything that cannot be called is REFUSED rather than stored
 ---@return boolean, string #true alone on success. Never a handle: there is no deregister. The handler is called pcall'd as (key, record, entity), and fires only after the generation check, so an entity created and immediately deleted never announces itself
 --- realm: client
 function AddSyncSpawnHandler(fn) end
@@ -1417,6 +1424,11 @@ function RaycastCamera(flags, ignore, distance, timeoutMs) end
 --- realm: client
 function RaycastFromCoords(origin, target, flags, ignore, timeoutMs) end
 
+--- Cis.isReady and Cis.isFailed, which read through to this in a consumer
+---@return boolean, boolean, string|nil #ready, failed, and the failure reason. Never blocks; NOT-YET is false, false
+--- realm: both
+function ReadyState() end
+
 ---@overload fun(...)
   ---@param name string #a non-empty handler name, the key everything else is filed under
   ---@param handler function|string|table #a function, a callable reference table (a function passed from another resource; released when that resource stops), or a "resource:Export" string; nil fails all three. A later registration of the same name REPLACES the earlier one, whatever its kind
@@ -1489,7 +1501,7 @@ function RemoveRadialItem(id) end
 
 --- Cis.statebag.remove(cookie)
 ---@param cookie integer #the number the watcher returned
----@return boolean, string|nil #true once removed, or false plus a reason when the cookie is not a number
+---@return boolean, string|nil #true once removed, or false plus a reason: not a number, no such watcher, or a watcher another resource owns
 --- realm: both
 function RemoveStatebagHandler(cookie) end
 
@@ -1575,7 +1587,7 @@ function SendDiscordLog(webhookURL, title, message, color, ping) end
 --- Cis.zones.server.box(center, size, opts)
 ---@param center vector3|table #the centre
 ---@param size number|vector3|table #full size; stored as half-extents, same as client zones
----@param opts? table #heading, onEnterEvent, onExitEvent
+---@param opts? table #heading, bucket (the routing bucket, default 0; a player in another bucket is never inside), onEnterEvent, onExitEvent. Exits also fire when a player drops and when the zone is removed or its owner stops
 ---@return integer|false, string|nil #a numeric id, never reused
 --- realm: server
 function ServerZoneBox(center, size, opts) end
@@ -1595,7 +1607,7 @@ function ServerZonePlayers(id) end
 
 --- Cis.zones.server.poly(points, opts)
 ---@param points table #at least 3 points
----@param opts? table #minZ, maxZ, onEnterEvent, onExitEvent
+---@param opts? table #minZ, maxZ, bucket (the routing bucket, default 0; a player in another bucket is never inside), onEnterEvent, onExitEvent. Exits also fire when a player drops and when the zone is removed or its owner stops
 ---@return integer|false, string|nil #a numeric id, never reused
 --- realm: server
 function ServerZonePoly(points, opts) end
@@ -1609,7 +1621,7 @@ function ServerZoneRemove(id) end
 --- Cis.zones.server.sphere(center, radius, opts)
 ---@param center vector3|table #the centre
 ---@param radius number #metres
----@param opts? table #onEnterEvent, onExitEvent
+---@param opts? table #bucket (the routing bucket, default 0; a player in another bucket is never inside), onEnterEvent, onExitEvent. Exits also fire when a player drops and when the zone is removed or its owner stops
 ---@return integer|false, string|nil #a numeric id, never reused
 --- realm: server
 function ServerZoneSphere(center, radius, opts) end
@@ -1690,16 +1702,16 @@ function SkillCheckActive() end
 
 --- Cis.statebag.onEntity(key, handler, timeoutMs)
 ---@param key string #the state key, or the * wildcard. NOT empty
----@param handler fun(entity: integer, value: any, replicated: boolean, deleted: boolean) #the last two are not reconstructible from value: a delete leaves the key ABSENT rather than nil, so value == nil is true for both a delete and a key that was never set
----@param timeoutMs? number #how long the CLIENT waits for the entity to exist, default 2000
----@return integer|nil, string|nil #a COOKIE, not a boolean. RemoveStateBagChangeHandler needs one, and a watcher that cannot be removed is a leak whose symptom is a handler still firing for a resource that stopped
+---@param handler fun(entity: integer, value: any, replicated: boolean, deleted: boolean) #a function, or one passed from another resource (it arrives as a callable reference). The entity is RESOLVED from the bag with GetEntityFromStateBagName -- never the netId in its name -- and a PLAYER bag resolves to that player's ped. deleted is value == nil, which is the only shape a delete has
+---@param timeoutMs? number #how long the CLIENT keeps a change whose entity does not exist yet, default 2000. Waiting changes share one bounded queue and the newest value per bag wins; the server never waits
+---@return integer|nil, string|nil #a COOKIE, not a boolean. The watcher belongs to the resource that registered it and is removed when that resource stops
 --- realm: both
 function StatebagOnEntity(key, handler, timeoutMs) end
 
 --- Cis.statebag.onPlayer(key, handler, timeoutMs)
 ---@param key string #the state key or *
----@param handler fun(player: integer, value: any, replicated: boolean, deleted: boolean) #as on the entity watcher, with the player server id
----@param timeoutMs? number #client-only; a server has no streaming problem so it does not wait
+---@param handler fun(player: integer, value: any, replicated: boolean, deleted: boolean) #as on the entity watcher, with the player SERVER id on both sides (resolved with GetPlayerFromStateBagName; a client turns the handle it answers back into the server id)
+---@param timeoutMs? number #accepted for symmetry and unused: a server id is known from the bag, so nothing waits
 ---@return integer|nil, string|nil #a cookie, or nil plus a reason
 --- realm: both
 function StatebagOnPlayer(key, handler, timeoutMs) end
@@ -1712,7 +1724,7 @@ function SyncClear() end
 --- Cis.sync.ped / Cis.sync.prop / Cis.sync.vehicle
 ---@param kind string #'prop', 'vehicle' or 'ped' -- never type-guarded, and the branch is on exactly these literals
 ---@param data table #the record. Not type-guarded either: the first hard requirement is data.coords, which raises on a non-table
----@return string|nil, string|nil #the record id, and a reason in exactly one case -- a networked kind with no server-side creation native. EVERY OTHER REFUSAL IS A BARE NIL, because a nil first value truncates the return list at the exports boundary
+---@return string|nil, string|nil #the record id, and a reason when a networked record is refused -- a kind with no server-side creation native, an entity the server could not create, or a removal that overtook the creation. EVERY OTHER REFUSAL IS A BARE NIL (and a logged reason), because a nil first value truncates the return list at the exports boundary
 --- realm: server
 function SyncCreate(kind, data) end
 
@@ -2371,8 +2383,8 @@ function Cis.security.report(src, reason) end
 ---@field realm "both"
 ---@field forwardsTo string StatebagOnEntity
 ---@param key string #the key or *
----@param handler function #a FUNCTION, and a function passed from a consumer is dropped by the boundary
----@param timeoutMs? number #how long the client waits for the entity, default 2000. The server does not wait
+---@param handler function #called (entity, value, replicated, deleted); crosses the boundary as a callable reference and is released when the calling resource stops
+---@param timeoutMs? number #how long the client keeps a change whose entity has not streamed in, default 2000. The server does not wait
 ---@return integer|nil, string|nil #a cookie, or nil plus a reason
 function Cis.statebag.onEntity(key, handler, timeoutMs) end
 
@@ -2381,8 +2393,8 @@ function Cis.statebag.onEntity(key, handler, timeoutMs) end
 ---@field realm "both"
 ---@field forwardsTo string StatebagOnPlayer
 ---@param key string #the key or *
----@param handler function #dropped across the boundary from a consumer
----@param timeoutMs? number #client-only wait; a server has no streaming problem
+---@param handler function #called (serverId, value, replicated, deleted); released when the calling resource stops
+---@param timeoutMs? number #unused: a player watcher never waits
 ---@return integer|nil, string|nil #a cookie, or nil plus a reason
 function Cis.statebag.onPlayer(key, handler, timeoutMs) end
 
@@ -2492,7 +2504,7 @@ function Cis.sync.list() end
 ---@field since string 1.0.0
 ---@field realm "both"
 ---@field forwardsTo string AddSyncDespawnHandler
----@param fn function #a non-function is refused rather than stored
+---@param fn function #a function or a cross-resource reference, released when its resource stops; anything that cannot be called is refused
 ---@return boolean, string #true on success. Called pcall'd as (key), and only when this client actually held something
 function Cis.sync.onDespawn(fn) end
 
@@ -2500,7 +2512,7 @@ function Cis.sync.onDespawn(fn) end
 ---@field since string 1.0.0
 ---@field realm "both"
 ---@field forwardsTo string AddSyncSpawnHandler
----@param fn function #a non-function is refused rather than stored; storing it is a nil call on the spawn path one step later
+---@param fn function #a function or a cross-resource reference, released when its resource stops; anything that cannot be called is refused
 ---@return boolean, string #true on success, and never a handle -- there is no deregister. Called pcall'd as (key, record, entity)
 function Cis.sync.onSpawn(fn) end
 
@@ -2693,8 +2705,8 @@ function Cis.zones.remove(name) end
 ---@field realm "server"
 ---@field forwardsTo string ServerZoneBox
 ---@param center vector3|table #the centre
----@param size number|vector3|table #full size
----@param opts? table #heading, onEnterEvent, onExitEvent
+---@param size number|vector3|table #full size; every axis must be positive and finite
+---@param opts? table #heading, bucket (default 0), onEnterEvent, onExitEvent
 ---@return integer|false, string|nil #numeric id. Containment uses SERVER ped coords
 function Cis.zones.server.box(center, size, opts) end
 
@@ -2738,7 +2750,7 @@ function Cis.zones.server.remove(id) end
 ---@field forwardsTo string ServerZoneSphere
 ---@param center vector3|table #the centre
 ---@param radius number #metres
----@param opts? table #onEnterEvent, onExitEvent
+---@param opts? table #bucket (default 0), onEnterEvent, onExitEvent
 ---@return integer|false, string|nil #numeric id
 function Cis.zones.server.sphere(center, radius, opts) end
 

@@ -1,5 +1,5 @@
 {
-  "$comment": "Each row is one deliberate defect. tools/mutate.js applies it to a throwaway copy of the repository and runs the full suite. A mutation that still passes is a SURVIVOR and fails the build; a `find` that no longer matches exactly once is STALE and also fails, because it means the code moved and the row stopped describing anything. M44 was written and REMOVED as an equivalent mutation, not as a coverage hole: with no insertion at all, every record lands in the unindexed fallback and is still delivered, so the pass is slower and nothing is wrong. M43 (a one-metre AABB) is the row that proves the index is actually consulted, and it is killed.",
+  "$comment": "Each row is one deliberate defect. tools/mutate.js applies it to a throwaway copy of the repository and runs the full suite. A mutation that still passes is a SURVIVOR and fails the build; a `find` that no longer matches exactly once is STALE and also fails, because it means the code moved and the row stopped describing anything. M44 was written and REMOVED as an equivalent mutation, not as a coverage hole: with no insertion at all, every record lands in the unindexed fallback and is still delivered, so the pass is slower and nothing is wrong. M43 (a one-metre AABB) is the row that proves the index is actually consulted, and it is killed. M42 (no pcall per record in the streaming pass) was REMOVED as structurally impossible: the per-record step no longer builds the payload -- it is built once per revision at upsert, where a failure is the caller's -- so what is left is arithmetic on validated fields and nothing per record can raise; the per-player guard (M41) still bounds a raise.",
   "mutations": [
     {
       "id": "M01",
@@ -74,8 +74,8 @@
     {
       "id": "M12",
       "file": "server/sync.lua",
-      "find": "    for key, record in pairs(records) do\n        if record.owner == resource then\n            remove(key)\n        end\n    end\nend)",
-      "replace": "    for key, record in pairs(records) do\n        if true then\n            remove(key)\n        end\n    end\nend)",
+      "find": "    for key, record in pairs(records) do\n        if record.owner == resource then\n            doomed[#doomed + 1] = key\n        end\n    end\n    removeMany(doomed)\nend)",
+      "replace": "    for key, record in pairs(records) do\n        if true then\n            doomed[#doomed + 1] = key\n        end\n    end\n    removeMany(doomed)\nend)",
       "why": "Remove the owner check on the stop sweep, so any resource stopping takes every OTHER resource's records with it. This is the stop-wipes-everything P0 in its current form: not a silent table wipe this time, but the same player-visible harm -- every synced prop on the server disappears the moment any one consumer restarts, and every client that was told about one is left holding it."
     },
     {
@@ -95,8 +95,8 @@
     {
       "id": "M24",
       "file": "client/sync.lua",
-      "find": "    if type(record) ~= 'table' or type(record.key) ~= 'string' then\n        return\n    end\n    record.id = record.key",
-      "replace": "    if type(record) ~= 'table' or type(record.id) ~= 'string' then\n        return\n    end",
+      "find": "            if type(record) == 'table' and type(record.key) == 'string' and touch(record.key, n) then\n                record.id = record.key\n",
+      "replace": "            if type(record) == 'table' and type(record.id) == 'string' and touch(record.id, n) then\n",
       "why": "Fall back to the caller's own id when a payload carries no key. On any server running a cis_libs without the field, two resources that both name a record 'door1' land in ONE slot on every client: the second payload overwrites the first, so the prop the player is looking at silently belongs to someone else's data and one of the two entities never exists."
     },
     {
@@ -179,8 +179,8 @@
     {
       "id": "M29",
       "file": "server/sync.lua",
-      "find": "        SetEntityRoutingBucket(entity, record.bucket or 0)",
-      "replace": "        SetEntityRoutingBucket(entity, 0)",
+      "find": "    if type(SetEntityRoutingBucket) == 'function' then\n        SetEntityRoutingBucket(entity, record.bucket or 0)\n    end\n    if type(SetEntityOrphanMode) == 'function' then",
+      "replace": "    if type(SetEntityRoutingBucket) == 'function' then\n        SetEntityRoutingBucket(entity, 0)\n    end\n    if type(SetEntityOrphanMode) == 'function' then",
       "why": "Always put a networked entity in the main world. The streaming pass already refuses to tell players about a record from another bucket, so the entity itself would be in a world the clients were never told about and nobody could despawn it."
     },
     {
@@ -193,23 +193,23 @@
     {
       "id": "M31",
       "file": "server/sync.lua",
-      "find": "            and modelHashOf(previous.model) == modelHashOf(stored.model)",
+      "find": "            and modelHashOf(previous.model) == modelHashOf(rec.model)",
       "replace": "            and false",
       "why": "Treat every re-upsert as a new shape, so moving a networked record spawns a second entity instead of moving the one already there. The first is left on the network owned by nobody, which no client can see and no client can clean up."
     },
     {
       "id": "M32",
       "file": "server/sync.lua",
-      "find": "    local entity = handles[key]\n    if entity then\n        destroyEntity(entity)\n        handles[key] = nil\n    end\n",
-      "replace": "    local entity = handles[key]\n    if entity then\n        handles[key] = nil\n    end\n",
+      "find": "    local entity = handles[key]\n    if entity then\n        handles[key] = nil\n        destroyEntity(entity)\n    end\n    local lock = inflight[key]",
+      "replace": "    local entity = handles[key]\n    if entity then\n        handles[key] = nil\n    end\n    local lock = inflight[key]",
       "why": "Remove the record without deleting the entity it owns. A networked entity belongs to the server, so telling clients to despawn it only asks them to drop a reference to something still standing in the world, owned by nobody, for the rest of the session."
     },
     {
       "id": "M33",
       "file": "server/sync.lua",
-      "find": "            if unsupported then",
-      "replace": "            if false then",
-      "why": "Stop refusing a kind the server has no creation native for, and store the record anyway. The caller asked for one shared entity and would get one per player, with nothing in any log saying the request could not be met."
+      "find": "                stats.networkedFailed = stats.networkedFailed + 1\n                Logging.Error(('Cis.sync.%s networked: %s'):format(\n                    tostring(rec.id), tostring(why)))\n                return nil, why\n",
+      "replace": "                stats.networkedFailed = stats.networkedFailed + 1\n                Logging.Error(('Cis.sync.%s networked: %s'):format(\n                    tostring(rec.id), tostring(why)))\n                created = 0\n",
+      "why": "Store a networked record whose entity the server could not create, which is what the code did: the caller asked for one shared entity and got a record claiming one exists, with no netId -- the shape that made every client spawn its own networked copy. (Rewritten: the old `unsupported` branch it targeted now refuses through the same path as any failed creation, so dropping it alone changes nothing.)"
     },
     {
       "id": "M34",
@@ -221,15 +221,15 @@
     {
       "id": "M35",
       "file": "client/sync.lua",
-      "find": "    if spawning[id] then\n        return\n    end\n\n    local record = wanted[id]",
-      "replace": "    if spawning[id] then\n        wanted[id] = nil\n        return\n    end\n\n    local record = wanted[id]",
-      "why": "Drop the newest wanted state when a spawn is in flight, which is the exact defect this replaced. The server had already decided where the entity belongs and the client keeps the position it superseded; nothing re-sends a static record, so the prop sits wrong until a player walks out of range and back."
+      "find": "    if spawning[record.id] then\n        return\n    end\n    if needsLoad(record) then",
+      "replace": "    if spawning[record.id] then\n        wanted[record.id] = nil\n        return\n    end\n    if needsLoad(record) then",
+      "why": "Drop the newest wanted state when a spawn is in flight, which is the exact defect this replaced. The server had already decided where the entity belongs and the client keeps the position it superseded; nothing re-sends an unchanged record, so the prop sits wrong until a player walks out of range and back. (Rewritten: apply now returns before drive while a spawn is in flight, so this is where the newest state is kept.)"
     },
     {
       "id": "M36",
       "file": "client/sync.lua",
-      "find": "        entity = CreateObject(modelHash, coords.x, coords.y, coords.z, record.networked ~= false, true, false)\n        SetModelAsNoLongerNeeded(modelHash)\n",
-      "replace": "        entity = CreateObject(modelHash, coords.x, coords.y, coords.z, record.networked ~= false, true, false)\n",
+      "find": "        entity = CreateObject(modelHash, coords.x, coords.y, coords.z, false, true, false)\n        SetModelAsNoLongerNeeded(modelHash)\n",
+      "replace": "        entity = CreateObject(modelHash, coords.x, coords.y, coords.z, false, true, false)\n",
       "why": "Release the model only when the create succeeded. A model that loaded and then produced nothing stays loaded for the rest of the session, which on a server streaming hundreds of props is a stream-out budget spent on models nothing is using any more."
     },
     {
@@ -242,8 +242,8 @@
     {
       "id": "M38",
       "file": "client/sync.lua",
-      "find": "    local newest = wanted[id]\n    if newest and newest ~= record then\n        drive(id)\n    end\n",
-      "replace": "    local newest = wanted[id]\n    if false then\n        drive(id)\n    end\n",
+      "find": "    local newest = wanted[id]\n    if newest and newest ~= record then\n        drive(id)\n",
+      "replace": "    local newest = wanted[id]\n    if false then\n        drive(id)\n",
       "why": "Finish the in-flight spawn without reconciling against the newest wanted state. The entity exists, so nothing looks broken, and it is at a position the server has already superseded."
     },
     {
@@ -263,16 +263,9 @@
     {
       "id": "M41",
       "file": "server/sync.lua",
-      "find": "        local ok, err = pcall(function()\n            local set = has[p.src]",
-      "replace": "        local ok, err = (function()\n            local set = has[p.src]",
+      "find": "        local ok, err = pcall(passFor, positions[i])",
+      "replace": "        local ok, err = true, passFor(positions[i])",
       "why": "Run each player's work unguarded. One raise anywhere in one player's pass aborts the whole pass, so every later player misses every update -- silently, because a loop that dies mid-pass has already sent a prefix and looks like it worked."
-    },
-    {
-      "id": "M42",
-      "file": "server/sync.lua",
-      "find": "                local okRecord, recordErr = pcall(function()",
-      "replace": "                local okRecord, recordErr = (function()",
-      "why": "Run each record unguarded inside a player's pass. One record whose payload cannot be built then costs every other record on the server its update for that player."
     },
     {
       "id": "M43",
@@ -284,29 +277,29 @@
     {
       "id": "M45",
       "file": "server/sync.lua",
-      "find": "            CisGrid.queryPoint(streamGrid, p.x, p.y, nil, consider)\n            for key in pairs(unindexed) do\n                consider(key)\n            end",
-      "replace": "            CisGrid.queryPoint(streamGrid, p.x, p.y, nil, consider)\n",
+      "find": "    CisGrid.queryPoint(streamGrid, p.x, p.y, nil, consider)\n    for key in pairs(unindexed) do\n        consider(key)\n    end\n    local ups = passUps\n",
+      "replace": "    CisGrid.queryPoint(streamGrid, p.x, p.y, nil, consider)\n    local ups = passUps\n",
       "why": "Drop the fallback walk over records the index REFUSED. CisGrid.insert refuses an inverted, NaN or oversized AABB, and without this set a refused record is in neither place: it streams to nobody, forever, with nothing in any log."
     },
     {
       "id": "M46",
       "file": "server/sync.lua",
-      "find": "    has[src] = nil\n    snapshotFor(src)",
-      "replace": "    snapshotFor(src)",
+      "find": "    for key, rev in pairs(set) do\n        if claimed[key] ~= rev then\n            set[key] = nil\n        end\n    end\n",
+      "replace": "",
       "why": "Answer a snapshot request without forgetting what the server believed the player held. The answer is then filtered by the very bookkeeping the request exists to clear, so a restarted client is sent nothing and every synced entity on the server stays invisible to it with nothing logged."
     },
     {
       "id": "M47",
       "file": "server/sync.lua",
-      "find": "    if type(src) ~= 'number' or src <= 0 then\n        return\n    end\n    -- FORGET",
-      "replace": "    -- FORGET",
+      "find": "CisNetOn('cis_libs:server:syncSnapshot', function(src, held)\n    if type(src) ~= 'number' or src <= 0 then\n        return\n    end\n",
+      "replace": "CisNetOn('cis_libs:server:syncSnapshot', function(src, held)\n",
       "why": "Drop the source guard on a client-to-server request. `source` is 0 for a server-side trigger and -1 for a scheduled one, so a snapshot could be triggered with no player behind it and would clear and rebuild bookkeeping for a source that is not a player."
     },
     {
       "id": "M48",
       "file": "server/sync.lua",
-      "find": "    for k in pairs(CLIENT_FIELDS) do\n        local v = record[k]\n        if v ~= nil then\n            out[k] = v\n        end\n    end",
-      "replace": "    for k, v in pairs(record) do\n        out[k] = v\n    end",
+      "find": "    if type(record.scenario) == 'string' then\n        out.scenario = record.scenario\n    end\n",
+      "replace": "    if type(record.scenario) == 'string' then\n        out.scenario = record.scenario\n    end\n    for k, v in pairs(record) do\n        if out[k] == nil then\n            out[k] = v\n        end\n    end\n",
       "why": "Go back to sending every field on a record. That is the defect: a deny-list grows by accident, so any field a consumer hangs on a record is copied to every client in range on every pass, with no size check and nobody having decided that it should."
     },
     {
@@ -319,8 +312,8 @@
     {
       "id": "M50",
       "file": "server/sync.lua",
-      "find": "    if type(value) ~= 'table' or depth > 4 then\n        return nil\n    end",
-      "replace": "    if depth > 4 then\n        return nil\n    end",
+      "find": "    if type(record.clientData) == 'table' then\n        out.clientData = copyCapped(record.clientData, budget, 1)\n    end\n    if budget.truncated then",
+      "replace": "    if record.clientData ~= nil then\n        out.clientData = type(record.clientData) == 'table'\n            and copyCapped(record.clientData, budget, 1) or record.clientData\n    end\n    if budget.truncated then",
       "why": "Stop refusing a clientData that is not a table. A string or a number in that slot then reaches every client in range as whatever the caller felt like putting there, bypassing every per-entry check the copy applies."
     },
     {
@@ -382,14 +375,14 @@
     {
       "id": "M59",
       "file": "client/sync.lua",
-      "find": "        local ok, err = pcall(list[i], ...)",
-      "replace": "        local ok, err = true, nil\n        list[i](...)",
+      "find": "            local ok, err = pcall(entry.fn, ...)",
+      "replace": "            local ok, err = true, nil\n            entry.fn(...)",
       "why": "Call a consumer hook bare instead of under pcall. A raising hook then takes the spawn with it -- and on the despawn side it takes the DELETE, so a client-local entity stays in the world with nothing left in the library that will ever remove it. The most permanent leak this half of the file can produce, reachable by one bad line of consumer code."
     },
     {
       "id": "M60",
       "file": "client/sync.lua",
-      "find": "exports('AddSyncSpawnHandler', function(fn)\n    if type(fn) ~= 'function' then",
+      "find": "exports('AddSyncSpawnHandler', function(fn)\n    if not CisCallable(fn) then",
       "replace": "exports('AddSyncSpawnHandler', function(fn)\n    if false then",
       "why": "Accept a spawn hook that is not a function. Stored, it is a nil call on the spawn path -- one step later than the refusal, and with no name attached to what went wrong."
     },
@@ -530,9 +523,9 @@
     {
       "id": "M81",
       "file": "shared/statebag.lua",
-      "find": "    if IsDuplicityVersion() then\n        return id\n    end\n",
-      "replace": "    if not IsDuplicityVersion() then\n        return id\n    end\n",
-      "why": "Wait for the entity on the SERVER and skip the wait on the client. That is the inverted realm: the client is the one whose entity may not have streamed in, and a handler that then calls GetEntityCoords raises."
+      "find": "    return watch(key, handler, entityFromBag, timeoutMs, not IS_SERVER)",
+      "replace": "    return watch(key, handler, entityFromBag, timeoutMs, IS_SERVER)",
+      "why": "Wait for the entity on the SERVER and skip the wait on the client. That is the inverted realm: the client is the one whose entity may not have streamed in yet, so a change that arrives first is dropped and the handler never fires for it."
     },
     {
       "id": "M82",
@@ -1254,6 +1247,153 @@
       "find": "        allowListConfigured = CisSecurityPosture() == 'configured',\n",
       "replace": "        allowListConfigured = #Security.AuthorizedResources > 0,\n",
       "why": "Report the Security table instead of the posture in force. A server whose allow-list is pinned by cis_authorized_resources is summarised as unconfigured."
+    },
+    {
+      "id": "M185",
+      "file": "shared/statebag.lua",
+      "find": "    local entity = GetEntityFromStateBagName(bagName)\n",
+      "replace": "    local entity = tonumber(bagName:match('^entity:(%d+)$')) or 0\n",
+      "why": "Parse the bag name instead of resolving it. `entity:<n>` carries a NETWORK id, not a handle: the handler is handed a number that names some other script entity or nothing, which is the defect the watcher shipped with."
+    },
+    {
+      "id": "M186",
+      "file": "shared/timing.lua",
+      "find": "        return nano() / 1e6\n",
+      "replace": "        return os.clock() * 1000\n",
+      "why": "Time passes with os.clock again. That is process CPU time -- on a Linux server every FXServer thread summed -- so a pass is charged for whatever the other threads burned while it ran."
+    },
+    {
+      "id": "M187",
+      "file": "init.lua",
+      "find": "            if key == 'isReady' then\n                return gate().ready\n",
+      "replace": "            if key == 'isReady' then\n                return false\n",
+      "why": "A consumer's Cis.isReady stops reading through to the gate. That is the shipped defect: only cis_libs' own VM ever wrote the field, so every consumer read false forever while api.lua told it to poll this."
+    },
+    {
+      "id": "M188",
+      "file": "server/zones.lua",
+      "find": "    if not zone or zone.bucket ~= passBucket then\n",
+      "replace": "    if not zone then\n",
+      "why": "Ignore the routing bucket in the zone pass. A zone at the bank then fires for a player standing in an instanced copy of the bank in another bucket -- the server-side zone leaks across worlds exactly the way sync records did before C3."
+    },
+    {
+      "id": "M189",
+      "file": "server/sync.lua",
+      "find": "        unindexRecord(key, previous)\n        records[key] = rec\n        indexRecord(key, rec)\n        return rec.id\n    end\n",
+      "replace": "        unindexRecord(key, previous)\n        records[key] = rec\n        indexRecord(key, rec)\n        rec.wire = buildWire(rec)\n        rec.wire.networked = true\n        gridInsert(key, rec)\n        push(key, rec)\n        return rec.id\n    end\n",
+      "why": "Stream a networked record over the sync events as well, which is the shape it shipped with: every client in range was told about an entity OneSync already streams, from its SPAWN coordinates, and a same-shape update that lost the netId had each of them spawn its own networked copy that nothing ever deleted."
+    },
+    {
+      "id": "M190",
+      "file": "client/sync.lua",
+      "find": "    CreateThread(function()\n        Wait(delay)\n",
+      "replace": "    CreateThread(function()\n        Wait(delay)\n        retries[id] = nil\n",
+      "why": "Reset the retry counter inside the retry thread, as the code did. RETRY_MAX is then never reached and a model that does not exist is requested every 500 ms for the rest of the session, while the server goes on believing the client holds the record."
+    },
+    {
+      "id": "M191",
+      "file": "server/sync.lua",
+      "find": "        if moved and type(SetEntityCoords) == 'function' then",
+      "replace": "        if type(SetEntityCoords) == 'function' then",
+      "why": "Move a networked entity on every update, not only on an explicit move. A consumer updating a driven vehicle's props names the coords it spawned it at, so the vehicle is teleported out from under its driver back to its spawn point."
+    },
+    {
+      "id": "M192",
+      "file": "server/sync.lua",
+      "find": "    if not record.respawn or window.n >= RESPAWN_MAX then",
+      "replace": "    if true then",
+      "why": "Never re-create a networked entity removed behind the library's back. KeepEntity only stops the SERVER reaping it; a client delete or a cleanup script still removes it, and the record then claims an entity that is gone."
+    },
+    {
+      "id": "M193",
+      "file": "server/sync.lua",
+      "find": "    for src, list in pairs(out) do\n        send(src, nil, list)\n    end",
+      "replace": "    for _, list in pairs(out) do\n        send(-1, nil, list)\n    end",
+      "why": "Broadcast removals to -1 instead of to the players holding the record. An owner with hundreds of records stopping then floods every player's reliable channel, which is how a resource restart drops a full server."
+    },
+    {
+      "id": "M194",
+      "file": "server/sync.lua",
+      "find": "            local lock = inflight[key]\n            if lock and lock.cancelled then\n",
+      "replace": "            local lock = inflight[key]\n            if false then\n",
+      "why": "Ignore a removal that happened while the networked entity was being created. The creation then stores a record the caller already removed, owning an entity nothing will delete."
+    },
+    {
+      "id": "M195",
+      "file": "server/sync.lua",
+      "find": "        while not DoesEntityExist(entity) do\n            if GetGameTimer() >= deadline or ticks >= ENTITY_WAIT_TICKS then\n",
+      "replace": "        while not DoesEntityExist(entity) do\n            if ticks >= ENTITY_WAIT_MS then\n",
+      "why": "Count the entity wait in frames rather than milliseconds, as it did. The documented five seconds becomes 5000 frames -- over a minute of a stuck export call at a normal frame time."
+    },
+    {
+      "id": "M196",
+      "file": "server/sync.lua",
+      "find": "        if (held and stillNear(p, record)) or isNear(p, record) then",
+      "replace": "        if isNear(p, record) then",
+      "why": "Push an update only to players inside the ENTER radius. A player in the hysteresis band still holds the record, so they keep a stale copy until they walk out and back."
+    },
+    {
+      "id": "M197",
+      "file": "server/sync.lua",
+      "find": "    local have = passSet[key]\n    if have == record.rev then\n        return\n    end\n",
+      "replace": "    local have = passSet[key]\n    if have == record.rev and not record.dynamic then\n        return\n    end\n",
+      "why": "Re-send a dynamic record to every player near it on every pass whether or not it changed, which is the bandwidth defect: a full payload per record per player per second for nothing."
+    },
+    {
+      "id": "M198",
+      "file": "client/sync.lua",
+      "find": "        despawn(id)\n        if wanted[id] then\n            drive(id)\n        end\n        return\n",
+      "replace": "        despawn(id)\n        return\n",
+      "why": "Return after a mid-spawn removal without driving the state the server sent AFTER the removal. The record is then missing on this client until the player walks out of range and back."
+    },
+    {
+      "id": "M199",
+      "file": "client/sync.lua",
+      "find": "    local okCall, result = pcall(spawn, record)",
+      "replace": "    local okCall, result = true, spawn(record)",
+      "why": "Run the spawn unprotected. A native that raises leaves spawning[id] set for the rest of the session, and every later state for that id returns at the top of drive."
+    },
+    {
+      "id": "M200",
+      "file": "server/sync.lua",
+      "find": "    if last and now - last < SNAPSHOT_COOLDOWN_MS then",
+      "replace": "    if false then",
+      "why": "Honour every snapshot request. A request costs a client nothing and the answer is a batch of every record near it, so the event limiter's eight a second is an amplification budget."
+    },
+    {
+      "id": "M201",
+      "file": "server/sync.lua",
+      "find": "                local nested = copyCapped(v, budget, depth + 1)",
+      "replace": "                local nested = copyCapped(v, { nodes = MAX_CLIENT_DATA_NODES, bytes = MAX_CLIENT_DATA_BYTES }, depth + 1)",
+      "why": "Give every nested table a fresh budget, so the cap is a cap on one level: a table of tables travels at many times the size the cap promises."
+    },
+    {
+      "id": "M202",
+      "file": "server/sync.lua",
+      "find": "        if type(s) ~= 'number' or s ~= s or s <= 0 or s > MAX_SCOPE then",
+      "replace": "        if false then",
+      "why": "Accept any scope. A NaN radius is never in range and never out of it, a negative or string one is coerced into nonsense, and infinity cannot be indexed."
+    },
+    {
+      "id": "M203",
+      "file": "client/sync.lua",
+      "find": "        dropHandlersOf(spawnHandlers, resource)\n",
+      "replace": "",
+      "why": "Keep a spawn hook after the resource that registered it stops. The hook is a function reference into a dead resource, called on every spawn for the rest of the session."
+    },
+    {
+      "id": "M204",
+      "file": "client/sync.lua",
+      "find": "    if last and last > n then\n        return false\n    end\n",
+      "replace": "",
+      "why": "Apply batches in ARRIVAL order. A latent batch overtaken by a reliable one then resurrects a record the newer batch removed, and nothing will ever remove it again."
+    },
+    {
+      "id": "M205",
+      "file": "client/sync.lua",
+      "find": "    if not value or t.appliedRev == value.rev or not ownsEntity(entity) then",
+      "replace": "    if not value or t.appliedRev == value.rev then",
+      "why": "Apply a networked entity's metadata on every client that streams it rather than on its owner. Every client then fights over props and tasks it has no authority to set, and the owner's state is overwritten by whoever saw the bag last."
     }
   ]
 }

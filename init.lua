@@ -11,8 +11,6 @@ local IS_SERVER = IsDuplicityVersion()
 
 Cis = Cis or {}
 Cis.resource = RESOURCE
-Cis.isReady = Cis.isReady or false
-Cis.isFailed = Cis.isFailed or false
 
 local EXPORT_TABLE = exports[RESOURCE]
 
@@ -28,6 +26,50 @@ local function tryExport(name, ...)
         return nil
     end
     return a, b, c, d
+end
+
+-- `Cis.isReady` / `Cis.isFailed`. In cis_libs' own VM CisReadyState writes them
+-- when the gate settles. A CONSUMER's Cis is a different table in a different
+-- Lua state that nothing ever wrote, so they were plain fields stuck at false.
+-- There they are read through, lazily, from the gate itself: never blocking, and
+-- a settled answer is kept until cis_libs stops, so a consumer polling
+-- `while not Cis.isReady do Wait(0) end` costs one export call per poll only
+-- until the gate settles.
+if IS_SELF then
+    Cis.isReady = Cis.isReady or false
+    Cis.isFailed = Cis.isFailed or false
+else
+    rawset(Cis, 'isReady', nil)
+    rawset(Cis, 'isFailed', nil)
+    local settled = nil
+    local function gate()
+        if settled then
+            return settled
+        end
+        local ready, failed = tryExport('ReadyState')
+        local state = { ready = ready == true, failed = failed == true }
+        if state.ready or state.failed then
+            settled = state
+        end
+        return state
+    end
+    if AddEventHandler then
+        AddEventHandler('onResourceStop', function(resource)
+            if resource == RESOURCE then
+                settled = nil
+            end
+        end)
+    end
+    setmetatable(Cis, {
+        __index = function(_, key)
+            if key == 'isReady' then
+                return gate().ready
+            elseif key == 'isFailed' then
+                return gate().failed
+            end
+            return nil
+        end,
+    })
 end
 
 function Cis.ready(cb, timeout)
