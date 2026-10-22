@@ -58,7 +58,28 @@ files {
     'shared/util/table.lua',
     'shared/util/time.lua',
     'shared/util/validate.lua',
+    -- The NUI page, listed file by file rather than as a glob: the release zip
+    -- and the live deploy are built from this block and do not expand globs.
+    'web/index.html',
+    'web/style.css',
+    'web/js/app.js',
+    'web/js/context.js',
+    'web/js/core.js',
+    'web/js/dialog.js',
+    'web/js/markdown.js',
+    'web/js/menu.js',
+    'web/js/nav.js',
+    'web/js/notify.js',
+    'web/js/progress.js',
+    'web/js/queue.js',
+    'web/js/radial.js',
+    'web/js/skill.js',
+    'web/js/skillcheck.js',
+    'web/js/textui.js',
+    'web/js/validate.js',
 }
+
+ui_page 'web/index.html'
 
 client_scripts {
     'client/initialize.lua',
@@ -74,6 +95,18 @@ client_scripts {
     'client/raycast.lua',
     'client/keybind.lua',
     'client/ui.lua',
+    'client/interface/nui.lua',
+    'client/interface/focus.lua',
+    'client/interface/theme.lua',
+    'client/interface/notify.lua',
+    'client/interface/textui.lua',
+    'client/interface/progress.lua',
+    'client/interface/alert.lua',
+    'client/interface/input.lua',
+    'client/interface/context.lua',
+    'client/interface/menu.lua',
+    'client/interface/radial.lua',
+    'client/interface/skillcheck.lua',
     'client/callback.lua',
     'client/target.lua',
     'client/proxy.lua',
@@ -90,6 +123,7 @@ server_scripts {
     'server/sync.lua',
     'server/command.lua',
     'server/zones.lua',
+    'server/interface.lua',
     'server/initialize.lua',
     'server/selfcheck.lua',
 }

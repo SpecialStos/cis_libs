@@ -5,14 +5,14 @@
     "gta": "https://runtime.fivem.net/doc/natives.json"
   },
   "counts": {
-    "shippedFiles": 43,
-    "nativesUsed": 188,
+    "shippedFiles": 58,
+    "nativesUsed": 212,
     "byRealm": {
-      "client": 117,
-      "server": 4,
-      "shared": 67
+      "client": 137,
+      "server": 5,
+      "shared": 70
     },
-    "unresolvedPascalCaseGlobals": 64
+    "unresolvedPascalCaseGlobals": 66
   },
   "natives": {
     "AddDoorToSystem": {
@@ -71,6 +71,24 @@
         "client/initialize.lua",
         "client/proxy.lua",
         "client/ui.lua"
+      ]
+    },
+    "AttachEntityToEntity": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "ENTITY"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/progress.lua"
       ]
     },
     "BeginTextCommandDisplayHelp": {
@@ -147,6 +165,26 @@
         "client/ui.lua"
       ]
     },
+    "ClearPedTasks": {
+      "realm": "shared",
+      "evidence": [
+        "client",
+        "server"
+      ],
+      "sources": [
+        "gta",
+        "cfx"
+      ],
+      "namespaces": [
+        "TASK"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/progress.lua"
+      ]
+    },
     "ClearVehicleCustomPrimaryColour": {
       "realm": "client",
       "evidence": [
@@ -200,6 +238,7 @@
         "client"
       ],
       "files": [
+        "client/interface/progress.lua",
         "client/sync.lua"
       ]
     },
@@ -300,8 +339,66 @@
         "server"
       ],
       "files": [
+        "client/interface/progress.lua",
         "client/sync.lua",
         "server/sync.lua"
+      ]
+    },
+    "DetachEntity": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "ENTITY"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/progress.lua"
+      ]
+    },
+    "DisableControlAction": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "PAD"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/menu.lua",
+        "client/interface/progress.lua",
+        "client/interface/radial.lua",
+        "client/interface/skillcheck.lua"
+      ]
+    },
+    "DisablePlayerFiring": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "PLAYER"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/progress.lua"
       ]
     },
     "DoesAnimDictExist": {
@@ -341,6 +438,7 @@
         "shared"
       ],
       "files": [
+        "client/interface/progress.lua",
         "client/sync.lua",
         "client/vehicle.lua",
         "server/sync.lua",
@@ -583,6 +681,7 @@
       "files": [
         "client/cache.lua",
         "client/callback.lua",
+        "client/interface/nui.lua",
         "client/sync.lua",
         "client/target.lua",
         "client/ui.lua",
@@ -653,6 +752,7 @@
       ],
       "files": [
         "client/cache.lua",
+        "client/interface/progress.lua",
         "client/points.lua",
         "client/vehicle.lua",
         "client/world.lua",
@@ -797,6 +897,9 @@
         "client/cache.lua",
         "client/callback.lua",
         "client/initialize.lua",
+        "client/interface/menu.lua",
+        "client/interface/nui.lua",
+        "client/interface/progress.lua",
         "client/points.lua",
         "client/raycast.lua",
         "client/streaming.lua",
@@ -809,7 +912,8 @@
         "shared/loopguard.lua",
         "shared/ready.lua",
         "shared/registry.lua",
-        "shared/statebag.lua"
+        "shared/statebag.lua",
+        "shared/timing.lua"
       ]
     },
     "GetGameplayCamCoord": {
@@ -883,6 +987,7 @@
       "files": [
         "client/cache.lua",
         "client/callback.lua",
+        "client/interface/nui.lua",
         "client/keybind.lua",
         "client/points.lua",
         "client/target.lua",
@@ -1007,6 +1112,24 @@
         "client/weapon.lua"
       ]
     },
+    "GetPedBoneIndex": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "PED"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/progress.lua"
+      ]
+    },
     "GetPedConfigFlag": {
       "realm": "client",
       "evidence": [
@@ -1064,6 +1187,7 @@
       ],
       "files": [
         "server/callback.lua",
+        "server/interface.lua",
         "server/proxy.lua",
         "server/security.lua"
       ]
@@ -1847,6 +1971,7 @@
         "client"
       ],
       "files": [
+        "client/interface/progress.lua",
         "client/streaming.lua"
       ]
     },
@@ -1883,6 +2008,7 @@
         "client"
       ],
       "files": [
+        "client/interface/progress.lua",
         "client/streaming.lua"
       ]
     },
@@ -1994,6 +2120,61 @@
         "client/streaming.lua"
       ]
     },
+    "IsControlJustPressed": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "PAD"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/progress.lua"
+      ]
+    },
+    "IsDisabledControlJustPressed": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "PAD"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/menu.lua",
+        "client/interface/skillcheck.lua"
+      ]
+    },
+    "IsDisabledControlPressed": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "PAD"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/menu.lua"
+      ]
+    },
     "IsDuplicityVersion": {
       "realm": "shared",
       "evidence": [
@@ -2014,6 +2195,42 @@
         "shared/statebag.lua"
       ]
     },
+    "IsEntityDead": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "ENTITY"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/progress.lua"
+      ]
+    },
+    "IsEntityPlayingAnim": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "ENTITY"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/progress.lua"
+      ]
+    },
     "IsModelInCdimage": {
       "realm": "client",
       "evidence": [
@@ -2032,6 +2249,42 @@
         "client/streaming.lua"
       ]
     },
+    "IsModelValid": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "STREAMING"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/progress.lua"
+      ]
+    },
+    "IsPauseMenuActive": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "HUD"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/radial.lua"
+      ]
+    },
     "IsPedArmed": {
       "realm": "client",
       "evidence": [
@@ -2048,6 +2301,42 @@
       ],
       "files": [
         "client/cache.lua"
+      ]
+    },
+    "IsPedCuffed": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "TASK"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/progress.lua"
+      ]
+    },
+    "IsPedFalling": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "PED"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/progress.lua"
       ]
     },
     "IsPedInAnyVehicle": {
@@ -2070,6 +2359,26 @@
         "client/cache.lua"
       ]
     },
+    "IsPedRagdoll": {
+      "realm": "shared",
+      "evidence": [
+        "client",
+        "server"
+      ],
+      "sources": [
+        "gta",
+        "cfx"
+      ],
+      "namespaces": [
+        "PED"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/progress.lua"
+      ]
+    },
     "IsPedShooting": {
       "realm": "client",
       "evidence": [
@@ -2086,6 +2395,24 @@
       ],
       "files": [
         "client/cache.lua"
+      ]
+    },
+    "IsPedSwimming": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "PED"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/progress.lua"
       ]
     },
     "IsPlayerFreeAiming": {
@@ -2326,6 +2653,24 @@
         "server/sync.lua"
       ]
     },
+    "PlaySoundFrontend": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "AUDIO"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/notify.lua"
+      ]
+    },
     "PlayerId": {
       "realm": "client",
       "evidence": [
@@ -2364,6 +2709,7 @@
       ],
       "files": [
         "client/cache.lua",
+        "client/interface/progress.lua",
         "client/vehicle.lua",
         "client/weapon.lua",
         "client/zones.lua",
@@ -2385,6 +2731,7 @@
       ],
       "files": [
         "client/cache.lua",
+        "client/interface/radial.lua",
         "client/keybind.lua",
         "server/command.lua",
         "server/initialize.lua",
@@ -2404,6 +2751,7 @@
         "client"
       ],
       "files": [
+        "client/interface/radial.lua",
         "client/keybind.lua"
       ]
     },
@@ -2440,6 +2788,7 @@
         "client"
       ],
       "files": [
+        "client/interface/progress.lua",
         "client/streaming.lua"
       ]
     },
@@ -2546,6 +2895,7 @@
         "client"
       ],
       "files": [
+        "client/interface/progress.lua",
         "client/streaming.lua"
       ]
     },
@@ -2582,6 +2932,7 @@
         "client"
       ],
       "files": [
+        "client/interface/progress.lua",
         "client/streaming.lua"
       ]
     },
@@ -2691,6 +3042,22 @@
       ],
       "files": [
         "client/utils.lua"
+      ]
+    },
+    "SendNuiMessage": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "cfx"
+      ],
+      "namespaces": [],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/nui.lua"
       ]
     },
     "SetBlockingOfNonTemporaryEvents": {
@@ -2838,9 +3205,42 @@
         "client"
       ],
       "files": [
+        "client/interface/progress.lua",
         "client/streaming.lua",
         "client/sync.lua",
         "client/utils.lua"
+      ]
+    },
+    "SetNuiFocus": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "cfx"
+      ],
+      "namespaces": [],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/focus.lua"
+      ]
+    },
+    "SetNuiFocusKeepInput": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "cfx"
+      ],
+      "namespaces": [],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/focus.lua"
       ]
     },
     "SetScaleformMovieAsNoLongerNeeded": {
@@ -3522,6 +3922,60 @@
         "client/vehicle.lua"
       ]
     },
+    "StopAnimTask": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "TASK"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/progress.lua"
+      ]
+    },
+    "StopResource": {
+      "realm": "server",
+      "evidence": [
+        "server"
+      ],
+      "sources": [
+        "cfx"
+      ],
+      "namespaces": [],
+      "usedIn": [
+        "server"
+      ],
+      "files": [
+        "server/initialize.lua"
+      ]
+    },
+    "TaskPlayAnim": {
+      "realm": "shared",
+      "evidence": [
+        "client",
+        "server"
+      ],
+      "sources": [
+        "gta",
+        "cfx"
+      ],
+      "namespaces": [
+        "TASK"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/interface/progress.lua"
+      ]
+    },
     "TaskStartScenarioInPlace": {
       "realm": "client",
       "evidence": [
@@ -3537,6 +3991,7 @@
         "client"
       ],
       "files": [
+        "client/interface/progress.lua",
         "client/utils.lua"
       ]
     },
@@ -3577,6 +4032,11 @@
       "files": [
         "client/cache.lua",
         "client/initialize.lua",
+        "client/interface/menu.lua",
+        "client/interface/nui.lua",
+        "client/interface/progress.lua",
+        "client/interface/radial.lua",
+        "client/interface/skillcheck.lua",
         "client/points.lua",
         "client/raycast.lua",
         "client/streaming.lua",
@@ -3595,6 +4055,7 @@
   },
   "unresolvedGlobals": [
     "AddEventHandler",
+    "CisCallable",
     "CisCommandAdd",
     "CisCommandList",
     "CisCommandNames",
@@ -3649,6 +4110,7 @@
     "GetWeaponAttachments",
     "PerformHttpRequest",
     "RandomFloat",
+    "RegisterNUICallback",
     "RegisterNetEvent",
     "RequestModelTimeout",
     "SetTimeout",
