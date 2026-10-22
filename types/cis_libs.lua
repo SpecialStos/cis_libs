@@ -1954,7 +1954,7 @@ function Cis.log.warn(message) end
 ---@field realm "both"
 ---@param name string #a module name from the allow-list; a non-string is refused with the type in .why
 ---@param opts? table #only .load is read, and only as == true. It is opt-in because answering "is this name real" must not be the thing that parses fifteen files
----@return CisModuleInfo #a DESCRIPTION, not the module: ok, name, path, global, deps and globalPresent, plus functions, loaded and globalPresentAfterLoad under opts.load. A refusal is ok = false with .why, and an unknown name also carries .valid
+---@return CisModuleInfo #a DESCRIPTION, not the module: ok, name, path, global, deps (a fresh copy) and globalPresent, plus functions, loaded and globalPresentAfterLoad under opts.load. A refusal is ok = false with .why, and an unknown name also carries .valid
 function Cis.moduleInfo(name, opts) end
 
 ---@class Cis.moduleProbe
@@ -2110,8 +2110,9 @@ function Cis.ready(cb, timeout) end
 ---@class Cis.require
 ---@field since string 1.0.0
 ---@field realm "both"
----@param name string #a name from a closed allow-list of fifteen. It RAISES on an unknown name, naming every valid one, because a silent nil is a nil index three frames deeper in the caller
----@return CisCurve|CisHeap|CisInterp|CisLRU|CisRandom|CisRate|CisSparse|CisWindow|CisId|CisJson|CisSemver|CisString|CisTable|CisTime|CisValidate #the module table, cached per Lua state so two calls in one VM share one instance and its internal state. The type is a union because the return is whichever module was named; 6.3 adds one ---@overload per module so the editor narrows it
+---@param name string #one of the fifteen built-in names, OR a module of your own: `folder.file` / `folder/file` / `./file` from the calling resource, `@resource/folder/file` from any resource. A bare name that is not built in RAISES, naming every valid one, because a silent nil is a nil index three frames deeper in the caller. A path that leaves the resource (.., absolute, backslash) raises too
+---@return CisCurve|CisHeap|CisInterp|CisLRU|CisRandom|CisRate|CisSparse|CisWindow|CisId|CisJson|CisSemver|CisString|CisTable|CisTime|CisValidate|any #the module, cached per Lua state so two calls in one VM share one instance and its internal state. A file of your own is read once, loaded as TEXT ONLY into its own environment (reads fall through to your globals, writes stay private), called with (name, `@resource/path.lua`), and cached; a file that returns nothing is cached as true. A circular require raises and names the chain. The type is a union because the return is whichever module was named; one ---@overload per built-in narrows it 
+-- Why `any`: a module of your own returns whatever its file returns
 function Cis.require(name) end
 
 ---@class Cis.requireList

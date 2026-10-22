@@ -431,9 +431,9 @@
     {
       "id": "M66",
       "file": "init.lua",
-      "find": "    local spec = REQUIRE_MODULES[name]\n    if not spec then\n        error(('Cis.require: no module named %q. Valid names: %s'):format(",
-      "replace": "    local spec = REQUIRE_MODULES[name] or { path = name }\n    if not spec then\n        error(('Cis.require: no module named %q. Valid names: %s'):format(",
-      "why": "Fall back to treating the caller name as a path, so any name resolves. That turns a closed set of fifteen into arbitrary file execution inside the resource, and it is the one direction the allow-list exists to prevent. The first anchor matched three places -- Cis.require, Cis.moduleInfo and Cis.moduleProbe all read that table the same way -- and an anchor that is not unique is not an anchor. The first anchor was the bare lookup line, which occurs three times: Cis.require, Cis.moduleInfo and Cis.moduleProbe all read that table the same way. An anchor that is not unique is not an anchor, and the tool refusing it was right."
+      "find": "        elseif not rest:find('[%./]') then\n            return nil, nil\n        end\n",
+      "replace": "        end\n",
+      "why": "Treat a bare name that is not one of the fifteen built-ins as a file path. A typo ('jsno') then goes looking for jsno.lua instead of being answered with the valid names, and the closed set of built-in names stops being closed. Rewritten when Cis.require learned consumer paths: paths are now allowed on purpose, but only when they look like paths."
     },
     {
       "id": "M67",
@@ -565,8 +565,8 @@
     {
       "id": "M86",
       "file": "init.lua",
-      "find": "            return nil, ('waitFor timed out after %dms'):format(timeout)\n                .. (msg and (' (' .. tostring(msg) .. ')') or '')\n",
-      "replace": "            error(('waitFor timed out after %dms'):format(timeout)\n                .. (msg and (' (' .. tostring(msg) .. ')') or ''), 2)\n",
+      "find": "            return nil, ('waitFor timed out after %sms'):format(shown)\n                .. (msg and (' (' .. tostring(msg) .. ')') or '')\n",
+      "replace": "            error(('waitFor timed out after %sms'):format(shown)\n                .. (msg and (' (' .. tostring(msg) .. ')') or ''), 2)\n",
       "why": "Raise on timeout. Callers that cannot wrap the wait in pcall then crash a thread, and the 7.8 test that pcalls a timeout and requires it NOT to raise is the thing that sees it."
     },
     {
@@ -904,6 +904,55 @@
       "find": "        if not (isWhole(v.major) and isWhole(v.minor) and isWhole(v.patch)) then",
       "replace": "        if false then",
       "why": "Trust a version table: parse({}) no longer refuses, and compare reaches nil components."
+    },
+    {
+      "id": "M135",
+      "file": "init.lua",
+      "find": "    if requireLoading[key] then",
+      "replace": "    if false then",
+      "why": "Drop the in-progress sentinel: a circular Cis.require recurses until the stack runs out, and the error names neither module."
+    },
+    {
+      "id": "M136",
+      "file": "init.lua",
+      "find": "        deps = { table.unpack(spec.deps) },",
+      "replace": "        deps = spec.deps,",
+      "why": "moduleInfo hands out the loader's live dependency list, so a caller editing the answer edits the loader."
+    },
+    {
+      "id": "M137",
+      "file": "init.lua",
+      "find": "        if segment == '' or segment == '.' or segment == '..' then",
+      "replace": "        if segment == '' then",
+      "why": "Let a module path walk out of the resource with '..', turning Cis.require into a reader of arbitrary files."
+    },
+    {
+      "id": "M138",
+      "file": "init.lua",
+      "find": "        local chunk, compileErr = load(src, ('@@%s/%s'):format(resource, path), 't', env)",
+      "replace": "        local chunk, compileErr = load(src, ('@@%s/%s'):format(resource, path), 'bt', env)",
+      "why": "Accept precompiled chunks from a resource file. The loader is text-only on purpose; bytecode can do what source cannot."
+    },
+    {
+      "id": "M139",
+      "file": "init.lua",
+      "find": "        local env = setmetatable({}, { __index = _ENV })",
+      "replace": "        local env = _ENV",
+      "why": "Load a consumer module straight into the resource's globals, so every helper it defines leaks and two modules can clobber each other."
+    },
+    {
+      "id": "M140",
+      "file": "init.lua",
+      "find": "            return nil, ('waitFor timed out after %sms'):format(shown)",
+      "replace": "            return nil, ('waitFor timed out after %dms'):format(timeout)",
+      "why": "Format the timeout with %d again: a fractional timeoutMs makes the timeout path raise instead of answering nil, reason."
+    },
+    {
+      "id": "M141",
+      "file": "init.lua",
+      "find": "        resource, rest = THIS, name",
+      "replace": "        resource, rest = RESOURCE, name",
+      "why": "Resolve a relative module path against cis_libs instead of the calling resource, so a consumer cannot load its own files."
     }
   ]
 }

@@ -65,7 +65,10 @@ function Cis.waitFor(fn, msg, timeoutMs)
             return value
         end
         if GetGameTimer() >= deadline then
-            return nil, ('waitFor timed out after %dms'):format(timeout)
+            -- %s of a formatted number, not %d: Lua 5.4 raises on %d of 2.5,
+            -- so a fractional timeout turned the timeout into a crash.
+            local shown = timeout % 1 == 0 and ('%.0f'):format(timeout) or tostring(timeout)
+            return nil, ('waitFor timed out after %sms'):format(shown)
                 .. (msg and (' (' .. tostring(msg) .. ')') or '')
         end
         Wait(0)
@@ -874,7 +877,41 @@ local REQUIRE_NAMES = (function()
 end)()
 
 -- PER VM, not per resource. Two resources calling Cis.require in the same VM share one
+-- cache. Built-in modules are cached under their name; a consumer module under its
+-- canonical '@resource/path.lua'.
 local requireCache = {}
+
+-- THE IN-PROGRESS SET, and the stack that names a cycle. A module that requires
+-- itself -- directly, or through a chain that comes back round -- used to recurse
+-- until the C stack ran out, and the error that finally surfaced named neither
+-- module. Now the second entry raises at once with the whole chain.
+local requireLoading = {}
+local requireStack = {}
+
+local function beginLoad(key)
+    if requireLoading[key] then
+        local chain = {}
+        local from = 1
+        for i = 1, #requireStack do
+            if requireStack[i] == key then from = i break end
+        end
+        for i = from, #requireStack do chain[#chain + 1] = requireStack[i] end
+        chain[#chain + 1] = key
+        error(('Cis.require: circular dependency %s'):format(table.concat(chain, ' -> ')), 3)
+    end
+    requireLoading[key] = true
+    requireStack[#requireStack + 1] = key
+end
+
+local function endLoad(key)
+    requireLoading[key] = nil
+    for i = #requireStack, 1, -1 do
+        if requireStack[i] == key then
+            table.remove(requireStack, i)
+            break
+        end
+    end
+end
 
 local function sandboxFor(spec)
     -- The environment IS the dependency map.
@@ -898,6 +935,88 @@ local function sandboxFor(spec)
     })
 end
 
+-- A CONSUMER'S OWN MODULE: '@resource/path/to/mod', or a path relative to the
+-- resource calling Cis.require ('path.to.mod', 'path/to/mod', './mod'). Dots are
+-- separators unless the name already uses '/', so 'client.utils' and
+-- 'client/utils' are the same file, client/utils.lua. A plain name with no
+-- separator is NOT a path -- it is a built-in name or a typo, and a typo must be
+-- told the valid names rather than go looking for a file.
+--
+-- Answers resource, path or nil, reason.
+local function resolveModulePath(name)
+    local resource, rest
+    if name:sub(1, 1) == '@' then
+        resource, rest = name:match('^@([^/]+)/(.+)$')
+        if not resource then
+            return nil, ('%q names no file: use @resource/path/to/module'):format(name)
+        end
+    else
+        resource, rest = THIS, name
+        if rest:sub(1, 2) == './' then
+            rest = rest:sub(3)
+        elseif not rest:find('[%./]') then
+            return nil, nil
+        end
+    end
+    rest = rest:gsub('%.lua$', '')
+    if not rest:find('/', 1, true) then
+        rest = rest:gsub('%.', '/')
+    end
+    -- Inside the resource, always. No absolute path, no parent step, no empty
+    -- segment, no backslash: the loader reads files, and a name is not allowed to
+    -- become a walk through somebody else's folder.
+    if rest == '' or rest:sub(1, 1) == '/' or rest:find('\\', 1, true) then
+        return nil, ('%q is not a path inside a resource'):format(name)
+    end
+    for segment in (rest .. '/'):gmatch('(.-)/') do
+        if segment == '' or segment == '.' or segment == '..' then
+            return nil, ('%q is not a path inside a resource (empty, . or .. segment)'):format(name)
+        end
+    end
+    return resource, rest .. '.lua'
+end
+
+-- Load one consumer module. A sandboxed environment of its own: reads fall
+-- through to the resource's globals, and writes land in the module's private
+-- table instead of the resource's -- the same isolation ox_lib's lib.require
+-- gives, so two modules cannot clobber each other's helpers by accident.
+local function requireFile(name, resource, path)
+    local key = ('@%s/%s'):format(resource, path)
+    local cached = requireCache[key]
+    if cached ~= nil then
+        return cached
+    end
+    beginLoad(key)
+    local ok, result = pcall(function()
+        local src = LoadResourceFile(resource, path)
+        if type(src) ~= 'string' then
+            error(('Cis.require: %s: %s was not found in resource %s'):format(name, path, resource), 0)
+        end
+        -- _ENV, not _G: the CALLING resource's globals, which is what its own
+        -- files expect to see.
+        local env = setmetatable({}, { __index = _ENV })
+        -- TEXT ONLY. A precompiled chunk can do things source cannot, and nothing a
+        -- resource ships for this loader has a reason to be bytecode.
+        local chunk, compileErr = load(src, ('@@%s/%s'):format(resource, path), 't', env)
+        if not chunk then
+            error(('Cis.require: %s failed to compile: %s'):format(key, tostring(compileErr)), 0)
+        end
+        local value = chunk(name, key)
+        -- Lua's own require stores true for a module that returns nothing, so a
+        -- second require answers instead of running the file again.
+        if value == nil then
+            value = true
+        end
+        return value
+    end)
+    endLoad(key)
+    if not ok then
+        error(result, 2)
+    end
+    requireCache[key] = result
+    return result
+end
+
 -- A module, loaded on demand, with no global left behind.
 function Cis.require(name)
     if type(name) ~= 'string' then
@@ -906,30 +1025,46 @@ function Cis.require(name)
     end
     local spec = REQUIRE_MODULES[name]
     if not spec then
-        error(('Cis.require: no module named %q. Valid names: %s'):format(
-            name, table.concat(REQUIRE_NAMES, ', ')), 2)
+        local resource, path = resolveModulePath(name)
+        if resource then
+            return requireFile(name, resource, path)
+        end
+        if path then
+            error('Cis.require: ' .. path, 2)
+        end
+        error(('Cis.require: no module named %q. Valid names: %s. A module of your own '
+            .. 'is a path: Cis.require(\'folder.file\') or Cis.require(\'@resource/folder/file\')')
+            :format(name, table.concat(REQUIRE_NAMES, ', ')), 2)
     end
     if requireCache[name] then
         return requireCache[name]
     end
 
-    local src = LoadResourceFile('cis_libs', spec.path)
-    if not src then
-        error(('Cis.require: %s could not be read from the resource. Is it listed '
-            .. 'in fxmanifest.lua files {}?'):format(spec.path), 2)
-    end
-    local chunk, compileErr = load(src, '@cis_libs/' .. spec.path, 't', sandboxFor(spec))
-    if not chunk then
-        error(('Cis.require: %s failed to compile: %s'):format(spec.path, tostring(compileErr)), 2)
-    end
-    -- THE MARKER. The module's own tail reads `...`, and this argument is the only
-    local ok, result = pcall(chunk, 'cis_require')
+    beginLoad(name)
+    local ok, result = pcall(function()
+        local src = LoadResourceFile('cis_libs', spec.path)
+        if not src then
+            error(('Cis.require: %s could not be read from the resource. Is it listed '
+                .. 'in fxmanifest.lua files {}?'):format(spec.path), 0)
+        end
+        local chunk, compileErr = load(src, '@cis_libs/' .. spec.path, 't', sandboxFor(spec))
+        if not chunk then
+            error(('Cis.require: %s failed to compile: %s'):format(spec.path, tostring(compileErr)), 0)
+        end
+        -- THE MARKER. The module's own tail reads `...`, and this argument is the only
+        local loaded, value = pcall(chunk, 'cis_require')
+        if not loaded then
+            error(('Cis.require: %s raised while loading: %s'):format(spec.path, tostring(value)), 0)
+        end
+        if type(value) ~= 'table' then
+            error(('Cis.require: %s did not return a table (got %s). A module must end '
+                .. 'with `return M`.'):format(spec.path, tostring(value)), 0)
+        end
+        return value
+    end)
+    endLoad(name)
     if not ok then
-        error(('Cis.require: %s raised while loading: %s'):format(spec.path, tostring(result)), 2)
-    end
-    if type(result) ~= 'table' then
-        error(('Cis.require: %s did not return a table (got %s). A module must end '
-            .. 'with `return M`.'):format(spec.path, tostring(result)), 2)
+        error(result, 2)
     end
     requireCache[name] = result
     return result
@@ -959,7 +1094,9 @@ function Cis.moduleInfo(name, opts)
         name = name,
         path = spec.path,
         global = spec.global,
-        deps = spec.deps,
+        -- A COPY. Handing out spec.deps itself let a caller edit the loader's own
+        -- dependency map through the answer to a question.
+        deps = { table.unpack(spec.deps) },
         -- "Installed here" means the LEGACY GLOBAL exists on this realm, which is
         globalPresent = spec.global ~= nil and rawget(_G, spec.global) ~= nil,
     }

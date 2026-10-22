@@ -48,6 +48,26 @@ local caps = exports['cis_libs']:GetCapabilities()
 assert(type(caps) == 'table')
 ```
 
+## Modules
+
+Fifteen pure-Lua modules (`Cis.requireList()` names them) load on demand into
+the calling resource's own Lua state, with no global left behind:
+
+```lua
+local semver = Cis.require('semver')
+local ok = semver.satisfies('1.4.2', '^1.2')   -- true
+```
+
+Your own files load the same way: `Cis.require('client.utils')` reads
+`client/utils.lua` from the calling resource and
+`Cis.require('@other_resource/shared/config')` from another. Each file is read
+once per Lua state, as text only, into its own environment; a circular require
+raises and names the chain. The function reference is DOCUMENTATION.md §5.1.
+
+Never `shared_script` a module file. `init.lua` is the only one.
+
+## Handlers
+
 Zone, point, hook, and callback handlers that cross the exports boundary cannot
 be Lua functions. A function arrives `nil`. Use an event name or
 `'resource:export'`.
