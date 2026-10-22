@@ -82,16 +82,20 @@ exports = { cis_libs = EXPORTS }
 
 -- CreateZone(kind, name, a, b, options) -> recorder slots
 --   correct call: slot1=self, slot2=kind, slot3=name, slot4=a, slot5=b, slot6=options
-local function loadFor(realm)
+local function loadFor(realm, resource)
     calls = {}
     IsDuplicityVersion = function() return realm == 'server' end
+    GetCurrentResourceName = function() return resource or 'cis_libstest' end
     Cis = nil
     local chunk = assert(loadfile(root .. '/init.lua'))
     chunk()
 end
 
--- -------------------------------------------------------------- consumer path
-loadFor('client')
+-- ------------------------------------------------------- cis_libs' own VM path
+-- A CONSUMER's zones no longer cross at all: they run in its own VM (see
+-- test/contracts.lua section 19). cis_libs' OWN copy of init.lua still routes
+-- them to its CreateZone export, so that is the call whose slots are pinned.
+loadFor('client', 'cis_libs')
 
 calls = {}
 Cis.zones.box('shop', { x = 1, y = 2, z = 3 }, { x = 4, y = 5, z = 6 }, {})
@@ -117,6 +121,9 @@ local rc = calls[1]
 check(rc ~= nil, 'Cis.zones.remove reached the export')
 check(f(rc, 2) == 'shop', ('remove name in slot 2 (got %s)'):format(describe(f(rc, 2))))
 check(rc.n == 2, ('remove passed exactly one argument (got %d)'):format(rc.n or -1))
+
+-- -------------------------------------------------------------- consumer path
+loadFor('client')
 
 calls = {}
 Cis.player.near({ x = 5, y = 6, z = 7 }, 12.0)

@@ -196,8 +196,11 @@ provider is registered, and `GetLibsPrefix()` reports it.
   `'rate'`, `'unknown'`, `'denied'`, `'too large'`, `'bad payload'` or `'busy'`.
   A player who drops rejects every await still waiting on them with
   `'player dropped'`.
-- **Zones / points / hooks:** event names, not functions. Server zones exist
-  (`Cis.zones.server.*`) and do not draw.
+- **Zones / points / keybinds** created through `init.lua` run in the calling
+  resource (§5.2): their handlers are plain local functions. Through the
+  exports (`CreateZone`, `CreatePoint`, `KeybindAdd`) a handler arrives as a
+  funcref, or is an event name. **Hooks** take event names or export
+  references. Server zones exist (`Cis.zones.server.*`) and do not draw.
 
 ### 5.1 Modules
 
@@ -545,6 +548,51 @@ Source: `shared/algo/window.lua`.
 
 ---
 
+### 5.2 What runs where
+
+Since 1.1.0 a consumer's per-frame client work runs in **its own Lua VM**, the
+way ox_lib's `lib` loads modules into the resource that uses it.
+
+| Runs in the consumer (through `init.lua`) | Runs once, in cis_libs |
+|---|---|
+| `Cis.zones.*` (client), `Cis.points.*`, `Cis.keybind.add` | the player cache producer (`client/cache.lua`) |
+| `Cis.player.vehicle` / `seat` / `weapon` / `serverId` / `playerId` / `on`, `Cis.cache`, `Cis.onCache` (a mirror) | sync records, the callback endpoint, capability slots, rate limits, audit, config |
+| `Cis.world.*`, `Cis.raycast.*`, `Cis.streaming.*`, `Cis.vehicle.*` | the NUI layer (`Cis.ui.*`, one NUI focus per client) and `Cis.target.*` |
+| `Cis.marker.*`, `Cis.scaleform.new`, `Cis.dui.new`, `Cis.anim.play`, `Cis.controls.*` | server zones, `Cis.player.near`, doors, hooks, inventory, logging |
+
+**One source.** The engines are `client/core/*.lua`: files of pure logic with
+no state at file scope. cis_libs runs the shared ones as client scripts and
+wraps one instance behind its exports (`CreateZone`, `CreatePoint`,
+`KeybindAdd`, `ClosestPed`, `RaycastCamera`, `RequestModelTimeout`,
+`GetVehicleProperties`), which keep their owner checks and stop sweeps. A
+consumer loads the same text with `LoadResourceFile` and a text-only `load`
+into a sandbox that refuses global writes, on the **first call** that needs
+it. A resource that never touches zones loads no zone code and runs no zone
+thread; zones, points, markers and control holds each start one thread on
+their first object and end it with their last.
+
+**Handlers are local.** `Cis.zones.box(name, center, size, { onEnter =
+function(zone, coords) ... end })`, `Cis.points.add({ coords, distance,
+onEnter, onExit, nearby })` and `Cis.keybind.add({ name, description,
+defaultKey, onPress, onRelease })` (or ox_lib's `onPressed` / `onReleased`)
+call plain functions in the consumer. The event-name options still fire their
+events. A keybind's commands and mapping belong to the consumer.
+
+**The cache mirror.** cis_libs stays the single producer of player state: one
+native pass per client. It pushes each change as the local client event
+`cis_libs:cache`; a consumer's mirror takes one `GetCacheSnapshot` on its first
+read and applies the pushes, accepting them only from cis_libs. After that,
+`Cis.player.vehicle()` and the other mirrored reads cost no export call.
+`Cis.player.coords()` stays a native read memoised per frame.
+
+**Restarts.** A consumer's zones, points, keybinds and markers live in the
+consumer, so a cis_libs restart does not remove them; the mirror takes a new
+snapshot when cis_libs starts again, and while it is down reads fall back to
+the natives for the ids and retry the snapshot at most once a second. When the
+consumer itself stops, its VM goes with everything in it and FiveM drops its
+commands; scaleform movies and DUI pages it still holds are released on its
+`onResourceStop`. A key mapping stays in the player's settings by design.
+
 ## 6. Public surface
 
 Generated from `api.lua`. Do not edit between the markers.
@@ -573,10 +621,10 @@ Generated from `api.lua`. Do not edit between the markers.
 | `ClearRadialItems` | client | `()` | 1.1.0 | exports.cis_libs:ClearRadialItems() |
 | `CloseAlertDialog` | client | `()` | 1.1.0 | exports.cis_libs:CloseAlertDialog() |
 | `CloseInputDialog` | client | `()` | 1.1.0 | exports.cis_libs:CloseInputDialog() |
-| `ClosestObject` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.closestObject(coords, maxDistance, filter, opts) |
-| `ClosestPed` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.closestPed(coords, maxDistance, filter, opts) |
-| `ClosestPlayer` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.closestPlayer(coords, maxDistance, filter, opts) |
-| `ClosestVehicle` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.closestVehicle(coords, maxDistance, filter, opts) |
+| `ClosestObject` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.getClosestObject(coords, maxDistance, filter, opts) |
+| `ClosestPed` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.getClosestPed(coords, maxDistance, filter, opts) |
+| `ClosestPlayer` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.getClosestPlayer(coords, maxDistance, filter, opts) |
+| `ClosestVehicle` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.getClosestVehicle(coords, maxDistance, filter, opts) |
 | `CommandAdd` | server | `(name, options, handler)` | 1.0.0 | Cis.command.add(name, { params, restricted, help }, handler) |
 | `CommandList` | server | `()` | 1.0.0 | Cis.command.list() |
 | `CommandParse` | server | `(raw)` | 1.0.0 | no proxy equivalent; the argument splitter used by CommandAdd |
@@ -599,6 +647,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `FixDoor` | server | `(identifier)` | 1.0.0 | no proxy equivalent; exports["cis_libs"]:FixDoor(identifier) |
 | `GetAllDoorData` | server | `()` | 1.0.0 | no proxy equivalent; the full door and group tables |
 | `GetAuditLog` | server | `(limit?)` | 1.0.0 | The capability and configuration change log, newest last. Gated on Security.AuthorizedResources like every other mutating call. Entries carry resource and slot names and never a player name, identifier or IP. Bounded by Config.AuditLines, default 500 |
+| `GetCacheSnapshot` | client | `()` | 1.1.0 | Cis.player.* and Cis.cache(key) -- init.lua takes this once per consumer |
 | `GetCachedHeading` | client | `()` | 1.0.0 | Cis.player.heading(), which reads the native directly in a consumer VM |
 | `GetCachedPed` | client | `()` | 1.0.0 | Cis.player.ped(), which reads the native directly in a consumer VM |
 | `GetCachedPlayerId` | client | `()` | 1.0.0 | Cis.player.playerId() |
@@ -633,7 +682,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `GetSyncedEntities` | client | `()` | 1.0.0 | no proxy equivalent; the id-to-handle table of everything this client spawned |
 | `GetSyncedEntity` | client | `(key)` | 1.0.0 | Cis.sync.entity(key) |
 | `GetTableSize` | client | `(t)` | 1.0.0 | no proxy equivalent |
-| `GetVehicleProperties` | client | `(vehicle)` | 1.0.0 | no proxy equivalent; the full property snapshot used by sync |
+| `GetVehicleProperties` | client | `(vehicle)` | 1.0.0 | Cis.vehicle.getProperties(vehicle) -- the same engine, in the caller VM |
 | `GetZoneDebug` | client | `()` | 1.0.0 | no proxy equivalent; the last grid pass cost in milliseconds |
 | `HideContext` | client | `(onExit?)` | 1.1.0 | exports.cis_libs:HideContext(onExit) |
 | `HideMenu` | client | `(onExit?)` | 1.1.0 | exports.cis_libs:HideMenu(onExit) |
@@ -662,10 +711,10 @@ Generated from `api.lua`. Do not edit between the markers.
 | `LogInfo` | both | `()` | 1.0.0 | Cis.log.info(message) |
 | `LogWarn` | both | `()` | 1.0.0 | Cis.log.warn(message) |
 | `ModuleInfo` | both | `(name, opts?)` | 1.0.0 | Cis.moduleInfo(name, opts) |
-| `NearbyObjects` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.nearbyObjects(coords, maxDistance, filter, opts) |
-| `NearbyPeds` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.nearbyPeds(coords, maxDistance, filter, opts) |
-| `NearbyPlayers` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.nearbyPlayers(coords, maxDistance, filter, opts) |
-| `NearbyVehicles` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.nearbyVehicles(coords, maxDistance, filter, opts) |
+| `NearbyObjects` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.getNearbyObjects(coords, maxDistance, filter, opts) |
+| `NearbyPeds` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.getNearbyPeds(coords, maxDistance, filter, opts) |
+| `NearbyPlayers` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.getNearbyPlayers(coords, maxDistance, filter, opts) |
+| `NearbyVehicles` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.getNearbyVehicles(coords, maxDistance, filter, opts) |
 | `Notify` | both | `()` | 1.0.0 | Cis.framework.notify(...). With a framework provider registered the call passes through to it untouched; with none, cis_libs delivers it itself through the same guards NotifyClient uses, so a server with no framework does not go mute and does not become the unbounded path. The two-argument client form sends `kind` in the message slot; this is pinned as a known defect in test/contracts.lua and is a MAJOR change to correct |
 | `NotifyClient` | server | `(src, message, kind?)` | 1.0.0 | Called by a product to show a notification to one client, without hardcoding the event name owned by this library. Answers `false, reason` for a src that is not a connected player, truncates a message past 512 characters, and allows 10 a second per (src, calling resource) |
 | `NotifyPlayer` | server | `(src, data)` | 1.1.0 | exports.cis_libs:NotifyPlayer(src, data) |
@@ -752,6 +801,7 @@ Generated from `api.lua`. Do not edit between the markers.
 |---|---|---|
 | `chat:addSuggestion` | 1.0.0 | server to client, (name, help, params) while the chat resource is started. The one new standard-resource integration allowed, used only by Cis.command.add. Sent to -1 on add and when chat starts, and to each player as they join |
 | `chat:removeSuggestion` | 1.0.0 | server to client, (name) while the chat resource is started: the same seam, taking a suggestion back when its command is removed or its resource stops |
+| `cis_libs:cache` | 1.1.0 | client, local: (key, value, seat, silent) -- seat rides on a vehicle push; silent marks a refresh with no change to announce |
 | `cis_libs:capabilityChanged` | 1.0.0 | both realms: ({ slot, action, owner, previousOwner, resolved }) |
 | `cis_libs:cb` | 1.0.0 | client to server and server to client: (name, key, ...) |
 | `cis_libs:cb:res` | 1.0.0 | client: (key, ok, ...) resolving an outstanding callback |
@@ -770,6 +820,8 @@ Generated from `api.lua`. Do not edit between the markers.
 
 | `Cis.*` | Realm | Signature | Since | Notes |
 |---|---|---|---|---|
+| `Cis.anim.play` | client | `(ped, dict, clip, opts?)` | 1.1.0 |  |
+| `Cis.cache` | client | `(key)` | 1.1.0 |  |
 | `Cis.callback.await` | both | `(name, ...)` | 1.0.0 |  |
 | `Cis.callback.awaitClient` | server | `(src, name, ...)` | 1.0.0 |  |
 | `Cis.callback.call` | both | `(name, cb?, ...)` | 1.0.0 |  |
@@ -779,6 +831,9 @@ Generated from `api.lua`. Do not edit between the markers.
 | `Cis.command.add` | server | `(name, options, handler)` | 1.0.0 |  |
 | `Cis.command.list` | server | `()` | 1.0.0 |  |
 | `Cis.command.remove` | server | `(name)` | 1.0.0 |  |
+| `Cis.controls.disable` | client | `(...)` | 1.1.0 |  |
+| `Cis.controls.enable` | client | `(id)` | 1.1.0 |  |
+| `Cis.controls.isDisabled` | client | `(control)` | 1.1.0 |  |
 | `Cis.db.insert` | server | `(sql, params?)` | 1.0.0 |  |
 | `Cis.db.query` | server | `(sql, params?)` | 1.0.0 |  |
 | `Cis.db.scalar` | server | `(sql, params?)` | 1.0.0 |  |
@@ -788,6 +843,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `Cis.doors.add` | both | `(data)` | 1.0.0 |  |
 | `Cis.doors.get` | both | `(id)` | 1.0.0 |  |
 | `Cis.doors.setState` | both | `(id, locked)` | 1.0.0 |  |
+| `Cis.dui.new` | client | `(opts)` | 1.1.0 |  |
 | `Cis.framework.notify` | both | `()` | 1.0.0 |  |
 | `Cis.framework.player` | server | `(src)` | 1.0.0 |  |
 | `Cis.hooks.on` | both | `(name, fn, opts?)` | 1.0.0 |  |
@@ -802,9 +858,13 @@ Generated from `api.lua`. Do not edit between the markers.
 | `Cis.log.error` | both | `(message)` | 1.0.0 |  |
 | `Cis.log.info` | both | `(message)` | 1.0.0 |  |
 | `Cis.log.warn` | both | `(message)` | 1.0.0 |  |
+| `Cis.marker.add` | client | `(opts)` | 1.1.0 |  |
+| `Cis.marker.clear` | client | `()` | 1.1.0 |  |
+| `Cis.marker.remove` | client | `(id)` | 1.1.0 |  |
 | `Cis.moduleInfo` | both | `(name, opts?)` | 1.0.0 |  |
 | `Cis.moduleProbe` | both | `()` | 1.0.0 |  |
 | `Cis.net.on` | server | `(name, fn, opts?)` | 1.0.0 |  |
+| `Cis.onCache` | client | `(key, fn)` | 1.1.0 |  |
 | `Cis.player.coords` | client | `()` | 1.0.0 |  |
 | `Cis.player.heading` | client | `()` | 1.0.0 |  |
 | `Cis.player.near` | client | `(coords, distance?, onEnter?, onExit?, onEnterEvent?, onExitEvent?)` | 1.0.0 |  |
@@ -823,6 +883,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `Cis.ready` | both | `(cb?, timeout?)` | 1.0.0 |  |
 | `Cis.require` | both | `(name)` | 1.0.0 |  |
 | `Cis.requireList` | both | `()` | 1.0.0 |  |
+| `Cis.scaleform.new` | client | `(name, timeout?)` | 1.1.0 |  |
 | `Cis.security.report` | server | `(src, reason)` | 1.0.0 |  |
 | `Cis.statebag.onEntity` | both | `(key, handler, timeoutMs?)` | 1.0.0 |  |
 | `Cis.statebag.onPlayer` | both | `(key, handler, timeoutMs?)` | 1.0.0 |  |
@@ -832,6 +893,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `Cis.streaming.audioBank` | client | `(name, timeout?)` | 1.0.0 |  |
 | `Cis.streaming.model` | client | `(model, timeout?)` | 1.0.0 |  |
 | `Cis.streaming.ptfx` | client | `(name, timeout?)` | 1.0.0 |  |
+| `Cis.streaming.release` | client | `(kind, asset)` | 1.1.0 |  |
 | `Cis.streaming.scaleform` | client | `(name, timeout?)` | 1.0.0 |  |
 | `Cis.streaming.textureDict` | client | `(name, timeout?)` | 1.0.0 |  |
 | `Cis.streaming.weaponAsset` | client | `(hash, timeout?)` | 1.0.0 |  |
@@ -855,8 +917,18 @@ Generated from `api.lua`. Do not edit between the markers.
 | `Cis.ui.textUI.hide` | client | `()` | 1.0.0 |  |
 | `Cis.ui.textUI.isOpen` | client | `()` | 1.0.0 |  |
 | `Cis.ui.textUI.show` | client | `(text, opts?)` | 1.0.0 |  |
+| `Cis.vehicle.getProperties` | client | `(vehicle)` | 1.1.0 |  |
+| `Cis.vehicle.setProperties` | client | `(vehicle, props, fixVehicle?)` | 1.1.0 |  |
 | `Cis.wait` | both | `(timeout?)` | 1.0.0 |  |
 | `Cis.waitFor` | both | `(fn, msg?, timeoutMs?)` | 1.0.0 |  |
+| `Cis.world.getClosestObject` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
+| `Cis.world.getClosestPed` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
+| `Cis.world.getClosestPlayer` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
+| `Cis.world.getClosestVehicle` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
+| `Cis.world.getNearbyObjects` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
+| `Cis.world.getNearbyPeds` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
+| `Cis.world.getNearbyPlayers` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
+| `Cis.world.getNearbyVehicles` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
 | `Cis.zones.box` | client | `(name, center, size, options?)` | 1.0.0 |  |
 | `Cis.zones.contains` | client | `(name, point?)` | 1.0.0 |  |
 | `Cis.zones.poly` | client | `(name, points, options?)` | 1.0.0 |  |
@@ -904,7 +976,8 @@ slot.
 | `nil index: 'exports'` | `ensure cis_libs` first, and `dependency 'cis_libs'` on the consumer |
 | Every `Cis.*` call returns nil / `false, reason` | `cis_debug`. Look for `no provider installed` or empty `AuthorizedResources` |
 | `SyncCreate` answers nil with no reason | Empty allow-list (restrictive). Add the resource, or see who `SetConfig` |
-| Zones never fire | Handler was a function. Use `onEnterEvent` |
+| Zones never fire | Through `init.lua` a handler is a plain function. Through the `CreateZone` export, pass a function (it becomes a funcref) or `onEnterEvent` |
+| A zone of another resource is not found by `Cis.zones.contains` | Expected: through `init.lua` it tests the calling resource's own zones (§5.2) |
 | A zone is at the wrong coordinates | Bracket-form export call — argument 1 was the exports table |
 | `GetDiagnostics().memoryKb` climbs for 30 minutes then drops | You collected in the **caller** VM. Pass `{ collect = true }` |
 
@@ -921,6 +994,7 @@ fxmanifest.lua
 init.lua            the only file a consumer shared_scripts
 api.lua             contract. not loaded at runtime
 shared/             registry, defaults, detect, grid, algo/, util/
+client/core/        engines run by cis_libs AND loaded into each consumer
 client/  server/
 types/              generated LuaLS stub
 test/live/          live harness. not run by npm test
@@ -939,8 +1013,9 @@ Live harness: `test/LIVE.md`. Counts are not repeated here.
 
 - No NUI page. `Cis.ui.progress`, `confirm`, and `input` need a ui provider.
 - Empty `Security.AuthorizedResources` refuses mutating exports.
-- A Lua function cannot be a zone, point, hook, or callback handler that
-  crosses the exports boundary.
+- A handler that crosses the exports boundary arrives as a funcref, and each
+  call is another crossing. Zones, points and keybinds made through `init.lua`
+  avoid that by running in the caller (§5.2); hooks and callbacks still cross.
 - Networked entities are created and deleted on the server.
 - This resource writes no files. Logs are console, the in-memory audit ring,
   and an optional discord capability.

@@ -74,6 +74,17 @@ local function passInterval()
     return math.max(PASS_MIN_MS, math.min(PASS_MAX_MS, wanted))
 end
 
+-- THE PUSH TO EVERY CONSUMER'S MIRROR (client/core/mirror.lua). A LOCAL client
+-- event, so it reaches every resource on this client and no server. One event
+-- per changed key per pass -- a standing player produces none -- and a consumer
+-- reading `Cis.player.vehicle()` then reads its own table instead of crossing
+-- into this VM on every call. `seat` rides on the 'vehicle' push so the two land
+-- together on the far side too; `silent` refreshes a value without announcing a
+-- change (the same weapon with new ammo, which fires no listener here either).
+local function push(key, value, seat, silent)
+    TriggerEvent('cis_libs:cache', key, value, seat, silent)
+end
+
 local function emit(key, current, previous)
     local list = listeners[key]
     if not list then
@@ -136,6 +147,7 @@ local function setField(key, value)
     end
     CisCache[key] = value
     emit(key, value, previous)
+    push(key, value)
     return true
 end
 
@@ -153,6 +165,9 @@ local function setVehicleSeat(vehicle, seat)
     end
     if prevSeat ~= seat then
         emit('seat', seat, prevSeat)
+    end
+    if prevVehicle ~= vehicle or prevSeat ~= seat then
+        push('vehicle', vehicle, seat)
     end
 end
 
@@ -172,8 +187,14 @@ local function refreshPed()
     local playerId = PlayerId()
     local ped = PlayerPedId()
     if playerId ~= CisCache.playerId or CisCache.serverId == 0 then
+        local serverId = GetPlayerServerId(playerId)
+        local changed = playerId ~= CisCache.playerId or serverId ~= CisCache.serverId
         CisCache.playerId = playerId
-        CisCache.serverId = GetPlayerServerId(playerId)
+        CisCache.serverId = serverId
+        if changed then
+            push('playerId', playerId)
+            push('serverId', serverId)
+        end
     end
     setField('ped', ped)
     setField('heading', GetEntityHeading(ped))
@@ -239,6 +260,7 @@ local function refreshWeapon(ped)
                 ammoType = current.ammoType,
                 attachments = current.attachments,
             }
+            push('weapon', CisCache.weapon, nil, true)
         end
         return
     end
@@ -475,6 +497,25 @@ function CisCache.watchNear(coords, distance, onEnter, onExit, onEnterEvent, onE
     CisOwned.track(nearOwned, GetInvokingResource() or 'cis_libs', 'nearWatcher', id)
     return unsubscribe, id
 end
+
+-- THE MIRROR'S ONE SNAPSHOT. Every key a consumer's mirror follows, in one call,
+-- taken once per consumer (and again after a cis_libs restart). A fresh table:
+-- a consumer receives a copy across the boundary anyway, and handing out
+-- CisCache itself here would hand cis_libs' own record to anything in-VM.
+exports('GetCacheSnapshot', function()
+    return {
+        ped = CisCache.ped,
+        playerId = CisCache.playerId,
+        serverId = CisCache.serverId,
+        heading = CisCache.heading,
+        vehicle = CisCache.vehicle,
+        seat = CisCache.seat,
+        weapon = CisCache.weapon,
+        armed = CisCache.armed,
+        aiming = CisCache.aiming,
+        shooting = CisCache.shooting,
+    }
+end)
 
 exports('GetCachedPed', function()
     return CisCache.ped ~= 0 and CisCache.ped or PlayerPedId()

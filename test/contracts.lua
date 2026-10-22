@@ -1404,24 +1404,15 @@ do
         Cis.player[pair[1]]()
         check(#calls == 0, pair[2] .. ' is answered locally and does not cross the boundary')
     end
-    routesTo(function() Cis.player.weapon() end, 'GetCachedWeapon', 'player.weapon')
-    routesTo(function() Cis.player.serverId() end, 'GetCachedServerId', 'player.serverId')
-    routesTo(function() Cis.player.on('ped', nil) end, 'OnPlayerCache', 'player.on')
+    -- player.vehicle / seat / weapon / serverId / playerId / on, the zones,
+    -- the points, keybind, raycast and streaming NO LONGER CROSS in a consumer:
+    -- they run in its own VM. Section 19 pins that they make zero export calls
+    -- (after the one cache snapshot), which is the stronger statement.
     routesTo(function() Cis.player.near({}, 5.0) end, 'WatchNear', 'player.near')
-    routesTo(function() Cis.player.vehicle() end, 'GetCachedVehicle', 'player.vehicle')
-    routesTo(function() Cis.zones.box('a', {}, {}, {}) end, 'CreateZone', 'zones.box')
-    routesTo(function() Cis.zones.poly('a', {}, {}) end, 'CreateZone', 'zones.poly')
-    routesTo(function() Cis.zones.sphere('a', {}, 1.0) end, 'CreateZone', 'zones.sphere')
-    routesKindTo(function() Cis.zones.box('a', {}, {}, {}) end, 'box', 'zones.box')
-    routesKindTo(function() Cis.zones.poly('a', {}, {}) end, 'poly', 'zones.poly')
-    routesKindTo(function() Cis.zones.sphere('a', {}, 1.0) end, 'sphere', 'zones.sphere')
-    routesTo(function() Cis.zones.remove('a') end, 'RemoveZone', 'zones.remove')
-    routesTo(function() Cis.zones.contains('a', {}) end, 'ZoneContains', 'zones.contains')
     routesTo(function() Cis.target.add('box', 'a', {}, {}, {}) end, 'CreateTarget', 'target.add')
     routesTo(function() Cis.target.remove('a') end, 'RemoveTarget', 'target.remove')
     routesTo(function() Cis.target.update('a', {}) end, 'UpdateTarget', 'target.update')
     routesTo(function() Cis.target.exists('a') end, 'TargetExists', 'target.exists')
-    routesTo(function() Cis.streaming.model('a', 1) end, 'RequestModelTimeout', 'streaming.model')
     routesTo(function() Cis.inventory.count('a') end, 'InventoryCount', 'inventory.count (client)')
     routesTo(function() Cis.doors.add({ id = 'a' }) end, 'AddDoorToSystem', 'doors.add (client)')
     routesTo(function() Cis.doors.get('a') end, 'GetDoorState', 'doors.get (client)')
@@ -3795,6 +3786,416 @@ local G_SERVER = 'if%s+not%s+IS_SERVER%s+then%s+return%s+serverOnly%(%)'
     check(guarded == singleRealmCalls,
         ('5.3: %d of %d single-realm wrappers carry a refusal')
             :format(guarded, singleRealmCalls))
+end
+
+-- ===================== 19. consumer engines: zero crossings, zero idle threads
+--
+-- THE ARCHITECTURE, ENFORCED. A consumer's zones, points, keybinds, markers,
+-- control holds and player-state reads run in ITS OWN VM, loaded on first use
+-- from client/core/*.lua. Three performance promises follow, and each is a
+-- number asserted here rather than a sentence in the documentation:
+--
+--   * a consumer with zero zones, points, markers, holds and keybinds runs ZERO
+--     threads -- loading init.lua, and even touching the APIs, starts nothing;
+--   * after ONE snapshot, Cis.player.vehicle / seat / weapon / serverId /
+--     playerId, Cis.zones.contains and Cis.points.getClosest make ZERO export
+--     calls, however often they are called;
+--   * a zone or point pass in the steady state allocates no table: the grid
+--     visitor is one function for the life of the engine, and (on a real Lua
+--     5.4, where collectgarbage works) the heap does not grow across passes.
+do
+    local NAMES = {
+        'exports', 'GetCurrentResourceName', 'IsDuplicityVersion', 'LoadResourceFile',
+        'CreateThread', 'Wait', 'AddEventHandler', 'GetInvokingResource', 'GetGameTimer',
+        'GetFrameCount', 'PlayerPedId', 'PlayerId', 'GetPlayerServerId', 'GetEntityCoords',
+        'GetEntityHeading', 'TriggerEvent', 'TriggerServerEvent', 'vector3', 'Cis',
+        'RegisterCommand', 'RegisterKeyMapping', 'DrawMarker', 'DisableControlAction',
+        'CreateDui', 'GetDuiHandle', 'CreateRuntimeTxd', 'CreateRuntimeTextureFromDuiHandle',
+        'DestroyDui', 'GRID_VISITORS', 'SetScaleformMovieAsNoLongerNeeded',
+    }
+    local env = _ENV
+    local saved = {}
+    for i, n in ipairs(NAMES) do saved[i] = env[n] end
+
+    -- One recorder for the whole exports table: the NAME of every call.
+    local calls = {}
+    local snap = { ped = 7, playerId = 3, serverId = 42, heading = 90.0, vehicle = 0,
+        armed = false, aiming = false, shooting = false }
+    local down = false
+    local EXPORTS = setmetatable({}, {
+        __index = function(_, key)
+            return function(_, ...)
+                calls[#calls + 1] = key
+                if down then error('No such export ' .. key .. ' in resource cis_libs', 0) end
+                if key == 'GetCacheSnapshot' then return snap end
+                return nil
+            end
+        end,
+    })
+    exports = { cis_libs = EXPORTS }
+
+    -- Files are served from the harness's copy of the shipped tree. The grid is
+    -- served with a recorder appended, so the test can see WHICH visitor function
+    -- every pass hands the grid -- the allocation check that works on fengari too.
+    local reads = {}
+    local visitors = { on = false }
+    env.GRID_VISITORS = visitors
+    LoadResourceFile = function(resource, path)
+        reads[#reads + 1] = path
+        if resource ~= 'cis_libs' then return nil end
+        local src = CIS_TEST_FILES[path]
+        if path == 'client/core/anim.lua' and visitors.leak and src then
+            src = 'CIS_LEAKED_GLOBAL = true\n' .. src
+        end
+        if path == 'shared/grid.lua' and src then
+            src = src .. [[
+
+local realQueryPoint = CisGrid.queryPoint
+CisGrid.queryPoint = function(g, x, y, z, fn)
+    if GRID_VISITORS.on then GRID_VISITORS[#GRID_VISITORS + 1] = fn end
+    return realQueryPoint(g, x, y, z, fn)
+end
+]]
+        end
+        return src
+    end
+    local threads = {}
+    CreateThread = function(fn) threads[#threads + 1] = fn end
+    local handlers = {}
+    AddEventHandler = function(name, fn)
+        handlers[name] = handlers[name] or {}
+        handlers[name][#handlers[name] + 1] = fn
+    end
+    local function fire(name, ...)
+        for _, fn in ipairs(handlers[name] or {}) do fn(...) end
+    end
+    local invoker = 'cis_libs'
+    GetInvokingResource = function() return invoker end
+    local clock = 0
+    GetGameTimer = function() return clock end
+    local frame = 1
+    GetFrameCount = function() return frame end
+    local here = { x = 0.0, y = 0.0, z = 0.0 }
+    GetEntityCoords = function() return here end
+    PlayerPedId = function() return 7 end
+    PlayerId = function() return 3 end
+    GetPlayerServerId = function() return 42 end
+    GetEntityHeading = function() return 0.0 end
+    TriggerEvent = function() end
+    TriggerServerEvent = function() end
+    vector3 = function(x, y, z) return { x = x, y = y, z = z } end
+    local commands = {}
+    RegisterCommand = function(name, fn) commands[name] = fn end
+    RegisterKeyMapping = function() end
+    local drawn = 0
+    DrawMarker = function() drawn = drawn + 1 end
+    local disabledNow = {}
+    DisableControlAction = function(_, control) disabledNow[control] = true end
+    local destroyed = {}
+    CreateDui = function() return 900 end
+    GetDuiHandle = function() return 'dui://900' end
+    CreateRuntimeTxd = function() return 1 end
+    CreateRuntimeTextureFromDuiHandle = function() return 1 end
+    DestroyDui = function(obj) destroyed[#destroyed + 1] = obj end
+    GetCurrentResourceName = function() return 'cis_consumer' end
+    IsDuplicityVersion = function() return false end
+
+    Cis = nil
+    assert(loadfile('./init.lua'))()
+
+    check(#threads == 0, ('19: loading init.lua in a consumer starts no thread (%d)'):format(#threads))
+    check(#reads == 0, ('19: and loads no engine (%d file reads)'):format(#reads))
+    check(#calls == 0, ('19: and crosses nothing (%d export calls)'):format(#calls))
+
+    -- ---- zero of everything: zero threads ----------------------------
+    check(Cis.zones.contains('nothing', here) == false, '19: contains on an unknown zone is false')
+    local none, noneWhy = Cis.points.getClosest()
+    check(none == nil and type(noneWhy) == 'string', '19: getClosest with no points answers nil, reason')
+    check(Cis.zones.remove('nothing') == false and Cis.points.remove(99) == false,
+        '19: removing what was never added is false')
+    check(Cis.marker.clear() == 0 and Cis.marker.remove(1) == false, '19: no markers to clear')
+    check(Cis.controls.isDisabled(24) == false and Cis.controls.enable(1) == false, '19: no holds to release')
+    check(#threads == 0,
+        ('19: a consumer with ZERO zones, points, markers and holds runs ZERO threads, even after '
+            .. 'touching every API (%d)'):format(#threads))
+    check(#calls == 0, ('19: and none of that crossed (%d export calls)'):format(#calls))
+    local readZones = false
+    for _, p in ipairs(reads) do if p == 'client/core/zones.lua' then readZones = true end end
+    check(readZones, '19: the zone engine was loaded from cis_libs on first use')
+    local readMarker = 0
+    for _, p in ipairs(reads) do if p == 'client/core/marker.lua' then readMarker = readMarker + 1 end end
+    check(readMarker == 1, ('19: and each engine is loaded ONCE per VM (marker reads=%d)'):format(readMarker))
+
+    -- ---- the mirror: one snapshot, then nothing ----------------------
+    check(Cis.player.vehicle() == nil, '19: on foot, vehicle() is nil')
+    check(#calls == 1 and calls[1] == 'GetCacheSnapshot',
+        ('19: the first player read takes ONE snapshot (%s)'):format(table.concat(calls, ',')))
+    calls = {}
+    for _ = 1, 500 do
+        Cis.player.vehicle()
+        Cis.player.seat()
+        Cis.player.weapon()
+        Cis.player.serverId()
+        Cis.player.playerId()
+        Cis.zones.contains('nothing', here)
+        Cis.points.getClosest()
+    end
+    check(#calls == 0,
+        ('19: after the snapshot, 500 rounds of player.vehicle/seat/weapon/serverId/playerId, '
+            .. 'zones.contains and points.getClosest made ZERO export calls (made %d)'):format(#calls))
+    check(Cis.player.serverId() == 42 and Cis.player.playerId() == 3,
+        '19: the ids answer from the snapshot')
+    check(Cis.cache('heading') == 90.0, '19: Cis.cache reads any mirrored key')
+
+    -- ---- pushes ------------------------------------------------------
+    local heard = {}
+    local unsubscribe, listenerId = Cis.onCache('vehicle', function(value, previous)
+        heard[#heard + 1] = { value, previous }
+    end)
+    check(type(unsubscribe) == 'function' and type(listenerId) == 'number',
+        '19: onCache answers a REAL unsubscribe function and an id')
+    local seatSeen
+    Cis.onCache('vehicle', function() seatSeen = Cis.player.seat() end)
+    fire('cis_libs:cache', 'vehicle', 55, -1)
+    local veh, seat = Cis.player.vehicle()
+    check(veh == 55 and seat == -1, ('19: a push lands in the mirror (vehicle=%s seat=%s)'):format(tostring(veh), tostring(seat)))
+    check(#heard == 1 and heard[1][1] == 55 and heard[1][2] == 0,
+        '19: and the listener hears (value, previous)')
+    check(seatSeen == -1, '19: a vehicle listener reads the NEW seat: vehicle and seat land together')
+    invoker = 'some_other_resource'
+    fire('cis_libs:cache', 'vehicle', 999, 2)
+    check(Cis.player.vehicle() == 55, '19: a push forged by another resource is ignored')
+    invoker = 'cis_libs'
+    local weaponHeard = 0
+    Cis.onCache('weapon', function() weaponHeard = weaponHeard + 1 end)
+    fire('cis_libs:cache', 'weapon', { hash = 1, ammo = 5 })
+    fire('cis_libs:cache', 'weapon', { hash = 1, ammo = 4 }, nil, true)
+    check(weaponHeard == 1 and Cis.player.weapon().ammo == 4,
+        ('19: a silent push refreshes the value without a listener call (heard=%d)'):format(weaponHeard))
+    check(unsubscribe() == true, '19: unsubscribe works')
+    fire('cis_libs:cache', 'vehicle', 0)
+    check(#heard == 1, '19: and an unsubscribed listener hears nothing more')
+    local badKey, badWhy = Cis.onCache('nope', function() end)
+    check(badKey == nil and type(badWhy) == 'string' and badWhy:find('vehicle', 1, true) ~= nil,
+        '19: an unknown key is refused with the valid names')
+    check(#calls == 0, ('19: pushes and listeners cross nothing (%d)'):format(#calls))
+
+    -- ---- a cis_libs restart re-snapshots; a stop retries, throttled ----
+    snap.vehicle, snap.seat = 77, 0
+    fire('onClientResourceStart', 'cis_libs')
+    check(#calls == 1 and calls[1] == 'GetCacheSnapshot',
+        ('19: a cis_libs restart re-snapshots with ONE export call (%d)'):format(#calls))
+    check(Cis.player.vehicle() == 77, '19: and the mirror carries the new values')
+    calls = {}
+    fire('onResourceStop', 'cis_libs')
+    down = true
+    for _ = 1, 100 do Cis.player.vehicle() end
+    check(#calls == 1,
+        ('19: while cis_libs is down, 100 reads retry the snapshot ONCE (%d)'):format(#calls))
+    check(Cis.player.playerId() == 3 and Cis.player.serverId() == 42,
+        '19: and the ids fall back to the natives meanwhile')
+    clock = clock + 1000
+    down = false
+    Cis.player.vehicle()
+    check(#calls == 2, ('19: a second later it retries and recovers (%d)'):format(#calls))
+    calls = {}
+
+    -- ---- zones: one thread, plain handlers, no allocation ------------
+    local entered, exited = {}, 0
+    local ok = Cis.zones.box('shop', { x = 0.0, y = 0.0, z = 0.0 }, { x = 4.0, y = 4.0, z = 4.0 }, {
+        onEnter = function(zone) entered[#entered + 1] = zone.name end,
+        onExit = function() exited = exited + 1 end,
+    })
+    check(ok == true, '19: a consumer zone with plain function handlers creates')
+    check(#threads == 1, ('19: the first zone starts ONE thread (%d)'):format(#threads))
+    Cis.zones.sphere('beacon', { x = 0.0, y = 0.0, z = 0.0 }, 2.0)
+    check(#threads == 1, '19: a second zone starts no second thread')
+    check(Cis.zones.contains('shop', here) == true and Cis.zones.contains('shop', { x = 9, y = 0, z = 0 }) == false,
+        '19: contains is answered locally')
+    local TICK = {}
+    local function drive(thread, passes)
+        local n = 0
+        local realWait = Wait
+        Wait = function(ms)
+            clock = clock + (tonumber(ms) or 0) + 1
+            frame = frame + 1
+            n = n + 1
+            if n >= passes then error(TICK, 0) end
+        end
+        local okRun, err = pcall(thread)
+        Wait = realWait
+        if not okRun and err ~= TICK then error(err, 0) end
+        return okRun -- true: the loop ENDED on its own
+    end
+    drive(threads[1], 3)
+    check(#entered >= 1 and entered[1] == 'shop',
+        ('19: the zone thread calls the local onEnter with the zone (%s)'):format(table.concat(entered, ',')))
+
+    -- Points share the grid module, so they are measured together.
+    local pointHits = 0
+    local pid = Cis.points.add({ coords = { x = 1.0, y = 0.0, z = 0.0 }, distance = 3.0,
+        onEnter = function() pointHits = pointHits + 1 end })
+    check(type(pid) == 'number', '19: a consumer point with a plain onEnter creates')
+    check(#threads == 2, ('19: and starts the ONE point thread (%d)'):format(#threads))
+    drive(threads[2], 2)
+    check(pointHits == 1, ('19: which calls the local onEnter (%d)'):format(pointHits))
+    local closestId, closestDist = Cis.points.getClosest()
+    check(closestId == pid and math.abs(closestDist - 1.0) < 1e-9, '19: getClosest answers locally')
+    check(#calls == 0, ('19: zones and points crossed nothing (%d)'):format(#calls))
+
+    -- THE VISITOR IS ONE FUNCTION. A closure built per pass is a table-sized
+    -- allocation every refresh; the grid sees the same function every time.
+    visitors.on = true
+    drive(threads[1], 40)
+    drive(threads[2], 40)
+    visitors.on = false
+    local distinct, seen = 0, {}
+    for i = 1, #visitors do
+        if not seen[visitors[i]] then seen[visitors[i]] = true; distinct = distinct + 1 end
+    end
+    check(#visitors >= 4 and distinct == 2,
+        ('19: 80 passes handed the grid %d visitors, %d distinct -- one per engine, never one per pass')
+            :format(#visitors, distinct))
+
+    -- THE HEAP, where it can be read. fengari has no collectgarbage; the lua54
+    -- run of this same suite does, and that is where this assertion bites.
+    local gcOk = pcall(collectgarbage, 'count')
+    if gcOk then
+        -- Growth over N passes, with the collector stopped. Re-entering a
+        -- thread costs a constant (its guard closures, the harness's Wait), so
+        -- the PER-PASS cost is the difference between a short and a long run.
+        local function growth(passes)
+            collectgarbage('collect')
+            collectgarbage('stop')
+            local before = collectgarbage('count')
+            drive(threads[1], passes)
+            drive(threads[2], passes)
+            local grew = (collectgarbage('count') - before) * 1024
+            collectgarbage('restart')
+            return grew
+        end
+        growth(20)
+        local short, long = growth(50), growth(450)
+        check(long - short < 256,
+            ('19: 800 more steady-state zone and point passes grew the heap by %d bytes '
+                .. '(50 passes: %d, 450 passes: %d) -- no table per pass'):format(
+                math.floor(long - short), math.floor(short), math.floor(long)))
+    else
+        check(true, '19: (heap growth is measured under lua5.4; fengari has no collectgarbage)')
+    end
+
+    -- THE THREAD ENDS WITH THE LAST ZONE, and the next zone starts a new one.
+    check(Cis.zones.remove('shop') == true and Cis.zones.remove('beacon') == true, '19: zones remove')
+    check(exited >= 1, '19: removing a zone the player is in calls its local onExit')
+    check(drive(threads[1], 5) == true, '19: the zone thread ENDS once no zone is left')
+    Cis.zones.box('again', here, 2.0)
+    check(#threads == 3, '19: and a new zone starts a new one')
+    Cis.zones.remove('again')
+    Cis.points.remove(pid)
+    check(drive(threads[2], 5) == true, '19: the point thread ends with the last point')
+
+    -- ---- keybinds, markers, holds ------------------------------------
+    local pressed = 0
+    local handle = Cis.keybind.add({ name = 'cis_consumer_bind', description = 'x', defaultKey = 'E',
+        onPressed = function() pressed = pressed + 1 end })
+    check(type(handle) == 'table' and type(handle.isPressed) == 'function',
+        '19: a consumer keybind is a LOCAL handle with working methods')
+    commands['+cis_consumer_bind']()
+    check(pressed == 1 and handle:isPressed() == true, '19: its command calls the plain onPressed')
+    handle:destroy()
+    commands['+cis_consumer_bind']()
+    check(pressed == 1, '19: and a destroyed binding goes inert')
+
+    local before = #threads
+    local mid = Cis.marker.add({ coords = here, size = 1.0, distance = 10.0 })
+    check(type(mid) == 'number' and #threads == before + 1, '19: a marker starts the marker thread')
+    Cis.marker.add({ coords = { x = 500.0, y = 0.0, z = 0.0 }, distance = 10.0 })
+    drawn = 0
+    drive(threads[#threads], 3)
+    check(drawn == 3,
+        ('19: three frames draw the near marker three times and the far one never (drawn=%d)'):format(drawn))
+    Cis.marker.clear()
+    check(drive(threads[#threads], 5) == true, '19: the marker thread ends when the markers do')
+
+    before = #threads
+    local h1 = Cis.controls.disable(24, 25)
+    local h2 = Cis.controls.disable({ 24 })
+    check(type(h1) == 'number' and type(h2) == 'number' and #threads == before + 1,
+        '19: two holds share ONE thread')
+    Cis.controls.enable(h1)
+    check(Cis.controls.isDisabled(24) and not Cis.controls.isDisabled(25),
+        '19: a control stays disabled while any hold names it (refcounted)')
+    for k in pairs(disabledNow) do disabledNow[k] = nil end
+    drive(threads[#threads], 2)
+    check(disabledNow[24] == true and disabledNow[25] == nil, '19: the pass disables exactly the held set')
+    Cis.controls.enable(h2)
+    check(drive(threads[#threads], 5) == true, '19: and the thread ends with the last hold')
+
+    -- ---- an engine is loaded into a sandbox that refuses global writes --
+    visitors.leak = true
+    local leakOk, leakErr = pcall(Cis.anim.play, 7, 'd', 'c')
+    visitors.leak = false
+    check(not leakOk and tostring(leakErr):find('assigned the global', 1, true) ~= nil
+        and env.CIS_LEAKED_GLOBAL == nil,
+        ('19: an engine that writes a global RAISES and leaves the consumer globals untouched (%s)')
+            :format(tostring(leakErr)))
+
+    -- ---- animations: requested, played, RELEASED ---------------------
+    local animLog = {}
+    local function rec(name) return function(...) animLog[#animLog + 1] = { name = name, args = table.pack(...) } return true end end
+    local animNames = { 'DoesAnimDictExist', 'HasAnimDictLoaded', 'RequestAnimDict', 'TaskPlayAnim', 'RemoveAnimDict',
+        'RequestScaleformMovie', 'HasScaleformMovieLoaded', 'BeginScaleformMovieMethod', 'EndScaleformMovieMethod',
+        'ScaleformMovieMethodAddParamInt', 'ScaleformMovieMethodAddParamFloat', 'ScaleformMovieMethodAddParamBool',
+        'ScaleformMovieMethodAddParamTextureNameString', 'SetScaleformMovieAsNoLongerNeeded' }
+    local animSaved = {}
+    for i, n in ipairs(animNames) do animSaved[i] = env[n]; env[n] = rec(n) end
+    RequestScaleformMovie = function(name) animLog[#animLog + 1] = { name = 'RequestScaleformMovie', args = { name } } return 33 end
+    local played, why = Cis.anim.play(7, 'anim@dict', 'clip_a', { flag = 49, duration = 1500 })
+    check(played == true, ('19: anim.play plays (%s)'):format(tostring(why)))
+    local taskAt, releaseAt
+    for i, c in ipairs(animLog) do
+        if c.name == 'TaskPlayAnim' then taskAt = i end
+        if c.name == 'RemoveAnimDict' then releaseAt = i end
+    end
+    local task = taskAt and animLog[taskAt].args
+    check(task and task[1] == 7 and task[2] == 'anim@dict' and task[3] == 'clip_a' and task[6] == 1500 and task[7] == 49
+        and task.n == 11, '19: TaskPlayAnim gets ped, dict, clip, timings and flag -- eleven arguments')
+    check(releaseAt and taskAt and releaseAt > taskAt and animLog[releaseAt].args[1] == 'anim@dict',
+        '19: and the dictionary is RELEASED after the task holds it')
+    check(Cis.anim.play(0, 'anim@dict', 'clip_a') == false, '19: ped 0 is refused')
+
+    -- ---- scaleform: typed parameters, released ------------------------
+    animLog = {}
+    local movie, movieWhy = Cis.scaleform.new('mp_big_message_freemode')
+    check(type(movie) == 'table' and movie.handle == 33, ('19: a scaleform object holds its handle (%s)'):format(tostring(movieWhy)))
+    animLog = {}
+    check(movie:call('SHOW_SHARD', 'WASTED', 3, 1.5, true, { type = 'float', value = 2 }) == true, '19: a method call goes through')
+    local seq = {}
+    for _, c in ipairs(animLog) do seq[#seq + 1] = c.name:gsub('ScaleformMovieMethodAddParam', '') .. '(' .. tostring(c.args[1]) .. ')' end
+    local got = table.concat(seq, ' ')
+    check(got:find('BeginScaleformMovieMethod(33) TextureNameString(WASTED) Int(3) Float(1.5) Bool(true) Float(2', 1, true) == 1
+        and got:find('EndScaleformMovieMethod', 1, true) ~= nil,
+        ('19: each parameter is pushed with its own type, in order: %s'):format(got))
+    animLog = {}
+    local refused = movie:call('SHOW_SHARD', function() end)
+    check(refused == false and #animLog == 0, '19: an untypable parameter refuses the call before anything is sent')
+    check(movie:dispose() == true and animLog[#animLog].name == 'SetScaleformMovieAsNoLongerNeeded'
+        and animLog[#animLog].args[1] == 33, '19: dispose releases the movie by handle')
+    check(movie:dispose() == false and movie:call('X') == false, '19: and a disposed movie refuses further use')
+    local held = Cis.scaleform.new('second_movie')
+    for i, n in ipairs(animNames) do env[n] = animSaved[i] end
+
+    -- ---- native state is released on the consumer's own stop ----------
+    local page = Cis.dui.new({ url = 'https://example.invalid', width = 64, height = 64 })
+    check(type(page) == 'table' and type(page.dictName) == 'string', '19: a DUI object names its texture')
+    local released = {}
+    SetScaleformMovieAsNoLongerNeeded = function(h) released[#released + 1] = h end
+    fire('onResourceStop', 'cis_consumer')
+    check(#destroyed == 1 and destroyed[1] == 900, '19: the consumer stopping destroys its DUI')
+    check(type(held) == 'table' and #released == 1 and released[1] == 33,
+        '19: and releases the scaleform it still held')
+
+    for i, n in ipairs(NAMES) do env[n] = saved[i] end
 end
 
 -- ------------------------------------------------------------------ report

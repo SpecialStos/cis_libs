@@ -1737,6 +1737,146 @@
       "find": "        resource, rest = THIS, name",
       "replace": "        resource, rest = RESOURCE, name",
       "why": "Resolve a relative module path against cis_libs instead of the calling resource, so a consumer cannot load its own files."
+    },
+    {
+      "id": "M255",
+      "file": "client/core/points.lua",
+      "find": "    self.Grid.queryPoint(self.grid, coords.x, coords.y, coords.z, visitPoint)\n",
+      "replace": "    self.Grid.queryPoint(self.grid, coords.x, coords.y, coords.z, function(id) visitCoords = coords; return visitPoint(id) end)\n",
+      "why": "Build the candidate visitor as a closure over the pass coords again, as the original refresh did. Every point pass then allocates a function in the steady state; section 19 sees the grid handed a new visitor each pass (and, under Lua 5.4, the heap grow)."
+    },
+    {
+      "id": "M256",
+      "file": "client/core/zones.lua",
+      "find": "    self.Grid.queryPoint(self.grid, coords.x, coords.y, coords.z, visitZone)\n",
+      "replace": "    self.Grid.queryPoint(self.grid, coords.x, coords.y, coords.z, function(id, item) visitCoords = coords; return visitZone(id, item) end)\n",
+      "why": "Build the zone visitor as a closure per refresh. A zone pass then allocates in the steady state, which is exactly what the consumer engine promises not to do."
+    },
+    {
+      "id": "M257",
+      "file": "init.lua",
+      "find": "    local function mirrored(key)\n        return engine('mirror'):get(key)\n    end\n",
+      "replace": "    local function mirrored(key)\n        local snap = exportCall('GetCacheSnapshot')\n        return snap and snap[key]\n    end\n",
+      "why": "Read every player value through an export again instead of the mirror. Cis.player.vehicle() in a Wait(0) loop becomes an export per frame -- the crossing this architecture removed; the zero-export assertion counts them."
+    },
+    {
+      "id": "M258",
+      "file": "client/core/mirror.lua",
+      "find": "        if type(from) == 'string' and from ~= self.resource and from ~= self.selfName then\n            return\n        end\n",
+      "replace": "",
+      "why": "Accept a cis_libs:cache push from any resource. Any client script can TriggerEvent that name and write a vehicle, a seat or a weapon into every consumer mirror."
+    },
+    {
+      "id": "M259",
+      "file": "client/core/mirror.lua",
+      "find": "        values.vehicle = value\n        values.seat = seat\n        if prevVehicle ~= value then\n            self:emit('vehicle', value, prevVehicle)\n        end\n",
+      "replace": "        values.vehicle = value\n        if prevVehicle ~= value then\n            self:emit('vehicle', value, prevVehicle)\n        end\n        values.seat = seat\n",
+      "why": "Announce the vehicle before its seat lands in the mirror. A vehicle listener then reads the previous seat -- the driver-only listener running for a passenger, the defect the producer fixed and the mirror must not reintroduce."
+    },
+    {
+      "id": "M260",
+      "file": "client/core/zones.lua",
+      "find": "    }, Zones)\n    return self\nend\n",
+      "replace": "    }, Zones)\n    if self.autoDrive then self:drive() end\n    return self\nend\n",
+      "why": "Start the consumer zone thread when the engine is created rather than on the first zone. A resource that only ever asks contains() then runs a thread for nothing."
+    },
+    {
+      "id": "M261",
+      "file": "client/core/zones.lua",
+      "find": "        while next(self.zones) ~= nil do\n",
+      "replace": "        while true do\n",
+      "why": "Keep the consumer zone thread alive after the last zone goes. A resource that once had a zone pays a pass forever."
+    },
+    {
+      "id": "M262",
+      "file": "client/core/marker.lua",
+      "find": "        if ddx * ddx + ddy * ddy + ddz * ddz <= m.distance2 then\n",
+      "replace": "        if ddx == ddx then\n",
+      "why": "Draw every marker every frame regardless of distance. A marker across the map costs a DrawMarker per frame nobody can see, and the pass never sleeps."
+    },
+    {
+      "id": "M263",
+      "file": "client/core/controls.lua",
+      "find": "        local n = (counts[c] or 1) - 1\n        counts[c] = n > 0 and n or nil\n",
+      "replace": "        counts[c] = nil\n",
+      "why": "Release a control outright on the first enable. Two holds on the same control then cancel each other: the first feature to finish re-enables attack for the second."
+    },
+    {
+      "id": "M264",
+      "file": "client/core/anim.lua",
+      "find": "    RemoveAnimDict(dict)\n",
+      "replace": "",
+      "why": "Never release the dictionary after TaskPlayAnim. Every animation a resource plays pins its dictionary for the rest of the session."
+    },
+    {
+      "id": "M265",
+      "file": "init.lua",
+      "find": "            for _, name in ipairs({ 'scaleform', 'dui' }) do\n",
+      "replace": "            for _, name in ipairs({ 'scaleform' }) do\n",
+      "why": "Forget the DUI pages when the consumer stops. Each one is a browser left running for the rest of the session."
+    },
+    {
+      "id": "M266",
+      "file": "client/cache.lua",
+      "find": "    if prevVehicle ~= vehicle or prevSeat ~= seat then\n        push('vehicle', vehicle, seat)\n    end\n",
+      "replace": "",
+      "why": "Stop pushing vehicle and seat changes to consumer mirrors. Every consumer keeps the vehicle it snapshotted, forever."
+    },
+    {
+      "id": "M267",
+      "file": "client/cache.lua",
+      "find": "            push('weapon', CisCache.weapon, nil, true)\n",
+      "replace": "            push('weapon', CisCache.weapon)\n",
+      "why": "Announce an ammo-only refresh as a weapon change. Every consumer weapon listener then fires on every shot, which the producer itself has never done."
+    },
+    {
+      "id": "M268",
+      "file": "client/core/scaleform.lua",
+      "find": "        if mtype == 'integer' or (mtype == nil and value % 1 == 0) then\n",
+      "replace": "        if true then\n",
+      "why": "Push every number as an int. A scaleform method that takes a float (a scale, an alpha fraction) receives it truncated."
+    },
+    {
+      "id": "M269",
+      "file": "client/core/keybind.lua",
+      "find": "    if pressFn == nil then pressFn = options.onPressed end\n",
+      "replace": "",
+      "why": "Ignore ox_lib's onPressed spelling. A binding ported from ox_lib is refused for having no handler."
+    },
+    {
+      "id": "M270",
+      "file": "client/core/mirror.lua",
+      "find": "        if resource == self.resource then\n            self.snapped = false\n            self.lastTry = nil\n            self:ensure()\n        end\n",
+      "replace": "        if resource == self.resource then\n            self.lastTry = nil\n        end\n",
+      "why": "Do not re-snapshot when cis_libs restarts. A value that moved while it was down -- the player left the vehicle -- is never corrected, because the restarted producer only pushes what differs from its own defaults."
+    },
+    {
+      "id": "M271",
+      "file": "client/core/mirror.lua",
+      "find": "    if self.lastTry ~= nil and now - self.lastTry < RETRY_MS then\n        return false\n    end\n",
+      "replace": "",
+      "why": "Retry the snapshot on every read while cis_libs is down. A Wait(0) loop reading the player becomes an export call per frame aimed at a resource that is not there."
+    },
+    {
+      "id": "M272",
+      "file": "init.lua",
+      "find": "        return engine('zones'):contains(name, point)\n",
+      "replace": "        return exportCall('ZoneContains', name, point)\n",
+      "why": "Route a consumer zones.contains back through the export. The per-frame containment test crosses into cis_libs again, and asks about a zone cis_libs does not have."
+    },
+    {
+      "id": "M273",
+      "file": "client/core/marker.lua",
+      "find": "        while self.count > 0 do\n",
+      "replace": "        while true do\n",
+      "why": "Keep the marker thread after the last marker. A resource that drew one marker once pays a frame loop forever."
+    },
+    {
+      "id": "M274",
+      "file": "init.lua",
+      "find": "            __newindex = function(_, global)\n",
+      "replace": "            __unused = function(_, global)\n",
+      "why": "Load an engine into a sandbox that accepts global writes. A helper an engine leaks lands in a private table today and in nobody's view; the loader is supposed to say so loudly, as Cis.require does."
     }
   ]
 }

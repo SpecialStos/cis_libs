@@ -1590,6 +1590,56 @@ do
     env.reset()
 end
 
+-- THE PUSH TO EVERY CONSUMER'S MIRROR. cis_libs is the single producer: each
+-- change is one LOCAL `cis_libs:cache` event, the seat rides on the vehicle push
+-- so the two land together in a consumer too, an ammo-only refresh is silent,
+-- and a pass that changes nothing pushes nothing.
+do
+    local env = cacheEnv()
+    env.vehicle, env.seat = 50, 1
+    cachePasses(env, 2, function(i)
+        if i == 1 then env.seat = -1 end
+    end)
+    local function pushesOf(key)
+        local out = {}
+        for _, e in ipairs(env.localEventsOf('cis_libs:cache')) do
+            if e.args[1] == key then out[#out + 1] = e.args end
+        end
+        return out
+    end
+    local veh = pushesOf('vehicle')
+    check(#veh == 2 and veh[1][2] == 50 and veh[1][3] == 1 and veh[2][2] == 50 and veh[2][3] == -1,
+        ('cache: a vehicle and a shuffle are two vehicle pushes, each carrying its seat (%d pushes)')
+            :format(#veh))
+    check(#pushesOf('seat') == 0, 'cache: the seat never travels on its own, so it cannot arrive apart from its vehicle')
+    check(#pushesOf('serverId') == 1 and pushesOf('serverId')[1][2] == 12,
+        'cache: the ids are pushed when they are first known')
+    check(#env.serverEventsOf('cis_libs:cache') == 0, 'cache: the push is a LOCAL event; nothing reaches the server')
+
+    local before = #env.localEventsOf('cis_libs:cache')
+    cachePasses(env, 3)
+    check(#env.localEventsOf('cis_libs:cache') == before,
+        ('cache: passes that change nothing push nothing (%d new)'):format(#env.localEventsOf('cis_libs:cache') - before))
+
+    env.armed = true
+    cachePasses(env, 2)
+    local weapon = pushesOf('weapon')
+    check(#weapon == 1 and type(weapon[1][2]) == 'table' and weapon[1][2].ammo == 30 and weapon[1][4] == nil,
+        'cache: drawing a weapon is an announced weapon push')
+    env.save('GetAmmoInPedWeapon')
+    function GetAmmoInPedWeapon() return 29 end
+    cachePasses(env, 2)
+    weapon = pushesOf('weapon')
+    check(#weapon == 2 and weapon[2][2].ammo == 29 and weapon[2][4] == true,
+        'cache: a shot that only moves the ammo is a SILENT push')
+
+    local snap = exports.GetCacheSnapshot()
+    check(type(snap) == 'table' and snap ~= CisCache and snap.vehicle == 50 and snap.seat == -1
+        and snap.serverId == 12 and snap.armed == true and snap.weapon and snap.weapon.ammo == 29,
+        'cache: GetCacheSnapshot answers every mirrored key in a fresh table')
+    env.reset()
+end
+
 -- THE CADENCE. The config default is 1000 ms, which made the pass a 1 Hz poll:
 -- a shot (`IsPedShooting` true for a frame or two) was never seen. Clamped to
 -- 100..250 with or without a config.

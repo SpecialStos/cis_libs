@@ -15,12 +15,39 @@ local cis_libs = {}
 
 -- ================================================================ classes
 
+---@class CisAnimOptions
+-- The options Cis.anim.play takes. Every field is optional and is TaskPlayAnim own parameter of the same name.
+---@field blendIn? number default 8.0
+---@field blendOut? number default -8.0
+---@field duration? integer ms, default -1 (the clip length)
+---@field flag? integer the animation flags, default 0
+---@field playbackRate? number default 0.0
+---@field lockX? boolean default false
+---@field lockY? boolean default false
+---@field lockZ? boolean default false
+---@field timeout? integer ms for the dictionary request, default 5000
+local CisAnimOptions = {}
+
 ---@class CisAuditEntry
 -- One ring-buffer entry from GetAuditLog. RESOURCE AND SLOT NAMES ONLY -- never a player identifier, which is why this is in memory at all.
 ---@field event string what happened, such as "registered" or "unregistered"
 ---@field detail string the slot, and the owner where there is one
 ---@field line string the rendered line
 local CisAuditEntry = {}
+
+---@class CisCacheSnapshot
+-- What GetCacheSnapshot answers: every key the consumer cache mirror follows, in one fresh table. Taken once per consumer and again after a cis_libs restart; every later change arrives as the cis_libs:cache event.
+---@field ped? integer the player ped, 0 before the first pass
+---@field playerId? integer the local player index
+---@field serverId? integer the server id
+---@field heading? number degrees
+---@field vehicle? integer 0 on foot
+---@field seat? integer nil on foot; -1 is the driver
+---@field weapon? CisWeaponData nil when unarmed
+---@field armed? boolean IsPedArmed(ped, 7)
+---@field aiming? boolean free-aiming or the config flag
+---@field shooting? boolean IsPedShooting at the last pass
+local CisCacheSnapshot = {}
 
 ---@class CisCurve
 -- The table Cis.require('curve') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.
@@ -56,6 +83,26 @@ local CisDetection = {}
 ---@field probes table<string, table|number|string> probe name -> payload, or <name>Error -> the raise as a string, so one broken probe cannot fail a snapshot
 ---@field timings? table<string, table> CisTiming snapshot: zonePass, serverSyncPass, clientSyncPass, callbackRtt, exportCrossing. Each is n/sum/min/max/last/mean plus le002/le005/le015/le05/gt05 buckets. Not a probe: Diff ignores it
 local CisDiagnostics = {}
+
+---@class CisDuiOptions
+-- The table Cis.dui.new takes.
+---@field url string the page
+---@field width? integer pixels, default 1280
+---@field height? integer pixels, default 720
+local CisDuiOptions = {}
+
+---@class CisDuiPage
+-- A DUI page object from Cis.dui.new. Draw it with DrawSprite(page.dictName, page.txtName, ...) or AddReplaceTexture.
+---@field dictName string the runtime texture dictionary, unique per page and never reused
+---@field txtName string the texture inside it
+---@field url string the current url
+---@field width integer pixels
+---@field height integer pixels
+---@field setUrl fun(self: CisDuiPage, url: string): boolean, string|nil navigate
+---@field sendMessage fun(self: CisDuiPage, message: table|string): boolean, string|nil post a message; a table is JSON-encoded
+---@field isAvailable fun(self: CisDuiPage): boolean whether the browser has started
+---@field destroy fun(self: CisDuiPage): boolean DestroyDui; also run for every page still open when the calling resource stops
+local CisDuiPage = {}
 
 ---@class CisHeap
 -- The table Cis.require('heap') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.
@@ -143,6 +190,8 @@ local CisJson = {}
 ---@field defaultMapper? string RegisterKeyMapping defaultMapper, the THIRD argument, default keyboard. Not a boolean
 ---@field onPress? fun() on the +name command, under pcall: a raise cannot end the handler and leave the binding stuck pressed
 ---@field onRelease? fun() on the -name command, under pcall
+---@field onPressed? fun() ox_lib spelling of onPress
+---@field onReleased? fun() ox_lib spelling of onRelease
 local CisKeybindOptions = {}
 
 ---@class CisLRU
@@ -161,6 +210,23 @@ local CisKeybindOptions = {}
 ---@field each fun(lru: table, fn: fun(key: any, value: any)): number # Call `fn(key, value)` for every entry, most recently used first.
 local CisLRU = {}
 
+---@class CisMarkerOptions
+-- The table Cis.marker.add takes. Stored as flat numbers once, so the per-frame pass reads fields and calls DrawMarker and allocates nothing.
+---@field coords vector3|table where it is drawn
+---@field type? integer the marker type, default 1
+---@field size? number|vector3|table the scale, default 1.0; `scale` is an alias
+---@field color? table { r, g, b, a } or { 1, 2, 3, 4 }, default 255, 255, 255, 180
+---@field distance? number the CULL radius in metres, default 50: further than this from the player it is not drawn, and a frame that draws nothing sleeps 200 ms
+---@field dir? vector3|table the direction vector
+---@field rot? vector3|table the rotation
+---@field bob? boolean bob up and down
+---@field faceCamera? boolean turn to the camera
+---@field rotate? boolean spin
+---@field drawOnEnts? boolean project onto entities
+---@field textureDict? string a texture dictionary
+---@field textureName? string a texture in it
+local CisMarkerOptions = {}
+
 ---@class CisModuleInfo
 -- A DESCRIPTION of a module, which is what a consumer can actually be told. A function cannot cross the exports boundary, so the module table cannot be handed over either -- and cis_libs's own Cis.require is in a different Lua state from a consumer's, so it cannot be reached at all.
 ---@field ok boolean false for an unknown name or a non-string, with the reason in .why
@@ -177,7 +243,7 @@ local CisLRU = {}
 local CisModuleInfo = {}
 
 ---@class CisPointOptions
--- The table Cis.points.add takes. coords and distance are REQUIRED and are refused by name when absent -- a defaulted radius is a specific number nobody asked for, and a defaulted coordinate is a point at the world origin that fires for a player who spawned there. Every other field is optional. THE FUNCTION FIELDS ARE DROPPED ACROSS THE EXPORTS BOUNDARY: a consumer passing onEnter gets nil and the point is silently inert, and the event-name twins are strings and do cross.
+-- The table Cis.points.add takes. coords and distance are REQUIRED and are refused by name when absent -- a defaulted radius is a specific number nobody asked for, and a defaulted coordinate is a point at the world origin that fires for a player who spawned there. Every other field is optional. From init.lua (Cis.points.add) the function fields are plain local functions in the calling resource; through the CreatePoint export they arrive as funcrefs. The event-name twins fire either way.
 ---@field coords vector3|vector4|table the centre
 ---@field distance number the enter radius in metres. Must be finite and greater than zero; NaN and infinity are both refused by name, because NaN makes every containment test false and infinity has no cell to index
 ---@field onEnter? fun(coords: vector3) called under pcall on arrival
@@ -222,6 +288,18 @@ local CisRandom = {}
 ---@field prune fun(r: table, now?: number, idleSec?: number): integer # Drop keys that have not been touched for `idleSec`.
 ---@field count fun(r: table): integer # How many keys the limiter is tracking, including fully restored ones that have not
 local CisRate = {}
+
+---@class CisScaleformMovie
+-- A scaleform movie object from Cis.scaleform.new. Methods are called with a colon. A disposed movie refuses every further call.
+---@field name string the movie name
+---@field handle integer|nil the movie handle; nil once disposed
+---@field call fun(self: CisScaleformMovie, method: string, ...): boolean, string|nil call a method. A parameter is typed by its value -- an integer is an int, any other number a float, a boolean a bool, a string a string -- or explicitly as { type = int\|float\|bool\|string\|literal\|playerName, value = v }. An untypable parameter refuses the whole call before anything is sent
+---@field draw fun(self: CisScaleformMovie, r?: integer, g?: integer, b?: integer, a?: integer): boolean draw fullscreen for THIS frame
+---@field draw3d fun(self: CisScaleformMovie, coords: vector3, rot?: vector3, scale?: vector3): boolean draw in the world for THIS frame
+---@field startDrawing fun(self: CisScaleformMovie, r?: integer, g?: integer, b?: integer, a?: integer): boolean draw fullscreen every frame on a thread of its own
+---@field stopDrawing fun(self: CisScaleformMovie) end that thread
+---@field dispose fun(self: CisScaleformMovie): boolean SetScaleformMovieAsNoLongerNeeded; also run for every movie still held when the calling resource stops
+local CisScaleformMovie = {}
 
 ---@class CisSelfCheck
 -- What GetSelfCheck answers. ok = true WITH checkedAt = nil means the scan has not run yet -- not that the install is clean, and the two look identical to a caller. Every problem carries the fix.
@@ -472,7 +550,7 @@ local CisZone = {}
 local CisZoneDebug = {}
 
 ---@class CisZoneOptions
--- The options table for Cis.zones.* and Cis.target.add. Every field is optional; a zone is created with defaults when one is absent. THE FUNCTION FIELDS ARE DROPPED ACROSS THE EXPORTS BOUNDARY -- a consumer passing onEnter gets nil, and the zone silently never fires. Use the event-name twins, which are strings and do cross.
+-- The options table for Cis.zones.* and Cis.target.add. Every field is optional; a zone is created with defaults when one is absent. From init.lua (Cis.zones.*) the function fields are plain local functions run in the calling resource; through the CreateZone export they arrive as funcrefs. The event-name twins fire either way.
 ---@field onEnter? fun(zone: CisZone, coords: vector3) called pcall'd on the inside edge, with the ZONE and the player's own coordinates
 ---@field onExit? fun(zone: CisZone, coords: vector3) called pcall'd on the outside edge and on removal
 ---@field inside? fun(zone: CisZone) called every insideInterval while the player is inside
@@ -488,7 +566,7 @@ local CisZoneDebug = {}
 ---@field rotation? number an alias for the box heading
 local CisZoneOptions = {}
 
--- ================================================= RAW EXPORTS (194)
+-- ================================================= RAW EXPORTS (195)
 
 ---@overload fun(...)
   ---@param groupData table #the group record handed to the provider's addGroup
@@ -649,7 +727,7 @@ function CloseAlertDialog() end
 --- realm: client
 function CloseInputDialog() end
 
---- Cis.world.closestObject(coords, maxDistance, filter, opts)
+--- Cis.world.getClosestObject(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
@@ -658,7 +736,7 @@ function CloseInputDialog() end
 --- realm: client
 function ClosestObject(coords, maxDistance, filter, opts) end
 
---- Cis.world.closestPed(coords, maxDistance, filter, opts)
+--- Cis.world.getClosestPed(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
@@ -667,7 +745,7 @@ function ClosestObject(coords, maxDistance, filter, opts) end
 --- realm: client
 function ClosestPed(coords, maxDistance, filter, opts) end
 
---- Cis.world.closestPlayer(coords, maxDistance, filter, opts)
+--- Cis.world.getClosestPlayer(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
@@ -676,7 +754,7 @@ function ClosestPed(coords, maxDistance, filter, opts) end
 --- realm: client
 function ClosestPlayer(coords, maxDistance, filter, opts) end
 
---- Cis.world.closestVehicle(coords, maxDistance, filter, opts)
+--- Cis.world.getClosestVehicle(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
@@ -854,6 +932,11 @@ function GetAllDoorData() end
 ---@return CisAuditEntry[]|boolean, string #the entries newest first, or false plus a reason when the caller is off Security.AuthorizedResources
 --- realm: server
 function GetAuditLog(limit) end
+
+--- Cis.player.* and Cis.cache(key) -- init.lua takes this once per consumer
+---@return CisCacheSnapshot #every mirrored key in a fresh table; the consumer mirror is then kept current by the cis_libs:cache event
+--- realm: client
+function GetCacheSnapshot() end
 
 --- Cis.player.heading(), which reads the native directly in a consumer VM
 ---@return number #the heading in degrees, 0.0 before the first watchdog pass
@@ -1053,7 +1136,7 @@ function GetSyncedEntity(key) end
 --- realm: client
 function GetTableSize(t) end
 
---- no proxy equivalent; the full property snapshot used by sync
+--- Cis.vehicle.getProperties(vehicle) -- the same engine, in the caller VM
 ---@param vehicle integer #the entity handle; a non-existent entity is the nil case
 ---@return CisVehicleProps|nil #the full property record, or nil when DoesEntityExist fails
 --- realm: client
@@ -1271,7 +1354,7 @@ function LogWarn.client(message) end
 --- realm: both
 function ModuleInfo(name, opts) end
 
---- Cis.world.nearbyObjects(coords, maxDistance, filter, opts)
+--- Cis.world.getNearbyObjects(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
@@ -1280,7 +1363,7 @@ function ModuleInfo(name, opts) end
 --- realm: client
 function NearbyObjects(coords, maxDistance, filter, opts) end
 
---- Cis.world.nearbyPeds(coords, maxDistance, filter, opts)
+--- Cis.world.getNearbyPeds(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
@@ -1289,7 +1372,7 @@ function NearbyObjects(coords, maxDistance, filter, opts) end
 --- realm: client
 function NearbyPeds(coords, maxDistance, filter, opts) end
 
---- Cis.world.nearbyPlayers(coords, maxDistance, filter, opts)
+--- Cis.world.getNearbyPlayers(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
@@ -1298,7 +1381,7 @@ function NearbyPeds(coords, maxDistance, filter, opts) end
 --- realm: client
 function NearbyPlayers(coords, maxDistance, filter, opts) end
 
---- Cis.world.nearbyVehicles(coords, maxDistance, filter, opts)
+--- Cis.world.getNearbyVehicles(coords, maxDistance, filter, opts)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
 ---@param maxDistance number #metres; nil or a non-positive value means NO distance limit, which is the difference between "everything" and "nothing"
 ---@param filter function #`fun(entity, coords): boolean` -- must return TRUE to keep. It runs once per candidate, per call, under pcall: an error skips that entity and is counted as worldFilterErrors, and a truthy NON-boolean excludes, because a consumer writing `return entity` meant to filter and would otherwise get none at all
@@ -1886,7 +1969,25 @@ function WeaponAsset(name, timeout) end
 --- realm: client
 function ZoneContains(name, point) end
 
--- ================================================= Cis.* PROXIES (98)
+-- ================================================= Cis.* PROXIES (120)
+
+---@class Cis.anim.play
+---@field since string 1.1.0
+---@field realm "client"
+---@param ped integer #the ped handle
+---@param dict string #the animation dictionary
+---@param clip string #the clip name
+---@param opts? CisAnimOptions #timings, flag and locks
+---@return boolean, string|nil #true once TaskPlayAnim was issued -- the dictionary is requested first and RELEASED right after, since the task holds its own reference -- or false plus a reason
+function Cis.anim.play(ped, dict, clip, opts) end
+
+---@class Cis.cache
+---@field since string 1.1.0
+---@field realm "client"
+---@param key string #aiming, armed, heading, ped, playerId, seat, serverId, shooting, vehicle or weapon
+---@return any #the mirrored value, read locally. One GetCacheSnapshot on the first read of any key, then nothing: cis_libs pushes every change 
+-- Why `any`: the value type is decided by the key: a handle, an id, a boolean, a heading or a CisWeaponData
+function Cis.cache(key) end
 
 ---@class Cis.callback.await
 ---@field since string 1.0.0
@@ -1975,6 +2076,27 @@ function Cis.command.list() end
 ---@return boolean, string|nil #true once removed, or false plus a reason
 function Cis.command.remove(name) end
 
+---@class Cis.controls.disable
+---@field since string 1.1.0
+---@field realm "client"
+---@param ... integer|integer[] #control indices, as arguments or as one list
+---@return integer|false, string|nil #a HOLD id. Each control stays disabled every frame while any hold names it (refcounted); one thread per resource, only while a hold exists
+function Cis.controls.disable(...) end
+
+---@class Cis.controls.enable
+---@field since string 1.1.0
+---@field realm "client"
+---@param id integer #the hold id disable returned
+---@return boolean #whether the hold existed. Its controls come back only when no other hold names them
+function Cis.controls.enable(id) end
+
+---@class Cis.controls.isDisabled
+---@field since string 1.1.0
+---@field realm "client"
+---@param control integer #a control index
+---@return boolean #whether any hold names it right now
+function Cis.controls.isDisabled(control) end
+
 ---@class Cis.db.insert
 ---@field since string 1.0.0
 ---@field realm "server"
@@ -2058,6 +2180,13 @@ function Cis.doors.get(id) end
 ---@param locked boolean #true to lock, false to unlock
 ---@return boolean, string #a REQUEST on the client -- the server re-checks -- and a direct apply on the server. Either way the answer is not the current state; read Cis.doors.get for that
 function Cis.doors.setState(id, locked) end
+
+---@class Cis.dui.new
+---@field since string 1.1.0
+---@field realm "client"
+---@param opts CisDuiOptions #url required
+---@return CisDuiPage|nil, string|nil #the page object, or nil plus a reason. Destroyed by :destroy() and on the stop of the calling resource
+function Cis.dui.new(opts) end
 
 ---@overload fun(...)
   ---@param srcOrNil integer #the player id
@@ -2157,9 +2286,8 @@ function Cis.inventory.remove(src, item, amount) end
 ---@class Cis.keybind.add
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string KeybindAdd
----@param options CisKeybindOptions #name REQUIRED; onPress and onRelease are functions and arrive in cis_libs as funcrefs
----@return table|false, string|nil #a handle whose id feeds KeybindDisable, KeybindEnable, KeybindIsPressed and KeybindRemove -- its methods do not survive the boundary. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so a renamed binding is a second binding and the first still shows in the menu
+---@param options CisKeybindOptions #name REQUIRED; onPress / onRelease (or ox_lib onPressed / onReleased) are plain local functions, run in the calling resource
+---@return table|false, string|nil #the handle, with working methods in a consumer: disable(state), isPressed(), reset(), destroy(). The commands and the mapping belong to the CALLING resource (since 1.1.0; before, to cis_libs -- a player rebind saved under cis_libs does not carry over). THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so a renamed binding is a second binding and the first still shows in the menu
 function Cis.keybind.add(options) end
 
 ---@class Cis.log.debug
@@ -2198,6 +2326,26 @@ function Cis.log.info(message) end
 ---@return nil #nothing comes back. Never gated -- a warning suppressed by a debug flag is a warning nobody sees
 function Cis.log.warn(message) end
 
+---@class Cis.marker.add
+---@field since string 1.1.0
+---@field realm "client"
+---@param opts CisMarkerOptions #coords required; everything else defaults
+---@return integer|false, string|nil #the marker id, or false plus a reason. The first marker starts the ONE draw thread of the resource; it ends with the last
+function Cis.marker.add(opts) end
+
+---@class Cis.marker.clear
+---@field since string 1.1.0
+---@field realm "client"
+---@return integer #how many markers were removed
+function Cis.marker.clear() end
+
+---@class Cis.marker.remove
+---@field since string 1.1.0
+---@field realm "client"
+---@param id integer #the id add returned
+---@return boolean #whether there was such a marker
+function Cis.marker.remove(id) end
+
 ---@class Cis.moduleInfo
 ---@field since string 1.0.0
 ---@field realm "both"
@@ -2222,6 +2370,14 @@ function Cis.moduleProbe() end
 ---@param opts? table #windowMs, maxHits, and optional schema. schema is a map of field -> { type, min, max, maxLen, optional } on the first payload table. A bad payload is refused, counted as netSchemaRefused, and reported through Cis.security.report. Without schema nothing changes
 ---@return boolean, string #true once registered, false plus a reason when it is refused -- so a refusal is visible rather than indistinguishable from success
 function Cis.net.on(name, fn, opts) end
+
+---@class Cis.onCache
+---@field since string 1.1.0
+---@field realm "client"
+---@param key string #a Cis.cache key
+---@param fn fun(value: any, previous: any) #a plain function, called pcall'd on every change of the key. vehicle and seat land together: a vehicle listener reading Cis.player.seat() sees the new seat
+---@return function|nil, integer|string #a real unsubscribe function and the listener id, or nil plus a reason naming the valid keys
+function Cis.onCache(key, fn) end
 
 ---@class Cis.player.coords
 ---@field since string 1.0.0
@@ -2253,10 +2409,9 @@ function Cis.player.near(coords, distance, onEnter, onExit, onEnterEvent, onExit
 ---@class Cis.player.on
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string OnPlayerCache
 ---@param key string #a cache key: aiming, armed, heading, ped, seat, shooting, vehicle or weapon. mount is RedM-only and is not a key here -- this game is gta5
----@param cb function #the listener, `fun(current, previous)`, called pcall'd on every change; it arrives in cis_libs as a funcref
----@return function|nil, integer|string #slot one is the in-realm unsubscribe and does not survive the boundary; slot two is the id for RemovePlayerCacheListener. Nil plus a reason for an unknown key or a non-callable listener
+---@param cb function #the listener, `fun(current, previous)`, called pcall'd on every change. In a consumer it is a plain local function on the cache mirror; playerId and serverId are keys there too
+---@return function|nil, integer|string #in a consumer, a REAL unsubscribe function and a local id (nothing crossed to make them); in cis_libs own VM, the unsubscribe and the id for RemovePlayerCacheListener. Nil plus a reason for an unknown key or a non-callable listener
 function Cis.player.on(key, cb) end
 
 ---@class Cis.player.ped
@@ -2269,42 +2424,36 @@ function Cis.player.ped() end
 ---@class Cis.player.playerId
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string GetCachedPlayerId
 ---@return integer #the local player index. Not the server id
 function Cis.player.playerId() end
 
 ---@class Cis.player.seat
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string GetCachedSeat
 ---@return integer|nil #nil on foot, never 0: 0 is a passenger seat. -1 is the driver. Also the second return of Cis.player.vehicle()
 function Cis.player.seat() end
 
 ---@class Cis.player.serverId
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string GetCachedServerId
 ---@return integer #the local player server id, 0 before the first watchdog pass. Cache it at spawn -- it does not change while the player is connected
 function Cis.player.serverId() end
 
 ---@class Cis.player.vehicle
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string GetCachedVehicle
----@return integer|nil, integer|nil #the vehicle and the seat, and NIL -- not 0 -- when on foot: a consumer that treats 0 as a handle gets a nil-index crash somewhere else. This one CROSSES the boundary, so do not call it in a Wait(0) loop
+---@return integer|nil, integer|nil #the vehicle and the seat, and NIL -- not 0 -- when on foot: a consumer that treats 0 as a handle gets a nil-index crash somewhere else. FREE in a consumer: read from the local cache mirror (one GetCacheSnapshot on the first read, then the cis_libs:cache pushes), so a Wait(0) loop costs nothing
 function Cis.player.vehicle() end
 
 ---@class Cis.player.weapon
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string GetCachedWeapon
 ---@return CisWeaponData|nil #the weapon record, nil when unarmed. A FRESH table whenever the weapon or its ammo changes, never a mutation of the previous one: a consumer holding a reference across frames is holding a snapshot
 function Cis.player.weapon() end
 
 ---@class Cis.points.add
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string CreatePoint
 ---@param data CisPointOptions #coords and distance are required; onEnter, onExit, nearby, onEnterEvent, onExitEvent and nearbyEvent are not
 ---@return integer|false, string|nil #the id, which is a number this library allocates and NEVER reuses -- so a stale id is a false refusal rather than another point vanishing. Every refusal is false plus a reason
 function Cis.points.add(data) end
@@ -2312,14 +2461,12 @@ function Cis.points.add(data) end
 ---@class Cis.points.getClosest
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string GetClosestPoint
----@return integer|nil, number|string|nil #the nearest id and the distance in metres, or nil plus a reason. TWO SHAPES, and the second slot is the distance when there is an id and the reason when there is not
+---@return integer|nil, number|string|nil #the nearest of the CALLER own points and the distance in metres, or nil plus a reason. TWO SHAPES, and the second slot is the distance when there is an id and the reason when there is not. FREE in a consumer
 function Cis.points.getClosest() end
 
 ---@class Cis.points.remove
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string RemovePoint
 ---@param id integer #the id add returned
 ---@return boolean #false when no point holds that id, which is a no-op and not an error. A point the player was inside fires onExit first, with the PLAYER coordinates and not the point coordinates
 function Cis.points.remove(id) end
@@ -2327,7 +2474,6 @@ function Cis.points.remove(id) end
 ---@class Cis.raycast.camera
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string RaycastCamera
 ---@param flags? number #shape-test flags, default -1
 ---@param ignore? number #entity to ignore; default the vehicle the player sits in, else the player ped -- a camera ray starts behind the player and would otherwise hit them
 ---@param distance? number #metres, default 10
@@ -2338,7 +2484,6 @@ function Cis.raycast.camera(flags, ignore, distance, timeoutMs) end
 ---@class Cis.raycast.fromCoords
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string RaycastFromCoords
 ---@param origin vector3|table #where it starts
 ---@param target vector3|table #where it would end
 ---@param flags? number #default -1
@@ -2369,6 +2514,14 @@ function Cis.require(name) end
 ---@field realm "both"
 ---@return string[] #every valid module name, sorted. Asking costs nothing, which matters because the alternative is probing with a raised error
 function Cis.requireList() end
+
+---@class Cis.scaleform.new
+---@field since string 1.1.0
+---@field realm "client"
+---@param name string #the movie name
+---@param timeout? integer #ms, default 5000
+---@return CisScaleformMovie|nil, string|nil #the movie object, or nil plus a reason. Disposed by :dispose() and on the stop of the calling resource
+function Cis.scaleform.new(name, timeout) end
 
 ---@class Cis.security.report
 ---@field since string 1.0.0
@@ -2410,7 +2563,6 @@ function Cis.statebag.remove(cookie) end
 ---@class Cis.streaming.animDict
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string AnimDict
 ---@param name string #the dictionary NAME, not a hash -- a function argument aside, RequestAnimDict takes a char* and a hash is a type error the game answers by never loading
 ---@param timeout? integer #ms, default 5000
 ---@return string|nil, string|nil #the name, or nil plus a reason. An invalid dictionary is refused in microseconds because this is the only kind with an existence probe
@@ -2419,7 +2571,6 @@ function Cis.streaming.animDict(name, timeout) end
 ---@class Cis.streaming.animSet
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string AnimSet
 ---@param name string #the set name
 ---@param timeout? integer #ms, default 5000
 ---@return string|nil, string|nil #the name, or nil plus a reason
@@ -2428,7 +2579,6 @@ function Cis.streaming.animSet(name, timeout) end
 ---@class Cis.streaming.audioBank
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string AudioBank
 ---@param name string #the bank name
 ---@param timeout? integer #ms, default 5000
 ---@return string|nil, string|nil #the name once the engine has ACCEPTED the bank, not once it is resident, and it never waits for either
@@ -2437,7 +2587,6 @@ function Cis.streaming.audioBank(name, timeout) end
 ---@class Cis.streaming.model
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string RequestModelTimeout
 ---@param model integer|string #a hash or a model name
 ---@param timeout? integer #the deadline in ms, default 5000
 ---@return boolean, integer #slot 2 is ALWAYS the hash, including on refusal, so a caller can release it either way. Releasing is the caller's job: the library does not keep a reference it cannot see
@@ -2446,16 +2595,22 @@ function Cis.streaming.model(model, timeout) end
 ---@class Cis.streaming.ptfx
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string Ptfx
 ---@param name string #the effect name
 ---@param timeout? integer #ms, default 5000
 ---@return string|nil, string|nil #the name, or nil plus a reason. There is NO existence probe for this kind, so an invalid name costs the whole timeout -- a real asymmetry with animDict and documented rather than hidden
 function Cis.streaming.ptfx(name, timeout) end
 
+---@class Cis.streaming.release
+---@field since string 1.1.0
+---@field realm "client"
+---@param kind string #model, animDict, animSet, ptfx, textureDict, weaponAsset, scaleform or audioBank
+---@param asset string|integer #what the request loaded: a name, a hash, or for a scaleform the HANDLE
+---@return boolean #whether a release native was called
+function Cis.streaming.release(kind, asset) end
+
 ---@class Cis.streaming.scaleform
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string Scaleform
 ---@param name string #the movie name
 ---@param timeout? integer #ms, default 5000
 ---@return string|nil, integer|nil, string|nil #the name and the movie handle, or nil plus a reason. The request native answers the handle and returns 0 when it refuses, which is a real third state between not-yet and loaded
@@ -2464,7 +2619,6 @@ function Cis.streaming.scaleform(name, timeout) end
 ---@class Cis.streaming.textureDict
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string TextureDict
 ---@param name string #the dictionary name
 ---@param timeout? integer #ms, default 5000
 ---@return string|nil, string|nil #the name, or nil plus a reason
@@ -2473,7 +2627,6 @@ function Cis.streaming.textureDict(name, timeout) end
 ---@class Cis.streaming.weaponAsset
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string WeaponAsset
 ---@param hash integer #the weapon hash
 ---@param timeout? integer #ms, default 5000
 ---@return integer|nil, string|nil #the hash, or nil plus a reason
@@ -2645,6 +2798,22 @@ function Cis.ui.textUI.isOpen() end
 ---@return boolean, string|nil #true once shown. Native help is one global slot; last show wins; ClearAllHelpMessages on hide clears every help message on the screen
 function Cis.ui.textUI.show(text, opts) end
 
+---@class Cis.vehicle.getProperties
+---@field since string 1.1.0
+---@field realm "client"
+---@param vehicle integer #the entity handle
+---@return CisVehicleProps|nil #every property, ox_lib field-compatible; nil when the entity does not exist
+function Cis.vehicle.getProperties(vehicle) end
+
+---@class Cis.vehicle.setProperties
+---@field since string 1.1.0
+---@field realm "client"
+---@param vehicle integer #the entity handle
+---@param props CisVehicleProps #what to apply; absent keys are left alone
+---@param fixVehicle? boolean #repair FIRST, so the saved damage in props survives
+---@return boolean, string|nil #true, or false plus a reason -- including when this client does not control the networked vehicle (control was requested; retry)
+function Cis.vehicle.setProperties(vehicle, props, fixVehicle) end
+
 ---@class Cis.wait
 ---@field since string 1.0.0
 ---@field realm "both"
@@ -2663,40 +2832,116 @@ function Cis.wait(timeout) end
 -- Why `any`: the value is whatever fn returned, and this function cannot know that type
 function Cis.waitFor(fn, msg, timeoutMs) end
 
+---@class Cis.world.getClosestObject
+---@field since string 1.1.0
+---@field realm "client"
+---@param coords? vector3|table #default the player coords
+---@param maxDistance? number #metres; nil means no limit
+---@param filter? fun(entity: integer, coords: vector3): boolean #a plain function
+---@param opts? table #reserved
+---@return integer|false, vector3|string|nil #the object and its coords, or false plus a reason
+function Cis.world.getClosestObject(coords, maxDistance, filter, opts) end
+
+---@class Cis.world.getClosestPed
+---@field since string 1.1.0
+---@field realm "client"
+---@param coords? vector3|table #the point to measure from; default the player coords
+---@param maxDistance? number #metres; nil or non-positive means no limit
+---@param filter? fun(entity: integer, coords: vector3): boolean #a plain function that must return TRUE to keep
+---@param opts? table #{ includeSelf, includePlayers }; both off by default
+---@return integer|false, vector3|string|nil #the NPC and its coords, or false plus a reason
+function Cis.world.getClosestPed(coords, maxDistance, filter, opts) end
+
+---@class Cis.world.getClosestPlayer
+---@field since string 1.1.0
+---@field realm "client"
+---@param coords? vector3|table #default the player coords
+---@param maxDistance? number #metres; nil means no limit
+---@param filter? fun(entity: integer, coords: vector3): boolean #a plain function
+---@param opts? table #{ includeSelf = true } puts the local player back in
+---@return integer|false, vector3|string|nil, integer|nil #the player PED, its coords, and the player index in slot 3
+function Cis.world.getClosestPlayer(coords, maxDistance, filter, opts) end
+
+---@class Cis.world.getClosestVehicle
+---@field since string 1.1.0
+---@field realm "client"
+---@param coords? vector3|table #default the player coords
+---@param maxDistance? number #metres; nil means no limit
+---@param filter? fun(entity: integer, coords: vector3): boolean #a plain function
+---@param opts? table #reserved
+---@return integer|false, vector3|string|nil #the vehicle and its coords, or false plus a reason
+function Cis.world.getClosestVehicle(coords, maxDistance, filter, opts) end
+
+---@class Cis.world.getNearbyObjects
+---@field since string 1.1.0
+---@field realm "client"
+---@param coords? vector3|table #default the player coords
+---@param maxDistance? number #metres; nil means no limit
+---@param filter? fun(entity: integer, coords: vector3): boolean #a plain function
+---@param opts? table #reserved
+---@return CisWorldEntry[]|false, string|nil #sorted by distance, never nil
+function Cis.world.getNearbyObjects(coords, maxDistance, filter, opts) end
+
+---@class Cis.world.getNearbyPeds
+---@field since string 1.1.0
+---@field realm "client"
+---@param coords? vector3|table #default the player coords
+---@param maxDistance? number #metres; nil means no limit
+---@param filter? fun(entity: integer, coords: vector3): boolean #a plain function
+---@param opts? table #{ includeSelf, includePlayers }
+---@return CisWorldEntry[]|false, string|nil #sorted by distance, never nil
+function Cis.world.getNearbyPeds(coords, maxDistance, filter, opts) end
+
+---@class Cis.world.getNearbyPlayers
+---@field since string 1.1.0
+---@field realm "client"
+---@param coords? vector3|table #default the player coords
+---@param maxDistance? number #metres; nil means no limit
+---@param filter? fun(entity: integer, coords: vector3): boolean #a plain function
+---@param opts? table #{ includeSelf = true } adds the local player
+---@return CisWorldEntry[]|false, string|nil #sorted by distance; each row carries .player
+function Cis.world.getNearbyPlayers(coords, maxDistance, filter, opts) end
+
+---@class Cis.world.getNearbyVehicles
+---@field since string 1.1.0
+---@field realm "client"
+---@param coords? vector3|table #default the player coords
+---@param maxDistance? number #metres; nil means no limit
+---@param filter? fun(entity: integer, coords: vector3): boolean #a plain function
+---@param opts? table #reserved
+---@return CisWorldEntry[]|false, string|nil #sorted by distance, never nil
+function Cis.world.getNearbyVehicles(coords, maxDistance, filter, opts) end
+
 ---@class Cis.zones.box
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string CreateZone
 ---@param name string #the zone name
 ---@param center vector3|table #the centre
 ---@param size vector3|number #the size -- nil is refused
----@param options? CisZoneOptions #and the function options inside it are dropped across the boundary
----@return boolean, string #true, or false plus a reason
+---@param options? CisZoneOptions #onEnter / onExit / inside are plain local functions called with (zone, coords) in the calling resource; the event-name twins still fire their events
+---@return boolean, string #true, or false plus a reason. The zone lives in the CALLER VM and survives a cis_libs restart
 function Cis.zones.box(name, center, size, options) end
 
 ---@class Cis.zones.contains
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string ZoneContains
 ---@param name string #the zone name
 ---@param point? vector3|table #the point to test; a nil answers false rather than raising
----@return boolean #true only on a real containment hit
+---@return boolean #true only on a real containment hit. FREE in a consumer: it tests the CALLER own zones, locally
 function Cis.zones.contains(name, point) end
 
 ---@class Cis.zones.poly
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string CreateZone
 ---@param name string #the zone name
 ---@param points vector3[] #the point list
----@param options? CisZoneOptions #A FUNCTION OPTION IS AN ARGUMENT and arrives nil from a consumer -- use the event-name twins, which are strings and do cross
+---@param options? CisZoneOptions #onEnter / onExit / inside are plain local functions called with (zone, coords) in the calling resource; the event-name twins still fire their events
 ---@return boolean, string #true, or false plus a reason. Always capture the second value: a bare false tells you nothing you did not already guess
 function Cis.zones.poly(name, points, options) end
 
 ---@class Cis.zones.remove
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string RemoveZone
 ---@param name string #the zone name. Removing a zone twice, or one that never existed, is a no-op and not an error
 ---@return boolean, string|nil #false when no zone holds that name, true once removed; false plus a reason when another resource owns it. A player still inside gets its onExit fired first, with the PLAYER's coordinates and not the zone centre
 function Cis.zones.remove(name) end
@@ -2758,12 +3003,11 @@ function Cis.zones.server.sphere(center, radius, opts) end
 ---@class Cis.zones.sphere
 ---@field since string 1.0.0
 ---@field realm "client"
----@field forwardsTo string CreateZone
 ---@param name string #the zone name
 ---@param center vector3|table #the centre
 ---@param radius? number #the radius, default 1.0
----@param options? CisZoneOptions #and the function options inside it are dropped across the boundary
----@return boolean, string #true, or false plus a reason
+---@param options? CisZoneOptions #onEnter / onExit / inside are plain local functions called with (zone, coords) in the calling resource
+---@return boolean, string #true, or false plus a reason. The zone lives in the CALLER VM and survives a cis_libs restart
 function Cis.zones.sphere(name, center, radius, options) end
 
 ---@class CisRequire
@@ -2793,6 +3037,8 @@ function CisRequire(name) end
 
 --- The consumer-facing proxy table, declared rather than aliased so the
 --- completions carry the annotations above.
+cis_libs.anim_play = Cis_anim_play
+cis_libs.cache = Cis_cache
 cis_libs.callback_await = Cis_callback_await
 cis_libs.callback_awaitClient = Cis_callback_awaitClient
 cis_libs.callback_call = Cis_callback_call
@@ -2802,6 +3048,9 @@ cis_libs.callback_tryAwait = Cis_callback_tryAwait
 cis_libs.command_add = Cis_command_add
 cis_libs.command_list = Cis_command_list
 cis_libs.command_remove = Cis_command_remove
+cis_libs.controls_disable = Cis_controls_disable
+cis_libs.controls_enable = Cis_controls_enable
+cis_libs.controls_isDisabled = Cis_controls_isDisabled
 cis_libs.db_insert = Cis_db_insert
 cis_libs.db_query = Cis_db_query
 cis_libs.db_scalar = Cis_db_scalar
@@ -2811,6 +3060,7 @@ cis_libs.db_update = Cis_db_update
 cis_libs.doors_add = Cis_doors_add
 cis_libs.doors_get = Cis_doors_get
 cis_libs.doors_setState = Cis_doors_setState
+cis_libs.dui_new = Cis_dui_new
 cis_libs.framework_notify = Cis_framework_notify
 cis_libs.framework_player = Cis_framework_player
 cis_libs.hooks_on = Cis_hooks_on
@@ -2825,9 +3075,13 @@ cis_libs.log_debug = Cis_log_debug
 cis_libs.log_error = Cis_log_error
 cis_libs.log_info = Cis_log_info
 cis_libs.log_warn = Cis_log_warn
+cis_libs.marker_add = Cis_marker_add
+cis_libs.marker_clear = Cis_marker_clear
+cis_libs.marker_remove = Cis_marker_remove
 cis_libs.moduleInfo = Cis_moduleInfo
 cis_libs.moduleProbe = Cis_moduleProbe
 cis_libs.net_on = Cis_net_on
+cis_libs.onCache = Cis_onCache
 cis_libs.player_coords = Cis_player_coords
 cis_libs.player_heading = Cis_player_heading
 cis_libs.player_near = Cis_player_near
@@ -2846,6 +3100,7 @@ cis_libs.raycast_fromCoords = Cis_raycast_fromCoords
 cis_libs.ready = Cis_ready
 cis_libs.require = Cis_require
 cis_libs.requireList = Cis_requireList
+cis_libs.scaleform_new = Cis_scaleform_new
 cis_libs.security_report = Cis_security_report
 cis_libs.statebag_onEntity = Cis_statebag_onEntity
 cis_libs.statebag_onPlayer = Cis_statebag_onPlayer
@@ -2855,6 +3110,7 @@ cis_libs.streaming_animSet = Cis_streaming_animSet
 cis_libs.streaming_audioBank = Cis_streaming_audioBank
 cis_libs.streaming_model = Cis_streaming_model
 cis_libs.streaming_ptfx = Cis_streaming_ptfx
+cis_libs.streaming_release = Cis_streaming_release
 cis_libs.streaming_scaleform = Cis_streaming_scaleform
 cis_libs.streaming_textureDict = Cis_streaming_textureDict
 cis_libs.streaming_weaponAsset = Cis_streaming_weaponAsset
@@ -2878,8 +3134,18 @@ cis_libs.ui_progress = Cis_ui_progress
 cis_libs.ui_textUI_hide = Cis_ui_textUI_hide
 cis_libs.ui_textUI_isOpen = Cis_ui_textUI_isOpen
 cis_libs.ui_textUI_show = Cis_ui_textUI_show
+cis_libs.vehicle_getProperties = Cis_vehicle_getProperties
+cis_libs.vehicle_setProperties = Cis_vehicle_setProperties
 cis_libs.wait = Cis_wait
 cis_libs.waitFor = Cis_waitFor
+cis_libs.world_getClosestObject = Cis_world_getClosestObject
+cis_libs.world_getClosestPed = Cis_world_getClosestPed
+cis_libs.world_getClosestPlayer = Cis_world_getClosestPlayer
+cis_libs.world_getClosestVehicle = Cis_world_getClosestVehicle
+cis_libs.world_getNearbyObjects = Cis_world_getNearbyObjects
+cis_libs.world_getNearbyPeds = Cis_world_getNearbyPeds
+cis_libs.world_getNearbyPlayers = Cis_world_getNearbyPlayers
+cis_libs.world_getNearbyVehicles = Cis_world_getNearbyVehicles
 cis_libs.zones_box = Cis_zones_box
 cis_libs.zones_contains = Cis_zones_contains
 cis_libs.zones_poly = Cis_zones_poly
