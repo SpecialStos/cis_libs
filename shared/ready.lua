@@ -110,3 +110,14 @@ function CisReadyState.onReady(cb)
     end
     CisReadyState.waiters[#CisReadyState.waiters + 1] = cb
 end
+
+-- THE GATE, READABLE FROM ANOTHER VM. markReady writes `Cis.isReady` into
+-- cis_libs' own Cis table; a consumer's Cis is a different table in a different
+-- Lua state, so without this a consumer reading `Cis.isReady` saw false forever.
+-- Never blocks: (ready, failed, reason). FiveM's `exports` is callable through
+-- its metatable; plain-Lua harnesses that load this file have none.
+if exports and getmetatable(exports) then
+    exports('ReadyState', function()
+        return CisReadyState.ready == true, CisReadyState.failed == true, CisReadyState.reason
+    end)
+end

@@ -266,6 +266,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `RateOk` | server | `(src, name, windowMs?, maxHits?)` | 1.0.0 | no proxy equivalent; a resource may share the library rate limiter |
 | `RaycastCamera` | client | `(flags, ignore, distance?, timeoutMs?)` | 1.0.0 | Cis.raycast.camera(flags, ignore, distance, timeoutMs) |
 | `RaycastFromCoords` | client | `(origin, target, flags?, ignore?, timeoutMs?)` | 1.0.0 | Cis.raycast.fromCoords(origin, target, flags, ignore, timeoutMs) |
+| `ReadyState` | both | `()` | 1.0.0 | Cis.isReady and Cis.isFailed, which read through to this in a consumer |
 | `RegisterCallback` | both | `()` | 1.0.0 | Cis.callback.register(name, handler) |
 | `RegisterCapability` | both | `()` | 1.0.0 | Called by cis_core, cis_bridge and cis_keys with (slot, "resource:Export"). First registration wins |
 | `RemoveNearWatcher` | client | `(id)` | 1.0.0 | Cis.player.nearStop(id); the id WatchNear returns as its second value |

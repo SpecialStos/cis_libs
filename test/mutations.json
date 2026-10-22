@@ -617,6 +617,20 @@
       "find": "    local entity = GetEntityFromStateBagName(bagName)\n",
       "replace": "    local entity = tonumber(bagName:match('^entity:(%d+)$')) or 0\n",
       "why": "Parse the bag name instead of resolving it. `entity:<n>` carries a NETWORK id, not a handle: the handler is handed a number that names some other script entity or nothing, which is the defect the watcher shipped with."
+    },
+    {
+      "id": "M94",
+      "file": "shared/timing.lua",
+      "find": "        return nano() / 1e6\n",
+      "replace": "        return os.clock() * 1000\n",
+      "why": "Time passes with os.clock again. That is process CPU time -- on a Linux server every FXServer thread summed -- so a pass is charged for whatever the other threads burned while it ran."
+    },
+    {
+      "id": "M95",
+      "file": "init.lua",
+      "find": "            if key == 'isReady' then\n                return gate().ready\n",
+      "replace": "            if key == 'isReady' then\n                return false\n",
+      "why": "A consumer's Cis.isReady stops reading through to the gate. That is the shipped defect: only cis_libs' own VM ever wrote the field, so every consumer read false forever while api.lua told it to poll this."
     }
   ]
 }

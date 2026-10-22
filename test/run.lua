@@ -1042,6 +1042,68 @@ do
     CisTiming.reset()
 end
 
+-- 8.1b THE CLOCK IS A WALL CLOCK, AND A YIELD IS NOT WORK.
+--
+-- os.clock is process CPU time: on a Linux server, every FXServer thread added
+-- together, so a pass "took" whatever the other threads burned while it ran.
+-- The stubs make os.clock run 1000x faster than the wall clock, so a timer that
+-- still reads it reports 1000 ms for a 1 ms pass.
+do
+    local realClock, realNano, realMicro, realTimer = os.clock, os.nanotime, os.microtime, GetGameTimer
+    local wallMs, cpuSeconds = 0, 0
+    os.clock = function() return cpuSeconds end
+    os.nanotime = function() return wallMs * 1e6 end
+    os.microtime = nil
+    CisTiming.reset()
+    CisTiming.measure('zonePass', function()
+        wallMs = wallMs + 1
+        cpuSeconds = cpuSeconds + 1
+    end)
+    local wallSnap = CisTiming.snapshot().zonePass
+    expect(wallSnap and wallSnap.last == 1,
+        ('8.1b: measure reads the wall clock, not os.clock CPU time (got %s ms for a 1 ms pass)')
+            :format(tostring(wallSnap and wallSnap.last)))
+
+    -- No high-resolution clock: GetGameTimer, still never os.clock.
+    os.nanotime = nil
+    GetGameTimer = function() return wallMs end
+    CisTiming.reset()
+    CisTiming.measure('zonePass', function()
+        wallMs = wallMs + 3
+        cpuSeconds = cpuSeconds + 5
+    end)
+    wallSnap = CisTiming.snapshot().zonePass
+    expect(wallSnap and wallSnap.last == 3,
+        ('8.1b: without os.nanotime the floor is GetGameTimer (got %s)'):format(tostring(wallSnap and wallSnap.last)))
+
+    -- A model load inside a measured body is excluded; the work around it is not.
+    os.nanotime = function() return wallMs * 1e6 end
+    CisTiming.reset()
+    CisTiming.measure('clientSyncPass', function()
+        wallMs = wallMs + 2
+        CisTiming.exclude(function() wallMs = wallMs + 500 end)
+        wallMs = wallMs + 1
+    end)
+    wallSnap = CisTiming.snapshot().clientSyncPass
+    expect(wallSnap and wallSnap.last == 3,
+        ('8.1b: an excluded wait is not counted as pass time (got %s, want 3)')
+            :format(tostring(wallSnap and wallSnap.last)))
+
+    -- A body that raises closes its frame; the next measurement is not charged.
+    CisTiming.reset()
+    pcall(CisTiming.measure, 'zonePass', function()
+        CisTiming.exclude(function() wallMs = wallMs + 7 end)
+        error('boom')
+    end)
+    CisTiming.measure('zonePass', function() wallMs = wallMs + 4 end)
+    wallSnap = CisTiming.snapshot().zonePass
+    expect(wallSnap and wallSnap.last == 4,
+        ('8.1b: a raising body does not leak its exclusions (got %s)'):format(tostring(wallSnap and wallSnap.last)))
+
+    os.clock, os.nanotime, os.microtime, GetGameTimer = realClock, realNano, realMicro, realTimer
+    CisTiming.reset()
+end
+
 -- ------------------------------------------------------------------ defaults
 -- A library with no config file has to have defaults, and they have to be right.
 local cfg = CisDefaults.config()

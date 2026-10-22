@@ -481,7 +481,7 @@ local CisZoneDebug = {}
 ---@field rotation? number an alias for the box heading
 local CisZoneOptions = {}
 
--- ================================================= RAW EXPORTS (155)
+-- ================================================= RAW EXPORTS (156)
 
 ---@overload fun(...)
   ---@param groupData table #the group record handed to the provider's addGroup
@@ -1270,6 +1270,11 @@ function RaycastCamera(flags, ignore, distance, timeoutMs) end
 ---@return boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil #the same five slots as RaycastCamera, so a caller does not have to know which of the two it called
 --- realm: client
 function RaycastFromCoords(origin, target, flags, ignore, timeoutMs) end
+
+--- Cis.isReady and Cis.isFailed, which read through to this in a consumer
+---@return boolean, boolean, string|nil #ready, failed, and the failure reason. Never blocks; NOT-YET is false, false
+--- realm: both
+function ReadyState() end
 
 ---@overload fun(...)
   ---@param name string #a non-empty handler name, the key everything else is filed under

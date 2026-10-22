@@ -1071,6 +1071,14 @@ return {
             params = { { name = 'timeout', type = 'integer', optional = true, doc = 'the deadline in ms, default 15000. ONE deadline for the whole call, not one per stage' } },
             returns = { { type = 'boolean', doc = 'true once the gate settled ready, false if it failed or the deadline passed' } },
         },
+        ReadyState = {
+            since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Cis.isReady and Cis.isFailed, which read through to this in a consumer',
+            realm = 'both',
+            params = {},
+            returns = { { type = 'boolean, boolean, string|nil', doc = 'ready, failed, and the failure reason. Never blocks; NOT-YET is false, false' } },
+            note = 'The gate as another Lua state can see it. cis_libs writes `Cis.isReady` into its OWN Cis table, which a consumer never sees, so a consumer\'s `Cis.isReady` and `Cis.isFailed` read through to this export (lazily, and only until the gate settles).',
+        },
         GetDiscordQueueDepth = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'no proxy equivalent; queued message count and dropped count',
