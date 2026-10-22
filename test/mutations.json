@@ -1737,6 +1737,146 @@
       "find": "        resource, rest = THIS, name",
       "replace": "        resource, rest = RESOURCE, name",
       "why": "Resolve a relative module path against cis_libs instead of the calling resource, so a consumer cannot load its own files."
+    },
+    {
+      "id": "M255",
+      "file": "shared/util/cron.lua",
+      "find": "    local domOk = spec._days.set[d] == true\n    local dowOk = spec._weekdays.set[weekday(y, m, d)] == true\n    if spec.domStar or spec.dowStar then",
+      "replace": "    local domOk = spec._days.set[d] == true\n    local dowOk = spec._weekdays.set[weekday(y, m, d)] == true\n    if true then",
+      "why": "Always AND day-of-month with day-of-week. That is the intuitive reading and the wrong one: Vixie cron ORs them when both are restricted, so `0 12 13 * fri` (the 13th or any Friday) would run only on Friday the 13th. Killed by the Vixie example and by the brute-force property test."
+    },
+    {
+      "id": "M256",
+      "file": "shared/util/cron.lua",
+      "find": "    local y, m, d, h, mi = f.year, f.month, f.day, f.hour, f.min + 1\n    -- A daylight-saving fold can map a later wall-clock minute to an EARLIER\n    -- instant; step past it rather than answer a time that is not after `from`.\n    for _ = 1, 180 do\n        local Y, MO, D, H, MI = nextFields(spec, y, m, d, h, mi)\n        if Y == nil then\n            return nil, ('%s matches no time in the next 400 years'):format(tostring(spec.source))\n        end\n        local t = toTimestamp(utc, Y, MO, D, H, MI)\n        if t > from then\n",
+      "replace": "    local y, m, d, h, mi = f.year, f.month, f.day, f.hour, f.min\n    -- A daylight-saving fold can map a later wall-clock minute to an EARLIER\n    -- instant; step past it rather than answer a time that is not after `from`.\n    for _ = 1, 180 do\n        local Y, MO, D, H, MI = nextFields(spec, y, m, d, h, mi)\n        if Y == nil then\n            return nil, ('%s matches no time in the next 400 years'):format(tostring(spec.source))\n        end\n        local t = toTimestamp(utc, Y, MO, D, H, MI)\n        if t >= from then\n",
+      "why": "Search from the CURRENT minute and accept `from` itself. next() then answers `from` when it matches, and the scheduler -- which computes the following slot from the one it just ran -- runs the same slot forever. Both guards go together: either one alone still yields a time strictly after `from`, so mutating one is an equivalent mutation."
+    },
+    {
+      "id": "M257",
+      "file": "shared/util/cron.lua",
+      "find": "    return (daysFromCivil(y, m, d) + 4) % 7\n",
+      "replace": "    return (daysFromCivil(y, m, d) + 3) % 7\n",
+      "why": "An off-by-one weekday (1970-01-01 taken as a Wednesday). Every day-of-week expression fires a day early; the brute-force walk reads weekdays from os.date and disagrees."
+    },
+    {
+      "id": "M258",
+      "file": "shared/util/cron.lua",
+      "find": "slot > nowTime and slot or nowTime",
+      "replace": "slot",
+      "why": "Compute the next slot from the slot that just ran rather than from now. After a stall every missed slot is still in the past, so a job catches up by running once per missed slot -- twelve five-minute runs back to back after an hour hitch."
+    },
+    {
+      "id": "M259",
+      "file": "shared/util/cron.lua",
+      "find": "    if liveLoop ~= nil and (plannedWake == nil or plannedWake <= due) then",
+      "replace": "    if liveLoop ~= nil then",
+      "why": "Never start a replacement loop. A job scheduled to run before the live loop's planned wake (a minutely job added while only an hourly one exists) is then not run until the hourly wake, up to an hour late."
+    },
+    {
+      "id": "M260",
+      "file": "shared/util/cron.lua",
+      "find": "    if spec.domStar or spec.dowStar then\n        local possible = false",
+      "replace": "    if false then\n        local possible = false",
+      "why": "Drop the parse-time feasibility check. `0 0 30 2 *` is then accepted as a job that can never run, and next() spends a 400-year search to say so on every call."
+    },
+    {
+      "id": "M261",
+      "file": "shared/util/array.lua",
+      "find": "                if less(src[r], src[l]) then",
+      "replace": "                if not less(src[l], src[r]) then",
+      "why": "Take from the RIGHT run on a tie. The merge still sorts, but equal elements swap order, so the sort is no longer stable -- the property a UI list sorted by one column then another depends on."
+    },
+    {
+      "id": "M262",
+      "file": "shared/util/array.lua",
+      "find": "    local n = rawget(a, 'n')\n    if type(n) == 'number' then\n        return n\n    end\n    return rawlen(a)",
+      "replace": "    return rawlen(a)",
+      "why": "Measure with #t and ignore `n`. A trailing hole or a hole in the middle shortens the array, which is the whole failure the module exists to prevent."
+    },
+    {
+      "id": "M263",
+      "file": "shared/util/array.lua",
+      "find": "    for k = newN + 1, n do a[k] = nil end\n",
+      "replace": "",
+      "why": "splice no longer clears the slots past the new end. A removal leaves stale elements behind the new length, visible to anything that reads past n or uses #."
+    },
+    {
+      "id": "M264",
+      "file": "shared/algo/set.lua",
+      "find": "            index[v] = n\n",
+      "replace": "",
+      "why": "Compaction moves members without updating the index. values() and remove() then consult slots that no longer hold the member, so order and membership drift after enough removals."
+    },
+    {
+      "id": "M265",
+      "file": "shared/algo/ringbuffer.lua",
+      "find": "    rb._head = head % cap + 1\n    return evicted, true",
+      "replace": "    return evicted, true",
+      "why": "A push on a full buffer overwrites the oldest slot without advancing the head, so the newest entry is then reported as the oldest and order is lost."
+    },
+    {
+      "id": "M266",
+      "file": "shared/util/print.lua",
+      "find": "    if current < 5 then return end",
+      "replace": "    if current < 1 then return end",
+      "why": "The debug level check that makes a filtered call free. Without it debug prints at info, and every argument is converted and JSON-encoded on a production server."
+    },
+    {
+      "id": "M267",
+      "file": "shared/util/locale.lua",
+      "find": "    if base then flatten(base, nil, phrases) end\n",
+      "replace": "",
+      "why": "Drop the per-key English fallback. A translation missing one key shows the raw key in the UI instead of the English phrase."
+    },
+    {
+      "id": "M268",
+      "file": "shared/util/timer.lua",
+      "find": "    t._paused = true\n    t._gen = t._gen + 1\n    return true",
+      "replace": "    t._paused = true\n    return true",
+      "why": "Pause without retiring the sleeping thread. It wakes when the original time is up and finds the timer paused but its generation current -- and onEnd fires on a paused timer."
+    },
+    {
+      "id": "M269",
+      "file": "shared/util/timer.lua",
+      "find": "        Wait(ms)\n        if not active[id] then return end\n        active[id] = nil",
+      "replace": "        Wait(ms)\n        active[id] = nil",
+      "why": "clearTimeout no longer cancels: the sleeping thread runs the callback anyway."
+    },
+    {
+      "id": "M270",
+      "file": "shared/util/mathx.lua",
+      "find": "        r = math.floor(a * m + 0.5) / m\n",
+      "replace": "        r = (n >= 0 and math.floor(a * m + 0.5) or math.ceil(a * m - 0.5)) / m\n",
+      "why": "Round negative halves toward zero (-2.5 -> -2) instead of away from zero, the asymmetry a naive floor(x + 0.5) has."
+    },
+    {
+      "id": "M271",
+      "file": "shared/util/mathx.lua",
+      "find": "    for i = k, 1, -1 do out[#out + 1] = digits[i] end",
+      "replace": "    for i = 1, k do out[#out + 1] = digits[i] end",
+      "why": "Emit hex digits least-significant first. Single digits still pass; every multi-digit value is reversed."
+    },
+    {
+      "id": "M272",
+      "file": "shared/util/class.lua",
+      "find": "            if f ~= nil then cls[mm] = f end",
+      "replace": "            if f ~= nil then cls[mm .. '_'] = f end",
+      "why": "Stop copying metamethods down. Lua reads metamethods with rawget, so a subclass silently loses __eq (and __lt, __add...) defined on its parent."
+    },
+    {
+      "id": "M273",
+      "file": "shared/util/string.lua",
+      "find": "        if c == '^' and i < n then",
+      "replace": "        if c == '^' and i < 0 then",
+      "why": "The '^' escape in string.random stops working, so a literal digit or letter in a plate pattern is randomised instead."
+    },
+    {
+      "id": "M274",
+      "file": "shared/util/locale.lua",
+      "find": "local FALLBACK = 'en'\n",
+      "replace": "local FALLBACK = 'en'\nlocal _probe = _G.load('return 1')\n",
+      "why": "A shipped module compiling code through _G.load. The boundary contract allows no load() outside the Cis.require loader; reading it off _G is the spelling a narrowed scanner could miss."
     }
   ]
 }

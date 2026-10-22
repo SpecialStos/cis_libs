@@ -50,12 +50,35 @@ assert(type(caps) == 'table')
 
 ## Modules
 
-Fifteen pure-Lua modules (`Cis.requireList()` names them) load on demand into
-the calling resource's own Lua state, with no global left behind:
+Twenty-four pure-Lua modules (`Cis.requireList()` names them) load on demand
+into the calling resource's own Lua state, with no global left behind:
 
 ```lua
 local semver = Cis.require('semver')
 local ok = semver.satisfies('1.4.2', '^1.2')   -- true
+```
+
+| Need | Module |
+|---|---|
+| Translations from `locales/<lang>.json`, convar `cis:locale` | `locale` |
+| Levelled console output, convar `cis:printlevel[:<resource>]` | `print` |
+| Pausable timers, `setTimeout` / `setInterval` with cancellation | `timer` |
+| Cron schedules (`*/15 9-17 * * mon-fri`, `@daily`) | `cron` |
+| Classes with inheritance and private fields | `class` |
+| Arrays with an explicit length, stable sort, groupBy, chunk, zip | `array` |
+| Set, ring buffer, heap, LRU, sparse set | `set`, `ringbuffer`, `heap`, `lru`, `sparse` |
+| Rounding, remap, hex, digit grouping, weighted pick | `mathx` |
+| Case, split, fuzzy match, `random('1AA111')` | `string` |
+| Seeded randomness, ids, semver, JSON, validation, durations | `random`, `id`, `semver`, `json`, `validate`, `time` |
+| Easing, damping, splines, rate limits, sliding windows | `interp`, `curve`, `rate`, `window` |
+| Deep copy, merge, sorted keys | `table` |
+
+```lua
+local locale, print = Cis.require('locale'), Cis.require('print')
+print.info(locale.t('shop.welcome', { name = 'Ana' }))
+
+local cron = Cis.require('cron')
+local job = cron.schedule('0 4 * * *', function() print.info('nightly cleanup') end)
 ```
 
 Your own files load the same way: `Cis.require('client.utils')` reads

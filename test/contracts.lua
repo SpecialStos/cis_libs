@@ -1619,9 +1619,28 @@ do
     -- One entry, named, rather than the rule being relaxed -- the other 50-odd
     -- files keep the ban, which is the whole value of the check.
     local LOAD_ALLOWED = { ['init.lua'] = 'Cis.require: LoadResourceFile on a fixed allow-list' }
+    -- The GLOBAL compiler, not a field that happens to share its name:
+    -- `locale.load(lang)` reads a JSON file and is a method call. A field read
+    -- off _G or _ENV is still the global, so that spelling stays banned.
+    local function callsLoad(body, name)
+        for at in body:gmatch('()' .. name .. '%s*%(') do
+            local before = at > 1 and body:sub(at - 1, at - 1) or ''
+            if not before:match('[%w_]') then
+                if before ~= '.' and before ~= ':' then
+                    return true
+                end
+                local receiver = body:sub(1, at - 2):match('([%w_]+)%s*$')
+                -- The bodies are lowercased, so _G arrives as _g.
+                if receiver == '_g' or receiver == '_env' then
+                    return true
+                end
+            end
+        end
+        return false
+    end
     for _, file in ipairs(shipped) do
         for _, name in ipairs({ 'load', 'loadstring' }) do
-            if bodies[file]:find('%f[%a_]' .. name .. '%s*%(') and not LOAD_ALLOWED[file] then
+            if callsLoad(bodies[file], name) and not LOAD_ALLOWED[file] then
                 fail(file, name .. '() loads code at runtime')
             end
         end
@@ -3060,14 +3079,23 @@ do
         { name = 'lru', global = 'CisLRU', path = 'shared/algo/lru.lua' },
         { name = 'random', global = 'CisRandom', path = 'shared/algo/random.lua' },
         { name = 'rate', global = 'CisRate', path = 'shared/algo/rate.lua' },
+        { name = 'ringbuffer', global = 'CisRingBuffer', path = 'shared/algo/ringbuffer.lua' },
+        { name = 'set', global = 'CisSet', path = 'shared/algo/set.lua' },
         { name = 'sparse', global = 'CisSparse', path = 'shared/algo/sparse.lua' },
         { name = 'window', global = 'CisWindow', path = 'shared/algo/window.lua' },
+        { name = 'array', global = 'CisArray', path = 'shared/util/array.lua' },
+        { name = 'class', global = 'CisClass', path = 'shared/util/class.lua' },
+        { name = 'cron', global = 'CisCron', path = 'shared/util/cron.lua' },
         { name = 'id', global = 'CisId', path = 'shared/util/id.lua' },
         { name = 'json', global = 'CisJson', path = 'shared/util/json.lua' },
+        { name = 'locale', global = 'CisLocale', path = 'shared/util/locale.lua' },
+        { name = 'mathx', global = 'CisMathX', path = 'shared/util/mathx.lua' },
+        { name = 'print', global = 'CisPrint', path = 'shared/util/print.lua' },
         { name = 'semver', global = 'CisSemver', path = 'shared/util/semver.lua' },
         { name = 'string', global = 'CisString', path = 'shared/util/string.lua' },
         { name = 'table', global = 'CisTable', path = 'shared/util/table.lua' },
         { name = 'time', global = 'CisTime', path = 'shared/util/time.lua' },
+        { name = 'timer', global = 'CisTimer', path = 'shared/util/timer.lua' },
         { name = 'validate', global = 'CisValidate', path = 'shared/util/validate.lua' },
     }
 
