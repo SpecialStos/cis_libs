@@ -244,6 +244,10 @@ Generated from `api.lua`. Do not edit between the markers.
 | `InvokingAllowed` | server | `()` | 1.0.0 | no proxy equivalent; ask before mutating. This is the supported way to avoid a refusal |
 | `IsReady` | client | `()` | 1.0.0 | Cis.isReady, or Cis.ready(cb) |
 | `KeybindAdd` | client | `(options)` | 1.0.0 | Cis.keybind.add({ name, description, defaultKey, onPress, onRelease }) |
+| `KeybindDisable` | client | `(id, state)` | 1.0.0 | no proxy equivalent; the id-based form of handle:disable(state) |
+| `KeybindEnable` | client | `(id)` | 1.0.0 | no proxy equivalent; KeybindDisable(id, false) |
+| `KeybindIsPressed` | client | `(id)` | 1.0.0 | no proxy equivalent; the id-based form of handle:isPressed() |
+| `KeybindRemove` | client | `(id)` | 1.0.0 | no proxy equivalent; the id-based form of handle:destroy() |
 | `Keybinds` | client | `()` | 1.0.0 | no proxy equivalent; every binding this library registered |
 | `LockDoors` | server | `(identifier)` | 1.0.0 | Cis.doors.setState(identifier, true) |
 | `LogDebug` | both | `()` | 1.0.0 | Cis.log.debug(message) |

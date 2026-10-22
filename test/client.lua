@@ -3674,6 +3674,80 @@ do
     env.reset()
 end
 
+-- THE CONSUMER'S VIEW: handlers are funcrefs, the handle arrives without its
+-- metatable, and the commands outlive every binding because FiveM cannot
+-- unregister one.
+do
+    local env = newEnv({})
+    env.mappings = {}
+    function RegisterKeyMapping(...)
+        env.mappings[#env.mappings + 1] = table.pack(...)
+    end
+    loadModule('client/keybind.lua')
+    env.save('GetInvokingResource')
+    GetInvokingResource = function() return 'res_a' end
+
+    local pressed = 0
+    local handle = exports.KeybindAdd({
+        name = 'cis_ref_bind',
+        onPress = funcref(function() pressed = pressed + 1 end),
+    })
+    check(type(handle) == 'table' and type(handle.id) == 'number',
+        ('7.5: a funcref onPress is accepted (got %s)'):format(tostring(handle)))
+    local id = handle and handle.id
+    env.commands['+cis_ref_bind'].fn()
+    check(pressed == 1, ('7.5: and it fires on +name (pressed=%d)'):format(pressed))
+    check(exports.KeybindIsPressed(id) == true, '7.5: KeybindIsPressed(id) answers by id')
+    env.commands['-cis_ref_bind'].fn()
+    check(exports.KeybindIsPressed(id) == false, '7.5: and clears on -name')
+
+    -- Keybinds hands out snapshots, never another resource's callbacks.
+    local list = exports.Keybinds()
+    local leaked = false
+    for _, b in ipairs(list) do
+        if b.onPress ~= nil or b.onRelease ~= nil or getmetatable(b) ~= nil then leaked = true end
+    end
+    check(#list == 1 and not leaked, '7.5: Keybinds lists bindings without their callbacks')
+
+    -- A NAME ANOTHER RESOURCE HOLDS IS REFUSED.
+    GetInvokingResource = function() return 'res_b' end
+    local stolen, why = exports.KeybindAdd({ name = 'cis_ref_bind', onPress = function() end })
+    check(stolen == false and type(why) == 'string' and why:find('res_a', 1, true),
+        ('7.5: res_b cannot take a name res_a holds (got %s, %s)'):format(tostring(stolen), tostring(why)))
+    env.commands['+cis_ref_bind'].fn()
+    check(pressed == 2, '7.5: and res_a still owns the key')
+
+    -- Id-based control is the owner's.
+    local okB = exports.KeybindDisable(id)
+    check(okB == false, '7.5: res_b cannot disable res_a binding by id')
+    GetInvokingResource = function() return 'res_a' end
+    check(exports.KeybindDisable(id) == true, '7.5: the owner can disable by id')
+    env.commands['+cis_ref_bind'].fn()
+    check(pressed == 2, '7.5: a binding disabled by id does not fire')
+    check(exports.KeybindEnable(id) == true, '7.5: and re-enable by id')
+    env.commands['+cis_ref_bind'].fn()
+    check(pressed == 3, '7.5: and it fires again')
+
+    -- REMOVE MAKES THE COMMAND INERT. The command cannot be unregistered, so the
+    -- closure must find nothing to call -- not a live flag and a dead funcref.
+    check(exports.KeybindRemove(id) == true, '7.5: the owner can remove by id')
+    env.commands['+cis_ref_bind'].fn()
+    check(pressed == 3, ('7.5: a removed binding\'s command does nothing (pressed=%d)'):format(pressed))
+    check(handle.enabled == false, '7.5: and the handle says it is disabled')
+
+    -- AN OWNER'S STOP MAKES ITS BINDINGS INERT, and frees the name.
+    local stopCalls = 0
+    exports.KeybindAdd({ name = 'cis_stop_bind', onPress = funcref(function() stopCalls = stopCalls + 1 end) })
+    env.fire('onResourceStop', 'res_a')
+    local ok, err = pcall(env.commands['+cis_stop_bind'].fn)
+    check(ok and stopCalls == 0, ('7.5: a stopped owner\'s binding no longer calls its dead handler (%s, calls=%d)')
+        :format(tostring(err), stopCalls))
+    GetInvokingResource = function() return 'res_b' end
+    local reused = exports.KeybindAdd({ name = 'cis_stop_bind', onPress = function() end })
+    check(type(reused) == 'table', '7.5: the name is free for another resource once its owner stopped')
+    env.reset()
+end
+
 -- ===================================================== 7.7 Cis.statebag
 do
     local env = newEnv({})

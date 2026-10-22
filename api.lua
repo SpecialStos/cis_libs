@@ -351,15 +351,43 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.keybind.add({ name, description, defaultKey, onPress, onRelease })',
             realm = 'client',
-            params = { { name = 'options', type = 'CisKeybindOptions', doc = 'name is REQUIRED and validated; onPress and onRelease are FUNCTIONS and are dropped across the exports boundary, so a consumer binding does nothing until that is understood' } },
-            returns = { { type = 'table|false, string|nil', doc = 'a handle with disable(bool), isPressed() and reset(), or false plus a reason. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so renaming a binding creates a SECOND one rather than renaming the first' } }
+            params = { { name = 'options', type = 'CisKeybindOptions', doc = 'name is REQUIRED and validated, and refused while another resource holds it; onPress and onRelease are functions, which reach cis_libs as funcrefs and are called there. A stopped owner takes its bindings with it' } },
+            returns = { { type = 'table|false, string|nil', doc = 'a handle with id, name and owner, or false plus a reason. Its methods (disable, isPressed, reset, destroy) work only inside cis_libs -- across exports the metatable is lost, so keep handle.id and use KeybindDisable, KeybindEnable, KeybindIsPressed and KeybindRemove. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so renaming a binding creates a SECOND one rather than renaming the first' } }
         },
         Keybinds = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'no proxy equivalent; every binding this library registered',
             realm = 'client',
             params = {  },
-            returns = { { type = 'table[]', doc = 'the live handles, so a consumer can disable its own rather than guessing at ids' } }
+            returns = { { type = 'table[]', doc = 'snapshots { id, name, owner, command, enabled, pressed } sorted by id -- never the live handles and never anyone\'s callbacks' } }
+        },
+        KeybindDisable = {
+            since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'no proxy equivalent; the id-based form of handle:disable(state)',
+            realm = 'client',
+            params = { { name = 'id', type = 'integer', doc = 'handle.id from KeybindAdd' }, { name = 'state', type = 'boolean', doc = 'true or nil disables, false enables' } },
+            returns = { { type = 'boolean, string|nil', doc = 'false plus a reason for an unknown id or a binding owned by another resource' } }
+        },
+        KeybindEnable = {
+            since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'no proxy equivalent; KeybindDisable(id, false)',
+            realm = 'client',
+            params = { { name = 'id', type = 'integer', doc = 'handle.id from KeybindAdd' } },
+            returns = { { type = 'boolean, string|nil', doc = 'false plus a reason for an unknown id or a binding owned by another resource' } }
+        },
+        KeybindRemove = {
+            since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'no proxy equivalent; the id-based form of handle:destroy()',
+            realm = 'client',
+            params = { { name = 'id', type = 'integer', doc = 'handle.id from KeybindAdd' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true once the binding is inert and its name is free. The +name/-name commands cannot be unregistered, so they stay and do nothing' } }
+        },
+        KeybindIsPressed = {
+            since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'no proxy equivalent; the id-based form of handle:isPressed()',
+            realm = 'client',
+            params = { { name = 'id', type = 'integer', doc = 'handle.id from KeybindAdd' } },
+            returns = { { type = 'boolean', doc = 'false for an unknown or removed id' } }
         },
         UiNotify = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -1773,8 +1801,8 @@ return {
         since = '1.0.0',
         realm = 'client',
         forwardsTo = 'KeybindAdd',
-        params = { { name = 'options', type = 'CisKeybindOptions', doc = 'name REQUIRED; onPress and onRelease are FUNCTIONS and are dropped across the boundary' } },
-        returns = { { type = 'table|false, string|nil', doc = 'a handle with disable, isPressed and reset. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so a renamed binding is a second binding and the first still shows in the menu' } },
+        params = { { name = 'options', type = 'CisKeybindOptions', doc = 'name REQUIRED; onPress and onRelease are functions and arrive in cis_libs as funcrefs' } },
+        returns = { { type = 'table|false, string|nil', doc = 'a handle whose id feeds KeybindDisable, KeybindEnable, KeybindIsPressed and KeybindRemove -- its methods do not survive the boundary. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so a renamed binding is a second binding and the first still shows in the menu' } },
     },
     ['Cis.ui.notify'] = {
         since = '1.0.0',

@@ -481,7 +481,7 @@ local CisZoneDebug = {}
 ---@field rotation? number an alias for the box heading
 local CisZoneOptions = {}
 
--- ================================================= RAW EXPORTS (155)
+-- ================================================= RAW EXPORTS (159)
 
 ---@overload fun(...)
   ---@param groupData table #the group record handed to the provider's addGroup
@@ -1078,13 +1078,38 @@ function InvokingAllowed() end
 function IsReady() end
 
 --- Cis.keybind.add({ name, description, defaultKey, onPress, onRelease })
----@param options CisKeybindOptions #name is REQUIRED and validated; onPress and onRelease are FUNCTIONS and are dropped across the exports boundary, so a consumer binding does nothing until that is understood
----@return table|false, string|nil #a handle with disable(bool), isPressed() and reset(), or false plus a reason. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so renaming a binding creates a SECOND one rather than renaming the first
+---@param options CisKeybindOptions #name is REQUIRED and validated, and refused while another resource holds it; onPress and onRelease are functions, which reach cis_libs as funcrefs and are called there. A stopped owner takes its bindings with it
+---@return table|false, string|nil #a handle with id, name and owner, or false plus a reason. Its methods (disable, isPressed, reset, destroy) work only inside cis_libs -- across exports the metatable is lost, so keep handle.id and use KeybindDisable, KeybindEnable, KeybindIsPressed and KeybindRemove. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so renaming a binding creates a SECOND one rather than renaming the first
 --- realm: client
 function KeybindAdd(options) end
 
+--- no proxy equivalent; the id-based form of handle:disable(state)
+---@param id integer #handle.id from KeybindAdd
+---@param state boolean #true or nil disables, false enables
+---@return boolean, string|nil #false plus a reason for an unknown id or a binding owned by another resource
+--- realm: client
+function KeybindDisable(id, state) end
+
+--- no proxy equivalent; KeybindDisable(id, false)
+---@param id integer #handle.id from KeybindAdd
+---@return boolean, string|nil #false plus a reason for an unknown id or a binding owned by another resource
+--- realm: client
+function KeybindEnable(id) end
+
+--- no proxy equivalent; the id-based form of handle:isPressed()
+---@param id integer #handle.id from KeybindAdd
+---@return boolean #false for an unknown or removed id
+--- realm: client
+function KeybindIsPressed(id) end
+
+--- no proxy equivalent; the id-based form of handle:destroy()
+---@param id integer #handle.id from KeybindAdd
+---@return boolean, string|nil #true once the binding is inert and its name is free. The +name/-name commands cannot be unregistered, so they stay and do nothing
+--- realm: client
+function KeybindRemove(id) end
+
 --- no proxy equivalent; every binding this library registered
----@return table[] #the live handles, so a consumer can disable its own rather than guessing at ids
+---@return table[] #snapshots { id, name, owner, command, enabled, pressed } sorted by id -- never the live handles and never anyone's callbacks
 --- realm: client
 function Keybinds() end
 
@@ -1917,8 +1942,8 @@ function Cis.inventory.remove(src, item, amount) end
 ---@field since string 1.0.0
 ---@field realm "client"
 ---@field forwardsTo string KeybindAdd
----@param options CisKeybindOptions #name REQUIRED; onPress and onRelease are FUNCTIONS and are dropped across the boundary
----@return table|false, string|nil #a handle with disable, isPressed and reset. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so a renamed binding is a second binding and the first still shows in the menu
+---@param options CisKeybindOptions #name REQUIRED; onPress and onRelease are functions and arrive in cis_libs as funcrefs
+---@return table|false, string|nil #a handle whose id feeds KeybindDisable, KeybindEnable, KeybindIsPressed and KeybindRemove -- its methods do not survive the boundary. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so a renamed binding is a second binding and the first still shows in the menu
 function Cis.keybind.add(options) end
 
 ---@class Cis.log.debug
