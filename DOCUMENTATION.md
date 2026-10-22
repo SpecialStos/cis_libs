@@ -431,7 +431,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `Cis.callback.awaitClient` | server | `(src, name, ...)` | 1.0.0 |  |
 | `Cis.callback.call` | both | `(name, cb?, ...)` | 1.0.0 |  |
 | `Cis.callback.callClient` | server | `(src, name, cb?, ...)` | 1.0.0 |  |
-| `Cis.callback.register` | both | `(name, handler)` | 1.0.0 |  |
+| `Cis.callback.register` | both | `(name, handler, opts?)` | 1.0.0 |  |
 | `Cis.callback.tryAwait` | both | `(name, ...)` | 1.0.0 |  |
 | `Cis.command.add` | server | `(name, options, handler)` | 1.0.0 |  |
 | `Cis.command.list` | server | `()` | 1.0.0 |  |

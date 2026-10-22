@@ -1579,8 +1579,8 @@ return {
         since = '1.0.0',
         realm = 'both',
         forwardsTo = 'RegisterCallback',
-        params = { { name = 'name', type = 'string', doc = 'a non-empty handler name' }, { name = 'handler', type = 'function|string', doc = "a function -- cis_libs itself only -- or a 'resource:Export' string, which is the form that works from a consumer" } },
-        returns = { { type = 'boolean, string|nil', doc = "true once bound; false plus the reason on a refusal. Registration options (remote, ace, schema, maxStringLen) are taken by the RegisterCallback export" } },
+        params = { { name = 'name', type = 'string', doc = 'a non-empty handler name' }, { name = 'handler', type = 'function|string', doc = "a function (from any resource; it crosses as a callable reference and is released when that resource stops) or a 'resource:Export' string" }, { name = 'opts', type = 'table', optional = true, doc = "server only: { remote, ace, schema, maxStringLen }, as RegisterCallback" } },
+        returns = { { type = 'boolean, string|nil', doc = "true once bound; false plus the reason on a refusal" } },
     },
     ['Cis.callback.tryAwait'] = {
         since = '1.0.0',

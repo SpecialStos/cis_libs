@@ -1275,6 +1275,16 @@ do
     routesTo(function() Cis.db.transaction({}) end, 'DbTransaction', 'db.transaction')
     routesTo(function() Cis.callback.register('x', nil) end, 'RegisterCallback', 'callback.register')
     routesTo(function() Cis.callback.await('x') end, 'AwaitCallback', 'callback.await')
+    do
+        -- Registration options must reach the export: without them a consumer
+        -- cannot make a callback server-only, ACE-gated or schema-checked.
+        calls = {}
+        local opts = { remote = false, ace = 'cis.admin' }
+        Cis.callback.register('x', 'res:Exp', opts)
+        local raw = calls[1]
+        check(f(raw, 'name') == 'RegisterCallback' and raw[2] == 'x' and raw[3] == 'res:Exp' and raw[4] == opts,
+            'callback.register forwards opts as the third argument')
+    end
     -- `callback.call` no longer routes to CallCallback (). `cb` IS A FUNCTION,
     -- and a function cannot cross the exports boundary, so the old call sent nil
     -- and the reply was delivered to nothing: the caller got no error and no

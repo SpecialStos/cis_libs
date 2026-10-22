@@ -456,7 +456,7 @@ else
         return exportCall('DbTransaction', queries)
     end
 
-    -- cis_libs NEVER CALLS add_ace.
+    -- A `restricted` group grants ACE only when cis_libs holds command.add_ace.
     function Cis.command.add(name, options, handler)
         return exportCall('CommandAdd', name, options, handler)
     end
@@ -704,8 +704,12 @@ function Cis.framework.notify(srcOrNil, message, kind)
 end
 
 -- A function cannot be SENT across the exports boundary, so `handler` may be: a
-function Cis.callback.register(name, handler)
-    return exportCall('RegisterCallback', name, handler)
+-- opts (server only): { remote, ace, schema, maxStringLen } -- see RegisterCallback.
+function Cis.callback.register(name, handler, opts)
+    if opts == nil then
+        return exportCall('RegisterCallback', name, handler)
+    end
+    return exportCall('RegisterCallback', name, handler, opts)
 end
 
 -- The inner await, so `call` below and `await` above share ONE implementation.

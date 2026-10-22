@@ -1923,9 +1923,10 @@ function Cis.callback.callClient(src, name, cb, ...) end
 ---@field realm "both"
 ---@field forwardsTo string RegisterCallback
 ---@param name string #a non-empty handler name
----@param handler function|string #a function -- cis_libs itself only -- or a 'resource:Export' string, which is the form that works from a consumer
----@return boolean, string|nil #true once bound; false plus the reason on a refusal. Registration options (remote, ace, schema, maxStringLen) are taken by the RegisterCallback export
-function Cis.callback.register(name, handler) end
+---@param handler function|string #a function (from any resource; it crosses as a callable reference and is released when that resource stops) or a 'resource:Export' string
+---@param opts? table #server only: { remote, ace, schema, maxStringLen }, as RegisterCallback
+---@return boolean, string|nil #true once bound; false plus the reason on a refusal
+function Cis.callback.register(name, handler, opts) end
 
 ---@class Cis.callback.tryAwait
 ---@field since string 1.0.0
