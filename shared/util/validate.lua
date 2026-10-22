@@ -2,7 +2,9 @@
 
 local M = {}
 
--- math.type is Lua 5.3+. A FiveM client runs LuaJIT and does not have it, so the
+-- math.type is Lua 5.3+. FiveM runs CfxLua 5.4 on both realms, so it is there
+-- in production; it is feature-detected for the other Lua hosts this file runs
+-- on (test interpreters, tooling).
 local HAS_MATH_TYPE = type(math.type) == 'function'
 
 local function typeName(v)
@@ -12,6 +14,15 @@ local function typeName(v)
         return 'integer'
     end
     return t
+end
+
+-- A bound as text. `%d` raises on 2.5 ("number has no integer representation"),
+-- and a bound is the caller's number, not ours to assume whole.
+local function num(n)
+    if type(n) == 'number' and n % 1 == 0 and n > -1e15 and n < 1e15 then
+        return ('%.0f'):format(n)
+    end
+    return tostring(n)
 end
 
 local function nameOf(opts)
@@ -31,6 +42,10 @@ end
 --- @return boolean  true for a number with no fractional part, INCLUDING 5.0. NaN is not an integer.
 function M.isInteger(v)
     if type(v) ~= 'number' then
+        return false
+    end
+    -- Infinity is not an integer, though math.floor(inf) == inf says otherwise.
+    if v == math.huge or v == -math.huge then
         return false
     end
     -- NaN fails this too, which is the right answer: NaN is not an integer.
@@ -105,10 +120,10 @@ function M.string(v, opts)
         return false, ('%s must not be empty'):format(name)
     end
     if opts.min ~= nil and len < opts.min then
-        return false, ('%s must be at least %d characters, got %d'):format(name, opts.min, len)
+        return false, ('%s must be at least %s characters, got %d'):format(name, num(opts.min), len)
     end
     if opts.max ~= nil and len > opts.max then
-        return false, ('%s must be at most %d characters, got %d'):format(name, opts.max, len)
+        return false, ('%s must be at most %s characters, got %d'):format(name, num(opts.max), len)
     end
     if opts.oneOf then
         local found = false
@@ -242,10 +257,10 @@ function M.tableValue(v, opts)
         return false, ('%s must not be empty'):format(name)
     end
     if opts.min ~= nil and count < opts.min then
-        return false, ('%s must have at least %d entries, got %d'):format(name, opts.min, count)
+        return false, ('%s must have at least %s entries, got %d'):format(name, num(opts.min), count)
     end
     if opts.max ~= nil and count > opts.max then
-        return false, ('%s must have at most %d entries, got %d'):format(name, opts.max, count)
+        return false, ('%s must have at most %s entries, got %d'):format(name, num(opts.max), count)
     end
     if opts.of then
         local ok, why = shapeOf(v, opts.of, name)

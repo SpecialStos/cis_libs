@@ -196,46 +196,54 @@ function M.truncate(s, max, ellipsis)
     if type(s) ~= 'string' then
         return ''
     end
-    if type(max) ~= 'number' or max < 0 then
+    if type(max) ~= 'number' or max ~= max or max < 0 then
         return s
     end
+    -- A whole number of characters. utf8.offset raises on a fractional index
+    -- ("number has no integer representation"), so 2.5 used to be a crash.
+    max = math.floor(max)
     if ellipsis == nil then
         ellipsis = '...'
     elseif ellipsis == false or ellipsis == '' then
         ellipsis = ''
     end
+    -- Characters when the text is valid UTF-8, bytes when it is not. utf8.len
+    -- answers (count) for valid text and (nil, position) for invalid text; the
+    -- old code took the SECOND value, which is nil on valid text, so every
+    -- string was measured in bytes and "é" counted twice.
     local function length(str)
         if HAS_UTF8 then
-            -- utf8.len returns (count, positionOfFirstInvalidByte).
-            local _, count = utf8.len(str)
-            return count or #str
+            local count = utf8.len(str)
+            if count then
+                return count, true
+            end
         end
-        return #str
+        return #str, false
     end
-    local len = length(s)
+    -- The first `n` characters of `str`.
+    local function prefix(str, n, chars)
+        if n <= 0 then
+            return ''
+        end
+        if chars then
+            local cut = utf8.offset(str, n + 1)
+            return cut and str:sub(1, cut - 1) or str
+        end
+        return str:sub(1, n)
+    end
+    local len, chars = length(s)
     if len <= max then
         return s
     end
     if ellipsis == '' then
-        if HAS_UTF8 then
-            local cut = utf8.offset(s, max + 1)
-            return cut and s:sub(1, cut - 1) or ''
-        end
-        return s:sub(1, max)
+        return prefix(s, max, chars)
     end
-    local keep = max - length(ellipsis)
+    local ellipsisLen, ellipsisChars = length(ellipsis)
+    local keep = max - ellipsisLen
     if keep <= 0 then
-        if HAS_UTF8 then
-            local cut = utf8.offset(ellipsis, max + 1)
-            return cut and ellipsis:sub(1, cut - 1) or ''
-        end
-        return ellipsis:sub(1, max)
+        return prefix(ellipsis, max, ellipsisChars)
     end
-    if HAS_UTF8 then
-        local cut = utf8.offset(s, keep + 1)
-        return (cut and s:sub(1, cut - 1) or '') .. ellipsis
-    end
-    return s:sub(1, keep) .. ellipsis
+    return prefix(s, keep, chars) .. ellipsis
 end
 
 --- Whether this runtime has the utf8 library.

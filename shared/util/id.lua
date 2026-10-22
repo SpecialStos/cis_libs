@@ -150,8 +150,8 @@ function M.next(counter, kind)
     if type(counter) ~= 'table' then
         return nil, ('counter must be a table from CisId.newCounter(), got %s'):format(type(counter))
     end
-    if type(counter.seq) ~= 'number' then
-        return nil, 'counter.seq is not a number; this is not a counter'
+    if type(counter.seq) ~= 'number' or counter.seq % 1 ~= 0 then
+        return nil, 'counter.seq is not a whole number; this is not a counter'
     end
     counter.seq = counter.seq + 1
     if kind == nil or kind == '' then
@@ -160,7 +160,7 @@ function M.next(counter, kind)
     if type(kind) ~= 'string' then
         return nil, ('kind must be a string, got %s'):format(type(kind))
     end
-    return ('%s_%d'):format(kind, counter.seq)
+    return ('%s_%.0f'):format(kind, counter.seq)
 end
 
 -- Two escapes, because Lua uses different rules for a pattern and for a gsub

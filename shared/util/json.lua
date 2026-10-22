@@ -48,47 +48,120 @@ end
 --- @param value
 --- @param opts
 --- @return boolean,string|nil  true when the value encodes, or false and a PATH that names the offending key. A table keyed by a function is a real Lua shape and fails here.
+-- The SHAPE rule for one table, which is where the portable subset of JSON
+-- and the codecs FiveM servers run disagree most. A table encodes the same way
+-- everywhere only when it is one of:
+--
+--   * empty;
+--   * an ARRAY: every key a positive integer, exactly 1..n, no holes;
+--   * an OBJECT: every key a string.
+--
+-- Anything else is answered differently by different codecs, or raises in
+-- some of them: a mixed table ({1, 2, name = 'x'}) is an object with "1"
+-- and "2" keys in one codec and an error in another; a sparse array is padded
+-- with nulls, or refused as "excessively sparse"; a fractional key (1.5) has
+-- no array position at all. Refusing them here is the point of asking first:
+-- the caller learns the WHERE, by path, instead of a codec error or a payload
+-- that decodes as something else.
+local function shapeProblem(v)
+    local count, strings, numbers = 0, 0, 0
+    for k in next, v do
+        count = count + 1
+        local kt = type(k)
+        if kt == 'string' then
+            strings = strings + 1
+        elseif kt == 'number' then
+            if k ~= k or k == math.huge or k == -math.huge or k % 1 ~= 0 then
+                return ('number key %s is not an integer, and has no array position')
+                    :format(tostring(k))
+            end
+            if k < 1 then
+                return ('number key %s is below 1, and has no array position'):format(tostring(k))
+            end
+            numbers = numbers + 1
+        else
+            return ('key of type %s'):format(kt)
+        end
+    end
+    if strings > 0 and numbers > 0 then
+        return ('mixed keys: %d string and %d number keys in one table'):format(strings, numbers)
+    end
+    if numbers > 0 then
+        for i = 1, count do
+            if rawget(v, i) == nil then
+                return ('sparse array: %d number keys, but index %d is missing'):format(count, i)
+            end
+        end
+    end
+    return nil
+end
+
 function M.checkEncodable(value, opts)
     opts = opts or {}
     local maxDepth = opts.maxDepth or M.MAX_DEPTH
     local path = { '<root>' }
-    local seen = {}
+    -- Two different facts, kept apart. `onPath` is "an ancestor of where the
+    -- walk is now", and meeting one again is a cycle. `height` is "already
+    -- walked to completion", and meeting one again is just a table shared by
+    -- two parents: legal, encoded twice, and NOT worth walking twice. One set
+    -- doing both jobs (cleared on the way out, so it could detect cycles)
+    -- walked a shared table once per route to it: 2^22 walks for a 22-level
+    -- chain of {a = t, b = t}.
+    local onPath = {}
+    local height = {}
     local problem
 
+    local function where()
+        return table.concat(path, '.')
+    end
+
+    -- Answers the height of `v` below and including itself (0 for a scalar).
     local function walk(v, depth)
-        if problem then return end
         local t = type(v)
         if t == 'table' then
-            if seen[v] then
-                problem = ('cycle through %s'):format(table.concat(path, '.'))
-                return
+            if onPath[v] then
+                problem = ('cycle through %s'):format(where())
+                return 0
+            end
+            local known = height[v]
+            if known then
+                -- Already checked from another parent. Its shape is fine; the
+                -- only thing that can differ on this route is the depth.
+                if depth + known - 1 > maxDepth then
+                    problem = ('nesting deeper than %s at %s'):format(tostring(maxDepth), where())
+                end
+                return known
             end
             if depth > maxDepth then
-                problem = ('nesting deeper than %d at %s'):format(maxDepth, table.concat(path, '.'))
-                return
+                problem = ('nesting deeper than %s at %s'):format(tostring(maxDepth), where())
+                return 0
             end
-            seen[v] = true
+            local shape = shapeProblem(v)
+            if shape then
+                problem = ('%s at %s'):format(shape, where())
+                return 0
+            end
+            onPath[v] = true
+            local below = 0
             for k, child in pairs(v) do
-                -- The key must be encodable too: a table keyed by a function is a real
-                local kt = type(k)
-                if kt ~= 'string' and kt ~= 'number' then
-                    problem = ('key of type %s at %s'):format(kt, table.concat(path, '.'))
-                    return
-                end
                 path[#path + 1] = tostring(k)
-                walk(child, depth + 1)
+                local h = walk(child, depth + 1)
                 path[#path] = nil
-                if problem then return end
+                if problem then return 0 end
+                if h > below then below = h end
             end
-            seen[v] = nil
+            onPath[v] = nil
+            height[v] = below + 1
+            return below + 1
         elseif t == 'function' or t == 'thread' or t == 'userdata' then
-            problem = ('%s at %s cannot be represented in JSON'):format(t, table.concat(path, '.'))
+            problem = ('%s at %s cannot be represented in JSON'):format(t, where())
         elseif t == 'number' then
             -- NaN and the infinities have no JSON spelling.
             if v ~= v or v == math.huge or v == -math.huge then
-                problem = ('non-finite number at %s'):format(table.concat(path, '.'))
+                problem = ('non-finite number at %s'):format(where())
             end
         end
+        return 0
     end
 
     walk(value, 1)
@@ -112,13 +185,16 @@ function M.encode(codec, value, opts)
     if not good then
         return nil, problem
     end
-    local encoded, err = pcall(codec.encode, value)
+    local encoded, result, encodeErr = pcall(codec.encode, value)
     if not encoded then
-        return nil, ('the encoder raised: %s'):format(tostring(err))
+        return nil, ('the encoder raised: %s'):format(tostring(result))
     end
-    local result = err
     if type(result) ~= 'string' then
-        -- A codec that returns true/nil instead of raising is still wrong, and handing
+        -- A codec that answers anything but a string has not encoded. One in the
+        -- `nil, err` style is reported with ITS reason.
+        if result == nil and encodeErr ~= nil then
+            return nil, ('the encoder refused: %s'):format(tostring(encodeErr))
+        end
         return nil, ('the encoder returned %s, not a string'):format(type(result))
     end
     return result
@@ -187,7 +263,7 @@ function M.decode(codec, text, opts)
     end
     local maxInput = opts.maxInput or M.MAX_INPUT
     if #text > maxInput then
-        return nil, ('text is %d bytes, over the %d limit'):format(#text, maxInput)
+        return nil, ('text is %d bytes, over the %s limit'):format(#text, tostring(maxInput))
     end
     local depth, scanErr = M.scanDepth(text)
     if not depth then
@@ -195,11 +271,23 @@ function M.decode(codec, text, opts)
     end
     local maxDepth = opts.maxDepth or M.MAX_DEPTH
     if depth > maxDepth then
-        return nil, ('text nests %d deep, over the %d limit'):format(depth, maxDepth)
+        return nil, ('text nests %d deep, over the %s limit'):format(depth, tostring(maxDepth))
     end
-    local decoded, value = pcall(codec.decode, text)
+    local decoded, value, second, third = pcall(codec.decode, text)
     if not decoded then
         return nil, ('the decoder raised: %s'):format(tostring(value))
+    end
+    -- A codec may REFUSE without raising. The two conventions in use are
+    -- `nil, err` (lua-cjson's safe mode and most wrappers) and dkjson's
+    -- `nil, position, err`. Read as success, either one turned malformed input
+    -- into a JSON null -- the one answer a caller cannot tell from real data.
+    -- dkjson's SUCCESS on `null` is `nil, position` with no message, which is
+    -- why a number in the second slot is not itself a refusal.
+    if value == nil then
+        local refusal = (type(second) == 'string' and second) or (type(third) == 'string' and third)
+        if refusal then
+            return nil, ('the decoder refused: %s'):format(refusal)
+        end
     end
     -- value == nil here means the codec succeeded and produced JSON null.
     return value

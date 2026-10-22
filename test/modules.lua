@@ -1058,17 +1058,7 @@ do
 end
 
 -- =================================================================== CisJson
--- No codec is shipped: the module wraps an injected one. Under fengari there
--- is no real codec, so the contract under test is the refusal layer -- it
--- must never raise, whatever the injected codec does.
-do
-    local J = CisJson
-    local hostile = function() error('codec exploded') end
-    local ok = pcall(function() return J.check(hostile, { a = 1 }) end)
-    expect(ok, 'check does not raise when the codec raises')
-    local enc = pcall(function() return J.encode({ a = 1 }, hostile) end)
-    expect(enc, 'encode does not raise when the codec raises')
-end
+-- The real codec tests are in Phase 6 below, against a working reference codec.
 
 -- =================================================================== CisWindow
 -- A ring of time buckets. The invariant pinned here is that the ring cursor
@@ -1657,11 +1647,19 @@ do
         expect(halfCodec == nil and type(halfWhy) == 'string',
             'check refuses a codec missing decode, and says which half')
 
-        local hostile = function() error('codec exploded') end
-        expect(pcall(function() return J.encode(hostile, { a = 1 }) end),
-            'encode survives a codec that raises')
-        expect(pcall(function() return J.decode(hostile, '{}') end),
-            'decode survives a codec that raises')
+        -- A codec TABLE whose halves raise, in the argument order the module
+        -- takes: (codec, value). A bare function is not a codec and is refused
+        -- by check() before anything is called, so it tests nothing here.
+        local hostile = {
+            encode = function() error('codec exploded') end,
+            decode = function() error('codec exploded') end,
+        }
+        local okE, encoded, encWhy = pcall(J.encode, hostile, { a = 1 })
+        expect(okE and encoded == nil and type(encWhy) == 'string' and encWhy:find('exploded', 1, true),
+            'encode turns a raising codec into nil + the codec reason')
+        local okD, decoded, decWhy = pcall(J.decode, hostile, '{}')
+        expect(okD and decoded == nil and type(decWhy) == 'string' and decWhy:find('exploded', 1, true),
+            'decode turns a raising codec into nil + the codec reason')
 
         local good = J.checkEncodable({ a = 1, b = { c = 2 } })
         expect(good == true, 'a plain structure is encodable')
@@ -2161,6 +2159,588 @@ do
     local none, why = Id.uuid('nope')
     expect(none == nil and type(why) == 'string', 'id: a non-generator is a refusal, not a raise')
     expect(#Id.short() == Id.LENGTH and Id.LENGTH * 5 == 60, 'id: LENGTH is 12 symbols, 60 bits')
+end
+
+-- Structural equality, for round trips and reference comparisons.
+local function deepEqual(a, b)
+    if a == b then return true end
+    if type(a) ~= 'table' or type(b) ~= 'table' then return false end
+    for k, v in pairs(a) do
+        if not deepEqual(v, b[k]) then return false end
+    end
+    for k in pairs(b) do
+        if a[k] == nil then return false end
+    end
+    return true
+end
+
+-- ------------------------------------------------- json: a REAL codec
+--
+-- FiveM gives every resource `json.encode`/`json.decode`. Neither interpreter
+-- here has one, so this is a small, strict reference codec written for the
+-- test: it really encodes and really parses, and it raises on anything it
+-- cannot represent, the way a production codec does. The module's tests used
+-- to pass a bare function as the "codec", with the arguments in the wrong
+-- order, and assert only that nothing raised -- which a module that did
+-- nothing at all would also pass.
+local RefJson = {}
+do
+    local escapes = { ['"'] = '\\"', ['\\'] = '\\\\', ['\b'] = '\\b', ['\f'] = '\\f',
+        ['\n'] = '\\n', ['\r'] = '\\r', ['\t'] = '\\t' }
+    local function encodeString(s)
+        return '"' .. s:gsub('[%c"\\]', function(c)
+            return escapes[c] or ('\\u%04x'):format(c:byte())
+        end) .. '"'
+    end
+    local function isArray(t)
+        local n = 0
+        for k in pairs(t) do
+            if type(k) ~= 'number' or k % 1 ~= 0 or k < 1 then return false end
+            n = n + 1
+        end
+        for i = 1, n do if t[i] == nil then return false end end
+        return true, n
+    end
+    local function enc(v, out)
+        local t = type(v)
+        if v == nil then out[#out + 1] = 'null'
+        elseif t == 'boolean' then out[#out + 1] = tostring(v)
+        elseif t == 'number' then
+            if v ~= v or v == math.huge or v == -math.huge then error('cannot encode ' .. tostring(v)) end
+            if v % 1 == 0 and math.abs(v) < 1e15 then
+                out[#out + 1] = ('%.0f'):format(v)
+            else
+                out[#out + 1] = ('%.17g'):format(v)
+            end
+        elseif t == 'string' then out[#out + 1] = encodeString(v)
+        elseif t == 'table' then
+            local arr, n = isArray(v)
+            if arr then
+                out[#out + 1] = '['
+                for i = 1, n do
+                    if i > 1 then out[#out + 1] = ',' end
+                    enc(v[i], out)
+                end
+                out[#out + 1] = ']'
+            else
+                local keys = {}
+                for k in pairs(v) do
+                    if type(k) ~= 'string' then error('cannot encode a ' .. type(k) .. ' key') end
+                    keys[#keys + 1] = k
+                end
+                table.sort(keys)
+                out[#out + 1] = '{'
+                for i, k in ipairs(keys) do
+                    if i > 1 then out[#out + 1] = ',' end
+                    out[#out + 1] = encodeString(k)
+                    out[#out + 1] = ':'
+                    enc(v[k], out)
+                end
+                out[#out + 1] = '}'
+            end
+        else
+            error('cannot encode a ' .. t)
+        end
+    end
+    function RefJson.encode(v)
+        local out = {}
+        enc(v, out)
+        return table.concat(out)
+    end
+
+    function RefJson.decode(s)
+        local pos = 1
+        local function fail(what) error(('json: %s at byte %d'):format(what, pos), 0) end
+        local function ws() pos = s:find('[^ \t\r\n]', pos) or (#s + 1) end
+        local value
+        local function str()
+            pos = pos + 1
+            local buf = {}
+            while true do
+                local c = s:sub(pos, pos)
+                if c == '' then fail('unterminated string') end
+                if c == '"' then pos = pos + 1 break end
+                if c == '\\' then
+                    local e = s:sub(pos + 1, pos + 1)
+                    local map = { ['"'] = '"', ['\\'] = '\\', ['/'] = '/', b = '\b', f = '\f',
+                        n = '\n', r = '\r', t = '\t' }
+                    if map[e] then
+                        buf[#buf + 1] = map[e]
+                        pos = pos + 2
+                    elseif e == 'u' then
+                        local hex = s:sub(pos + 2, pos + 5)
+                        if not hex:match('^%x%x%x%x$') then fail('bad \\u escape') end
+                        local code = tonumber(hex, 16)
+                        if code >= 128 then fail('non-ASCII \\u escape is outside this reference') end
+                        buf[#buf + 1] = string.char(code)
+                        pos = pos + 6
+                    else
+                        fail('bad escape')
+                    end
+                elseif c:byte() < 32 then
+                    fail('raw control character in string')
+                else
+                    buf[#buf + 1] = c
+                    pos = pos + 1
+                end
+            end
+            return table.concat(buf)
+        end
+        function value()
+            ws()
+            local c = s:sub(pos, pos)
+            if c == '{' then
+                pos = pos + 1
+                local obj = {}
+                ws()
+                if s:sub(pos, pos) == '}' then pos = pos + 1 return obj end
+                while true do
+                    ws()
+                    if s:sub(pos, pos) ~= '"' then fail('expected a key') end
+                    local k = str()
+                    ws()
+                    if s:sub(pos, pos) ~= ':' then fail('expected :') end
+                    pos = pos + 1
+                    obj[k] = value()
+                    ws()
+                    local d = s:sub(pos, pos)
+                    pos = pos + 1
+                    if d == '}' then return obj end
+                    if d ~= ',' then fail('expected , or }') end
+                end
+            elseif c == '[' then
+                pos = pos + 1
+                local arr, n = {}, 0
+                ws()
+                if s:sub(pos, pos) == ']' then pos = pos + 1 return arr end
+                while true do
+                    n = n + 1
+                    arr[n] = value()
+                    ws()
+                    local d = s:sub(pos, pos)
+                    pos = pos + 1
+                    if d == ']' then return arr end
+                    if d ~= ',' then fail('expected , or ]') end
+                end
+            elseif c == '"' then
+                return str()
+            elseif s:sub(pos, pos + 3) == 'true' then pos = pos + 4 return true
+            elseif s:sub(pos, pos + 4) == 'false' then pos = pos + 5 return false
+            elseif s:sub(pos, pos + 3) == 'null' then pos = pos + 4 return nil
+            else
+                local num = s:match('^-?%d+%.?%d*[eE]?[-+]?%d*', pos)
+                if not num or num == '' or num == '-' then fail('unexpected character') end
+                pos = pos + #num
+                return tonumber(num) or fail('bad number')
+            end
+        end
+        local v = value()
+        ws()
+        if pos <= #s then fail('trailing text') end
+        return v
+    end
+end
+
+-- Random JSON-shaped values: arrays, string-keyed objects, scalars, and
+-- strings carrying every escape class plus raw UTF-8.
+local function randomJsonValue(rng, depth)
+    local r = rng()
+    if depth > 3 or r < 0.45 then
+        local s = rng()
+        if s < 0.25 then return math.floor(rng() * 2000000) - 1000000 end
+        if s < 0.4 then return (rng() - 0.5) * 1e6 end
+        if s < 0.5 then return rng() < 0.5 end
+        local pieces = { 'a', 'Z', '"', '\\', '\n', '\t', '\1', 'é', '€', '😀', ' ', '/', '{', ']' }
+        local out = {}
+        for i = 1, math.floor(rng() * 8) do out[i] = pieces[math.floor(rng() * #pieces) + 1] end
+        return table.concat(out)
+    end
+    local t = {}
+    if r < 0.7 then
+        for i = 1, math.floor(rng() * 5) do t[i] = randomJsonValue(rng, depth + 1) end
+    else
+        for i = 1, math.floor(rng() * 5) + 1 do
+            t['k' .. math.floor(rng() * 100) .. (i % 2 == 0 and '"' or '')] = randomJsonValue(rng, depth + 1)
+        end
+    end
+    return t
+end
+
+do
+    local J = CisJson
+    -- The reference itself first: a broken reference makes everything below
+    -- meaningless, so it has to prove it parses what it writes.
+    local refOk = deepEqual(RefJson.decode(RefJson.encode({ 1, 'two', { three = 3 } })),
+        { 1, 'two', { three = 3 } })
+    expect(refOk, 'json: the reference codec round-trips a known value')
+
+    local rng = testRng(1234)
+    local bad = {}
+    for i = 1, 250 do
+        local v = randomJsonValue(rng, 1)
+        local back, why = J.roundTrip(RefJson, v)
+        if why ~= nil or not deepEqual(back, v) then
+            bad[#bad + 1] = ('#%d %s'):format(i, tostring(why))
+        end
+        local text = J.encode(RefJson, v)
+        if text ~= RefJson.encode(v) then bad[#bad + 1] = ('#%d encode differs'):format(i) end
+    end
+    expect(#bad == 0, 'json: 250 random values round-trip through a real codec unchanged: '
+        .. table.concat(bad, '; ', 1, math.min(#bad, 3)))
+
+    local nullValue, nullWhy = J.decode(RefJson, 'null')
+    expect(nullValue == nil and nullWhy == nil, 'json: JSON null decodes to nil with NO reason')
+    local okT, tv = J.tryDecode(RefJson, '[1,2,3]')
+    expect(okT == true and deepEqual(tv, { 1, 2, 3 }), 'json: tryDecode answers true, value')
+    local okBad, badWhy = J.tryDecode(RefJson, '{"a":')
+    expect(okBad == false and type(badWhy) == 'string', 'json: malformed text is a refusal')
+
+    -- Codecs that REFUSE without raising. Both used to read as success-null.
+    local nilErr = {
+        encode = function(v)
+            local ok, out = pcall(RefJson.encode, v)
+            if ok then return out end
+            return nil, out
+        end,
+        decode = function(s)
+            local ok, out = pcall(RefJson.decode, s)
+            if ok then return out end
+            return nil, out
+        end,
+    }
+    local dkStyle = {
+        encode = RefJson.encode,
+        decode = function(s)
+            local ok, out = pcall(RefJson.decode, s)
+            if ok then return out, #s + 1 end
+            return nil, 1, out
+        end,
+    }
+    for _, codec in ipairs({ { 'nil, err', nilErr }, { 'nil, pos, err', dkStyle } }) do
+        local v, why = J.decode(codec[2], '{"a":')
+        expect(v == nil and type(why) == 'string' and why:find('json:', 1, true) ~= nil,
+            ('json: a codec answering `%s` is a refusal with its reason, not a null (%s)')
+                :format(codec[1], tostring(why)))
+        local ok2 = J.tryDecode(codec[2], '[1')
+        expect(ok2 == false, ('json: and tryDecode answers false for it (%s)'):format(codec[1]))
+        local good = J.decode(codec[2], '{"a":[1,2]}')
+        expect(deepEqual(good, { a = { 1, 2 } }), ('json: the same codec still decodes good text (%s)')
+            :format(codec[1]))
+    end
+    local nullDk, nullDkWhy = J.decode(dkStyle, 'null')
+    expect(nullDk == nil and nullDkWhy == nil, 'json: a dkjson-style `nil, position` for null is NOT a refusal')
+    local encNil, encWhy = J.encode({ encode = function() return nil, 'no can do' end, decode = RefJson.decode }, {})
+    expect(encNil == nil and type(encWhy) == 'string' and encWhy:find('no can do', 1, true) ~= nil,
+        'json: an encoder answering nil, err is refused with ITS reason')
+end
+
+-- ------------------------------------------ json: the shape rule, by reference
+do
+    local J = CisJson
+    -- The reference: what every codec agrees on. Written independently of
+    -- the module, recursively, with no memoisation.
+    local function refEncodable(v, depth, maxDepth)
+        local t = type(v)
+        if t == 'function' or t == 'thread' or t == 'userdata' then return false end
+        if t == 'number' then return v == v and v ~= math.huge and v ~= -math.huge end
+        if t ~= 'table' then return true end
+        if depth > maxDepth then return false end
+        local n, strings, numbers = 0, 0, 0
+        for k in pairs(v) do
+            n = n + 1
+            if type(k) == 'string' then strings = strings + 1
+            elseif type(k) == 'number' and k % 1 == 0 and k >= 1 then numbers = numbers + 1
+            else return false end
+        end
+        if strings > 0 and numbers > 0 then return false end
+        if numbers > 0 then for i = 1, n do if v[i] == nil then return false end end end
+        for _, child in pairs(v) do
+            if not refEncodable(child, depth + 1, maxDepth) then return false end
+        end
+        return true
+    end
+    -- Random tables, some with a defect planted somewhere inside.
+    local function plant(rng, depth)
+        local v = randomJsonValue(rng, depth)
+        if type(v) ~= 'table' or rng() < 0.5 then return v end
+        local d = rng()
+        if d < 0.2 then v.name = 'x' ; v[1] = v[1] or 1          -- mixed
+        elseif d < 0.4 then v[#v + 2] = 'gap'                     -- sparse
+        elseif d < 0.55 then v[1.5] = 'half'                      -- fractional key
+        elseif d < 0.65 then v[0] = 'zero'                        -- below 1
+        elseif d < 0.75 then v[{}] = 'table key'
+        elseif d < 0.85 then v.f = 0 / 0
+        else v.child = plant(rng, depth + 1) end
+        return v
+    end
+    local rng = testRng(777)
+    local disagree, refused, accepted = {}, 0, 0
+    for i = 1, 400 do
+        local v = plant(rng, 1)
+        local want = refEncodable(v, 1, 6)
+        local got, why = J.checkEncodable(v, { maxDepth = 6 })
+        if got then accepted = accepted + 1 else refused = refused + 1 end
+        if (got == true) ~= want or (not got and type(why) ~= 'string') then
+            disagree[#disagree + 1] = ('#%d want %s got %s (%s)'):format(i, tostring(want), tostring(got), tostring(why))
+        end
+    end
+    expect(#disagree == 0 and refused > 50 and accepted > 50,
+        ('json: checkEncodable agrees with the reference on 400 tables (%d refused, %d accepted): %s')
+            :format(refused, accepted, table.concat(disagree, '; ', 1, math.min(#disagree, 3))))
+
+    local _, mixedWhy = J.checkEncodable({ outer = { 1, 2, name = 'x' } })
+    expect(type(mixedWhy) == 'string' and mixedWhy:find('outer', 1, true) and mixedWhy:find('mixed', 1, true),
+        'json: a mixed table is refused and the reason names its path: ' .. tostring(mixedWhy))
+    local _, sparseWhy = J.checkEncodable({ list = { [1] = 'a', [3] = 'c' } })
+    expect(type(sparseWhy) == 'string' and sparseWhy:find('sparse', 1, true) ~= nil,
+        'json: a sparse array is refused: ' .. tostring(sparseWhy))
+    expect(J.checkEncodable({}) == true and J.checkEncodable({ {}, {} }) == true,
+        'json: empty tables are encodable')
+
+    -- A table shared by two parents is not a cycle, and must be checked once.
+    local function dag(depth)
+        local node = { leaf = true }
+        for _ = 1, depth do node = { a = node, b = node } end
+        return node
+    end
+    -- Counted, not timed: a fresh copy of the module whose `type` counts its
+    -- calls. 16 levels is 17 distinct tables and 2^17 ROUTES; a walk per table
+    -- is a few dozen calls, a walk per route is hundreds of thousands.
+    local calls = 0
+    local Jc = freshModule('shared/util/json.lua', {
+        type = function(v) calls = calls + 1 return realType(v) end,
+    })
+    local okDag = Jc.checkEncodable(dag(16), { maxDepth = 64 })
+    expect(okDag == true and calls < 1000,
+        ('json: a 16-level shared-subtable DAG is walked once per table, not once per route'
+            .. ' (%d type() calls; it was exponential)'):format(calls))
+    -- And the depth that matters is the DEEPEST route to a shared table, not
+    -- the first one the walk happened to take.
+    local shared = { x = { y = { z = {} } } }        -- 4 levels including itself
+    local tricky = { a = shared, b = { c = { d = shared } } }
+    local okShallow = J.checkEncodable(tricky, { maxDepth = 7 })
+    local okDeep, deepWhy = J.checkEncodable(tricky, { maxDepth = 6 })
+    expect(okShallow == true and okDeep == false and type(deepWhy) == 'string',
+        'json: a shared table too deep on its longer route is refused, whichever route is walked first')
+    local cyc = { name = 'loop' }
+    cyc.self = { back = cyc }
+    local okCyc, cycWhy = J.checkEncodable(cyc)
+    expect(okCyc == false and type(cycWhy) == 'string' and cycWhy:find('cycle', 1, true) ~= nil,
+        'json: a real cycle is still refused')
+end
+
+-- ------------------------------------------------- table: keys with holes
+do
+    local T = CisTable
+    local rng = testRng(5150)
+    local wrong = {}
+    for i = 1, 300 do
+        local t = {}
+        for k = 1, math.floor(rng() * 8) do
+            if rng() < 0.75 then t[k] = 'v' .. k end
+        end
+        for _ = 1, math.floor(rng() * 4) do t['s' .. math.floor(rng() * 50)] = true end
+        if rng() < 0.3 then t[math.floor(rng() * 20) + 10] = 'far' end
+        if rng() < 0.2 then t[-1] = 'neg' end
+        -- Reference: the contiguous prefix by rawget, then the rest sorted.
+        local n = 0
+        while rawget(t, n + 1) ~= nil do n = n + 1 end
+        local want = {}
+        for k = 1, n do want[k] = k end
+        local rest = {}
+        for k in pairs(t) do
+            if not (type(k) == 'number' and k >= 1 and k <= n and k % 1 == 0) then rest[#rest + 1] = k end
+        end
+        table.sort(rest, function(a, b) return T.compareKeys(a, b) < 0 end)
+        for _, k in ipairs(rest) do want[#want + 1] = k end
+        local got = T.keys(t)
+        local vals = T.values(t)
+        local visited = {}
+        T.each(t, nil, function(_, k) visited[#visited + 1] = k end)
+        local valsOk = #vals == #want
+        for j = 1, #want do if vals[j] ~= t[want[j]] then valsOk = false end end
+        if not deepEqual(got, want) or not valsOk or not deepEqual(visited, want) then
+            wrong[#wrong + 1] = ('#%d'):format(i)
+        end
+    end
+    expect(#wrong == 0, 'table: keys/values/each list every real key exactly once, in one order, for 300'
+        .. ' tables with holes: ' .. table.concat(wrong, ' ', 1, math.min(#wrong, 5)))
+    local holey = { 1, nil, 3 }
+    local ks = T.keys(holey)
+    expect(#ks == 2 and ks[1] == 1 and ks[2] == 3, 'table: keys({1, nil, 3}) is {1, 3}, not {1, 2}')
+end
+
+-- ------------------------------------------------- table: sortBy is stable
+do
+    local T = CisTable
+    local rng = testRng(8080)
+    local comparators = {
+        { 'boolean', function(a, b) return a < b end },
+        { 'three-way', function(a, b) return a - b end },
+        { 'default', nil },
+    }
+    for _, cmp in ipairs(comparators) do
+        local unstable = 0
+        for _ = 1, 60 do
+            local list = {}
+            for i = 1, 40 do list[i] = { k = math.floor(rng() * 5), id = i } end
+            -- Reference: insertion sort, which is stable by construction.
+            local ref = {}
+            for i, e in ipairs(list) do
+                local j = i
+                while j > 1 and ref[j - 1].k > e.k do ref[j] = ref[j - 1] j = j - 1 end
+                ref[j] = e
+            end
+            T.sortBy(list, function(e) return e.k end, cmp[2])
+            for i = 1, #list do if list[i] ~= ref[i] then unstable = unstable + 1 break end end
+        end
+        expect(unstable == 0, ('table: sortBy is stable with a %s comparator (%d of 60 lists out of order)')
+            :format(cmp[1], unstable))
+    end
+end
+
+-- -------------------------------------- table: deepCopy, map, reduce, DAGs
+do
+    local T = CisTable
+    local key = { id = 'player' }
+    local src = { [key] = { hp = 100 } }
+    local copy = T.deepCopy(src)
+    expect(copy[key] ~= nil and copy[key] ~= src[key] and copy[key].hp == 100,
+        'table: deepCopy keeps table KEYS by identity and copies the values')
+
+    local mapped = T.map({ 1, 2, 3 }, function(v) if v ~= 2 then return v * 10 end end)
+    expect(mapped[1] == 10 and mapped[2] == nil and mapped[3] == 30,
+        'table: map keeps a nil result as nil, not as an invented false')
+    local falses = T.map({ 1, 2 }, function() return false end)
+    expect(falses[1] == false and falses[2] == false, 'table: and a real false is kept')
+
+    local r, why = T.reduce({}, function(a, b) return a + b end)
+    expect(r == nil and type(why) == 'string', 'table: reduce of {} with no initial value is a refusal')
+    expect(T.reduce({}, function(a, b) return a + b end, 7) == 7, 'table: with an initial value it answers it')
+
+    -- depth() against a brute-force reference on random DAGs.
+    local rng = testRng(606)
+    local wrongDepth = 0
+    local function bruteDepth(v)
+        local best = 0
+        for _, c in pairs(v) do
+            if type(c) == 'table' then
+                local d = bruteDepth(c)
+                if d > best then best = d end
+            end
+        end
+        return best + 1
+    end
+    for _ = 1, 200 do
+        local nodes = {}
+        local count = math.floor(rng() * 10) + 2
+        for i = 1, count do nodes[i] = { id = i } end
+        for i = 1, count - 1 do
+            for _ = 1, math.floor(rng() * 3) do
+                local j = i + 1 + math.floor(rng() * (count - i))
+                nodes[i]['e' .. j .. '_' .. math.floor(rng() * 100)] = nodes[j]
+            end
+        end
+        if T.depth(nodes[1]) ~= bruteDepth(nodes[1]) then wrongDepth = wrongDepth + 1 end
+    end
+    expect(wrongDepth == 0, ('table: depth() counts the deepest route through shared tables on 200 random'
+        .. ' DAGs (%d wrong)'):format(wrongDepth))
+
+    local function dag(depth)
+        local node = { leaf = true }
+        for _ = 1, depth do node = { a = node, b = node } end
+        return node
+    end
+    local calls = 0
+    local Tc = freshModule('shared/util/table.lua', {
+        type = function(v) calls = calls + 1 return realType(v) end,
+    })
+    local merged, mergeWhy = Tc.deepMerge({}, dag(16))
+    expect(merged ~= nil and calls < 2000,
+        ('table: deepMerge of a 16-level shared DAG walks each table a bounded number of times'
+            .. ' (%d type() calls, %s; findCycle was exponential)'):format(calls, tostring(mergeWhy)))
+    local cyc = {}
+    cyc.a = { b = cyc }
+    expect(T.findCycle(cyc) ~= nil and T.findCycle(dag(10)) == nil,
+        'table: findCycle still tells a cycle from a shared table')
+end
+
+-- ---------------------------------------------------- string: truncate
+do
+    local S = CisString
+    if type(utf8) == 'table' and utf8.charpattern then
+        local chars = { 'a', 'b', ' ', 'é', '€', '😀', 'Z' }
+        local function split(str)
+            local out = {}
+            for ch in str:gmatch(utf8.charpattern) do out[#out + 1] = ch end
+            return out
+        end
+        local function firstN(list, n)
+            return table.concat(list, '', 1, math.min(n, #list))
+        end
+        local rng = testRng(3141)
+        local wrong = {}
+        for i = 1, 400 do
+            local parts = {}
+            for j = 1, math.floor(rng() * 12) do parts[j] = chars[math.floor(rng() * #chars) + 1] end
+            local s = table.concat(parts)
+            local max = math.floor(rng() * 14)
+            if rng() < 0.4 then max = max + 0.5 end
+            local ellipses = { { nil, '...' }, { '', '' }, { '…', '…' }, { '..', '..' } }
+            local e = ellipses[math.floor(rng() * #ellipses) + 1]
+            -- Reference, in CHARACTERS.
+            local whole = math.floor(max)
+            local want
+            if #parts <= whole then
+                want = s
+            elseif e[2] == '' then
+                want = firstN(parts, whole)
+            else
+                local ell = split(e[2])
+                local keep = whole - #ell
+                if keep <= 0 then want = firstN(ell, whole) else want = firstN(parts, keep) .. e[2] end
+            end
+            local ok, got = pcall(S.truncate, s, max, e[1])
+            if not ok or got ~= want then
+                wrong[#wrong + 1] = ('#%d max=%g %s'):format(i, max, ok and ('got %q want %q'):format(got, want) or got)
+            end
+        end
+        expect(#wrong == 0, 'string: truncate counts characters and floors max, for 400 random cases: '
+            .. table.concat(wrong, '; ', 1, math.min(#wrong, 3)))
+    end
+    local ok, out = pcall(S.truncate, 'abcdef', 3.7, '')
+    expect(ok and out == 'abc', 'string: a fractional max is floored rather than raising')
+    local okBad, outBad = pcall(S.truncate, 'ab\255cdef', 4, '')
+    expect(okBad and outBad == 'ab\255c', 'string: invalid UTF-8 is cut by bytes rather than raising')
+end
+
+-- ------------------------------------------- time/validate: %d and integers
+do
+    local Tm = CisTime
+    local ok, s = pcall(Tm.relative, 0, 1e300)
+    expect(ok and type(s) == 'string' and s:find(' ago', 1, true) ~= nil,
+        'time: relative() of an enormous span formats rather than raising: ' .. tostring(s))
+    local okF, f = pcall(Tm.formatDuration, 1e20)
+    expect(okF and type(f) == 'string' and f:match('^%d+w') ~= nil,
+        'time: formatDuration of 1e20 seconds formats rather than raising: ' .. tostring(f))
+    expect(Tm.relative(math.huge, 0) == 'unknown' and Tm.relative(0, -math.huge) == 'unknown',
+        'time: an infinite instant is unknown')
+    expect(Tm.formatDuration(90061) == '1d 1h' and Tm.relative(0, 120) == '2 minutes ago',
+        'time: ordinary values format as before')
+
+    local V = CisValidate
+    expect(V.isInteger(math.huge) == false and V.isInteger(-math.huge) == false,
+        'validate: infinity is not an integer')
+    expect(V.isInteger(5.0) == true and V.isInteger(5.5) == false and V.isInteger(0 / 0) == false,
+        'validate: 5.0 is an integer, 5.5 and NaN are not')
+    local okS, good, why = pcall(V.string, 'ab', { min = 2.5 })
+    expect(okS and good == false and type(why) == 'string' and why:find('2.5', 1, true) ~= nil,
+        'validate: a fractional length bound is reported, not raised: ' .. tostring(why))
+    local okT, goodT, whyT = pcall(V.tableValue, { 1 }, { min = 1.5 })
+    expect(okT and goodT == false and type(whyT) == 'string', 'validate: same for a table entry bound')
+    local _, intWhy = V.string('abc', { max = 2 })
+    expect(type(intWhy) == 'string' and intWhy:find('at most 2 characters', 1, true) ~= nil,
+        'validate: a whole bound still reads as a whole number: ' .. tostring(intWhy))
 end
 
 io.write(('module tests: passed=%d failed=%d\n'):format(passed, failed))

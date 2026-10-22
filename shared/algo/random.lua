@@ -137,7 +137,7 @@ local function randInt(rng, lo, hi)
     local span = TWO32
     if n > span then
         if n > TWO53 then
-            error(('CisRandom: a range of %d is wider than the 2^53 a double holds exactly')
+            error(('CisRandom: a range of %.0f is wider than the 2^53 a double holds exactly')
                 :format(n), 3)
         end
         span = TWO53
@@ -221,7 +221,7 @@ function M.newGenerator(seed)
 
         -- Wider than one period. This used to fall into the branch above with `limit`
         if n > TWO53 then
-            error(('CisRandom: a range of %d is wider than the 2^53 a double holds exactly')
+            error(('CisRandom: a range of %.0f is wider than the 2^53 a double holds exactly')
                 :format(n), 2)
         end
         local limit = TWO53 - (TWO53 % n)

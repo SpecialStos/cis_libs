@@ -736,6 +736,111 @@
       "find": "    rng = normaliseRng(rng)\n    if not rng then",
       "replace": "    rng = rng or math.random\n    if not rng then",
       "why": "uuid calls a CisRandom generator object as if it were a function and raises, unlike every other CisId function."
+    },
+    {
+      "id": "M111",
+      "file": "shared/util/table.lua",
+      "find": "    local n = 0\n    while rawget(t, n + 1) ~= nil do\n        n = n + 1\n    end\n    return n",
+      "replace": "    return #t",
+      "why": "Trust `#t` as the array prefix. On a table with a hole the border is arbitrary, so CisTable.keys({1, nil, 3}) invents key 2 and loses key 3, and values/each follow it."
+    },
+    {
+      "id": "M112",
+      "file": "shared/util/table.lua",
+      "find": "            if comparator(b, a) == true then return 1 end\n            return 0",
+      "replace": "            return 1",
+      "why": "Read a boolean comparator's false as 'after' instead of asking the reverse question, so equal keys are never a tie and sortBy -- documented stable -- reorders them."
+    },
+    {
+      "id": "M113",
+      "file": "shared/util/table.lua",
+      "find": "        out[k] = M.deepCopy(v, seen)",
+      "replace": "        out[M.deepCopy(k, seen)] = M.deepCopy(v, seen)",
+      "why": "deepCopy copies table KEYS, so a copy of an identity-keyed table cannot be looked up by the original keys."
+    },
+    {
+      "id": "M114",
+      "file": "shared/util/table.lua",
+      "find": "            out[i] = fn(t[i], i)\n",
+      "replace": "            out[i] = fn(t[i], i) or false\n",
+      "why": "map rewrites a nil result to false -- a value the callback never returned."
+    },
+    {
+      "id": "M115",
+      "file": "shared/util/table.lua",
+      "find": "    if acc == nil and next(t) == nil then\n        return nil, 'reduce of an empty table needs an initial value'\n    end\n",
+      "replace": "",
+      "why": "reduce({}, fn) answers a bare nil, indistinguishable from a fold whose result was nil."
+    },
+    {
+      "id": "M116",
+      "file": "shared/util/table.lua",
+      "find": "        if done and done <= depth then\n            return\n        end\n",
+      "replace": "",
+      "why": "findCycle walks a shared subtable once per route to it: exponential in depth, and deepMerge runs it on every merge."
+    },
+    {
+      "id": "M117",
+      "file": "shared/util/table.lua",
+      "find": "                if h > below then below = h end",
+      "replace": "                if below == 0 then below = h end",
+      "why": "depth() keeps the first route it walked to a child instead of the deepest, so deepCopyStrict's nesting limit depends on pairs() order."
+    },
+    {
+      "id": "M118",
+      "file": "shared/util/json.lua",
+      "find": "            local shape = shapeProblem(v)",
+      "replace": "            local shape = nil",
+      "why": "checkEncodable accepts mixed, sparse and fractional-key tables that codecs encode differently or refuse."
+    },
+    {
+      "id": "M119",
+      "file": "shared/util/json.lua",
+      "find": "            local known = height[v]",
+      "replace": "            local known = nil",
+      "why": "checkEncodable re-walks a shared subtable from every parent: 2^depth walks, seconds of a server frame for a 22-level structure."
+    },
+    {
+      "id": "M120",
+      "file": "shared/util/json.lua",
+      "find": "        if refusal then\n            return nil, ('the decoder refused: %s'):format(refusal)\n        end\n",
+      "replace": "",
+      "why": "A codec that refuses with `nil, err` (or dkjson's `nil, pos, err`) reads as a successful JSON null, so malformed input becomes data."
+    },
+    {
+      "id": "M121",
+      "file": "shared/util/string.lua",
+      "find": "            local count = utf8.len(str)",
+      "replace": "            local _, count = utf8.len(str)",
+      "why": "truncate takes utf8.len's SECOND return, nil on valid text, so every string is measured in bytes and multibyte text is cut short."
+    },
+    {
+      "id": "M122",
+      "file": "shared/util/string.lua",
+      "find": "    max = math.floor(max)\n",
+      "replace": "",
+      "why": "A fractional max reaches utf8.offset, which raises 'number has no integer representation'."
+    },
+    {
+      "id": "M123",
+      "file": "shared/util/time.lua",
+      "find": "    return ('%.0f'):format(n)",
+      "replace": "    return ('%d'):format(n)",
+      "why": "Format whole numbers with %d again: Lua 5.4 raises on a float with no integer representation, so relative() and formatDuration() raise on a large span."
+    },
+    {
+      "id": "M124",
+      "file": "shared/util/validate.lua",
+      "find": "    if v == math.huge or v == -math.huge then\n        return false\n    end\n    -- NaN fails this too",
+      "replace": "    -- NaN fails this too",
+      "why": "isInteger(math.huge) is true, because math.floor(inf) == inf."
+    },
+    {
+      "id": "M125",
+      "file": "shared/util/validate.lua",
+      "find": "    if type(n) == 'number' and n % 1 == 0 and n > -1e15 and n < 1e15 then\n        return ('%.0f'):format(n)\n    end\n    return tostring(n)",
+      "replace": "    return ('%d'):format(n)",
+      "why": "A fractional min/max bound reaches %d, and the validator raises on the caller's config instead of reporting it."
     }
   ]
 }

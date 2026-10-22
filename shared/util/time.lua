@@ -19,6 +19,13 @@ local UNITS = {
     { key = 'second', field = 'seconds', symbol = 's', seconds = 1 },
 }
 
+-- A whole number as text, for any magnitude. `%d` raises on a float with no
+-- integer representation -- math.floor(1e300) is still a float in Lua 5.4 --
+-- and `%.0f` never does.
+local function wholeText(n)
+    return ('%.0f'):format(n)
+end
+
 local SYMBOL_SECONDS = {
     w = 604800, wk = 604800, week = 604800, weeks = 604800,
     d = 86400, day = 86400, days = 86400,
@@ -98,7 +105,7 @@ function M.formatDuration(seconds, opts)
             if ms <= 0 then
                 return sign .. '0ms'
             end
-            return ('%s%dms'):format(sign, ms)
+            return ('%s%sms'):format(sign, wholeText(ms))
         end
         return sign .. '0s'
     end
@@ -112,7 +119,7 @@ function M.formatDuration(seconds, opts)
         if n > 0 then
             remaining = remaining - n * u.seconds
             shown = shown + 1
-            pieces[#pieces + 1] = ('%d%s'):format(n, u.symbol)
+            pieces[#pieces + 1] = wholeText(n) .. u.symbol
             if shown >= max then
                 break
             end
@@ -189,10 +196,11 @@ end
 --- @param opts
 --- @return a string. nil in gives 'unknown', because "this thing has no
 function M.relative(timestamp, now, opts)
-    if type(timestamp) ~= 'number' or timestamp ~= timestamp then
+    if type(timestamp) ~= 'number' or timestamp ~= timestamp
+        or timestamp == math.huge or timestamp == -math.huge then
         return 'unknown'
     end
-    if type(now) ~= 'number' or now ~= now then
+    if type(now) ~= 'number' or now ~= now or now == math.huge or now == -math.huge then
         return 'unknown'
     end
     opts = opts or {}
@@ -210,19 +218,19 @@ function M.relative(timestamp, now, opts)
     local piece
     if magnitude >= M.WEEK then
         local n = math.floor(magnitude / M.WEEK)
-        piece = ('%d %s'):format(n, n == 1 and 'week' or 'weeks')
+        piece = ('%s %s'):format(wholeText(n), n == 1 and 'week' or 'weeks')
     elseif magnitude >= M.DAY then
         local n = math.floor(magnitude / M.DAY)
-        piece = ('%d %s'):format(n, n == 1 and 'day' or 'days')
+        piece = ('%s %s'):format(wholeText(n), n == 1 and 'day' or 'days')
     elseif magnitude >= M.HOUR then
         local n = math.floor(magnitude / M.HOUR)
-        piece = ('%d %s'):format(n, n == 1 and 'hour' or 'hours')
+        piece = ('%s %s'):format(wholeText(n), n == 1 and 'hour' or 'hours')
     elseif magnitude >= M.MINUTE then
         local n = math.floor(magnitude / M.MINUTE)
-        piece = ('%d %s'):format(n, n == 1 and 'minute' or 'minutes')
+        piece = ('%s %s'):format(wholeText(n), n == 1 and 'minute' or 'minutes')
     else
         local n = math.floor(magnitude)
-        piece = ('%d %s'):format(n, n == 1 and 'second' or 'seconds')
+        piece = ('%s %s'):format(wholeText(n), n == 1 and 'second' or 'seconds')
     end
     if future then
         if opts.future == false then
