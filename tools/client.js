@@ -26,9 +26,8 @@
 const fs = require('fs')
 const path = require('path')
 const { spawnSync } = require('child_process')
+const liveEnv = require('./live-env')
 
-const root = path.join(__dirname, '..')
-const ENV = path.join(root, '.live-env.json')
 
 // The process name FiveM runs under. Stopping is scoped to this and nothing
 // else -- a Stop-Process with a wider pattern is how a test harness takes a
@@ -36,15 +35,16 @@ const ENV = path.join(root, '.live-env.json')
 const FIVEM_PROCESS = 'FiveM*'
 
 function loadClientConfig(envPath) {
-  const p = envPath || ENV
+  // CIS_LIVE_ENV moves the file (tools/live-env.js); an explicit path wins.
+  const p = envPath || liveEnv.envFile()
   if (!fs.existsSync(p)) {
-    return { mode: 'off', _why: '.live-env.json is missing, so no client mode is known' }
+    return { mode: 'off', _why: `${path.basename(p)} is missing, so no client mode is known` }
   }
   let env
   try {
     env = JSON.parse(fs.readFileSync(p, 'utf8'))
   } catch (e) {
-    return { mode: 'off', _why: '.live-env.json is not valid JSON: ' + e.message }
+    return { mode: 'off', _why: `${path.basename(p)} is not valid JSON: ` + e.message }
   }
   const c = env.client || {}
   return Object.assign({ mode: 'off' }, c)

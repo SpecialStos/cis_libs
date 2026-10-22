@@ -36,8 +36,9 @@ const fs = require('fs')
 const path = require('path')
 const { spawnSync } = require('child_process')
 
+const liveEnv = require('./live-env')
+
 const root = path.join(__dirname, '..')
-const ENV = path.join(root, '.live-env.json')
 const RESULTS_KEEP = path.join(root, 'test', 'live', 'results')
 
 // The console sequence, in the only order that works. Stop everything first so
@@ -75,17 +76,10 @@ const PLAYER_WAIT_MS = 5 * 60 * 1000
 const RESULTS_TIMEOUT_MS = 30 * 60 * 1000
 const POLL_MS = 500
 
+// .live-env.json on the VPS, CIS_LIVE_* variables anywhere else. See
+// tools/live-env.js; with no variable set this is exactly the file.
 function loadEnv() {
-  if (!fs.existsSync(ENV)) {
-    console.error('live:run: .live-env.json is missing. W1 writes it; it holds no secrets.')
-    process.exit(2)
-  }
-  try {
-    return JSON.parse(fs.readFileSync(ENV, 'utf8'))
-  } catch (e) {
-    console.error('live:run: .live-env.json is not valid JSON: ' + e.message)
-    process.exit(2)
-  }
+  return liveEnv.loadOrDie('live:run', 2)
 }
 
 function log(msg) {
@@ -343,7 +337,7 @@ function main() {
   log(`  commit ${status.commit} confirmed; cis_libs ${status.cisLibsVersion}` +
     (want.dirty ? '  (working tree was dirty at deploy time)' : ''))
 
-const client = require('./client.js')
+  const client = require('./client.js')
   const clientCfg = client.loadClientConfig()
   const player = selectionNeedsPlayer(status, tierArg)
 
@@ -447,4 +441,8 @@ const client = require('./client.js')
   process.exit(0)
 }
 
-main()
+// Run when invoked, export when required: tools/ci-live.js reuses the summary
+// and the commit check rather than keeping a second copy of either.
+if (require.main === module) main()
+
+module.exports = { summarise, selectionNeedsPlayer, cisTestDir, deployedCommit, readStatus }

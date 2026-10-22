@@ -35,8 +35,7 @@
 const fs = require('fs')
 const path = require('path')
 
-const root = path.join(__dirname, '..')
-const ENV = path.join(root, '.live-env.json')
+const liveEnv = require('./live-env')
 
 // cis_ctl waits up to 15 s for a resource to reach its expected state, so a
 // command cannot be answered sooner than that. The default here is comfortably
@@ -54,15 +53,10 @@ function die(code, msg) {
   process.exit(code)
 }
 
+// .live-env.json, or CIS_LIVE_* variables (tools/live-env.js). Exit 2, the
+// "bridge is not up" code, when neither describes a server.
 function loadEnv() {
-  if (!fs.existsSync(ENV)) {
-    die(2, '.live-env.json is missing. W1 writes it; it holds no secrets.')
-  }
-  try {
-    return JSON.parse(fs.readFileSync(ENV, 'utf8'))
-  } catch (e) {
-    die(2, '.live-env.json is not valid JSON: ' + e.message)
-  }
+  return liveEnv.loadOrDie('fx', 2)
 }
 
 function ctlDir(env) {

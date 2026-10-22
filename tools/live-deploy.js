@@ -27,9 +27,10 @@ const fs = require('fs')
 const path = require('path')
 const { spawnSync } = require('child_process')
 
+const liveEnv = require('./live-env')
+
 const root = path.join(__dirname, '..')
 const MARKER = '.cis_deploy'
-const ENV = path.join(root, '.live-env.json')
 
 const HARNESS = ['cis_test', 'cis_test_providers', 'cis_test_b', 'cis_test_c', 'cis_test_badmeta', 'cis_ctl']
 
@@ -121,12 +122,16 @@ function gitInfo() {
 }
 
 function main() {
-  if (!fs.existsSync(ENV)) {
-    fail('.live-env.json is missing. Stage 0.5 creates it and it holds no secrets.')
+  // .live-env.json on the VPS; CIS_LIVE_RESOURCES_DIR (and friends) in CI.
+  const loaded = liveEnv.load()
+  if (loaded.error) fail(loaded.error)
+  if (!loaded.env) {
+    fail('.live-env.json is missing and CIS_LIVE_RESOURCES_DIR is not set. Stage 0.5 ' +
+      'creates the file and it holds no secrets.')
   }
-  const env = JSON.parse(fs.readFileSync(ENV, 'utf8'))
+  const env = loaded.env
   const resourcesDir = env.resourcesDir
-  if (!resourcesDir) fail('.live-env.json has no resourcesDir')
+  if (!resourcesDir) fail('no resourcesDir in .live-env.json or CIS_LIVE_RESOURCES_DIR')
   if (!fs.existsSync(resourcesDir)) {
     fail(`resourcesDir does not exist: ${resourcesDir}`)
   }
@@ -141,6 +146,11 @@ function main() {
 
   // THE TWO-FOLDERS RULE, and which folder is canonical.
   const libFolders = findLibFolders(resourcesDir)
+  // `ours` was referenced here and never defined, so a .live-env.json without
+  // libDir died with a ReferenceError instead of deploying. The VPS file always
+  // carries libDir and short-circuited past it; a CI server description does
+  // not. A folder carrying our marker is ours, and the first one is canonical.
+  const ours = libFolders.filter(hasMarker)
   const target = env.libDir || ours[0] || path.join(resourcesDir, 'cis_libs')
   const others = libFolders.filter(d => path.resolve(d) !== path.resolve(target))
   const foreign = others.filter(d => !hasMarker(d))

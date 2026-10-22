@@ -22,20 +22,18 @@ const path = require('path');
 const net = require('net');
 const { spawn } = require('child_process');
 
+const liveEnv = require('./live-env');
+
 const ROOT = path.resolve(__dirname, '..');
-const ENV_PATH = path.join(ROOT, '.live-env.json');
 const DIR = path.join(ROOT, 'test', 'live', '.console');
 
 const INBOX = path.join(DIR, 'inbox.txt');
 const HISTORY = path.join(DIR, 'history.txt');
 const LOG = path.join(DIR, 'console.log');
 
+// .live-env.json, with any CIS_LIVE_* variable winning (tools/live-env.js).
 function env() {
-  try {
-    return JSON.parse(fs.readFileSync(ENV_PATH, 'utf8'));
-  } catch (e) {
-    return {};
-  }
+  return liveEnv.load().env || {};
 }
 
 function artifactsDir() {
@@ -94,8 +92,11 @@ async function serve() {
   ensureDir();
   const art = artifactsDir();
   const base = baseDir();
-  const exe = path.join(art, 'FXServer.exe');
-  if (!fs.existsSync(exe)) throw new Error(`no FXServer.exe in ${art}`);
+  // FXServer.exe on Windows; on Linux the artifact's bundled loader, with the
+  // same arguments its run.sh would pass.
+  const fx = liveEnv.fxserverCommand(art);
+  const exe = fx.cmd;
+  if (!fs.existsSync(exe)) throw new Error(`no FXServer in ${art} (looked for ${exe})`);
   if (!fs.existsSync(path.join(base, 'server.cfg'))) {
     throw new Error(`no server.cfg in ${base}`);
   }
@@ -103,7 +104,7 @@ async function serve() {
   const out = fs.createWriteStream(LOG, { flags: 'a' });
   // The owner's own server.cfg, executed as-is. Nothing is appended to it and
   // nothing is written into it.
-  const child = spawn(exe, ['+exec', 'server.cfg'], {
+  const child = spawn(exe, [...fx.args, '+exec', 'server.cfg'], {
     cwd: base,
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
