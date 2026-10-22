@@ -45,6 +45,7 @@ dist/
 # Editor/agent working state, not part of the library.
 .zcode/
 .zcodeignore
+.claude/
 # Plan-id map and incident narratives. Local only; not a product doc.
 DECISIONS.md
 # One-shot debug probes. Never ship; 7.2 committed five of these by accident.
