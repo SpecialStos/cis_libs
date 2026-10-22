@@ -9,10 +9,10 @@
     "nativesUsed": 191,
     "byRealm": {
       "client": 117,
-      "server": 5,
-      "shared": 69
+      "server": 6,
+      "shared": 68
     },
-    "unresolvedPascalCaseGlobals": 65
+    "unresolvedPascalCaseGlobals": 67
   },
   "natives": {
     "AddDoorToSystem": {
@@ -504,11 +504,13 @@
         "ENTITY"
       ],
       "usedIn": [
-        "client"
+        "client",
+        "server"
       ],
       "files": [
         "client/sync.lua",
-        "client/utils.lua"
+        "client/utils.lua",
+        "server/sync.lua"
       ]
     },
     "GetActivePlayers": {
@@ -819,6 +821,7 @@
         "server/callback.lua",
         "server/security.lua",
         "server/selfcheck.lua",
+        "server/sync.lua",
         "shared/diagnostics.lua",
         "shared/loopguard.lua",
         "shared/ready.lua",
@@ -901,6 +904,7 @@
         "client/callback.lua",
         "client/keybind.lua",
         "client/points.lua",
+        "client/sync.lua",
         "client/target.lua",
         "client/ui.lua",
         "client/zones.lua",
@@ -1919,7 +1923,8 @@
         "client"
       ],
       "files": [
-        "client/streaming.lua"
+        "client/streaming.lua",
+        "client/sync.lua"
       ]
     },
     "HasNamedPtfxAssetLoaded": {
@@ -2288,26 +2293,6 @@
         "init.lua"
       ]
     },
-    "NetworkGetEntityFromNetworkId": {
-      "realm": "shared",
-      "evidence": [
-        "client",
-        "server"
-      ],
-      "sources": [
-        "gta",
-        "cfx"
-      ],
-      "namespaces": [
-        "NETWORK"
-      ],
-      "usedIn": [
-        "client"
-      ],
-      "files": [
-        "client/sync.lua"
-      ]
-    },
     "NetworkGetEntityIsNetworked": {
       "realm": "client",
       "evidence": [
@@ -2339,6 +2324,7 @@
         "client"
       ],
       "files": [
+        "client/sync.lua",
         "client/vehicle.lua"
       ]
     },
@@ -2379,6 +2365,7 @@
       ],
       "files": [
         "client/cache.lua",
+        "client/sync.lua",
         "client/vehicle.lua",
         "init.lua"
       ]
@@ -2744,6 +2731,7 @@
         "client"
       ],
       "files": [
+        "client/sync.lua",
         "client/utils.lua"
       ]
     },
@@ -2787,6 +2775,22 @@
         "server/sync.lua"
       ]
     },
+    "SetEntityDistanceCullingRadius": {
+      "realm": "server",
+      "evidence": [
+        "server"
+      ],
+      "sources": [
+        "cfx"
+      ],
+      "namespaces": [],
+      "usedIn": [
+        "server"
+      ],
+      "files": [
+        "server/sync.lua"
+      ]
+    },
     "SetEntityHeading": {
       "realm": "shared",
       "evidence": [
@@ -2824,6 +2828,7 @@
         "client"
       ],
       "files": [
+        "client/sync.lua",
         "client/utils.lua"
       ]
     },
@@ -3589,6 +3594,7 @@
         "client"
       ],
       "files": [
+        "client/sync.lua",
         "client/utils.lua"
       ]
     },
@@ -3694,6 +3700,7 @@
     "CreateThread",
     "DebugLog",
     "DrawText3D",
+    "Entity",
     "GetCurrentWeaponData",
     "GetPlayerVehicleSeat",
     "GetPlayers",
@@ -3708,6 +3715,7 @@
     "SetVehicleProperties",
     "TriggerClientEvent",
     "TriggerEvent",
+    "TriggerLatentClientEvent",
     "TriggerServerEvent",
     "WaitForLibReady",
     "World3dToScreen2d"

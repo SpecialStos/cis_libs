@@ -628,10 +628,6 @@ local function syncEnv(opts)
     end
     function FreezeEntityPosition() end
     function SetModelAsNoLongerNeeded() end
-    function NetworkGetEntityFromNetworkId(id)
-        env.natives[#env.natives + 1] = { name = 'NetworkGetEntityFromNetworkId', id = id }
-        return env.netEntity or 0
-    end
     -- `HasModelLoaded` drives the yield. When it is false the spawn blocks in
     -- RequestModelTimeout, which is where the remove has to arrive.
     function HasModelLoaded() return env.modelReady end
@@ -696,9 +692,31 @@ local function syncEnv(opts)
     })
     env.EXPORTS = SYNC_EXPORTS
     exports = SYNC_EXPORTS
+    -- The networked half listens on the `cis_sync` state bag through the
+    -- library's own watcher; the stub hands the test that handler.
+    env.save('CisStatebagOnEntity')
+    env.save('TriggerServerEvent')
+    function CisStatebagOnEntity(key, fn)
+        env.bagWatch = { key = key, fn = fn }
+        return 1
+    end
+    env.serverEvents = {}
+    function TriggerServerEvent(name, ...)
+        env.serverEvents[#env.serverEvents + 1] = { name = name, args = table.pack(...) }
+    end
     loadModule('client/sync.lua')
-    env.upsert = env.netEvents['cis_libs:client:syncUpsert']
-    env.remove = env.netEvents['cis_libs:client:syncRemove']
+    -- THE WIRE IS A NUMBERED BATCH. `upsert` and `remove` are the one-entry
+    -- batches most tests want; `batch` sends exactly what the server would.
+    env.batch = env.netEvents['cis_libs:client:syncBatch']
+    env.batchN = 0
+    function env.upsert(record)
+        env.batchN = env.batchN + 1
+        return env.batch(env.batchN, { record }, {})
+    end
+    function env.remove(key)
+        env.batchN = env.batchN + 1
+        return env.batch(env.batchN, {}, { key })
+    end
     return env
 end
 
@@ -724,7 +742,14 @@ do
     -- The interleaving IS the bug, so the test drives it directly rather than
     -- hoping a loop produces the order: start the upsert, stop it at the model
     -- yield, deliver the remove while it waits, then let the model arrive.
-    local co = coroutine.create(function() env.upsert(record) end)
+    --
+    -- A record whose model is not loaded is driven on a thread of its own, so one
+    -- slow model does not hold up the rest of its batch. That thread is the one
+    -- that yields, and the one this test steps.
+    env.upsert(record)
+    check(#(env.threads or {}) == 1,
+        'a record whose model is not loaded gets ONE drive thread of its own')
+    local co = coroutine.create(env.threads[#env.threads])
     local ok, err = coroutine.resume(co)
     check(ok, 'the upsert yields on the model: ' .. tostring(err))
     check(coroutine.status(co) == 'suspended', 'the upsert is suspended waiting for the model')
@@ -803,11 +828,11 @@ do
     -- deleted it. A green result here has to mean the guard in despawn stopped
     -- it, not that nothing was reachable.
     env.alive[555] = true
-    env.upsert(wirePayload('prop_net', {
-        kind = 'prop', model = 'prop_barrel_01',
-        coords = { x = 0.0, y = 0.0, z = 0.0 },
-        networked = true, spawnHere = false, netId = 1234,
-    }))
+    -- It is found through its `cis_sync` state bag: the watcher hands the entity.
+    check(env.bagWatch ~= nil and env.bagWatch.key == 'cis_sync',
+        '4.5: the client watches the cis_sync state bag for networked records')
+    env.bagWatch.fn(555, { key = wireKeyOf('prop_net'), id = 'prop_net', kind = 'prop', rev = 1 },
+        true, false)
     local tracked = env.EXPORTS.GetSyncedEntities()
     check(tracked[wireKeyOf('prop_net')] == 555,
         '4.5: the networked handle is tracked, so this case is not vacuous')
@@ -2142,12 +2167,11 @@ do
     -- for anything to arrive during. `syncEnv` defaults it to true for the
     -- cases that want a spawn to complete immediately.
     env.modelReady = false
-    local co = coroutine.create(function()
-        env.upsert(wirePayload('latest', {
-            kind = 'prop', model = 'prop_barrel_01',
-            coords = { x = 1.0, y = 0.0, z = 0.0 }, networked = false,
-        }))
-    end)
+    env.upsert(wirePayload('latest', {
+        kind = 'prop', model = 'prop_barrel_01',
+        coords = { x = 1.0, y = 0.0, z = 0.0 }, networked = false,
+    }))
+    local co = coroutine.create(env.threads[#env.threads])
     check(coroutine.resume(co), '4.6: the first upsert starts spawning')
     check(coroutine.status(co) == 'suspended', '4.6: and is waiting on the model')
 
@@ -2261,6 +2285,214 @@ do
     end
     check(created == 0,
         ('4.6: and nothing is created for it (%d creates)'):format(created))
+    env.reset()
+end
+
+-- ============================ 4.6b · retries end, and the server is told
+--
+-- The retry thread reset the counter before it drove, so RETRY_MAX was never
+-- reached: a model that does not exist was requested every 500 ms forever.
+do
+    local env = syncEnv({})
+    env.modelFails = 1000
+    env.upsert(wirePayload('absent', {
+        kind = 'prop', model = 'prop_does_not_exist',
+        coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = false,
+    }))
+    for _ = 1, 20 do
+        if env.runThreads() == 0 then break end
+    end
+    local attempts = 0
+    for _, n in ipairs(env.natives) do
+        if n.name == 'RequestModelTimeout' then attempts = attempts + 1 end
+    end
+    check(attempts == 5,
+        ('4.6b: a missing model is tried once plus four retries, then given up (%d attempts)')
+            :format(attempts))
+    local told = nil
+    for _, e in ipairs(env.serverEvents) do
+        if e.name == 'cis_libs:server:syncGaveUp' then told = e.args[1] end
+    end
+    check(told == wireKeyOf('absent'),
+        ('4.6b: and the server is told, so it stops believing this client holds it (%s)')
+            :format(tostring(told)))
+    env.reset()
+end
+
+-- ============================ 4.6c · removed mid-spawn, then wanted again
+do
+    local env = syncEnv({})
+    env.modelReady = false
+    env.upsert(wirePayload('again', {
+        kind = 'prop', model = 'prop_barrel_01',
+        coords = { x = 1.0, y = 0.0, z = 0.0 }, networked = false,
+    }))
+    local co = coroutine.create(env.threads[#env.threads])
+    coroutine.resume(co)
+    -- Removed while the model loads, and wanted again at a new place.
+    env.remove(wireKeyOf('again'))
+    env.upsert(wirePayload('again', {
+        kind = 'prop', model = 'prop_barrel_01',
+        coords = { x = 7.0, y = 0.0, z = 0.0 }, networked = false,
+    }))
+    env.modelReady = true
+    for _ = 1, 6 do
+        if coroutine.status(co) == 'dead' then break end
+        coroutine.resume(co)
+    end
+    local handle = env.EXPORTS.GetSyncedEntity(wireKeyOf('again'))
+    check(handle ~= nil,
+        '4.6c: a record removed and re-sent during a model load is spawned, not dropped')
+    local alive = 0
+    for _ in pairs(env.alive) do alive = alive + 1 end
+    check(alive == 1, ('4.6c: and exactly one entity exists (%d)'):format(alive))
+    env.reset()
+end
+
+-- ============================ 4.6d · a spawn that raises costs only itself
+do
+    local env = syncEnv({})
+    local realCreate = CreateObject
+    local raiseOnce = true
+    CreateObject = function(...)
+        if raiseOnce then
+            raiseOnce = false
+            error('native exploded')
+        end
+        return realCreate(...)
+    end
+    local ok = pcall(env.upsert, wirePayload('boom', {
+        kind = 'prop', model = 'prop_barrel_01',
+        coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = false,
+    }))
+    check(ok, '4.6d: a raising spawn does not escape the net handler')
+    env.upsert(wirePayload('boom', {
+        kind = 'prop', model = 'prop_barrel_01',
+        coords = { x = 2.0, y = 0.0, z = 0.0 }, networked = false,
+    }))
+    check(env.EXPORTS.GetSyncedEntity(wireKeyOf('boom')) ~= nil,
+        '4.6d: and the next state for that id still spawns (it is not stuck "spawning")')
+
+    -- In one batch, a bad record does not cost the good one after it.
+    raiseOnce = true
+    env.batch(100, {
+        wirePayload('first', { kind = 'prop', model = 'prop_barrel_01',
+            coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = false }),
+        wirePayload('second', { kind = 'prop', model = 'prop_barrel_01',
+            coords = { x = 3.0, y = 0.0, z = 0.0 }, networked = false }),
+    }, {})
+    check(env.EXPORTS.GetSyncedEntity(wireKeyOf('second')) ~= nil,
+        '4.6d: a record that raises does not take the rest of its batch with it')
+    CreateObject = realCreate
+    env.reset()
+end
+
+-- ============================ 4.6e · batches apply in the order they were SENT
+--
+-- A large batch goes latent and a small one reliable, so a later batch can arrive
+-- first. A remove that overtook an older upsert must not be undone by it.
+do
+    local env = syncEnv({})
+    env.batch(6, {}, { wireKeyOf('late') })
+    env.batch(5, { wirePayload('late', {
+        kind = 'prop', model = 'prop_barrel_01',
+        coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = false,
+    }) }, {})
+    check(env.EXPORTS.GetSyncedEntity(wireKeyOf('late')) == nil,
+        '4.6e: an upsert from an EARLIER batch arriving after a remove is ignored')
+    env.batch(7, { wirePayload('late', {
+        kind = 'prop', model = 'prop_barrel_01',
+        coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = false,
+    }) }, {})
+    check(env.EXPORTS.GetSyncedEntity(wireKeyOf('late')) ~= nil,
+        '4.6e: and a LATER one is applied')
+
+    -- A networked record on this wire is refused: clients never create one.
+    env.batch(8, { wirePayload('net', {
+        kind = 'prop', model = 'prop_barrel_01',
+        coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = true, netId = 77,
+    }) }, {})
+    local networkedCreates = 0
+    for _, n in ipairs(env.natives) do
+        if (n.name == 'CreateObject' or n.name == 'CreateVehicle') and n.networked ~= false then
+            networkedCreates = networkedCreates + 1
+        end
+    end
+    check(env.EXPORTS.GetSyncedEntity(wireKeyOf('net')) == nil and networkedCreates == 0,
+        '4.6e: a client never creates a networked entity, whatever the payload says')
+    env.reset()
+end
+
+-- ============================ 4.6f · networked records through their state bag
+do
+    local env = syncEnv({})
+    env.save('SetEntityInvincible')
+    env.save('SetVehicleProperties')
+    local invincible, props = {}, {}
+    function SetEntityInvincible(e, on) invincible[#invincible + 1] = { e, on } end
+    function SetVehicleProperties(e, p) props[#props + 1] = { e, p } end
+    local spawned, despawned = {}, {}
+    env.EXPORTS.AddSyncSpawnHandler(function(key, record, entity) spawned[#spawned + 1] = entity end)
+    env.EXPORTS.AddSyncDespawnHandler(function(key) despawned[#despawned + 1] = key end)
+
+    env.alive[901] = true
+    local owner = 7
+    function NetworkGetEntityOwner() return owner end
+    function PlayerId() return 3 end
+    env.bagWatch.fn(901, { key = wireKeyOf('car'), id = 'car', kind = 'vehicle', rev = 4,
+        invincible = true, props = { plate = 'X' } }, true, false)
+    check(#spawned == 1 and spawned[1] == 901, '4.6f: the bag resolves to the entity and fires onSpawn')
+    check(#invincible == 0 and #props == 0,
+        '4.6f: a client that does not OWN the entity applies nothing')
+
+    -- Ownership migrates here: the monitor applies the metadata once. The
+    -- monitor is a loop; it is stepped one Wait at a time.
+    env.save('Wait')
+    Wait = function() coroutine.yield() end
+    local co = coroutine.create(env.threads[#env.threads])
+    coroutine.resume(co)
+    owner = 3
+    coroutine.resume(co)
+    coroutine.resume(co)
+    check(#invincible == 1 and #props == 1 and props[1][2].plate == 'X',
+        ('4.6f: the new owner applies the bag once (invincible %d, props %d)'):format(#invincible, #props))
+
+    -- The entity streams out: tracked no more, and never deleted from here.
+    env.alive[901] = nil
+    coroutine.resume(co)
+    check(#despawned == 1 and env.EXPORTS.GetSyncedEntity(wireKeyOf('car')) == nil,
+        '4.6f: an entity that is gone is untracked and onDespawn fires')
+    local deletes = 0
+    for _, n in ipairs(env.natives) do
+        if n.name == 'DeleteEntity' then deletes = deletes + 1 end
+    end
+    check(deletes == 0, '4.6f: and nothing is deleted: the entity was the server\'s')
+    env.reset()
+end
+
+-- ============================ 4.6g · hooks from other resources, and their owners
+do
+    local env = syncEnv({ invoking = 'res_a' })
+    local calls = 0
+    local funcref = setmetatable({ __cfx_functionReference = 'res_a:9' }, {
+        __call = function() calls = calls + 1 end,
+    })
+    local ok = env.EXPORTS.AddSyncSpawnHandler(funcref)
+    local okD = env.EXPORTS.AddSyncDespawnHandler(funcref)
+    check(ok == true and okD == true,
+        '4.6g: a hook passed from another resource (a funcref) is accepted')
+    env.upsert(wirePayload('hooked', {
+        kind = 'prop', model = 'prop_barrel_01',
+        coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = false,
+    }))
+    check(calls == 1, '4.6g: and called')
+    env.fire('onResourceStop', 'res_a')
+    env.remove(wireKeyOf('hooked'))
+    env.upsert(wirePayload('hooked2', {
+        kind = 'prop', model = 'prop_barrel_01',
+        coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = false,
+    }))
+    check(calls == 1, '4.6g: a hook is released when the resource that registered it stops')
     env.reset()
 end
 

@@ -329,13 +329,13 @@ Generated from `api.lua`. Do not edit between the markers.
 | `cis_libs:client:getData` | 1.0.0 | server to client: ({ Config, EventPrefix }) on join. DoorData was not shipped in 1.0.0 |
 | `cis_libs:client:inventory` | 1.0.0 | server to client: ({ [itemName] = count }), pushed by PublishInventory |
 | `cis_libs:client:showNotification` | 1.0.0 | server to client: (message, kind) |
-| `cis_libs:client:syncRemove` | 1.0.0 | server to client: (key) despawn a synced entity. The same namespaced key the upsert carried. |
-| `cis_libs:client:syncUpsert` | 1.0.0 | server to client: (record) for a nearby synced entity. The record's identity is `record.key` -- the caller's id namespaced by the owning resource -- and that is what a client keys its entity on. `record.id` is the caller's own id, carried for reference. |
+| `cis_libs:client:syncBatch` | 1.0.0 | server to client: (n, upserts, removes). ONE event per player per pass, latent when it carries 32 entries or more. `n` numbers the batches sent to that player, and a client applies an entry only if no later batch has touched that key, so a reliable batch overtaking a latent one is safe. `upserts` are CLIENT-LOCAL records (identity `record.key`, the caller's id namespaced by its owning resource; `record.rev` is its revision); a networked record is never on this wire. `removes` are keys to despawn. |
 | `cis_libs:jobUpdated` | 1.0.0 | server to client: ({ name, grade }), fired by PublishJobUpdate |
 | `cis_libs:playerLoaded` | 1.0.0 | server to client: (job), fired by PublishPlayerLoaded |
 | `cis_libs:server:getData` | 1.0.0 | client to server: no arguments, requests the config payload |
 | `cis_libs:server:inventorySync` | 1.0.0 | client to server: no arguments, requests an inventory snapshot |
-| `cis_libs:server:syncSnapshot` | 1.0.0 | client to server: no arguments, sent by the client when its sync scripts load. The server forgets what it believed this player held and re-sends everything currently visible, which is how a client restart recovers instead of staying permanently out of sync. |
+| `cis_libs:server:syncGaveUp` | 1.0.0 | client to server: (key) the client could not load that record's model after its retries. The server stops believing the client holds it and holds back that revision for 30 s. |
+| `cis_libs:server:syncSnapshot` | 1.0.0 | client to server: (held) sent when the client's sync scripts load, `held` being { [key] = rev } of what it still holds (nothing, on a fresh start). The server reconciles what it believed this player held against the claim, answers with one capped batch and lets the pass deliver the rest. Honoured once per 10 s per player. |
 
 | `Cis.*` | Realm | Signature | Since | Notes |
 |---|---|---|---|---|

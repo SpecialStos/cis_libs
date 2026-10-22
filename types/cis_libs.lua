@@ -283,11 +283,18 @@ local CisString = {}
 ---@field model integer|string a hash or a model name
 ---@field coords vector3|vector4|table a vector3, a vector4, or an { x, y, z } table. A non-finite number is refused with a reason
 ---@field heading? number from w when the coords are a vector4, or from this key
----@field networked? boolean asks the SERVER to create one entity rather than telling each client to spawn locally. A kind the server has no creation native for is REFUSED with a reason and never silently downgraded
----@field dynamic? boolean the entity is placed at request time and does not need to persist
+---@field networked? boolean asks the SERVER to create one entity (orphan mode KeepEntity, in the record's bucket) that OneSync streams. It never travels over the sync events and clients never move it; its metadata rides the entity's `cis_sync` state bag and is applied by the OWNING client. Refused with a reason when the kind has no server creation native or the server could not create it -- never stored without an entity, never downgraded
+---@field respawn? boolean networked only, default true: an entity removed behind the library's back (entityRemoved) is re-created, at most 3 times a minute; false drops the record with it
+---@field scope? number the streaming radius in metres, (0, 10000], default 80. Anything else is refused. On a networked record it is the entity's OneSync culling radius
+---@field dynamic? boolean the entity is placed at request time and does not need to persist. Counted in diagnostics; it does NOT make the record re-send: every record is sent when its revision changes, and only then
 ---@field bucket? integer the routing bucket, applied on the server
 ---@field vehicleType? string only for kind = 'vehicle': automobile, bike, boat, heli, plane, submarine or trailer. Default automobile
----@field clientData? table THE ONLY field that reaches the client, capped at 256 entries. Anything else on the record is server-side
+---@field props? table vehicle properties, applied with SetVehicleProperties. Shares the clientData cap
+---@field freeze? boolean a prop is frozen unless this is false; anything else only when true. Applied by the server for a networked record
+---@field invincible? boolean applied by the client that spawns it, or by the owner of a networked entity
+---@field blockEvents? boolean peds only; as invincible
+---@field scenario? string peds only; a scenario name, started in place
+---@field clientData? table caller data that reaches the client. clientData and props together are capped at 256 entries and 16 KB of strings at every depth. Anything else on the record is server-side
 local CisSyncRecord = {}
 
 ---@class CisSyncSummary
@@ -506,13 +513,13 @@ function AddDoorToSystem.server(newDoorData, internal) end
 function AddDoorToSystem.client(data) end
 
 --- Cis.sync.onDespawn(fn)
----@param fn function #a non-function is refused rather than stored
+---@param fn function #a function or a cross-resource reference, released when its resource stops; anything that cannot be called is refused
 ---@return boolean, string #true alone on success. The handler is called pcall'd as (key) and only when this client actually held something
 --- realm: client
 function AddSyncDespawnHandler(fn) end
 
 --- Cis.sync.onSpawn(fn)
----@param fn function #a non-function is REFUSED rather than stored -- storing it is a nil call on the spawn path one step later
+---@param fn function #a function, or one passed from another resource (it arrives as a callable reference and is released when that resource stops). Anything that cannot be called is REFUSED rather than stored
 ---@return boolean, string #true alone on success. Never a handle: there is no deregister. The handler is called pcall'd as (key, record, entity), and fires only after the generation check, so an entity created and immediately deleted never announces itself
 --- realm: client
 function AddSyncSpawnHandler(fn) end
@@ -1487,7 +1494,7 @@ function SyncClear() end
 --- Cis.sync.ped / Cis.sync.prop / Cis.sync.vehicle
 ---@param kind string #'prop', 'vehicle' or 'ped' -- never type-guarded, and the branch is on exactly these literals
 ---@param data table #the record. Not type-guarded either: the first hard requirement is data.coords, which raises on a non-table
----@return string|nil, string|nil #the record id, and a reason in exactly one case -- a networked kind with no server-side creation native. EVERY OTHER REFUSAL IS A BARE NIL, because a nil first value truncates the return list at the exports boundary
+---@return string|nil, string|nil #the record id, and a reason when a networked record is refused -- a kind with no server-side creation native, an entity the server could not create, or a removal that overtook the creation. EVERY OTHER REFUSAL IS A BARE NIL (and a logged reason), because a nil first value truncates the return list at the exports boundary
 --- realm: server
 function SyncCreate(kind, data) end
 
@@ -2260,7 +2267,7 @@ function Cis.sync.list() end
 ---@field since string 1.0.0
 ---@field realm "both"
 ---@field forwardsTo string AddSyncDespawnHandler
----@param fn function #a non-function is refused rather than stored
+---@param fn function #a function or a cross-resource reference, released when its resource stops; anything that cannot be called is refused
 ---@return boolean, string #true on success. Called pcall'd as (key), and only when this client actually held something
 function Cis.sync.onDespawn(fn) end
 
@@ -2268,7 +2275,7 @@ function Cis.sync.onDespawn(fn) end
 ---@field since string 1.0.0
 ---@field realm "both"
 ---@field forwardsTo string AddSyncSpawnHandler
----@param fn function #a non-function is refused rather than stored; storing it is a nil call on the spawn path one step later
+---@param fn function #a function or a cross-resource reference, released when its resource stops; anything that cannot be called is refused
 ---@return boolean, string #true on success, and never a handle -- there is no deregister. Called pcall'd as (key, record, entity)
 function Cis.sync.onSpawn(fn) end
 
