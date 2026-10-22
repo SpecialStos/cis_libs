@@ -1,6 +1,7 @@
 # Live harness runbook
 
-Everything needed to run `cis_test` against a real server, on the Windows VPS.
+Everything needed to run `cis_test` against a real server, on the Windows VPS,
+and (section [CI](#ci)) on a throwaway Linux server in GitHub Actions.
 Written down because all of it was discovered the hard way and none of it is
 guessable.
 
@@ -37,7 +38,9 @@ client if the tier needs one, runs, collects the results and prints a summary.
 Exit 0 only when nothing FAILed.
 
 **From now on, do not run live tests any other way.** A run assembled by hand
-from console entries is a run nobody can prove tested what it claims to.
+from console entries is a run nobody can prove tested what it claims to. The
+one other sanctioned way is the CI job below, which deploys with the same tool
+and makes the same commit check.
 
 ## The console: two different things
 
@@ -315,6 +318,137 @@ resource directories recursively, so two of them means the one that loads is a
 coin flip, and the second folder is not the tool's to delete. Either move it out
 of the resources tree, or confirm it is canonical — the next deploy then writes
 a `.cis_deploy` marker into it and stops asking.
+
+## CI
+
+The `live-server` job in `.github/workflows/tests.yml` boots a **real headless
+Linux FXServer** on every pull request and push to main, deploys cis_libs and
+the harness into it, and runs the `server` and `lifecycle` tiers. No game
+client, no txAdmin, no VPS. Any FAIL or ERROR case, any error line in the
+console, a boot that never finishes or a timeout fails the build.
+
+### Turning it on
+
+It needs one secret, and does nothing until it exists:
+
+1. Get a server licence key at <https://portal.cfx.re> (Server registration
+   keys). Keys are free. Use one **only for CI**, not the VPS's key, so either
+   can be revoked without touching the other.
+2. In GitHub: **Repository → Settings → Secrets and variables → Actions → New
+   repository secret**. Name `FIVEM_LICENSE_KEY`, value the key.
+3. Re-run the `tests` workflow. The `live-server` job's summary shows a table
+   per tier; the artefact `live-server-<run>-<attempt>` holds the console log,
+   one results file per tier, the generated `server.cfg` and `summary.json`.
+
+**Without the secret the job is skipped with a notice, never failed.** GitHub
+gives no secrets to pull requests from forks or to Dependabot, and a
+contributor cannot fix that, so those runs say "SKIPPED" in the job summary.
+A skip is not a pass.
+
+### What it does
+
+`tools/ci-fxserver.sh run` (also `npm run live:ci`, Linux only):
+
+1. **Download** the pinned artifact from
+   `runtime.fivem.net/artifacts/fivem/build_proot_linux/master/`, check its
+   sha256 against the pin **before** unpacking, and cache it per build
+   (`~/.cache/cis-fxserver/<build>`, restored by `actions/cache`).
+2. **Deploy** with `tools/live-deploy.js` into a fresh server data folder under
+   the runner's temp directory. `CIS_LIVE_ENV` points the tool at a generated
+   description instead of `.live-env.json` (see `tools/live-env.js`).
+3. **Write `server.cfg`**: loopback-only endpoints on 30120, `sv_master1 ""`
+   (never listed), `set onesync on`, `sv_maxclients 2`,
+   `cis_config_supplier cis_test_providers`, `cis_authorized_resources
+   cis_test,cis_test_providers,cis_test_c` (the list the providers supply,
+   pinned so a start-order race cannot change it), `cis_check_version false`,
+   the `cis_test` ACE block from [The ACE lines](#the-ace-lines), then `ensure`
+   cis_libs, cis_test_providers, cis_test_b, cis_test_c, cis_test.
+   `cis_test_badmeta` is deployed but not ensured; a lifecycle case starts it.
+   The key goes in a separate mode-0600 `secrets.cfg`, deleted at shutdown and
+   never uploaded.
+4. **Start FXServer** with the job's own pipe as its stdin. That pipe is the
+   source-0 console, so the commands go straight in. `cis_ctl` is not needed
+   here and not started: it exists because txAdmin owns the VPS's console.
+5. **Wait for the boot**: `status.json` from cis_test and the
+   `[cis_test_providers] config supplied` line. A licence error, `SCRIPT ERROR`,
+   `Error loading script`, `could not find`, or a failed resource start fails
+   the job here.
+6. **The commit check** from `live:run`: `status.json` must report the commit
+   the deploy wrote, and every ensured resource must be `started`.
+7. **`cis_test run server`, then `cis_test run lifecycle`**, each waiting for a
+   results file with a new run id. A run with zero cases, a FAIL or ERROR case,
+   or an error line in that run's console output fails the tier. A
+   `PREFLIGHT REFUSED` or similar ends the wait at once.
+8. **Shut down** with `quit`, then SIGTERM, then SIGKILL. Always, including
+   when the job is cancelled.
+
+Exit codes: `0` nothing failed, `1` a case or console error, `2` the server or
+harness never came up or a timeout, `3` no key or the key was refused.
+
+Errors from `cis_test_badmeta` are reported but not counted: it is broken on
+purpose. If a real server prints a line that is not a fault, excuse that line
+with `--allow-line '<regex>'`, in the workflow, with a comment saying why.
+
+### What it proves, and what it does not
+
+Proves, on FiveM's own runtime and natives rather than the fengari stubs:
+the manifest loads every file it names; cis_libs and the harness start clean
+under real CfxLua 5.4 and OneSync; exports, capability providers, refusals,
+notify, server zones, hooks, diagnostics, sync ids and server-created
+networked entities (the `server` tier) and resource stop, restart, ownership
+and cleanup (the `lifecycle` tier) behave on a real server.
+
+**Still needs a real client** (the `player` tier, on the VPS with a person or a
+client machine): zones, `onEnter`/`onExit`, points, the debug draw, the client
+sync spawn path, a client seeing a networked entity, the `perf` tier (it
+measures client frames), `playerDropped` with awaits outstanding, second-player
+cases, death and respawn, and anything judged by eye (MANUAL). The 30-minute
+`soak` is not run in CI either. `test/live/UNRUN.md` is the inventory.
+
+### Running it yourself (Linux)
+
+```
+FIVEM_LICENSE_KEY=... bash tools/ci-fxserver.sh run --tiers server
+bash tools/ci-fxserver.sh fetch     # download + verify only
+bash tools/ci-fxserver.sh probe     # boot with NO key, show how far it gets
+```
+
+Options after `run` go to `tools/ci-live.js`: `--tiers`, `--timeout`,
+`--boot-timeout`, `--tier-timeout`, `--game-build` (sets
+`sv_enforceGameBuild`), `--ignore-resource`, `--allow-line`, `--quiet`,
+`--work`, `--out`.
+
+### The pinned build
+
+`FXSERVER_BUILD`, `FXSERVER_REV` and `FXSERVER_SHA256` at the top of
+`tools/ci-fxserver.sh`: build **35245**, the `recommended` build at the time and
+the one the VPS runs. Move all three in one commit: take `recommended` and
+`recommended_download` from
+<https://changelogs-live.fivem.net/api/changelog/versions/linux/server>,
+download that `fx.tar.xz`, `sha256sum` it. Cfx.re publishes no checksum, so the
+pin is what makes a changed file under the same URL a failure instead of a
+silent upgrade.
+
+### What has been seen without a key (2026-10-22)
+
+From a sandbox with no licence key, `tools/ci-fxserver.sh probe`: the
+download verified
+(`sha256 16fcffd53a30a3909cbb2cfd26f89f950a59452792cafd0eda2174bdfeef9b2f OK`), the deploy wrote 93 library
+and 33 harness files, and FXServer got this far before stopping itself:
+
+```
+[           resources] Scanning resources.
+[           resources] Found 10 resources.
+This server does not have a license key specified. Please set the sv_licenseKey console variable to a key from https://portal.cfx.re/servers/registration-keys. ...
+[          svadhesive] Error: This server does not have a license key specified. ...
+```
+
+Ten resources is the seven harness folders plus three system resources, so the
+data folder and resource scan are right. Nothing past the licence check runs
+without a key (the server SIGTERMs itself within half a second and does not read
+its console), so **no tier has produced a result in CI yet**. The first run
+with the secret set is the first real one; read its console log artefact, not
+only the tally.
 
 ## Known open items
 

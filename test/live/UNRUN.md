@@ -57,6 +57,18 @@ silently received nil.
 
 ---
 
+## 0b. The CI server tier has not produced a result yet
+
+**Added 2026-10-22.** The `live-server` CI job (RUNBOOK.md, "CI") runs the
+`server` and `lifecycle` tiers on a real headless Linux FXServer, but it needs
+the `FIVEM_LICENSE_KEY` repository secret and none is set. Without a key the
+server stops at its licence check, so nothing past "Found 10 resources" has
+been seen on Linux. The first run with the secret is the first evidence that
+the harness behaves on the Linux build as it does on Windows: read its console
+log, not only its tally.
+
+---
+
 ## 1. The player tier — it runs now
 
 **A player connected on 2026-10-04 and the tier executed for the first time in
