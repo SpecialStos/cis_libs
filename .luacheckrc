@@ -123,7 +123,7 @@ read_globals = {
 -- reach its neighbour through a global. That is the design, not a leak,
 -- and it is the reason these names are declared at all.
 --
--- 104 names, read out of the source by build-libglobals.js.
+-- 105 names, read out of the source by build-libglobals.js.
 globals = {
     "CIS_DUMP_TARGET", "Cis", "CisCache", "CisCallable", "CisCallbackLimits",
     "CisCheckNetSchema", "CisCommandAdd", "CisCommandList", "CisCommandNames",
@@ -134,19 +134,20 @@ globals = {
     "CisOwned", "CisPending", "CisPointsCreate", "CisPointsGetClosest", "CisPointsGetDebug",
     "CisPointsRemove", "CisRandom", "CisRate", "CisRateBucketCount", "CisRateOk",
     "CisRaycastCamera", "CisRaycastFromCoords", "CisReadyState", "CisRegisterCallback",
-    "CisRegistry", "CisRememberJob", "CisSecurityPinned", "CisSecurityRebuild",
-    "CisSecurityReport", "CisSemver", "CisServerZoneBox", "CisServerZoneContains",
-    "CisServerZonePlayers", "CisServerZonePoly", "CisServerZoneRemove",
-    "CisServerZoneSphere", "CisSparse", "CisStatebagOnEntity", "CisStatebagOnPlayer",
-    "CisString", "CisSyncEnabled", "CisTable", "CisTime", "CisTiming", "CisUiConfirm",
-    "CisUiInput", "CisUiNotify", "CisUiProgress", "CisUiTextUIHide", "CisUiTextUIIsOpen",
-    "CisUiTextUIShow", "CisValidate", "CisWindow", "CisWorldClosest", "CisWorldNearby",
-    "CisZoneGeom", "CisZonesContains", "CisZonesCreate", "CisZonesRemove", "Config",
-    "CreatePed", "DebugLog", "DiscordConfig", "DrawText3D", "GetClosestVehicle",
-    "GetCurrentWeaponData", "GetDistanceBetweenCoords", "GetPlayerVehicleSeat",
-    "GetTableSize", "GetVehicleProperties", "GetWeaponAttachments", "Globals", "Logging",
-    "RandomFloat", "RequestModelTimeout", "Round", "Security", "SetVehicleProperties",
-    "WaitForLibReady", "includesLibraryInit", "manifestEntries", "statefulInternalInclude",
+    "CisRegistry", "CisRememberJob", "CisSecurityPinned", "CisSecurityPosture",
+    "CisSecurityRebuild", "CisSecurityReport", "CisSemver", "CisServerZoneBox",
+    "CisServerZoneContains", "CisServerZonePlayers", "CisServerZonePoly",
+    "CisServerZoneRemove", "CisServerZoneSphere", "CisSparse", "CisStatebagOnEntity",
+    "CisStatebagOnPlayer", "CisString", "CisSyncEnabled", "CisTable", "CisTime",
+    "CisTiming", "CisUiConfirm", "CisUiInput", "CisUiNotify", "CisUiProgress",
+    "CisUiTextUIHide", "CisUiTextUIIsOpen", "CisUiTextUIShow", "CisValidate", "CisWindow",
+    "CisWorldClosest", "CisWorldNearby", "CisZoneGeom", "CisZonesContains",
+    "CisZonesCreate", "CisZonesRemove", "Config", "CreatePed", "DebugLog", "DiscordConfig",
+    "DrawText3D", "GetClosestVehicle", "GetCurrentWeaponData", "GetDistanceBetweenCoords",
+    "GetPlayerVehicleSeat", "GetTableSize", "GetVehicleProperties", "GetWeaponAttachments",
+    "Globals", "Logging", "RandomFloat", "RequestModelTimeout", "Round", "Security",
+    "SetVehicleProperties", "WaitForLibReady", "includesLibraryInit", "manifestEntries",
+    "statefulInternalInclude",
 }
 -- END GENERATED globals
 

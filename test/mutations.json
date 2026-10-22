@@ -876,6 +876,13 @@
       "find": "    if not CisCallable(fn) then\n        return nil, ('hook fn must be a function",
       "replace": "    if type(fn) ~= 'function' then\n        return nil, ('hook fn must be a function",
       "why": "Refuse a funcref hook. A function passed by another resource arrives as a callable reference table, so no consumer can register a veto."
+    },
+    {
+      "id": "M131",
+      "file": "server/initialize.lua",
+      "find": "        allowListConfigured = CisSecurityPosture() == 'configured',\n",
+      "replace": "        allowListConfigured = #Security.AuthorizedResources > 0,\n",
+      "why": "Report the Security table instead of the posture in force. A server whose allow-list is pinned by cis_authorized_resources is summarised as unconfigured."
     }
   ]
 }

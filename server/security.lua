@@ -185,6 +185,12 @@ function CisSecurityPinned()
     return postureFromConvars()
 end
 
+--- The posture in force: 'configured', 'permissive' or 'restrictive'.
+--- @return string
+function CisSecurityPosture()
+    return posture
+end
+
 -- NO DEFERRED PROBE ANYMORE. This thread used to wait up to 30 seconds for a
 
 

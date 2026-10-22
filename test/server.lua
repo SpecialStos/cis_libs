@@ -4902,6 +4902,30 @@ do
     env.reset()
 end
 
+-- ============================ S7. the summary reports the posture in force
+--
+-- allowListConfigured read Security.AuthorizedResources, so with the list
+-- pinned by cis_authorized_resources the summary said "not configured" about a
+-- server that was.
+do
+    local env = newEnv({})
+    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_G, 'GetConvar') }
+    function GetConvar(name, default)
+        if name == 'cis_authorized_resources' then return 'cis_core' end
+        return default
+    end
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+    loadModule('server/initialize.lua')
+    CisReadyState.markReady()
+    local summary = env.EXPORTS.GetConfigSummary()
+    check(summary and summary.allowListConfigured == true,
+        'S7: a convar-pinned allow-list is reported as configured')
+    env.reset()
+end
+
 -- ==================================================================== report
 -- Named, not just counted. A suite that reports "failed=3" and exits tells you
 -- something broke and nothing about what, and the fix is to re-run with a print

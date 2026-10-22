@@ -27,7 +27,7 @@ self = false
 -- In shipped code an unused parameter is a real smell and stays reported.
 unused_args = false
 
--- 440 names writable in this directory.
+-- 441 names writable in this directory.
 globals = {
     "AddCommand", "AddDoorToSystem", "AddEventHandler", "AddStateBagChangeHandler",
     "AddTextComponentString", "AddTextComponentSubstringPlayerName",
@@ -43,8 +43,8 @@ globals = {
     "CisPointsGetClosest", "CisPointsGetDebug", "CisPointsRemove", "CisRandom", "CisRate",
     "CisRateBucketCount", "CisRateOk", "CisRaycastCamera", "CisRaycastFromCoords",
     "CisReadyState", "CisRegisterCallback", "CisRegistry", "CisRememberJob",
-    "CisSecurityPinned", "CisSecurityRebuild", "CisSecurityReport", "CisSemver",
-    "CisServerZoneBox", "CisServerZoneContains", "CisServerZonePlayers",
+    "CisSecurityPinned", "CisSecurityPosture", "CisSecurityRebuild", "CisSecurityReport",
+    "CisSemver", "CisServerZoneBox", "CisServerZoneContains", "CisServerZonePlayers",
     "CisServerZonePoly", "CisServerZoneRemove", "CisServerZoneSphere", "CisSparse",
     "CisStatebagOnEntity", "CisStatebagOnPlayer", "CisString", "CisSyncEnabled", "CisTable",
     "CisTestB", "CisTestBClient", "CisTestBadMeta", "CisTestC", "CisTestClientCase",
