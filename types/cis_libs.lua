@@ -639,9 +639,9 @@ function ClosestVehicle(coords, maxDistance, filter) end
 
 --- Cis.command.add(name, { params, restricted, help }, handler)
 ---@param name string #letters, digits, underscore or hyphen only
----@param options table #params is an array of required argument NAMES -- a table of strings, which crosses fine. The HANDLER does not cross, and is refused at registration with a message saying so
----@param handler function #called as (src, args, raw). src is INJECTED and is not a parameter, so no caller can name anyone
----@return boolean, string|nil #true once registered, or false plus a reason. A restricted command is a DECLARATION: RegisterCommand does the ACE check, and when nobody has granted it the command refuses and prints the exact add_ace line. cis_libs never calls add_ace itself
+---@param options table #{ params, restricted, help }. params is an array of names, or of { name, help, type, optional } tables: type is 'string' (default), 'number', 'playerId' (a connected id, or 'me') or 'longString' (the rest of the line; must be last); optional params must come last. A line that does not fit is refused and the usage logged. restricted is true or an ACE principal like 'group.admin'
+---@param handler function #called as (src, args, raw). src is INJECTED and is not a parameter, so no caller can name anyone. args holds the converted values by position AND by param name. A function passed from another resource is accepted, owned by it, and stops running when it stops
+---@return boolean, string|nil #true once registered, or false plus a reason. A restricted command is checked by RegisterCommand and again by the handler. When restricted names a group and cis_libs has been granted command.add_ace, it runs add_ace <group> command.<name> allow itself (and remove_ace on removal); otherwise it prints that exact line. Chat suggestions reach players who join later
 --- realm: server
 function CommandAdd(name, options, handler) end
 
@@ -658,7 +658,7 @@ function CommandParse(raw) end
 
 --- Cis.command.remove(name)
 ---@param name string #the command name
----@return boolean, string|nil #true once removed, or false plus a reason when nothing holds that name
+---@return boolean, string|nil #true once removed -- the command then runs nothing and its suggestion is withdrawn -- or false plus a reason when nothing holds that name or the caller is not the resource that added it
 --- realm: server
 function CommandRemove(name) end
 

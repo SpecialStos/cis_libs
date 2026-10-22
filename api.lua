@@ -498,8 +498,8 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.command.add(name, { params, restricted, help }, handler)',
             realm = 'server',
-            params = { { name = 'name', type = 'string', doc = 'letters, digits, underscore or hyphen only' }, { name = 'options', type = 'table', doc = 'params is an array of required argument NAMES -- a table of strings, which crosses fine. The HANDLER does not cross, and is refused at registration with a message saying so' }, { name = 'handler', type = 'function', doc = 'called as (src, args, raw). src is INJECTED and is not a parameter, so no caller can name anyone' } },
-            returns = { { type = 'boolean, string|nil', doc = 'true once registered, or false plus a reason. A restricted command is a DECLARATION: RegisterCommand does the ACE check, and when nobody has granted it the command refuses and prints the exact add_ace line. cis_libs never calls add_ace itself' } }
+            params = { { name = 'name', type = 'string', doc = 'letters, digits, underscore or hyphen only' }, { name = 'options', type = 'table', doc = "{ params, restricted, help }. params is an array of names, or of { name, help, type, optional } tables: type is 'string' (default), 'number', 'playerId' (a connected id, or 'me') or 'longString' (the rest of the line; must be last); optional params must come last. A line that does not fit is refused and the usage logged. restricted is true or an ACE principal like 'group.admin'" }, { name = 'handler', type = 'function', doc = 'called as (src, args, raw). src is INJECTED and is not a parameter, so no caller can name anyone. args holds the converted values by position AND by param name. A function passed from another resource is accepted, owned by it, and stops running when it stops' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true once registered, or false plus a reason. A restricted command is checked by RegisterCommand and again by the handler. When restricted names a group and cis_libs has been granted command.add_ace, it runs add_ace <group> command.<name> allow itself (and remove_ace on removal); otherwise it prints that exact line. Chat suggestions reach players who join later' } }
         },
         CommandList = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -513,7 +513,7 @@ return {
             use = 'Cis.command.remove(name)',
             realm = 'server',
             params = { { name = 'name', type = 'string', doc = 'the command name' } },
-            returns = { { type = 'boolean, string|nil', doc = 'true once removed, or false plus a reason when nothing holds that name' } }
+            returns = { { type = 'boolean, string|nil', doc = 'true once removed -- the command then runs nothing and its suggestion is withdrawn -- or false plus a reason when nothing holds that name or the caller is not the resource that added it' } }
         },
         CommandParse = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -2179,7 +2179,11 @@ return {
         },
         ['chat:addSuggestion'] = {
             since = '1.0.0',
-            payload = 'server to client, (name, help, params) while the chat resource is started. The one new standard-resource integration allowed, used only by Cis.command.add',
+            payload = 'server to client, (name, help, params) while the chat resource is started. The one new standard-resource integration allowed, used only by Cis.command.add. Sent to -1 on add and when chat starts, and to each player as they join',
+        },
+        ['chat:removeSuggestion'] = {
+            since = '1.0.0',
+            payload = 'server to client, (name) while the chat resource is started: the same seam, taking a suggestion back when its command is removed or its resource stops',
         },
     },
 }

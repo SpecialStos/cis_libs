@@ -4650,6 +4650,139 @@ do
     env.reset()
 end
 
+-- ============================ K. Cis.command: removal, joiners, ACE, types
+local function commandEnv(opts)
+    local env = newEnv(opts or {})
+    env.commands = {}
+    env.registrations = {}
+    env.chat = {}
+    env.executed = {}
+    env.aceGrants = {}
+    function RegisterCommand(name, fn, restricted)
+        env.registrations[#env.registrations + 1] = name
+        env.commands[name] = { fn = fn, restricted = restricted }
+    end
+    env.saved[#env.saved + 1] = { name = 'IsPrincipalAceAllowed', value = rawget(_G, 'IsPrincipalAceAllowed') }
+    function IsPrincipalAceAllowed(principal, object)
+        return env.aceGrants[principal .. ' ' .. object] == true
+    end
+    env.saved[#env.saved + 1] = { name = 'ExecuteCommand', value = rawget(_G, 'ExecuteCommand') }
+    function ExecuteCommand(line) env.executed[#env.executed + 1] = line end
+    function GetResourceState(name)
+        if name == 'chat' then return env.chatStarted and 'started' or 'missing' end
+        return 'missing'
+    end
+    function TriggerClientEvent(name, target, ...)
+        env.chat[#env.chat + 1] = { name = name, target = target, args = table.pack(...) }
+    end
+    loadModule('server/command.lua')
+    function env.run(name, src, raw)
+        local registered = env.commands[name]
+        if registered then
+            registered.fn(src, {}, raw)
+        end
+    end
+    return env
+end
+
+do
+    local env = commandEnv({ players = { [5] = {}, [6] = {} } })
+    env.chatStarted = true
+
+    -- K1. Removing a command used to forget the entry and leave the platform's
+    -- closure running the handler.
+    local ran = 0
+    exports.CommandAdd('cis_k1', {}, function() ran = ran + 1 end)
+    exports.CommandRemove('cis_k1')
+    env.run('cis_k1', 5, 'cis_k1')
+    check(ran == 0, ('K1: a removed command runs nothing (ran=%d)'):format(ran))
+    local removed = false
+    for _, e in ipairs(env.chat) do
+        if e.name == 'chat:removeSuggestion' and e.args[1] == '/cis_k1' then removed = true end
+    end
+    check(removed, 'K1: and its chat suggestion is taken back')
+    local ran2 = 0
+    check(exports.CommandAdd('cis_k1', {}, function() ran2 = ran2 + 1 end) == true,
+        'K1: the name can be added again')
+    env.run('cis_k1', 5, 'cis_k1')
+    check(ran2 == 1 and ran == 0, 'K1: and the original closure now runs the NEW handler, once')
+    local count = 0
+    for _, n in ipairs(env.registrations) do if n == 'cis_k1' then count = count + 1 end end
+    check(count == 1, ('K1: RegisterCommand was called once for the name (calls=%d)'):format(count))
+
+    -- K2. A player who joins later gets the suggestions.
+    env.chat = {}
+    local saved = rawget(_G, 'source')
+    source = 12
+    env.fire('playerJoining')
+    _G.source = saved
+    local toJoiner = 0
+    for _, e in ipairs(env.chat) do
+        if e.name == 'chat:addSuggestion' and e.target == 12 then toJoiner = toJoiner + 1 end
+    end
+    check(toJoiner == 1, ('K2: a player who joins later is sent the suggestions (sent=%d)'):format(toJoiner))
+
+    -- K3. A funcref handler from a consumer is accepted, owned, and released.
+    local consumerRan = 0
+    local ref = setmetatable({ __cfx_functionReference = 'cis_consumer:1:1' }, {
+        __call = function() consumerRan = consumerRan + 1 end,
+    })
+    env.invoking = 'cis_consumer'
+    check(exports.CommandAdd('cis_k3', {}, ref) == true, 'K3: a handler from another resource is accepted')
+    env.invoking = nil
+    env.run('cis_k3', 5, 'cis_k3')
+    check(consumerRan == 1, 'K3: and runs')
+    env.fire('onResourceStop', 'cis_consumer')
+    env.run('cis_k3', 5, 'cis_k3')
+    check(consumerRan == 1, "K3: and stops running when its resource stops")
+
+    -- K4. Typed and optional params.
+    local got
+    local ok, why = exports.CommandAdd('cis_give', { params = {
+        { name = 'target', type = 'playerId', help = 'who' },
+        { name = 'amount', type = 'number', help = 'how many' },
+        { name = 'reason', type = 'longString', optional = true, help = 'why' },
+    } }, function(src, args) got = args end)
+    check(ok == true, ('K4: typed params register (%s)'):format(tostring(why)))
+    env.run('cis_give', 5, 'cis_give 6 10 for being nice')
+    check(got and got.target == 6 and got[2] == 10 and type(got.amount) == 'number'
+            and got.reason == 'for being nice',
+        ('K4: args are converted and named (target=%s amount=%s reason=%s)')
+            :format(tostring(got and got.target), tostring(got and got.amount), tostring(got and got.reason)))
+    got = nil
+    env.run('cis_give', 5, 'cis_give 99 10')
+    check(got == nil, 'K4: a playerId that is not connected is refused')
+    env.run('cis_give', 5, 'cis_give 6 ten')
+    check(got == nil, 'K4: a number that is not one is refused')
+    env.run('cis_give', 5, 'cis_give me 3')
+    check(got and got.target == 5 and got.reason == nil, "K4: 'me' is the caller, and optional may be absent")
+    local bad = exports.CommandAdd('cis_bad', { params = { { name = 'a', optional = true }, 'b' } }, function() end)
+    check(bad == false, 'K4: a required param after an optional one is refused')
+    local badType = exports.CommandAdd('cis_bad2', { params = { { name = 'a', type = 'float' } } }, function() end)
+    check(badType == false, 'K4: an unknown param type is refused')
+    env.reset()
+end
+
+-- K5. A restricted group is provisioned when cis_libs may run add_ace.
+do
+    local env = commandEnv({})
+    exports.CommandAdd('cis_nogrant', { restricted = 'group.mod' }, function() end)
+    check(#env.executed == 0, 'K5: without the add_ace grant nothing is executed')
+
+    env.aceGrants['resource.cis_libs command.add_ace'] = true
+    exports.CommandAdd('cis_mod', { restricted = 'group.mod' }, function() end)
+    check(env.executed[1] == 'add_ace group.mod command.cis_mod allow',
+        ('K5: with it, the group is granted the command (%s)'):format(tostring(env.executed[1])))
+    exports.CommandRemove('cis_mod')
+    check(env.executed[2] == 'remove_ace group.mod command.cis_mod allow',
+        ('K5: and the grant is taken back on removal (%s)'):format(tostring(env.executed[2])))
+    local inj, injWhy = exports.CommandAdd('cis_inj', { restricted = 'group.admin; quit' }, function() end)
+    check(inj == false and #env.executed == 2,
+        ('K5: a group that is not a principal is refused before it reaches a console line (%s)')
+            :format(tostring(injWhy)))
+    env.reset()
+end
+
 -- ==================================================================== report
 -- Named, not just counted. A suite that reports "failed=3" and exits tells you
 -- something broke and nothing about what, and the fix is to re-run with a print

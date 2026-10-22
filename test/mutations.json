@@ -523,8 +523,8 @@
     {
       "id": "M80",
       "file": "server/command.lua",
-      "find": "        if restricted and src ~= 0 then\n",
-      "replace": "        if false then\n",
+      "find": "    if entry.restricted and src ~= 0 then\n",
+      "replace": "    if false then\n",
       "why": "Skip the ACE check on a restricted command. RegisterCommand's restricted flag is one half; without this, a source that reached the handler -- a console that forwards a src, or a restricted flag the platform did not honour -- runs as anyone."
     },
     {
@@ -771,6 +771,55 @@
       "find": "    if pinned and supplier ~= pinned and supplier ~= 'cis_libs' then\n",
       "replace": "    if false then\n",
       "why": "Ignore cis_config_supplier. Configuration goes back to whichever resource calls SetConfig first, which is a race any early-starting resource can win."
+    },
+    {
+      "id": "M116",
+      "file": "server/command.lua",
+      "find": "    commands[entry.name] = nil\n    if entry.provisioned",
+      "replace": "    if entry.provisioned",
+      "why": "Remove a command without disabling it. The platform cannot unregister the closure, so a removed command -- or one whose resource stopped -- keeps running its handler."
+    },
+    {
+      "id": "M117",
+      "file": "server/command.lua",
+      "find": "    for _, entry in pairs(commands) do\n        suggest(src, entry)\n    end\n",
+      "replace": "",
+      "why": "Send suggestions only at registration. Every player who joins after a command was added -- which on a live server is almost all of them -- never sees it in chat."
+    },
+    {
+      "id": "M118",
+      "file": "server/command.lua",
+      "find": "    ExecuteCommand(('add_ace %s command.%s allow'):format(entry.restricted, entry.name))\n    return true\n",
+      "replace": "    return false\n",
+      "why": "Never provision the ACE, even when the operator granted cis_libs add_ace. A command restricted to group.mod then refuses every moderator until someone adds the line by hand."
+    },
+    {
+      "id": "M119",
+      "file": "server/command.lua",
+      "find": "            parsed[i] = v\n        elseif kind == 'playerId' then\n",
+      "replace": "        elseif kind == 'playerId' then\n",
+      "why": "Validate a number param without converting it. The handler receives the string '10' where it was promised a number, and arithmetic on it is a coercion surprise."
+    },
+    {
+      "id": "M120",
+      "file": "server/command.lua",
+      "find": "    if not CisCallable(handler) then\n",
+      "replace": "    if type(handler) ~= 'function' then\n",
+      "why": "Refuse a funcref handler. A function passed by another resource arrives as a callable reference table, so no consumer can add a command at all."
+    },
+    {
+      "id": "M121",
+      "file": "server/command.lua",
+      "find": "        if entry.owner == resource then\n            doomed[#doomed + 1] = entry\n",
+      "replace": "        if false then\n            doomed[#doomed + 1] = entry\n",
+      "why": "Keep a stopped resource's commands. Its handler is a reference into a resource that is gone, and the command stays live and owned by nobody."
+    },
+    {
+      "id": "M122",
+      "file": "server/command.lua",
+      "find": "    if type(restricted) == 'string' and not restricted:match('^[%w_%-%.:]+$') then\n",
+      "replace": "    if false then\n",
+      "why": "Accept any restricted string. It is written into an add_ace console line, so 'group.admin; quit' becomes a second console command."
     }
   ]
 }

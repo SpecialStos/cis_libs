@@ -369,7 +369,8 @@ Generated from `api.lua`. Do not edit between the markers.
 
 | Event | Since | Payload |
 |---|---|---|
-| `chat:addSuggestion` | 1.0.0 | server to client, (name, help, params) while the chat resource is started. The one new standard-resource integration allowed, used only by Cis.command.add |
+| `chat:addSuggestion` | 1.0.0 | server to client, (name, help, params) while the chat resource is started. The one new standard-resource integration allowed, used only by Cis.command.add. Sent to -1 on add and when chat starts, and to each player as they join |
+| `chat:removeSuggestion` | 1.0.0 | server to client, (name) while the chat resource is started: the same seam, taking a suggestion back when its command is removed or its resource stops |
 | `cis_libs:capabilityChanged` | 1.0.0 | both realms: ({ slot, action, owner, previousOwner, resolved }) |
 | `cis_libs:cb` | 1.0.0 | client to server and server to client: (name, key, ...) |
 | `cis_libs:cb:res` | 1.0.0 | client: (key, ok, ...) resolving an outstanding callback |

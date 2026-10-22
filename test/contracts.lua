@@ -1645,6 +1645,7 @@ do
     local EVENT_SEAMS = {
         ['doorlock:requeststate'] = 'the door-state request, reached only when no doorsClient provider is registered',
         ['chat:addsuggestion'] = 'the chat suggestion seam, used only while the chat resource is started',
+        ['chat:removesuggestion'] = 'the same seam taking a suggestion back when its command is removed',
     }
     for _, file in ipairs(shipped) do
         for name in bodies[file]:gmatch('%f[%a_]trigger%s*%a*%s*event%s*%(%s*[\'"]([%w_:%.%-]+)[\'"]') do
