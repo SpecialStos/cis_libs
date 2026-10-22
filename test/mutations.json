@@ -509,9 +509,9 @@
     {
       "id": "M78",
       "file": "client/raycast.lua",
-      "find": "local PENDING = 0\n",
-      "replace": "local PENDING = 2\n",
-      "why": "Treat GetShapeTestResultIncludingMaterial's DONE value (2) as pending. 1 and 2 both mean done; 0 is the only pending state. Treating 2 as pending makes a resolved probe look unfinished until the timeout, so every hit becomes a timeout."
+      "find": "local DONE = 2\n",
+      "replace": "local DONE = 1\n",
+      "why": "Read GET_SHAPE_TEST_RESULT_INCLUDING_MATERIAL's PENDING status (1) as done. The status is 0 failed, 1 pending, 2 done, and every other return value is undefined until 2 -- so a probe still in flight is reported as a miss, and a finished one (2) becomes an unknown status."
     },
     {
       "id": "M79",
@@ -883,6 +883,76 @@
       "find": "    if fixVehicle then\n        SetVehicleFixed(vehicle)\n    end\n\n    if props.extras then\n",
       "replace": "    if props.extras then\n",
       "why": "Ignore fixVehicle. A caller asking for a repaired vehicle gets the damaged one; the test that orders SetVehicleFixed before the saved damage sees no repair at all."
+    },
+    {
+      "id": "M132",
+      "file": "client/raycast.lua",
+      "find": "            if hit == true or hit == 1 then\n",
+      "replace": "            if hit then\n",
+      "why": "Test the shape test's `hit` for truthiness. CfxLua returns a BOOL* out-parameter as the integer 0 or 1, and 0 is truthy in Lua, so every miss is reported as a hit on entity 0."
+    },
+    {
+      "id": "M133",
+      "file": "client/raycast.lua",
+      "find": "        elseif state == FAILED then\n",
+      "replace": "        elseif false then\n",
+      "why": "Stop recognising status 0 as a failed probe. A dead handle then reads as an unknown status instead of the documented failure, and the caller is told the wrong thing."
+    },
+    {
+      "id": "M134",
+      "file": "client/raycast.lua",
+      "find": "    local vehicle = GetVehiclePedIsIn(ped, false)\n    if vehicle and vehicle ~= 0 then\n        return vehicle\n    end\n    return ped\n",
+      "replace": "    return 0\n",
+      "why": "Default the ignored entity to 0. A camera ray starts behind the player, so its first hit is the player's own ped or the vehicle they sit in."
+    },
+    {
+      "id": "M135",
+      "file": "client/streaming.lua",
+      "find": "        if loaded and loaded(handle or hash or name) then\n",
+      "replace": "        if loaded and loaded(hash or name) then\n",
+      "why": "Poll HasScaleformMovieLoaded with the movie NAME. The native takes the handle RequestScaleformMovie returned, so in game it never answers true and every scaleform waits out its timeout; the stub refuses a non-handle."
+    },
+    {
+      "id": "M136",
+      "file": "client/streaming.lua",
+      "find": "        while not request(spec.requestArgs(name)) do\n",
+      "replace": "        if not request(spec.requestArgs(name)) then\n            return nil, ('the engine refused %s %q'):format(kind, tostring(name))\n        end\n        while false do\n",
+      "why": "Treat the first false from RequestScriptAudioBank as a refusal. The native answers false while the bank loads and must be called again until true, so every bank not already resident is refused."
+    },
+    {
+      "id": "M137",
+      "file": "client/ui.lua",
+      "find": "        while j < n and j > i do\n            local b = text:byte(j + 1)\n            if b < 0x80 or b >= 0xC0 then break end\n            j = j - 1\n        end\n        AddTextComponentSubstringPlayerName(text:sub(i, j))\n",
+      "replace": "        AddTextComponentSubstringPlayerName(text:sub(i, j))\n",
+      "why": "Cut help and notify text at a fixed 99 bytes. A multi-byte character straddling the cut is split, and both halves render as garbage."
+    },
+    {
+      "id": "M138",
+      "file": "client/utils.lua",
+      "find": "    BeginTextCommandDisplayText('STRING')\n    addTextComponents(tostring(text))\n",
+      "replace": "    BeginTextCommandDisplayText(text)\n",
+      "why": "Hand DrawText3D's text to BeginTextCommandDisplayText as the GXT label again. Anything that is not a real label key draws nothing; the stub requires the STRING label."
+    },
+    {
+      "id": "M139",
+      "file": "client/utils.lua",
+      "find": "exports('CreatePed', CisCreatePed)\n",
+      "replace": "CreatePed = CisCreatePed\nexports('CreatePed', CisCreatePed)\n",
+      "why": "Rebind the CreatePed native to the wrapper again. Every file in cis_libs that means the native gets a different signature, and a second loaded copy wraps it twice."
+    },
+    {
+      "id": "M140",
+      "file": "client/utils.lua",
+      "find": "    if useZ == false then\n",
+      "replace": "    if false then\n",
+      "why": "Ignore the native's useZ argument on GetDistanceBetweenCoords. A caller asking for a ground-plane distance gets a 3D one."
+    },
+    {
+      "id": "M141",
+      "file": "client/utils.lua",
+      "find": "    if type(coords) ~= 'table' and type(coords) ~= 'vector3' and type(coords) ~= 'vector4' then\n        DebugLog('CisCreatePed received no coords: ' .. tostring(coords))\n        return 0\n    end\n",
+      "replace": "",
+      "why": "Drop the nil-coords guard on CreatePed. The export raises inside the caller's call instead of answering the documented 0."
     }
   ]
 }

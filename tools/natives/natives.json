@@ -12,7 +12,7 @@
       "server": 5,
       "shared": 67
     },
-    "unresolvedPascalCaseGlobals": 70
+    "unresolvedPascalCaseGlobals": 72
   },
   "natives": {
     "AddDoorToSystem": {
@@ -70,7 +70,8 @@
       "files": [
         "client/initialize.lua",
         "client/proxy.lua",
-        "client/ui.lua"
+        "client/ui.lua",
+        "client/utils.lua"
       ]
     },
     "BeginTextCommandDisplayHelp": {
@@ -1662,6 +1663,7 @@
       ],
       "files": [
         "client/cache.lua",
+        "client/raycast.lua",
         "client/vehicle.lua"
       ]
     },
@@ -2405,6 +2407,7 @@
       ],
       "files": [
         "client/cache.lua",
+        "client/raycast.lua",
         "client/vehicle.lua",
         "client/weapon.lua",
         "client/world.lua",
@@ -2449,7 +2452,7 @@
         "client/keybind.lua"
       ]
     },
-    "ReleaseScriptAudioBank": {
+    "ReleaseNamedScriptAudioBank": {
       "realm": "client",
       "evidence": [
         "client"
@@ -3744,8 +3747,10 @@
     "CisCommandList",
     "CisCommandNames",
     "CisCommandParse",
+    "CisCreatePed",
     "CisForgetPlayer",
     "CisGetClosestVehicle",
+    "CisGetDistanceBetweenCoords",
     "CisInvokingAllowed",
     "CisJobCount",
     "CisKeybindAdd",

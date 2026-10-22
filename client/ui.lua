@@ -35,10 +35,20 @@ local function addComponents(text)
         AddTextComponentSubstringPlayerName('')
         return
     end
+    -- Each piece ENDS ON A UTF-8 CHARACTER BOUNDARY. A fixed 99-byte cut went
+    -- through the middle of any multi-byte character that straddled it, and both
+    -- halves rendered as garbage. A continuation byte is 10xxxxxx; the cut steps
+    -- back until the next byte is not one.
     local i = 1
     while i <= n do
-        AddTextComponentSubstringPlayerName(text:sub(i, i + COMPONENT_MAX - 1))
-        i = i + COMPONENT_MAX
+        local j = math.min(i + COMPONENT_MAX - 1, n)
+        while j < n and j > i do
+            local b = text:byte(j + 1)
+            if b < 0x80 or b >= 0xC0 then break end
+            j = j - 1
+        end
+        AddTextComponentSubstringPlayerName(text:sub(i, j))
+        i = j + 1
     end
 end
 

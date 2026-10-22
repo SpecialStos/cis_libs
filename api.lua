@@ -337,14 +337,14 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.raycast.camera(flags, ignore, distance, timeoutMs)',
             realm = 'client',
-            params = { { name = 'flags', type = 'number', doc = 'shape-test flags, default -1 (everything)' }, { name = 'ignore', type = 'number', doc = 'entity to ignore, default 0 (the native documents 0, not -1)' }, { name = 'distance', type = 'number', optional = true, doc = 'metres, default 10' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'the BOUND, default 2000. An unbounded poll would leave a caller stuck in Wait with no way out' } },
+            params = { { name = 'flags', type = 'number', doc = 'shape-test flags, default -1 (everything)' }, { name = 'ignore', type = 'number', doc = 'entity to ignore; default the vehicle the player sits in, else the player ped -- a camera ray starts behind the player and would otherwise hit them. Pass 0 to ignore nothing' }, { name = 'distance', type = 'number', optional = true, doc = 'metres, default 10' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'the BOUND, default 2000. An unbounded poll would leave a caller stuck in Wait with no way out' } },
             returns = { { type = 'boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil', doc = 'hit, entityHit, endCoords, surfaceNormal and materialHash. A MISS still carries endCoords and normal: the surface the ray stopped at. nil plus a reason on refusal or timeout' } }
         },
         RaycastFromCoords = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.raycast.fromCoords(origin, target, flags, ignore, timeoutMs)',
             realm = 'client',
-            params = { { name = 'origin', type = 'vector3|table', doc = 'where the ray starts' }, { name = 'target', type = 'vector3|table', doc = 'where it would end' }, { name = 'flags', type = 'number', optional = true, doc = 'shape-test flags, default -1' }, { name = 'ignore', type = 'number', optional = true, doc = 'entity to ignore, default -1' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'the bound, default 2000' } },
+            params = { { name = 'origin', type = 'vector3|table', doc = 'where the ray starts' }, { name = 'target', type = 'vector3|table', doc = 'where it would end' }, { name = 'flags', type = 'number', optional = true, doc = 'shape-test flags, default -1' }, { name = 'ignore', type = 'number', optional = true, doc = 'entity to ignore; default the vehicle the player sits in, else the player ped -- a camera ray starts behind the player and would otherwise hit them. Pass 0 to ignore nothing' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'the bound, default 2000' } },
             returns = { { type = 'boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil', doc = 'the same five slots as RaycastCamera, so a caller does not have to know which of the two it called' } }
         },
         KeybindAdd = {
@@ -947,7 +947,7 @@ return {
             use = 'Cis.streaming.audioBank(name, timeout)',
             realm = 'client',
             params = { { name = 'name', type = 'string', doc = 'the bank name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000' } },
-            returns = { { type = 'string|nil, string|nil', doc = 'the name once the engine has ACCEPTED the bank. RequestScriptAudioBank answers a BOOL and no HasScriptAudioBankLoaded is verified to exist, so this is acceptance and not residency, and it never waits' } }
+            returns = { { type = 'string|nil, string|nil', doc = 'the name once RequestScriptAudioBank answers true. The native is its own poll -- false while the bank loads -- so it is called again until true or the timeout, and a timed-out bank is released by name' } }
         },
         Ptfx = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -1198,7 +1198,7 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'no proxy equivalent',
             realm = 'client',
-            params = { { name = 'x1', type = 'number', doc = 'first point X' }, { name = 'y1', type = 'number', doc = 'first point Y' }, { name = 'z1', type = 'number', doc = 'first point Z' }, { name = 'x2', type = 'number', doc = 'second point X' }, { name = 'y2', type = 'number', doc = 'second point Y' }, { name = 'z2', type = 'number', doc = 'second point Z' } },
+            params = { { name = 'x1', type = 'number', doc = 'first point X' }, { name = 'y1', type = 'number', doc = 'first point Y' }, { name = 'z1', type = 'number', doc = 'first point Z' }, { name = 'x2', type = 'number', doc = 'second point X' }, { name = 'y2', type = 'number', doc = 'second point Y' }, { name = 'z2', type = 'number', doc = 'second point Z' }, { name = 'useZ', type = 'boolean', optional = true, doc = 'false measures on the ground plane, as the native does; omitted is 3D. The Lua global is CisGetDistanceBetweenCoords -- the native keeps its own name' } },
             returns = { { type = 'number', doc = 'the straight-line distance between the two points' } },
         },
         DrawText3D = {
@@ -1210,9 +1210,9 @@ return {
         },
         CreatePed = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'no proxy equivalent; returns 0 on an invalid or unloaded model',
+            use = 'no proxy equivalent; returns 0 on an invalid or unloaded model. The Lua global is CisCreatePed -- the CreatePed native keeps its own name',
             realm = 'client',
-            params = { { name = 'model', type = 'integer|string', doc = 'a hash or a model name; a number passes through, anything else goes through joaat' }, { name = 'coords', type = 'vector3|table', doc = 'the placement, read as .x/.y/.z and unguarded' }, { name = 'heading', type = 'number', optional = true, doc = 'the heading, default 0.0' }, { name = 'options', type = 'table', optional = true, doc = 'the options table, defaulted to {}' } },
+            params = { { name = 'model', type = 'integer|string', doc = 'a hash or a model name; a number passes through, anything else goes through joaat' }, { name = 'coords', type = 'vector3|table', doc = 'the placement, read as .x/.y/.z; nil or a table with no numeric x/y/z answers 0 before any model is requested' }, { name = 'heading', type = 'number', optional = true, doc = 'the heading, default 0.0' }, { name = 'options', type = 'table', optional = true, doc = 'the options table, defaulted to {}' } },
             returns = { { type = 'integer', doc = 'the ped handle, or 0 when the model failed to load -- 0 and not nil, so callers test one shape' } },
         },
         DebugLog = {
@@ -1794,14 +1794,14 @@ return {
         since = '1.0.0',
         realm = 'client',
         forwardsTo = 'RaycastCamera',
-        params = { { name = 'flags', type = 'number', optional = true, doc = 'shape-test flags, default -1' }, { name = 'ignore', type = 'number', optional = true, doc = 'entity to ignore, default 0 (the native documents 0, not -1)' }, { name = 'distance', type = 'number', optional = true, doc = 'metres, default 10' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'the bound, default 2000' } },
+        params = { { name = 'flags', type = 'number', optional = true, doc = 'shape-test flags, default -1' }, { name = 'ignore', type = 'number', optional = true, doc = 'entity to ignore; default the vehicle the player sits in, else the player ped -- a camera ray starts behind the player and would otherwise hit them' }, { name = 'distance', type = 'number', optional = true, doc = 'metres, default 10' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'the bound, default 2000' } },
         returns = { { type = 'boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil', doc = 'hit, entityHit, endCoords, surfaceNormal, materialHash. Probed from the CAMERA, not the ped: "forward" means where the player is LOOKING, and probing from the ped works until they look up and then hits their feet' } },
     },
     ['Cis.raycast.fromCoords'] = {
         since = '1.0.0',
         realm = 'client',
         forwardsTo = 'RaycastFromCoords',
-        params = { { name = 'origin', type = 'vector3|table', doc = 'where it starts' }, { name = 'target', type = 'vector3|table', doc = 'where it would end' }, { name = 'flags', type = 'number', optional = true, doc = 'default -1' }, { name = 'ignore', type = 'number', optional = true, doc = 'default 0' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'default 2000' } },
+        params = { { name = 'origin', type = 'vector3|table', doc = 'where it starts' }, { name = 'target', type = 'vector3|table', doc = 'where it would end' }, { name = 'flags', type = 'number', optional = true, doc = 'default -1' }, { name = 'ignore', type = 'number', optional = true, doc = 'default the player vehicle, else the player ped' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'default 2000' } },
         returns = { { type = 'boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil', doc = 'the same five slots as camera, so a caller does not have to know which it called' } },
     },
     ['Cis.keybind.add'] = {

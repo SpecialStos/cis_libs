@@ -183,7 +183,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `CommandList` | server | `()` | 1.0.0 | Cis.command.list() |
 | `CommandParse` | server | `(raw)` | 1.0.0 | no proxy equivalent; the argument splitter used by CommandAdd |
 | `CommandRemove` | server | `(name)` | 1.0.0 | Cis.command.remove(name) |
-| `CreatePed` | client | `(model, coords, heading?, options?)` | 1.0.0 | no proxy equivalent; returns 0 on an invalid or unloaded model |
+| `CreatePed` | client | `(model, coords, heading?, options?)` | 1.0.0 | no proxy equivalent; returns 0 on an invalid or unloaded model. The Lua global is CisCreatePed -- the CreatePed native keeps its own name |
 | `CreatePoint` | client | `(data)` | 1.0.0 | Cis.points.add({ coords, distance, onEnter, onExit, nearby }) |
 | `CreateTarget` | client | `(zoneType, name, coords, size, options?)` | 1.0.0 | Cis.target.add(zoneType, name, coords, size, options) |
 | `CreateZone` | client | `(kind, name, a, b, options?)` | 1.0.0 | Cis.zones.box / Cis.zones.poly / Cis.zones.sphere |
@@ -218,7 +218,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `GetDiagnostics` | both | `(opts?)` | 1.0.0 | Counts, never player data: capability slots and owners, sync records by owner, pending callbacks, net handlers, error and warning counters, memory, uptime, and pass timings. The harness diffs counters and probes only; timings are a sibling so a pass does not fail every case |
 | `GetDiscordConfig` | server | `()` | 1.0.0 | The outbound/webhook configuration SetConfig was handed, for the capability that does the sending. Server realm only -- it holds webhook URLs and is deliberately not on the client payload whitelist |
 | `GetDiscordQueueDepth` | server | `()` | 1.0.0 | no proxy equivalent; queued message count and dropped count |
-| `GetDistanceBetweenCoords` | client | `(x1, y1, z1, x2, y2, z2)` | 1.0.0 | no proxy equivalent |
+| `GetDistanceBetweenCoords` | client | `(x1, y1, z1, x2, y2, z2, useZ?)` | 1.0.0 | no proxy equivalent |
 | `GetDoorState` | both | `()` | 1.0.0 | Cis.doors.get(id) |
 | `GetKnownTargets` | both | `()` | 1.0.0 | The ordered framework and driver tables detection uses. Shared so a product cannot disagree with the debug output about what is running |
 | `GetLastRefusal` | server | `()` | 1.0.0 | Read after a nil/false answer from a capability export to learn WHY it was refused. Returns a sentence naming the missing or failing capability, or nil when the last call succeeded. Additive: no existing return shape changes |

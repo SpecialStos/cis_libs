@@ -534,7 +534,7 @@ function AnimSet(name, timeout) end
 --- Cis.streaming.audioBank(name, timeout)
 ---@param name string #the bank name
 ---@param timeout? integer #ms, default 5000
----@return string|nil, string|nil #the name once the engine has ACCEPTED the bank. RequestScriptAudioBank answers a BOOL and no HasScriptAudioBankLoaded is verified to exist, so this is acceptance and not residency, and it never waits
+---@return string|nil, string|nil #the name once RequestScriptAudioBank answers true. The native is its own poll -- false while the bank loads -- so it is called again until true or the timeout, and a timed-out bank is released by name
 --- realm: client
 function AudioBank(name, timeout) end
 
@@ -666,9 +666,9 @@ function CommandParse(raw) end
 --- realm: server
 function CommandRemove(name) end
 
---- no proxy equivalent; returns 0 on an invalid or unloaded model
+--- no proxy equivalent; returns 0 on an invalid or unloaded model. The Lua global is CisCreatePed -- the CreatePed native keeps its own name
 ---@param model integer|string #a hash or a model name; a number passes through, anything else goes through joaat
----@param coords vector3|table #the placement, read as .x/.y/.z and unguarded
+---@param coords vector3|table #the placement, read as .x/.y/.z; nil or a table with no numeric x/y/z answers 0 before any model is requested
 ---@param heading? number #the heading, default 0.0
 ---@param options? table #the options table, defaulted to {}
 ---@return integer #the ped handle, or 0 when the model failed to load -- 0 and not nil, so callers test one shape
@@ -911,9 +911,10 @@ function GetDiscordQueueDepth() end
 ---@param x2 number #second point X
 ---@param y2 number #second point Y
 ---@param z2 number #second point Z
+---@param useZ? boolean #false measures on the ground plane, as the native does; omitted is 3D. The Lua global is CisGetDistanceBetweenCoords -- the native keeps its own name
 ---@return number #the straight-line distance between the two points
 --- realm: client
-function GetDistanceBetweenCoords(x1, y1, z1, x2, y2, z2) end
+function GetDistanceBetweenCoords(x1, y1, z1, x2, y2, z2, useZ) end
 
 ---@overload fun(...)
   ---@param doorId string|integer #the door id
@@ -1287,7 +1288,7 @@ function RateOk(src, name, windowMs, maxHits) end
 
 --- Cis.raycast.camera(flags, ignore, distance, timeoutMs)
 ---@param flags number #shape-test flags, default -1 (everything)
----@param ignore number #entity to ignore, default 0 (the native documents 0, not -1)
+---@param ignore number #entity to ignore; default the vehicle the player sits in, else the player ped -- a camera ray starts behind the player and would otherwise hit them. Pass 0 to ignore nothing
 ---@param distance? number #metres, default 10
 ---@param timeoutMs? number #the BOUND, default 2000. An unbounded poll would leave a caller stuck in Wait with no way out
 ---@return boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil #hit, entityHit, endCoords, surfaceNormal and materialHash. A MISS still carries endCoords and normal: the surface the ray stopped at. nil plus a reason on refusal or timeout
@@ -1298,7 +1299,7 @@ function RaycastCamera(flags, ignore, distance, timeoutMs) end
 ---@param origin vector3|table #where the ray starts
 ---@param target vector3|table #where it would end
 ---@param flags? number #shape-test flags, default -1
----@param ignore? number #entity to ignore, default -1
+---@param ignore? number #entity to ignore; default the vehicle the player sits in, else the player ped -- a camera ray starts behind the player and would otherwise hit them. Pass 0 to ignore nothing
 ---@param timeoutMs? number #the bound, default 2000
 ---@return boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil #the same five slots as RaycastCamera, so a caller does not have to know which of the two it called
 --- realm: client
@@ -2119,7 +2120,7 @@ function Cis.points.remove(id) end
 ---@field realm "client"
 ---@field forwardsTo string RaycastCamera
 ---@param flags? number #shape-test flags, default -1
----@param ignore? number #entity to ignore, default 0 (the native documents 0, not -1)
+---@param ignore? number #entity to ignore; default the vehicle the player sits in, else the player ped -- a camera ray starts behind the player and would otherwise hit them
 ---@param distance? number #metres, default 10
 ---@param timeoutMs? number #the bound, default 2000
 ---@return boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil #hit, entityHit, endCoords, surfaceNormal, materialHash. Probed from the CAMERA, not the ped: "forward" means where the player is LOOKING, and probing from the ped works until they look up and then hits their feet
@@ -2132,7 +2133,7 @@ function Cis.raycast.camera(flags, ignore, distance, timeoutMs) end
 ---@param origin vector3|table #where it starts
 ---@param target vector3|table #where it would end
 ---@param flags? number #default -1
----@param ignore? number #default 0
+---@param ignore? number #default the player vehicle, else the player ped
 ---@param timeoutMs? number #default 2000
 ---@return boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil #the same five slots as camera, so a caller does not have to know which it called
 function Cis.raycast.fromCoords(origin, target, flags, ignore, timeoutMs) end

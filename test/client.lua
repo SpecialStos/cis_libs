@@ -2323,6 +2323,26 @@ do
     _G.World3dToScreen2d = function()
         return true, 0.5, 0.5
     end
+    -- BEGIN_TEXT_COMMAND_DISPLAY_TEXT TAKES A GXT LABEL. 'STRING' is the label that
+    -- renders its components verbatim; anything else here is the caller's text
+    -- being used as a label, which draws nothing in game.
+    _G.BeginTextCommandDisplayText = function(label)
+        env.called[#env.called + 1] = 'BeginTextCommandDisplayText'
+        env.label = label
+        if label ~= 'STRING' then
+            error(('BeginTextCommandDisplayText wants the STRING label, got %q'):format(tostring(label)), 2)
+        end
+    end
+    env.components = {}
+    _G.AddTextComponentSubstringPlayerName = function(text)
+        env.components[#env.components + 1] = text
+    end
+    -- The natives CisCreatePed and CisGetDistanceBetweenCoords must leave alone.
+    local nativeCreatePed = function() return 4242 end
+    local nativeDistance = function() return 'native' end
+    env.save('GetDistanceBetweenCoords')
+    CreatePed = nativeCreatePed
+    GetDistanceBetweenCoords = nativeDistance
     -- vec2/vector3 are CfxLua builtins this VM does not have. `vector3` is
     -- already stubbed by newEnv; vec2 was not, which is why the first version of
     -- this test failed on a NATIVE and looked like the fix had not worked.
@@ -2348,6 +2368,21 @@ do
     check(called('EndTextCommandDisplayText'),
         '3.4: and positions it with EndTextCommandDisplayText -- Command, not '
             .. 'Component, and there is no DrawText native at all')
+    check(env.label == 'STRING' and env.components[1] == 'harness',
+        ('3.4: the label is STRING and the text is a substring component (label=%s component=%s)')
+            :format(tostring(env.label), tostring(env.components[1])))
+
+    -- NO NATIVE IS REBOUND. Both used to be replaced for every file in cis_libs.
+    check(CreatePed == nativeCreatePed, 'utils: loading cis_libs does not replace the CreatePed native')
+    check(GetDistanceBetweenCoords == nativeDistance,
+        'utils: nor the GetDistanceBetweenCoords native')
+    local flat = exports.GetDistanceBetweenCoords(0, 0, 0, 3, 4, 100, false)
+    check(flat == 5, ('utils: the distance export honours useZ = false (got %s)'):format(tostring(flat)))
+    local full = exports.GetDistanceBetweenCoords(0, 0, 0, 0, 3, 4)
+    check(full == 5, ('utils: and is 3D by default (got %s)'):format(tostring(full)))
+    -- A ped with no coords is refused with the documented 0, not a raise.
+    local okPed, ped = pcall(exports.CreatePed, 'a_m_y_skater_01', nil, 0.0)
+    check(okPed and ped == 0, ('utils: CreatePed with nil coords answers 0 (got %s, %s)'):format(tostring(okPed), tostring(ped)))
     env.reset()
 end
 
@@ -3584,7 +3619,14 @@ local function streamEnv(opts)
     RequestStreamedTextureDict = recorder('RequestStreamedTextureDict')
     RequestWeaponAsset = recorder('RequestWeaponAsset')
     RequestScaleformMovie = recorder('RequestScaleformMovie', opts.scaleformRefused and 0 or 7)
-    RequestScriptAudioBank = recorder('RequestScriptAudioBank', opts.bankRefused and false or true)
+    -- REQUEST_SCRIPT_AUDIO_BANK IS ITS OWN POLL: false while the bank loads, true
+    -- once it is in. `bankAfter` is when it starts answering true.
+    env.bankAfter = opts.bankAfter
+    RequestScriptAudioBank = function(...)
+        env.calls[#env.calls + 1] = { name = 'RequestScriptAudioBank', args = table.pack(...) }
+        if env.never then return false end
+        return env.bankAfter == nil or env.clock >= env.bankAfter
+    end
 
     HasModelLoaded = probe('HasModelLoaded')
     HasAnimDictLoaded = probe('HasAnimDictLoaded')
@@ -3592,7 +3634,15 @@ local function streamEnv(opts)
     HasNamedPtfxAssetLoaded = probe('HasNamedPtfxAssetLoaded')
     HasStreamedTextureDictLoaded = probe('HasStreamedTextureDictLoaded')
     HasWeaponAssetLoaded = probe('HasWeaponAssetLoaded')
-    HasScaleformMovieLoaded = probe('HasScaleformMovieLoaded')
+    -- HAS_SCALEFORM_MOVIE_LOADED TAKES THE HANDLE RequestScaleformMovie returned.
+    -- Asked with a name it can never answer true in game, so here it raises.
+    local scaleformProbe = probe('HasScaleformMovieLoaded')
+    HasScaleformMovieLoaded = function(handle)
+        if handle ~= 7 then
+            error(('HasScaleformMovieLoaded takes the movie handle, got %s'):format(tostring(handle)), 2)
+        end
+        return scaleformProbe(handle)
+    end
     DoesAnimDictExist = function(name)
         env.calls[#env.calls + 1] = { name = 'DoesAnimDictExist', args = table.pack(name) }
         return not env.badAnimDict
@@ -3606,7 +3656,7 @@ local function streamEnv(opts)
     SetStreamedTextureDictAsNoLongerNeeded = recorder('SetStreamedTextureDictAsNoLongerNeeded')
     RemoveWeaponAsset = recorder('RemoveWeaponAsset')
     SetScaleformMovieAsNoLongerNeeded = recorder('SetScaleformMovieAsNoLongerNeeded')
-    ReleaseScriptAudioBank = recorder('ReleaseScriptAudioBank')
+    ReleaseNamedScriptAudioBank = recorder('ReleaseNamedScriptAudioBank')
 
     GetNumberOfStreamingRequests = function() return 3 end
     HaveAllStreamingRequestsCompleted = function() return true end
@@ -3649,7 +3699,7 @@ do
         { call = 'TextureDict', asset = 'mpbigteams', request = 'RequestStreamedTextureDict', release = 'SetStreamedTextureDictAsNoLongerNeeded' },
         { call = 'WeaponAsset', asset = 0x1F45D307, request = 'RequestWeaponAsset', release = 'RemoveWeaponAsset' },
         { call = 'Scaleform', asset = 'bossmp', request = 'RequestScaleformMovie', release = 'SetScaleformMovieAsNoLongerNeeded' },
-        { call = 'AudioBank', asset = 'ambient_bank_indoor', request = 'RequestScriptAudioBank', release = 'ReleaseScriptAudioBank' },
+        { call = 'AudioBank', asset = 'ambient_bank_indoor', request = 'RequestScriptAudioBank', release = 'ReleaseNamedScriptAudioBank' },
     }
 
     -- A VALID REQUEST, for every kind. `loadedAfter = 50` rather than 0,
@@ -3675,7 +3725,9 @@ do
     -- re-request on a resident asset is what pushes a server towards "too many
     -- loaded assets".
     for _, k in ipairs(KINDS) do
-        if k.call ~= 'AudioBank' then
+        -- Not a scaleform (its probe takes a handle, which only a request makes)
+        -- and not an audio bank (its request IS the probe).
+        if k.call ~= 'AudioBank' and k.call ~= 'Scaleform' then
             local env = streamEnv({ loadedAfter = 0 })
             local got = exports[k.call](k.asset, 1000)
             check(got ~= nil, ('7.2: %s answers immediately when already resident'):format(k.call))
@@ -3688,7 +3740,8 @@ do
     -- A TIMED-OUT REQUEST, for every kind that waits. This is the branch the
     -- whole file exists for, so it is asserted per kind and not once.
     for _, k in ipairs(KINDS) do
-        if k.call ~= 'AudioBank' then
+        -- Every kind, the audio bank included: it is polled to a deadline too.
+        do
             local env = streamEnv({ never = true })
             local got, why = exports[k.call](k.asset, 100)
             check(got == nil and type(why) == 'string' and why:find('did not load'),
@@ -3731,9 +3784,32 @@ do
         local env = streamEnv({})
         local before = env.clock
         local got = exports.AudioBank('ambient_bank_indoor', 5000)
-        check(got ~= nil, '7.2: an audio bank is accepted and answers immediately')
+        check(got ~= nil, '7.2: an audio bank that is already in answers immediately')
         check(env.clock == before,
             ('7.2: an audio bank does NOT wait (the clock moved %dms)'):format(env.clock - before))
+        env.reset()
+    end
+
+    -- ONE false FROM RequestScriptAudioBank IS "NOT YET". The bank answers false
+    -- while it loads; treating the first false as a refusal failed every bank
+    -- that was not already resident.
+    do
+        local env = streamEnv({ bankAfter = 200 })
+        local got, why = exports.AudioBank('ambient_bank_indoor', 5000)
+        check(got == 'ambient_bank_indoor',
+            ('7.2: an audio bank still loading is asked again until it answers true (got %s, %s)')
+                :format(tostring(got), tostring(why)))
+        check(env.countOf('RequestScriptAudioBank') >= 3,
+            ('7.2: the request is repeated (calls=%d)'):format(env.countOf('RequestScriptAudioBank')))
+        env.reset()
+    end
+
+    -- A scaleform is polled by its HANDLE and answers it in slot two.
+    do
+        local env = streamEnv({ loadedAfter = 50 })
+        local got, handle = exports.Scaleform('bossmp', 1000)
+        check(got == 'bossmp' and handle == 7,
+            ('7.2: a scaleform answers its name and the movie handle (got %s, %s)'):format(tostring(got), tostring(handle)))
         env.reset()
     end
 
@@ -4082,11 +4158,17 @@ local function raycastEnv(opts)
     end
     function GetShapeTestResultIncludingMaterial(handle)
         env.reads = env.reads + 1
-        if opts.never or env.reads <= env.pendingReads then
-            return 0
+        if opts.failed then
+            return 0, 0, nil, nil, 0, 0
         end
-        return 2, env.hit, env.endCoords, env.normal, env.material, env.entity
+        if opts.never or env.reads <= env.pendingReads then
+            return 1, 0, nil, nil, 0, 0
+        end
+        return 2, env.hit and 1 or 0, env.endCoords, env.normal, env.material, env.hit and env.entity or 0
     end
+    env.ped = 31
+    env.inVehicle = opts.inVehicle or 0
+    function GetVehiclePedIsIn() return env.inVehicle end
     loadModule('client/raycast.lua')
     return env
 end
@@ -4101,8 +4183,9 @@ do
     check(normal and normal.z == 1, '7.4: and the surface normal')
     check(material == 123, '7.4: and the material hash')
     local start = env.calls[1]
-    check(start ~= nil and start.args[8] == 0,
-        ('7.4: ignore defaults to 0, the value the native documents (got %s)'):format(tostring(start and start.args[8])))
+    check(start ~= nil and start.args[8] == 31,
+        ('7.4: ignore defaults to the player ped, so a ray does not hit its own caster (got %s)')
+            :format(tostring(start and start.args[8])))
     check(start ~= nil and start.args[9] == 7,
         ('7.4: LOS options are 7 (got %s)'):format(tostring(start and start.args[9])))
     env.reset()
@@ -4115,6 +4198,35 @@ do
     check(hit == false, ('7.4: a miss answers false, not nil (got %s)'):format(tostring(hit)))
     check(entity == nil, '7.4: a miss has no entity')
     check(coords ~= nil, '7.4: a miss still carries endCoords -- how far the ray got')
+    env.reset()
+end
+
+-- A MISS IS hit == 0, and 0 is truthy. `if hit` reported every miss as a hit.
+do
+    local env = raycastEnv({ pendingReads = 0, hit = false })
+    local hit, entity = exports.RaycastFromCoords({ x = 0, y = 0, z = 0 }, { x = 1, y = 0, z = 0 })
+    check(hit == false and entity == nil,
+        ('7.4: an integer 0 hit is a MISS (got %s, %s)'):format(tostring(hit), tostring(entity)))
+    env.reset()
+end
+
+-- STATUS 0 IS A FAILED PROBE, answered at once rather than polled to the timeout.
+do
+    local env = raycastEnv({ failed = true })
+    local hit, why = exports.RaycastFromCoords({ x = 0, y = 0, z = 0 }, { x = 1, y = 0, z = 0 }, -1, 0, 2000)
+    check(hit == nil and type(why) == 'string' and why:find('failed', 1, true) and env.clock < 100,
+        ('7.4: status 0 is a failure with a reason, not a pending probe (got %s, %s, clock=%d)')
+            :format(tostring(hit), tostring(why), env.clock))
+    env.reset()
+end
+
+-- IN A VEHICLE, the camera ray ignores the vehicle, which is what it starts behind.
+do
+    local env = raycastEnv({ pendingReads = 0, hit = false, inVehicle = 88 })
+    exports.RaycastCamera(nil, nil, 10, 2000)
+    local start = env.calls[1]
+    check(start ~= nil and start.args[8] == 88,
+        ('7.4: a camera ray from a vehicle ignores that vehicle (got %s)'):format(tostring(start and start.args[8])))
     env.reset()
 end
 
@@ -4443,6 +4555,28 @@ do
             :format(#adds))
     check(adds[1] == string.rep('x', 99) and adds[2] == 'x',
         '7.9: the split is 99 then the remainder, not a silent truncate')
+    env.reset()
+end
+
+-- A CUT NEVER SPLITS A UTF-8 CHARACTER. 98 ASCII bytes and then 'é' (two bytes)
+-- put the 99-byte boundary inside the 'é'; a fixed cut renders garbage on both
+-- sides of it.
+do
+    local env = uiEnv()
+    local text = string.rep('x', 98) .. '\195\169' .. string.rep('y', 5) .. '\226\130\172'
+    exports.UiNotify(text)
+    local adds = feedAdds(env)
+    local clean = true
+    for _, piece in ipairs(adds) do
+        local first, last = piece:byte(1), piece:byte(#piece)
+        if first and first >= 0x80 and first < 0xC0 then clean = false end
+        -- A piece must not END on a lead byte or mid-sequence: check it decodes.
+        if utf8.len(piece) == nil then clean = false end
+        if last and last >= 0xC0 then clean = false end
+    end
+    check(clean and table.concat(adds) == text and #adds[1] <= 99,
+        ('7.9: help/notify text is chunked on UTF-8 character boundaries (pieces=%d, first=%d bytes)')
+            :format(#adds, adds[1] and #adds[1] or -1))
     env.reset()
 end
 

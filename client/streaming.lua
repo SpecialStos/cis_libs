@@ -49,14 +49,21 @@ local KINDS = {
         loaded = 'HasScaleformMovieLoaded',
         release = 'SetScaleformMovieAsNoLongerNeeded',
         -- The only kind whose request native ANSWERS something: it returns the movie
+        -- HANDLE, and HAS_SCALEFORM_MOVIE_LOADED takes that handle -- not the name.
+        -- Asked with the name, it never answers true, and every scaleform request
+        -- waited out its whole timeout.
         handleFromRequest = true,
     },
     audioBank = {
         request = 'RequestScriptAudioBank',
         loaded = nil,
-        release = 'ReleaseScriptAudioBank',
-        -- `RequestScriptAudioBank` returns BOOL directly -- there is nothing to poll --
-        answersDirectly = true,
+        -- The NAMED release. ReleaseScriptAudioBank() takes no argument and drops
+        -- every bank this script holds, not the one that timed out.
+        release = 'ReleaseNamedScriptAudioBank',
+        -- REQUEST_SCRIPT_AUDIO_BANK is its own poll: it answers false while the
+        -- bank is still loading and true once it is in, so it is CALLED AGAIN until
+        -- true. One false is "not yet", not a refusal.
+        requestIsPoll = true,
         requestArgs = function(name) return name, false end,
     },
 }
@@ -114,7 +121,8 @@ local function requestAsset(kind, asset, timeout)
     end
 
     local loaded = spec.loaded and native(spec.loaded) or nil
-    if loaded and loaded(hash or name) then
+    -- Not for a scaleform: its probe takes a handle, and only a request makes one.
+    if loaded and not spec.handleFromRequest and loaded(hash or name) then
         -- Already resident. Returning without a request is the point of asking twice,
         return hash or name
     end
@@ -127,11 +135,17 @@ local function requestAsset(kind, asset, timeout)
 
     local deadline = GetGameTimer() + (tonumber(timeout) or DEFAULT_TIMEOUT_MS)
 
-    if spec.answersDirectly then
-        -- A BOOL answer and nothing to poll.
-        local ok = request(spec.requestArgs(name))
-        if not ok then
-            return nil, ('the engine refused %s %q'):format(kind, tostring(name))
+    if spec.requestIsPoll then
+        while not request(spec.requestArgs(name)) do
+            if GetGameTimer() >= deadline then
+                local release = spec.release and native(spec.release) or nil
+                if release then
+                    pcall(release, name)
+                end
+                return nil, ('%s %q did not load within %dms')
+                    :format(kind, tostring(name), tonumber(timeout) or DEFAULT_TIMEOUT_MS)
+            end
+            Wait(POLL_MS)
         end
         return name
     end
@@ -150,7 +164,7 @@ local function requestAsset(kind, asset, timeout)
     end
 
     while true do
-        if loaded and loaded(hash or name) then
+        if loaded and loaded(handle or hash or name) then
             return hash or name, handle
         end
         if GetGameTimer() >= deadline then

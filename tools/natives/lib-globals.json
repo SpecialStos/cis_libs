@@ -66,6 +66,14 @@
         "shared/config.lua"
       ]
     },
+    "CisCreatePed": {
+      "realms": [
+        "client"
+      ],
+      "files": [
+        "client/utils.lua"
+      ]
+    },
     "CisCurve": {
       "realms": [
         "shared"
@@ -112,6 +120,14 @@
       ],
       "files": [
         "client/vehicle.lua"
+      ]
+    },
+    "CisGetDistanceBetweenCoords": {
+      "realms": [
+        "client"
+      ],
+      "files": [
+        "client/utils.lua"
       ]
     },
     "CisGrid": {
@@ -672,14 +688,6 @@
         "shared/config.lua"
       ]
     },
-    "CreatePed": {
-      "realms": [
-        "client"
-      ],
-      "files": [
-        "client/utils.lua"
-      ]
-    },
     "DebugLog": {
       "realms": [
         "client"
@@ -710,14 +718,6 @@
       ],
       "files": [
         "client/weapon.lua"
-      ]
-    },
-    "GetDistanceBetweenCoords": {
-      "realms": [
-        "client"
-      ],
-      "files": [
-        "client/utils.lua"
       ]
     },
     "GetPlayerVehicleSeat": {
