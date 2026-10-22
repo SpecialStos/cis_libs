@@ -50,7 +50,7 @@ const modulePaths = new Set(modules.map(m => m.rel))
 const all = []
 function walk(dir) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (e.name === 'node_modules' || e.name === '.git') continue
+    if (e.name === 'node_modules' || e.name === '.git' || e.name === '.claude') continue
     const p = path.join(dir, e.name)
     // Recurse at EVERY depth, not just the first. The first version of this
     // walked one level, which silently dropped `shared/algo/*` and reported

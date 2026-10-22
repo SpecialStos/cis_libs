@@ -70,8 +70,8 @@ function main() {
     // node_modules once instead of once per mutation turns a run from minutes
     // into seconds, and a gate that is slow gets skipped.
     copyTree(root, tmpRoot, skipNodeModules
-      ? ['.git', 'node_modules', '.live-env.json']
-      : ['.git', '.live-env.json'])
+      ? ['.git', '.claude', 'node_modules', '.live-env.json']
+      : ['.git', '.claude', '.live-env.json'])
 
     for (const m of rows) {
       const target = path.join(tmpRoot, m.file)

@@ -21,7 +21,7 @@ const lualib = fengari.lualib
 const toLu = fengari.to_luastring
 
 const root = path.join(__dirname, '..')
-const SKIP_DIRS = new Set(['node_modules', '.git', '.zcode', 'cache', 'reports'])
+const SKIP_DIRS = new Set(['node_modules', '.git', '.zcode', '.claude', 'cache', 'reports'])
 
 function walk(dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {

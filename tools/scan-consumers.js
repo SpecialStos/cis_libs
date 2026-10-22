@@ -238,7 +238,7 @@ function walkLua(root, dir, acc = []) {
   let ents
   try { ents = fs.readdirSync(dir, { withFileTypes: true }) } catch { return acc }
   for (const e of ents) {
-    if (e.name === 'node_modules' || e.name === '.git') continue
+    if (e.name === 'node_modules' || e.name === '.git' || e.name === '.claude') continue
     const full = path.join(dir, e.name)
     if (e.isDirectory()) walkLua(root, full, acc)
     else if (e.isFile() && e.name.endsWith('.lua')) acc.push(path.relative(root, full))
@@ -271,7 +271,7 @@ function findManifests(root) {
     let ents
     try { ents = fs.readdirSync(d, { withFileTypes: true }) } catch { return }
     for (const e of ents) {
-      if (e.name === 'node_modules' || e.name === '.git') continue
+      if (e.name === 'node_modules' || e.name === '.git' || e.name === '.claude') continue
       const full = path.join(d, e.name)
       if (e.isDirectory()) walk(full)
       else if (e.isFile() && e.name === 'fxmanifest.lua') out.push(full)

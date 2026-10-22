@@ -72,7 +72,7 @@ function collectTargets() {
     let ents
     try { ents = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
     for (const e of ents) {
-      if (e.name === 'node_modules' || e.name === '.git' || e.name === 'dist') continue
+      if (e.name === 'node_modules' || e.name === '.git' || e.name === 'dist' || e.name === '.claude') continue
       const full = path.join(dir, e.name)
       const r = rel ? rel + '/' + e.name : e.name
       if (e.isDirectory()) walk(full, r)
