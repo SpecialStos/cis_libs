@@ -149,6 +149,25 @@ function shippedFiles() {
       }
     }
   }
+  // CONSUMER-LOADED CLIENT FILES. client/core/*.lua that cis_libs does not run
+  // itself are listed in `files {}`, not `client_scripts`, and init.lua loads
+  // them into a CONSUMER's client VM. They are client code all the same, so
+  // they are checked (and their natives indexed) as the client realm -- a file
+  // that escaped the realm rule because of which block lists it would be the
+  // first place a server-only native could hide.
+  const filesBlock = /^\s*files\s*\{([^}]*)\}/m.exec(manifest)
+  if (filesBlock) {
+    const seen = new Set(out.map(f => f.file))
+    const str = /(['"])((?:\\.|(?!\1)[^\\])*)\1/g
+    let s
+    const body = filesBlock[1].replace(/--[^\n]*/g, '')
+    while ((s = str.exec(body)) !== null) {
+      const v = s[2]
+      if (!/^client\/.*\.lua$/.test(v) || seen.has(v)) continue
+      if (!fs.existsSync(path.join(root, v))) continue
+      out.push({ realm: 'client', file: v })
+    }
+  }
   return out
 }
 

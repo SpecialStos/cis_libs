@@ -68,6 +68,16 @@ const luaNamesFor = snake => {
   const base = toLuaName(snake)
   const out = new Set([base])
   if (snake.startsWith('_')) out.add('_' + base)
+  // A segment that STARTS with a digit keeps its separator in CfxLua, not only
+  // a wholly numeric one: DRAW_SCALEFORM_MOVIE_3D is DrawScaleformMovie_3d.
+  // toLuaName glues `3d` on, so the separated spelling is registered as well.
+  const digitLed = snake.replace(/^_/, '').split('_')
+    .map((w, i) => {
+      const word = w.length === 0 ? w : w.charAt(0) + w.slice(1).toLowerCase()
+      return i > 0 && /^\d/.test(w) ? '_' + word.toLowerCase() : word
+    })
+    .join('')
+  if (digitLed !== base) out.add(digitLed)
   // COLOR <-> COLOUR, applied to whole words only so "ColorRamp" is untouched.
   for (const [from, to] of [['Color', 'Colour'], ['Tyre', 'Tyres'], ['Neon', 'Neon']]) {
     if (!base.includes(from)) continue
@@ -151,6 +161,25 @@ function shippedFiles(root) {
         if (!fs.existsSync(path.join(root, v))) continue
         out.push({ realm, file: v })
       }
+    }
+  }
+  // CONSUMER-LOADED CLIENT FILES. client/core/*.lua that cis_libs does not run
+  // itself are listed in `files {}`, not `client_scripts`, and init.lua loads
+  // them into a CONSUMER's client VM. They are client code all the same, so
+  // they are checked (and their natives indexed) as the client realm -- a file
+  // that escaped the realm rule because of which block lists it would be the
+  // first place a server-only native could hide.
+  const filesBlock = /^\s*files\s*\{([^}]*)\}/m.exec(manifest)
+  if (filesBlock) {
+    const seen = new Set(out.map(f => f.file))
+    const str = /(['"])((?:\\.|(?!\1)[^\\])*)\1/g
+    let s
+    const body = filesBlock[1].replace(/--[^\n]*/g, '')
+    while ((s = str.exec(body)) !== null) {
+      const v = s[2]
+      if (!/^client\/.*\.lua$/.test(v) || seen.has(v)) continue
+      if (!fs.existsSync(path.join(root, v))) continue
+      out.push({ realm: 'client', file: v })
     }
   }
   return out

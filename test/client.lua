@@ -427,7 +427,32 @@ end
 -- `load` rather than `loadstring`: this suite runs on fengari, which is Lua
 -- 5.3, where `loadstring` was removed. `load` takes the same arguments and is
 -- the form the file is actually compiled by in game.
+-- A client file that wraps an ENGINE (client/core/<same name>.lua) needs the
+-- engine loaded first, exactly as the manifest orders them: the engines are
+-- client_scripts listed before the wrappers. Loaded here rather than by every
+-- test, so a test cannot exercise a wrapper against an engine it forgot.
+local function hasSource(rel)
+    if CIS_TEST_FILES and CIS_TEST_FILES[rel] then
+        return true
+    end
+    local f = io.open and io.open('./' .. rel, 'r')
+    if f then
+        f:close()
+        return true
+    end
+    return false
+end
+
 local function loadModule(rel)
+    local core = rel:match('^client/([%w_]+)%.lua$')
+    if core and hasSource('client/core/' .. core .. '.lua') then
+        local src = readSource('client/core/' .. core .. '.lua'):gsub(BACKTICK_PATTERN, '0x11111111')
+        local engine, engineErr = load(src, '@client/core/' .. core .. '.lua')
+        if not engine then
+            error(('client/core/%s.lua: %s'):format(core, tostring(engineErr)), 0)
+        end
+        engine()
+    end
     local body = readSource(rel):gsub(BACKTICK_PATTERN, '0x11111111')
     local chunk, err = load(body, '@' .. rel)
     if not chunk then
@@ -1562,6 +1587,56 @@ do
         ('cache: a vehicle listener sees the seat that came WITH the vehicle (got %s)'):format(tostring(seatAtVehicle)))
     check(CisCache.seat == -1 and seenSeats[#seenSeats] == -1,
         ('cache: a shuffle to the driver seat is seen on the next pass (seat=%s)'):format(tostring(CisCache.seat)))
+    env.reset()
+end
+
+-- THE PUSH TO EVERY CONSUMER'S MIRROR. cis_libs is the single producer: each
+-- change is one LOCAL `cis_libs:cache` event, the seat rides on the vehicle push
+-- so the two land together in a consumer too, an ammo-only refresh is silent,
+-- and a pass that changes nothing pushes nothing.
+do
+    local env = cacheEnv()
+    env.vehicle, env.seat = 50, 1
+    cachePasses(env, 2, function(i)
+        if i == 1 then env.seat = -1 end
+    end)
+    local function pushesOf(key)
+        local out = {}
+        for _, e in ipairs(env.localEventsOf('cis_libs:cache')) do
+            if e.args[1] == key then out[#out + 1] = e.args end
+        end
+        return out
+    end
+    local veh = pushesOf('vehicle')
+    check(#veh == 2 and veh[1][2] == 50 and veh[1][3] == 1 and veh[2][2] == 50 and veh[2][3] == -1,
+        ('cache: a vehicle and a shuffle are two vehicle pushes, each carrying its seat (%d pushes)')
+            :format(#veh))
+    check(#pushesOf('seat') == 0, 'cache: the seat never travels on its own, so it cannot arrive apart from its vehicle')
+    check(#pushesOf('serverId') == 1 and pushesOf('serverId')[1][2] == 12,
+        'cache: the ids are pushed when they are first known')
+    check(#env.serverEventsOf('cis_libs:cache') == 0, 'cache: the push is a LOCAL event; nothing reaches the server')
+
+    local before = #env.localEventsOf('cis_libs:cache')
+    cachePasses(env, 3)
+    check(#env.localEventsOf('cis_libs:cache') == before,
+        ('cache: passes that change nothing push nothing (%d new)'):format(#env.localEventsOf('cis_libs:cache') - before))
+
+    env.armed = true
+    cachePasses(env, 2)
+    local weapon = pushesOf('weapon')
+    check(#weapon == 1 and type(weapon[1][2]) == 'table' and weapon[1][2].ammo == 30 and weapon[1][4] == nil,
+        'cache: drawing a weapon is an announced weapon push')
+    env.save('GetAmmoInPedWeapon')
+    function GetAmmoInPedWeapon() return 29 end
+    cachePasses(env, 2)
+    weapon = pushesOf('weapon')
+    check(#weapon == 2 and weapon[2][2].ammo == 29 and weapon[2][4] == true,
+        'cache: a shot that only moves the ammo is a SILENT push')
+
+    local snap = exports.GetCacheSnapshot()
+    check(type(snap) == 'table' and snap ~= CisCache and snap.vehicle == 50 and snap.seat == -1
+        and snap.serverId == 12 and snap.armed == true and snap.weapon and snap.weapon.ammo == 29,
+        'cache: GetCacheSnapshot answers every mirrored key in a fresh table')
     env.reset()
 end
 

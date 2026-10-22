@@ -105,11 +105,31 @@ files {
     'web/js/skillcheck.js',
     'web/js/textui.js',
     'web/js/validate.js',
+    -- CONSUMER-ONLY ENGINES: loaded by init.lua into the client VM of a consumer on
+    -- first use (the cache mirror, markers, scaleforms, DUI, animations and
+    -- control holds). cis_libs never runs them, so they are files, not scripts;
+    -- the engines cis_libs ALSO runs are client_scripts below.
+    'client/core/mirror.lua',
+    'client/core/marker.lua',
+    'client/core/scaleform.lua',
+    'client/core/dui.lua',
+    'client/core/anim.lua',
+    'client/core/controls.lua',
 }
 
 ui_page 'web/index.html'
 
 client_scripts {
+    -- The engines first. Each is one file of pure logic that cis_libs runs here
+    -- AND a consumer loads into its own VM through init.lua (Cis.zones and the
+    -- rest), so the wrappers below and every consumer share one source.
+    'client/core/zones.lua',
+    'client/core/points.lua',
+    'client/core/keybind.lua',
+    'client/core/world.lua',
+    'client/core/raycast.lua',
+    'client/core/streaming.lua',
+    'client/core/vehicle.lua',
     'client/initialize.lua',
     'client/logging.lua',
     'client/streaming.lua',

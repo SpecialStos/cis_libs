@@ -28,6 +28,11 @@ local function tryExport(name, ...)
     return a, b, c, d
 end
 
+-- THE CONSUMER-SIDE ENGINES (client/core/*.lua), loaded on first use. Declared
+-- here, defined at the bottom of the file next to the Cis.require loader whose
+-- cycle guard they share.
+local loadCore, loadGeometry
+
 -- `Cis.isReady` / `Cis.isFailed`. In cis_libs' own VM CisReadyState writes them
 -- when the gate settles. A CONSUMER's Cis is a different table in a different
 -- Lua state that nothing ever wrote, so they were plain fields stuck at false.
@@ -160,6 +165,13 @@ Cis.statebag = Cis.statebag or {}
 Cis.command = Cis.command or {}
 Cis.ui = Cis.ui or {}
 Cis.ui.textUI = Cis.ui.textUI or {}
+Cis.world = Cis.world or {}
+Cis.vehicle = Cis.vehicle or {}
+Cis.marker = Cis.marker or {}
+Cis.scaleform = Cis.scaleform or {}
+Cis.dui = Cis.dui or {}
+Cis.anim = Cis.anim or {}
+Cis.controls = Cis.controls or {}
 
 -- Realm split. A consumer calls only the half that matches where it is; the other half
 if not IS_SERVER then
@@ -201,9 +213,125 @@ if not IS_SERVER then
         return GetEntityHeading(currentPed())
     end
 
-    -- The three player.* calls above are free.
+    -- ------------------------------------------------ the consumer's engines
+    --
+    -- WHAT RUNS WHERE. In a consumer, zones, points, keybinds, world queries,
+    -- shape tests, streaming, vehicle properties, markers, scaleforms, DUI,
+    -- animations and control holds run HERE, in the consumer's own VM, from the
+    -- same client/core/*.lua text cis_libs runs for its exports. Each engine is
+    -- loaded on the FIRST call that needs it (loadCore, at the bottom of this
+    -- file), so a resource that never touches zones loads no zone code and runs
+    -- no zone thread. Handlers are plain local functions: nothing is a funcref,
+    -- and nothing crosses per frame.
+    --
+    -- The player-state reads (vehicle, seat, weapon, ids) answer from a MIRROR
+    -- of cis_libs' cache, filled by one snapshot and kept current by the
+    -- `cis_libs:cache` event cis_libs pushes on every change.
+    --
+    -- In cis_libs' own VM (IS_SELF) every one of these keeps its old route --
+    -- the export or CisCache -- because that VM IS the singleton the exports
+    -- serve.
 
-    -- CROSSES. Returns nil rather than 0 when the player is on foot; a consumer that
+    -- A logging seam for the engines. Crosses, but only on an error.
+    local function consumerLog(level, message)
+        local name = (level == 'error' and 'LogError') or (level == 'warn' and 'LogWarn')
+            or (level == 'debug' and 'LogDebug') or 'LogInfo'
+        tryExport(name, ('[%s] %s'):format(THIS, tostring(message)))
+    end
+
+    -- A loop body that raises is logged (once per 10 s per loop) and answers
+    -- nil, so `Wait(tick() or default)` keeps the loop alive.
+    local function consumerGuard(name, body)
+        local lastLogged
+        return function()
+            local ok, result = pcall(body)
+            if ok then
+                return result
+            end
+            local now = GetGameTimer()
+            if lastLogged == nil or now - lastLogged >= 10000 then
+                lastLogged = now
+                consumerLog('error', ('loop %s raised: %s'):format(name, tostring(result)))
+            end
+            return nil
+        end
+    end
+
+    local function playerCoords()
+        return Cis.player.coords()
+    end
+
+    -- name -> the instance (or the stateless module) this VM uses.
+    local engines = {}
+
+    local function engine(name)
+        local e = engines[name]
+        if e ~= nil then
+            return e
+        end
+        if name == 'zones' then
+            local geo = loadGeometry()
+            e = loadCore('zones').new({
+                grid = geo.CisGrid, geom = geo.CisZoneGeom, coords = playerCoords,
+                log = consumerLog, guard = consumerGuard, autoDrive = true,
+            })
+        elseif name == 'points' then
+            e = loadCore('points').new({
+                grid = loadGeometry().CisGrid, coords = playerCoords,
+                log = consumerLog, guard = consumerGuard, autoDrive = true,
+            })
+        elseif name == 'keybind' then
+            e = loadCore('keybind').new({ log = consumerLog })
+        elseif name == 'world' then
+            e = loadCore('world').new({})
+        elseif name == 'mirror' then
+            e = loadCore('mirror').new({
+                resource = RESOURCE, self = THIS, log = consumerLog,
+                -- THE ONE EXPORT. Every later read is local.
+                snapshot = function() return exportCall('GetCacheSnapshot') end,
+            })
+        elseif name == 'marker' then
+            e = loadCore('marker').new({ coords = playerCoords, guard = consumerGuard, log = consumerLog })
+        elseif name == 'scaleform' then
+            e = loadCore('scaleform').new({ streaming = engine('streaming'), guard = consumerGuard })
+        elseif name == 'dui' then
+            e = loadCore('dui').new({ resource = THIS })
+        elseif name == 'anim' then
+            e = loadCore('anim').new({ streaming = engine('streaming') })
+        elseif name == 'controls' then
+            e = loadCore('controls').new({ guard = consumerGuard })
+        else
+            -- raycast, streaming, vehicle: pure modules, no instance.
+            e = loadCore(name)
+        end
+        engines[name] = e
+        return e
+    end
+
+    -- NATIVE STATE IS RELEASED ON THE CONSUMER'S OWN STOP. Its VM -- and every
+    -- zone, point and handler in it -- goes with it, and FiveM drops its
+    -- commands; what would outlive it is engine state: a scaleform movie left
+    -- resident and a DUI browser left running.
+    if AddEventHandler and not IS_SELF then
+        AddEventHandler('onResourceStop', function(resource)
+            if resource ~= THIS then
+                return
+            end
+            for _, name in ipairs({ 'scaleform', 'dui' }) do
+                local e = engines[name]
+                if e then pcall(e.releaseAll, e) end
+            end
+        end)
+    end
+
+    -- A mirror read: one snapshot on the first, none after.
+    local function mirrored(key)
+        return engine('mirror'):get(key)
+    end
+
+    -- Returns nil rather than 0 when the player is on foot; a consumer that
+    -- treats 0 as a handle gets a nil-index crash somewhere else. FREE in a
+    -- consumer after the first read.
     function Cis.player.vehicle()
         if IS_SELF and CisCache then
             if not CisCache.vehicle or CisCache.vehicle == 0 then
@@ -211,11 +339,11 @@ if not IS_SERVER then
             end
             return CisCache.vehicle, CisCache.seat
         end
-        local vehicle, seat = tryExport('GetCachedVehicle')
+        local vehicle = mirrored('vehicle')
         if not vehicle or vehicle == 0 then
             return nil
         end
-        return vehicle, seat
+        return vehicle, mirrored('seat')
     end
 
     -- Nil on foot, never 0: 0 is a passenger seat.
@@ -226,7 +354,11 @@ if not IS_SERVER then
             end
             return CisCache.seat
         end
-        return tryExport('GetCachedSeat')
+        local vehicle = mirrored('vehicle')
+        if not vehicle or vehicle == 0 then
+            return nil
+        end
+        return mirrored('seat')
     end
 
     -- The local index, not the server id.
@@ -234,28 +366,54 @@ if not IS_SERVER then
         if IS_SELF and CisCache then
             return CisCache.playerId ~= 0 and CisCache.playerId or PlayerId()
         end
-        return tryExport('GetCachedPlayerId') or PlayerId()
+        local id = mirrored('playerId')
+        if id == nil or id == 0 then
+            return PlayerId()
+        end
+        return id
     end
 
-    -- CROSSES. A fresh table whenever the weapon or its ammo changes, never a mutation
+    -- A fresh table whenever the weapon or its ammo changes, never a mutation.
     function Cis.player.weapon()
         if IS_SELF and CisCache then
             return CisCache.weapon
         end
-        return tryExport('GetCachedWeapon')
+        return mirrored('weapon')
     end
 
-    -- CROSSES. Falls back to the native when the cache has not been populated, so it
+    -- Falls back to the native when the cache has not been populated.
     function Cis.player.serverId()
         if IS_SELF and CisCache then
             return CisCache.serverId
         end
-        return tryExport('GetCachedServerId') or GetPlayerServerId(PlayerId())
+        local id = mirrored('serverId')
+        if id == nil or id == 0 then
+            return GetPlayerServerId(PlayerId())
+        end
+        return id
     end
 
-    -- The unsubscribe function is a RETURN, and a returned function does survive the
+    -- A LOCAL listener in a consumer: the unsubscribe it returns is a real
+    -- function, because nothing crossed to make it.
     function Cis.player.on(key, cb)
-        return exportCall('OnPlayerCache', key, cb)
+        if IS_SELF then
+            return exportCall('OnPlayerCache', key, cb)
+        end
+        return engine('mirror'):on(key, cb)
+    end
+
+    -- Any cached key, read from the mirror: aiming, armed, heading, ped,
+    -- playerId, seat, serverId, shooting, vehicle, weapon.
+    function Cis.cache(key)
+        if IS_SELF and CisCache then
+            return CisCache[key]
+        end
+        return mirrored(key)
+    end
+
+    -- ox_lib's lib.onCache: fn(value, previous) on every change of `key`.
+    function Cis.onCache(key, fn)
+        return Cis.player.on(key, fn)
     end
 
     -- onEnter/onExit cannot cross the boundary; pass event names instead when calling
@@ -263,18 +421,30 @@ if not IS_SERVER then
         return exportCall('WatchNear', coords, distance, onEnter, onExit, onEnterEvent, onExitEvent)
     end
 
-    -- Zones cross, and refuse out loud: each returns `false, '<reason>'` on the way
+    -- Shape tests run in the CALLER's VM: the poll yields the caller's thread.
     function Cis.raycast.camera(flags, ignore, distance, timeoutMs)
-        return exportCall('RaycastCamera', flags, ignore, distance, timeoutMs)
+        if IS_SELF then
+            return exportCall('RaycastCamera', flags, ignore, distance, timeoutMs)
+        end
+        return engine('raycast').camera(flags, ignore, distance, timeoutMs)
     end
 
     function Cis.raycast.fromCoords(origin, target, flags, ignore, timeoutMs)
-        return exportCall('RaycastFromCoords', origin, target, flags, ignore, timeoutMs)
+        if IS_SELF then
+            return exportCall('RaycastFromCoords', origin, target, flags, ignore, timeoutMs)
+        end
+        return engine('raycast').fromCoords(origin, target, flags, ignore, timeoutMs)
     end
 
-    -- THE HANDLE IS RETURNED, not the boolean, because `disable` and `isPressed` need
+    -- THE HANDLE IS RETURNED, with working methods in a consumer: disable,
+    -- isPressed, reset, destroy. onPress/onRelease (or ox_lib's onPressed /
+    -- onReleased) are plain functions. The commands and the mapping belong to
+    -- the calling resource.
     function Cis.keybind.add(options)
-        return exportCall('KeybindAdd', options)
+        if IS_SELF then
+            return exportCall('KeybindAdd', options)
+        end
+        return engine('keybind'):add(options, THIS)
     end
 
     -- Local UI, not the framework notification.
@@ -355,39 +525,69 @@ if not IS_SERVER then
         return false, 'server only'
     end
 
+    -- ZONES ARE THE CALLER'S. In a consumer they live in this VM: onEnter /
+    -- onExit / inside are plain functions called with (zone, coords), the
+    -- event-name options still fire their events, and the zones survive a
+    -- cis_libs restart. `false, '<reason>'` on a refusal, as before.
     function Cis.zones.poly(name, points, options)
-        return exportCall('CreateZone', 'poly', name, points, options)
+        if IS_SELF then
+            return exportCall('CreateZone', 'poly', name, points, options)
+        end
+        return engine('zones'):create('poly', name, points, options, nil, THIS)
     end
 
     function Cis.zones.box(name, center, size, options)
-        return exportCall('CreateZone', 'box', name, center, size, options)
+        if IS_SELF then
+            return exportCall('CreateZone', 'box', name, center, size, options)
+        end
+        return engine('zones'):create('box', name, center, size, options, THIS)
     end
 
     function Cis.zones.sphere(name, center, radius, options)
-        return exportCall('CreateZone', 'sphere', name, center, radius, options)
+        if IS_SELF then
+            return exportCall('CreateZone', 'sphere', name, center, radius, options)
+        end
+        return engine('zones'):create('sphere', name, center, radius, options, THIS)
     end
 
     -- `false` for an unknown name, deliberately: removing a zone twice, or one that was
     function Cis.zones.remove(name)
-        return exportCall('RemoveZone', name)
+        if IS_SELF then
+            return exportCall('RemoveZone', name)
+        end
+        return engine('zones'):remove(name)
     end
 
+    -- FREE in a consumer: a containment test against this resource's own zone.
     function Cis.zones.contains(name, point)
-        return exportCall('ZoneContains', name, point)
+        if IS_SELF then
+            return exportCall('ZoneContains', name, point)
+        end
+        return engine('zones'):contains(name, point)
     end
 
     -- A POINT IS NOT A ZONE. `Cis.zones.box('shop', coords, 4.0)` expresses the common
     function Cis.points.add(data)
-        return exportCall('CreatePoint', data)
+        if IS_SELF then
+            return exportCall('CreatePoint', data)
+        end
+        return engine('points'):add(data, THIS)
     end
 
     function Cis.points.remove(id)
-        return exportCall('RemovePoint', id)
+        if IS_SELF then
+            return exportCall('RemovePoint', id)
+        end
+        return engine('points'):remove(id)
     end
 
     -- TWO VALUES, and the second is the distance in metres rather than a reason.
+    -- In a consumer: the nearest of THIS resource's points, read locally.
     function Cis.points.getClosest()
-        return exportCall('GetClosestPoint')
+        if IS_SELF then
+            return exportCall('GetClosestPoint')
+        end
+        return engine('points'):getClosest(playerCoords())
     end
 
     -- Targets cross on the same terms as zones, including the two-value refusal.
@@ -407,39 +607,157 @@ if not IS_SERVER then
         return exportCall('TargetExists', name)
     end
 
+    -- STREAMING IS THE CALLER'S. The request is this resource's own, the poll
+    -- yields this resource's thread, and Cis.streaming.release gives it back.
     function Cis.streaming.model(model, timeout)
-        return exportCall('RequestModelTimeout', model, timeout)
+        if IS_SELF then
+            return exportCall('RequestModelTimeout', model, timeout)
+        end
+        return engine('streaming').model(model, timeout)
     end
 
     -- SEVEN MORE KINDS, and the shape is the same for all of them: the asset on
     function Cis.streaming.animDict(name, timeout)
-        return exportCall('AnimDict', name, timeout)
+        if IS_SELF then
+            return exportCall('AnimDict', name, timeout)
+        end
+        return engine('streaming').request('animDict', name, timeout)
     end
 
     function Cis.streaming.animSet(name, timeout)
-        return exportCall('AnimSet', name, timeout)
+        if IS_SELF then
+            return exportCall('AnimSet', name, timeout)
+        end
+        return engine('streaming').request('animSet', name, timeout)
     end
 
     -- Named after the native's `Ptfx`, not `ptfx`, because the export is a PascalCase
     function Cis.streaming.ptfx(name, timeout)
-        return exportCall('Ptfx', name, timeout)
+        if IS_SELF then
+            return exportCall('Ptfx', name, timeout)
+        end
+        return engine('streaming').request('ptfx', name, timeout)
     end
 
     function Cis.streaming.textureDict(name, timeout)
-        return exportCall('TextureDict', name, timeout)
+        if IS_SELF then
+            return exportCall('TextureDict', name, timeout)
+        end
+        return engine('streaming').request('textureDict', name, timeout)
     end
 
     function Cis.streaming.weaponAsset(hash, timeout)
-        return exportCall('WeaponAsset', hash, timeout)
+        if IS_SELF then
+            return exportCall('WeaponAsset', hash, timeout)
+        end
+        return engine('streaming').request('weaponAsset', hash, timeout)
     end
 
     function Cis.streaming.scaleform(name, timeout)
-        return exportCall('Scaleform', name, timeout)
+        if IS_SELF then
+            return exportCall('Scaleform', name, timeout)
+        end
+        return engine('streaming').request('scaleform', name, timeout)
     end
 
     -- The one kind with no wait: `RequestScriptAudioBank` answers a BOOL directly, and
     function Cis.streaming.audioBank(name, timeout)
-        return exportCall('AudioBank', name, timeout)
+        if IS_SELF then
+            return exportCall('AudioBank', name, timeout)
+        end
+        return engine('streaming').request('audioBank', name, timeout)
+    end
+
+    -- Give back what a request loaded: the right release native for the kind.
+    function Cis.streaming.release(kind, asset)
+        return engine('streaming').release(kind, asset)
+    end
+
+    -- WORLD QUERIES, in the caller's VM: `filter(entity, coords)` is a plain
+    -- function. `coords` defaults to the player's.
+    function Cis.world.getClosestPed(coords, maxDistance, filter, opts)
+        return engine('world'):closest('ped', coords or playerCoords(), maxDistance, filter, opts)
+    end
+
+    function Cis.world.getClosestVehicle(coords, maxDistance, filter, opts)
+        return engine('world'):closest('vehicle', coords or playerCoords(), maxDistance, filter, opts)
+    end
+
+    function Cis.world.getClosestObject(coords, maxDistance, filter, opts)
+        return engine('world'):closest('object', coords or playerCoords(), maxDistance, filter, opts)
+    end
+
+    function Cis.world.getClosestPlayer(coords, maxDistance, filter, opts)
+        return engine('world'):closest('player', coords or playerCoords(), maxDistance, filter, opts)
+    end
+
+    function Cis.world.getNearbyPeds(coords, maxDistance, filter, opts)
+        return engine('world'):nearby('ped', coords or playerCoords(), maxDistance, filter, opts)
+    end
+
+    function Cis.world.getNearbyVehicles(coords, maxDistance, filter, opts)
+        return engine('world'):nearby('vehicle', coords or playerCoords(), maxDistance, filter, opts)
+    end
+
+    function Cis.world.getNearbyObjects(coords, maxDistance, filter, opts)
+        return engine('world'):nearby('object', coords or playerCoords(), maxDistance, filter, opts)
+    end
+
+    function Cis.world.getNearbyPlayers(coords, maxDistance, filter, opts)
+        return engine('world'):nearby('player', coords or playerCoords(), maxDistance, filter, opts)
+    end
+
+    -- ox_lib-compatible vehicle properties, read and written in the caller's VM.
+    function Cis.vehicle.getProperties(vehicle)
+        return engine('vehicle').getProperties(vehicle)
+    end
+
+    function Cis.vehicle.setProperties(vehicle, props, fixVehicle)
+        return engine('vehicle').setProperties(vehicle, props, fixVehicle)
+    end
+
+    -- MARKERS. One thread per resource, only while a marker exists.
+    function Cis.marker.add(opts)
+        return engine('marker'):add(opts)
+    end
+
+    function Cis.marker.remove(id)
+        return engine('marker'):remove(id)
+    end
+
+    function Cis.marker.clear()
+        return engine('marker'):clear()
+    end
+
+    -- A SCALEFORM OBJECT: :call(method, ...), :draw(), :draw3d(), :startDrawing(),
+    -- :dispose(). Released on dispose and on this resource's stop.
+    function Cis.scaleform.new(name, timeout)
+        return engine('scaleform'):create(name, timeout)
+    end
+
+    -- A DUI OBJECT: .dictName / .txtName for drawing, :setUrl, :sendMessage,
+    -- :destroy. Destroyed on this resource's stop.
+    function Cis.dui.new(opts)
+        return engine('dui'):create(opts)
+    end
+
+    -- Request the dictionary, play, release the dictionary.
+    function Cis.anim.play(ped, dict, clip, opts)
+        return engine('anim'):play(ped, dict, clip, opts)
+    end
+
+    -- A refcounted hold: disabled every frame until every hold naming a control
+    -- is released. Answers the hold id.
+    function Cis.controls.disable(...)
+        return engine('controls'):disable(...)
+    end
+
+    function Cis.controls.enable(id)
+        return engine('controls'):enable(id)
+    end
+
+    function Cis.controls.isDisabled(control)
+        return engine('controls'):isDisabled(control)
     end
 
     -- CROSSES. Client counts are a pushed snapshot maintained inside cis_libs, so this
@@ -719,6 +1037,94 @@ function Cis.ui.confirm()
 end
 
 function Cis.ui.input()
+    return false, 'client only'
+end
+
+function Cis.cache()
+    return false, 'client only'
+end
+
+function Cis.onCache()
+    return false, 'client only'
+end
+
+function Cis.streaming.release()
+    return false, 'client only'
+end
+
+function Cis.world.getClosestPed()
+    return false, 'client only'
+end
+
+function Cis.world.getClosestVehicle()
+    return false, 'client only'
+end
+
+function Cis.world.getClosestObject()
+    return false, 'client only'
+end
+
+function Cis.world.getClosestPlayer()
+    return false, 'client only'
+end
+
+function Cis.world.getNearbyPeds()
+    return false, 'client only'
+end
+
+function Cis.world.getNearbyVehicles()
+    return false, 'client only'
+end
+
+function Cis.world.getNearbyObjects()
+    return false, 'client only'
+end
+
+function Cis.world.getNearbyPlayers()
+    return false, 'client only'
+end
+
+function Cis.vehicle.getProperties()
+    return false, 'client only'
+end
+
+function Cis.vehicle.setProperties()
+    return false, 'client only'
+end
+
+function Cis.marker.add()
+    return false, 'client only'
+end
+
+function Cis.marker.remove()
+    return false, 'client only'
+end
+
+function Cis.marker.clear()
+    return false, 'client only'
+end
+
+function Cis.scaleform.new()
+    return false, 'client only'
+end
+
+function Cis.dui.new()
+    return false, 'client only'
+end
+
+function Cis.anim.play()
+    return false, 'client only'
+end
+
+function Cis.controls.disable()
+    return false, 'client only'
+end
+
+function Cis.controls.enable()
+    return false, 'client only'
+end
+
+function Cis.controls.isDisabled()
     return false, 'client only'
 end
 end
@@ -1175,7 +1581,7 @@ function Cis.moduleInfo(name, opts)
     return out
 end
 
--- WHICH OF THE FIFTEEN GLOBALS EXIST ON THIS REALM, and what has been required.
+-- WHICH OF THE BUILT-IN MODULE GLOBALS EXIST ON THIS REALM, and what has been required.
 function Cis.moduleProbe()
     local present, loaded = {}, {}
     for _, name in ipairs(REQUIRE_NAMES) do
@@ -1190,4 +1596,106 @@ function Cis.moduleProbe()
     table.sort(present)
     table.sort(loaded)
     return { present = present, loaded = loaded, known = #REQUIRE_NAMES }
+end
+
+-- ============================================ the consumer-side engines
+--
+-- client/core/*.lua, loaded into THIS VM on first use -- the same machinery as
+-- Cis.require: a closed allow-list of paths, LoadResourceFile from cis_libs,
+-- text-only `load`, the shared cycle guard, one instance per VM. The engines
+-- cis_libs also runs are client_scripts (it publishes them under CisCore, and
+-- its own VM reuses those); the consumer-only ones are listed in `files {}`.
+--
+-- A WRITE TO A GLOBAL RAISES, as for a built-in module: an engine returns its
+-- table, and its tail publishes CisCore only when it is NOT loaded this way.
+local CORE_PATHS = {
+    zones = 'client/core/zones.lua',
+    points = 'client/core/points.lua',
+    keybind = 'client/core/keybind.lua',
+    world = 'client/core/world.lua',
+    raycast = 'client/core/raycast.lua',
+    streaming = 'client/core/streaming.lua',
+    vehicle = 'client/core/vehicle.lua',
+    mirror = 'client/core/mirror.lua',
+    marker = 'client/core/marker.lua',
+    scaleform = 'client/core/scaleform.lua',
+    dui = 'client/core/dui.lua',
+    anim = 'client/core/anim.lua',
+    controls = 'client/core/controls.lua',
+}
+
+local coreCache = {}
+local geometry
+
+-- One file of cis_libs, compiled into `chunkEnv`. TEXT ONLY, like every other
+-- chunk this file compiles.
+local function compileCore(path, chunkEnv)
+    local src = LoadResourceFile(RESOURCE, path)
+    if type(src) ~= 'string' then
+        error(('Cis: %s could not be read from %s. Is it listed in its fxmanifest.lua?')
+            :format(path, RESOURCE), 0)
+    end
+    local chunk, err = load(src, ('@@%s/%s'):format(RESOURCE, path), 't', chunkEnv)
+    if not chunk then
+        error(('Cis: %s failed to compile: %s'):format(path, tostring(err)), 0)
+    end
+    return chunk
+end
+
+loadCore = function(name)
+    local cached = coreCache[name]
+    if cached ~= nil then
+        return cached
+    end
+    local path = CORE_PATHS[name]
+    if not path then
+        error(('Cis: no engine named %q'):format(tostring(name)), 2)
+    end
+    -- cis_libs' own VM already ran the client_script copy: reuse it.
+    local published = IS_SELF and rawget(_G, 'CisCore')
+    if published and published[name] then
+        coreCache[name] = published[name]
+        return published[name]
+    end
+    local key = 'core:' .. name
+    beginLoad(key)
+    local ok, result = pcall(function()
+        local sandbox = setmetatable({}, {
+            __index = _ENV,
+            __newindex = function(_, global)
+                error(('Cis: engine %s assigned the global %q; an engine returns its table')
+                    :format(name, tostring(global)), 2)
+            end,
+        })
+        local value = compileCore(path, sandbox)('cis_require')
+        if type(value) ~= 'table' then
+            error(('Cis: %s did not return a table'):format(path), 0)
+        end
+        return value
+    end)
+    endLoad(key)
+    if not ok then
+        error(result, 2)
+    end
+    coreCache[name] = result
+    return result
+end
+
+-- CisGrid and CisZoneGeom for this VM. Both files are shared_scripts that DEFINE
+-- those globals; loaded here, their writes land in a private table, so a
+-- consumer gets the exact containment math cis_libs and the server use without
+-- either name appearing among its own globals.
+loadGeometry = function()
+    if geometry then
+        return geometry
+    end
+    if IS_SELF and rawget(_G, 'CisGrid') and rawget(_G, 'CisZoneGeom') then
+        geometry = { CisGrid = CisGrid, CisZoneGeom = CisZoneGeom }
+        return geometry
+    end
+    local geoEnv = setmetatable({}, { __index = _ENV })
+    compileCore('shared/grid.lua', geoEnv)()
+    compileCore('shared/zonegeom.lua', geoEnv)()
+    geometry = { CisGrid = rawget(geoEnv, 'CisGrid'), CisZoneGeom = rawget(geoEnv, 'CisZoneGeom') }
+    return geometry
 end

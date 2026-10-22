@@ -459,14 +459,14 @@
     },
     {
       "id": "M72",
-      "file": "client/points.lua",
-      "find": "local function sweepExits(coords)\n    for id in pairs(inside) do",
-      "replace": "local function sweepExits(coords)\n    -- M72: departures are left to the candidate query, which cannot see a point\n    -- the player has walked clear of.\n    return\n    for id in pairs(inside) do",
+      "file": "client/core/points.lua",
+      "find": "function Points:sweepExits(coords)\n    for id in pairs(self.inside) do",
+      "replace": "function Points:sweepExits(coords)\n    -- M72: departures are left to the candidate query, which cannot see a point\n    -- the player has walked clear of.\n    do return end\n    for id in pairs(self.inside) do",
       "why": "Stop sweeping the points the player is inside, leaving departure to the grid candidate query. The candidate box is centred on the POINT, not the player, so a player who walks away from a point is no longer a candidate and the point never fires onExit -- a point that can be entered and never left. The 7.1 test that steps the player well clear is the only one that sees it; a test that merely crosses the boundary still passes, because the point is still a candidate there."
     },
     {
       "id": "M73",
-      "file": "client/streaming.lua",
+      "file": "client/core/streaming.lua",
       "find": "        request(spec.requestArgs(hash or name))\n    else\n        request(hash or name)\n    end",
       "replace": "    else\n        -- M73: the and/or form. A call in the middle of an\n        -- \"a and f(p, q) or b\" is truncated to its first value, so the\n        -- streamed flag never reaches RequestStreamedTextureDict.\n        request(spec.requestArgs and spec.requestArgs(hash or name) or (hash or name))\n    end",
       "why": "Restore the `spec.requestArgs and spec.requestArgs(x) or x` form that this branch replaced. In `a and f(p, q) or b` a call in the middle is truncated to its FIRST value, so the streamed flag is never passed. The native then reads a nil where a BOOL belongs -- which is false -- and quietly requests a NON-streamed dictionary. It compiles, lints, and is correct on the six kinds whose request native takes one argument, so nothing else in the file notices. The 7.2 test that COUNTS the arguments is the only thing that sees it, which is why this row counts too: the first attempt at it renamed the branch but kept the correct call, and the runner reported it as a survivor -- a row that describes no defect is worth catching as loudly as one the suite misses."
@@ -501,14 +501,14 @@
     },
     {
       "id": "M78",
-      "file": "client/raycast.lua",
+      "file": "client/core/raycast.lua",
       "find": "local DONE = 2\n",
       "replace": "local DONE = 1\n",
       "why": "Read GET_SHAPE_TEST_RESULT_INCLUDING_MATERIAL's PENDING status (1) as done. The status is 0 failed, 1 pending, 2 done, and every other return value is undefined until 2 -- so a probe still in flight is reported as a miss, and a finished one (2) becomes an unknown status."
     },
     {
       "id": "M79",
-      "file": "client/keybind.lua",
+      "file": "client/core/keybind.lua",
       "find": "    RegisterKeyMapping(handle.command, options.description or name, mapper or 'keyboard', key or '')\n",
       "replace": "    RegisterKeyMapping(name, options.description or name, mapper or 'keyboard', key or '')\n",
       "why": "Register the mapping against the bare name instead of +name. RegisterKeyMapping's first argument is the command string the engine fires; without the plus, the +name command we registered is never the one the key runs, so the binding appears in the settings menu and does nothing."
@@ -571,14 +571,14 @@
     },
     {
       "id": "M88",
-      "file": "client/vehicle.lua",
+      "file": "client/core/vehicle.lua",
       "find": "        lockState = GetVehicleDoorLockStatus(vehicle),\n",
       "replace": "        lockState = nil,\n",
       "why": "Drop lockState from the getter. A garage that round-trips properties then leaves every door unlocked or locked wrongly. The 7.10 test that reads lockState is the thing that sees it."
     },
     {
       "id": "M89",
-      "file": "client/vehicle.lua",
+      "file": "client/core/vehicle.lua",
       "find": "    for i = 0, 7 do\n        if not IsVehicleWindowIntact(vehicle, i) then\n",
       "replace": "    for i = 0, 7 do\n        RollUpWindow(vehicle, i)\n        if not IsVehicleWindowIntact(vehicle, i) then\n",
       "why": "Roll up every window while reading properties. A getter that mutates the vehicle is not a getter, and a player whose windows were down has them slammed shut by a sync snapshot. The 7.10 test that counts RollUpWindow is the thing that sees it."
@@ -607,8 +607,8 @@
     {
       "id": "M93",
       "file": "client/points.lua",
-      "find": "    while true do\n        -- The interval is returned by the body and waited on HERE, so a yield is never\n        -- swallowed by the guard's pcall.\n        Wait(tick() or IDLE_MS)\n    end\n",
-      "replace": "    Wait(tick() or IDLE_MS)\n",
+      "find": "    while true do\n        -- The interval is returned by the body and waited on HERE, so a yield is never\n        -- swallowed by the guard's pcall.\n        Wait(tick() or Engine.IDLE_MS)\n    end\n",
+      "replace": "    Wait(tick() or Engine.IDLE_MS)\n",
       "why": "Restore the one-shot points thread: Wait once and fall off the end. The first pass is then the only pass, so a point the player reaches later never fires. The 7.1 test that drives one thread for six wakeups is what sees it."
     },
     {
@@ -620,15 +620,15 @@
     },
     {
       "id": "M95",
-      "file": "client/points.lua",
-      "find": "    if not CisCallable(fn) then\n        return\n    end\n",
+      "file": "client/core/points.lua",
+      "find": "    if not self.callable(fn) then\n        return\n    end\n",
       "replace": "    if type(fn) ~= 'function' then\n        return\n    end\n",
       "why": "Accept only plain Lua functions as point handlers. A handler from another resource arrives as a funcref table, so every consumer's onEnter/nearby/onExit silently never fires."
     },
     {
       "id": "M96",
-      "file": "client/points.lua",
-      "find": "                fireEvent(point, 'nearbyEvent', coords)\n",
+      "file": "client/core/points.lua",
+      "find": "                self:fireEvent(point, 'nearbyEvent', coords)\n",
       "replace": "",
       "why": "Accept `nearbyEvent` and never fire it, the original defect. A server-side consumer has no other way to observe a point it is standing in."
     },
@@ -641,49 +641,49 @@
     },
     {
       "id": "M98",
-      "file": "client/world.lua",
+      "file": "client/core/world.lua",
       "find": "    ped = 'CPed',\n",
       "replace": "    ped = 'CPoolablePed',\n",
       "why": "Restore the made-up pool name. GET_GAME_POOL answers an empty table for a name it does not know, so every ped query finds nothing in game. The 7.3 GetGamePool stub refuses unknown pool names, which is what sees it."
     },
     {
       "id": "M99",
-      "file": "client/world.lua",
+      "file": "client/core/world.lua",
       "find": "            if usable(ped) and (includeSelf or indices[i] ~= selfIndex) then\n",
       "replace": "            if usable(ped) then\n",
       "why": "Drop the self-exclusion from player queries. ClosestPlayer then answers the local player at 0 m for every caller, which is never the question being asked."
     },
     {
       "id": "M100",
-      "file": "client/world.lua",
+      "file": "client/core/world.lua",
       "find": "                    elseif not includePlayers and IsPedAPlayer(handle) then\n",
       "replace": "                    elseif false then\n",
       "why": "Let player peds into ped queries. The CPed pool holds them too, so closestPed near another player answers that player instead of an NPC."
     },
     {
       "id": "M101",
-      "file": "client/world.lua",
-      "find": "    if not CisCallable(filter) then return true end\n",
+      "file": "client/core/world.lua",
+      "find": "    if not self.callable(filter) then return true end\n",
       "replace": "    if type(filter) ~= 'function' then return true end\n",
       "why": "Ignore funcref filters. A consumer's filter crosses exports as a callable table, so the query silently returns unfiltered results."
     },
     {
       "id": "M102",
-      "file": "client/keybind.lua",
-      "find": "    local onPress = CisCallable(options.onPress) and options.onPress or nil\n",
-      "replace": "    local onPress = type(options.onPress) == 'function' and options.onPress or nil\n",
+      "file": "client/core/keybind.lua",
+      "find": "    local onPress = self.callable(pressFn) and pressFn or nil\n",
+      "replace": "    local onPress = type(pressFn) == 'function' and pressFn or nil\n",
       "why": "Accept only plain Lua functions for onPress. A consumer's handler crosses exports as a funcref table, so every consumer keybind with only onPress is refused."
     },
     {
       "id": "M103",
-      "file": "client/keybind.lua",
-      "find": "    b.enabled = false\n    b.pressed = false\n    callbacks[b.id] = nil\n    binds[b.id] = nil\n",
+      "file": "client/core/keybind.lua",
+      "find": "    b.enabled = false\n    b.pressed = false\n    self.callbacks[b.id] = nil\n    self.binds[b.id] = nil\n",
       "replace": "    b.pressed = false\n",
       "why": "Retire a binding without disabling it or dropping its callbacks. The +name command cannot be unregistered, so a removed or released binding keeps firing -- into a dead funcref once its owner has stopped."
     },
     {
       "id": "M104",
-      "file": "client/keybind.lua",
+      "file": "client/core/keybind.lua",
       "find": "        if held.owner ~= owner then\n",
       "replace": "        if false then\n",
       "why": "Drop the name-collision guard. A second resource re-registers +name and silently takes the first resource's key."
@@ -704,7 +704,7 @@
     },
     {
       "id": "M107",
-      "file": "client/zones.lua",
+      "file": "client/core/zones.lua",
       "find": "        local ex = zone.hx * c + zone.hy * s\n        local ey = zone.hx * s + zone.hy * c\n",
       "replace": "        local ex = zone.hx + 0 * c\n        local ey = zone.hy + 0 * s\n",
       "why": "Index a rotated box with its UNROTATED half-extents. The corners of a turned box fall outside the grid index, so a player standing in them is never a candidate and that part of the zone never fires."
@@ -718,14 +718,14 @@
     },
     {
       "id": "M109",
-      "file": "client/zones.lua",
+      "file": "client/core/zones.lua",
       "find": "            0.0, 0.0, 0.0, zone.radius + 0.0, zone.radius + 0.0, zone.radius + 0.0,\n            colour[1], colour[2], colour[3], 80,\n",
       "replace": "            0.0, 0.0, 0.0, zone.radius + 0.0, 80, colour[1], colour[2], colour[3],\n",
       "why": "Restore the sphere DrawMarker argument order that passed the alpha as scaleY and shifted every colour one slot. The debug sphere is then a squashed shape in the wrong colour."
     },
     {
       "id": "M110",
-      "file": "client/zones.lua",
+      "file": "client/core/zones.lua",
       "find": "                    if dx * dx + dy * dy <= DEBUG_DRAW_RANGE * DEBUG_DRAW_RANGE then\n",
       "replace": "                    if dx * dx + dy * dy >= 0 then\n",
       "why": "Draw every debug zone every frame regardless of distance. A debug zone across the map costs a frame of DrawLine calls nobody can see."
@@ -739,14 +739,14 @@
     },
     {
       "id": "M112",
-      "file": "client/zones.lua",
+      "file": "client/core/zones.lua",
       "find": "    debugStats.lastPassMs = GetGameTimer() - started\n    debugStats.lastPassAt = GetGameTimer()\n",
-      "replace": "    debugStats.insideNames = {}\n    for id in pairs(inside) do debugStats.insideNames[#debugStats.insideNames + 1] = id end\n    table.sort(debugStats.insideNames)\n    debugStats.lastPassMs = GetGameTimer() - started\n    debugStats.lastPassAt = GetGameTimer()\n",
+      "replace": "    debugStats.insideNames = {}\n    for id in pairs(self.inside) do debugStats.insideNames[#debugStats.insideNames + 1] = id end\n    table.sort(debugStats.insideNames)\n    debugStats.lastPassMs = GetGameTimer() - started\n    debugStats.lastPassAt = GetGameTimer()\n",
       "why": "Rebuild and sort the debug inside-list on every pass again. That is an allocation and a sort per pass for a view nobody is reading."
     },
     {
       "id": "M113",
-      "file": "client/zones.lua",
+      "file": "client/core/zones.lua",
       "find": "    local rad = math.rad(zone.heading or 0.0)\n    local c, s = math.cos(rad), math.sin(rad)\n    local hx, hy = zone.hx, zone.hy\n",
       "replace": "    local rad = 0.0\n    local c, s = math.cos(rad), math.sin(rad)\n    local hx, hy = zone.hx, zone.hy\n",
       "why": "Draw a box's debug outline unrotated. The outline then disagrees with the containment test for every box with a heading, which is the opposite of what a debug view is for."
@@ -816,49 +816,49 @@
     },
     {
       "id": "M123",
-      "file": "client/vehicle.lua",
+      "file": "client/core/vehicle.lua",
       "find": "        SetVehicleColours(vehicle, palette1 and c1 or colorPrimary, palette2 and c2 or colorSecondary)\n",
       "replace": "        SetVehicleColours(vehicle, palette1 and c1 or nil, palette2 and c2 or colorSecondary)\n",
       "why": "Hand SetVehicleColours nil for a primary the props did not name, the original `appliedColor1` defect. A props table with only color2 resets the primary to black; the stub refuses a non-integer index."
     },
     {
       "id": "M124",
-      "file": "client/vehicle.lua",
+      "file": "client/core/vehicle.lua",
       "find": "        bulletProofTyres = not GetVehicleTyresCanBurst(vehicle),\n",
       "replace": "        bulletProofTyres = GetVehicleTyresCanBurst(vehicle),\n",
       "why": "Store GetVehicleTyresCanBurst as bulletProofTyres, inverted against ox_lib and qb. Every saved bulletproof vehicle comes back burstable and every normal one bulletproof."
     },
     {
       "id": "M125",
-      "file": "client/vehicle.lua",
+      "file": "client/core/vehicle.lua",
       "find": "    if props.xenonColor then SetVehicleXenonLightsColor(vehicle, props.xenonColor) end\n",
       "replace": "",
       "why": "Read xenonColor and never write it back. A garage round trip loses the headlight colour silently."
     },
     {
       "id": "M126",
-      "file": "client/vehicle.lua",
+      "file": "client/core/vehicle.lua",
       "find": "    modDoorR = 47, modLightbar = 49,\n",
       "replace": "    modLightbar = 49,\n",
       "why": "Drop mod 47 (modDoorR) from the mod table. It is neither read nor written, so the right-door mod is lost on every round trip."
     },
     {
       "id": "M127",
-      "file": "client/vehicle.lua",
+      "file": "client/core/vehicle.lua",
       "find": "    if not hasControl(vehicle) then\n",
       "replace": "    if false then\n",
       "why": "Write to a networked vehicle without network control. The owner's next sync overwrites every field, so the apply looks like it worked and silently did not."
     },
     {
       "id": "M128",
-      "file": "client/vehicle.lua",
+      "file": "client/core/vehicle.lua",
       "find": "    for i = 0, 20 do\n        if DoesExtraExist(vehicle, i) then\n",
       "replace": "    for i = 1, 15 do\n        if DoesExtraExist(vehicle, i) then\n",
       "why": "Read extras 1..15 only. Extras 0 and 16..20 exist on real vehicles (and ox_lib reads 0..20), so they are never saved."
     },
     {
       "id": "M129",
-      "file": "client/vehicle.lua",
+      "file": "client/core/vehicle.lua",
       "find": "local TYRES = { 0, 1, 2, 3, 4, 5, 6, 7, 45, 47 }\n",
       "replace": "local TYRES = { 0, 1, 2, 3, 4, 5, 6, 7 }\n",
       "why": "Forget the trailer tyres 45 and 47. A burst middle tyre on a six-wheeled trailer is neither saved nor restored."
@@ -872,42 +872,42 @@
     },
     {
       "id": "M131",
-      "file": "client/vehicle.lua",
+      "file": "client/core/vehicle.lua",
       "find": "    if fixVehicle then\n        SetVehicleFixed(vehicle)\n    end\n\n    if props.extras then\n",
       "replace": "    if props.extras then\n",
       "why": "Ignore fixVehicle. A caller asking for a repaired vehicle gets the damaged one; the test that orders SetVehicleFixed before the saved damage sees no repair at all."
     },
     {
       "id": "M132",
-      "file": "client/raycast.lua",
+      "file": "client/core/raycast.lua",
       "find": "            if hit == true or hit == 1 then\n",
       "replace": "            if hit then\n",
       "why": "Test the shape test's `hit` for truthiness. CfxLua returns a BOOL* out-parameter as the integer 0 or 1, and 0 is truthy in Lua, so every miss is reported as a hit on entity 0."
     },
     {
       "id": "M133",
-      "file": "client/raycast.lua",
+      "file": "client/core/raycast.lua",
       "find": "        elseif state == FAILED then\n",
       "replace": "        elseif false then\n",
       "why": "Stop recognising status 0 as a failed probe. A dead handle then reads as an unknown status instead of the documented failure, and the caller is told the wrong thing."
     },
     {
       "id": "M134",
-      "file": "client/raycast.lua",
+      "file": "client/core/raycast.lua",
       "find": "    local vehicle = GetVehiclePedIsIn(ped, false)\n    if vehicle and vehicle ~= 0 then\n        return vehicle\n    end\n    return ped\n",
       "replace": "    return 0\n",
       "why": "Default the ignored entity to 0. A camera ray starts behind the player, so its first hit is the player's own ped or the vehicle they sit in."
     },
     {
       "id": "M135",
-      "file": "client/streaming.lua",
+      "file": "client/core/streaming.lua",
       "find": "        if loaded and loaded(handle or hash or name) then\n",
       "replace": "        if loaded and loaded(hash or name) then\n",
       "why": "Poll HasScaleformMovieLoaded with the movie NAME. The native takes the handle RequestScaleformMovie returned, so in game it never answers true and every scaleform waits out its timeout; the stub refuses a non-handle."
     },
     {
       "id": "M136",
-      "file": "client/streaming.lua",
+      "file": "client/core/streaming.lua",
       "find": "        while not request(spec.requestArgs(name)) do\n",
       "replace": "        if not request(spec.requestArgs(name)) then\n            return nil, ('the engine refused %s %q'):format(kind, tostring(name))\n        end\n        while false do\n",
       "why": "Treat the first false from RequestScriptAudioBank as a refusal. The native answers false while the bank loads and must be called again until true, so every bank not already resident is refused."
@@ -1877,6 +1877,146 @@
       "find": "local FALLBACK = 'en'\n",
       "replace": "local FALLBACK = 'en'\nlocal _probe = _G.load('return 1')\n",
       "why": "A shipped module compiling code through _G.load. The boundary contract allows no load() outside the Cis.require loader; reading it off _G is the spelling a narrowed scanner could miss."
+    },
+    {
+      "id": "M275",
+      "file": "client/core/points.lua",
+      "find": "    self.Grid.queryPoint(self.grid, coords.x, coords.y, coords.z, visitPoint)\n",
+      "replace": "    self.Grid.queryPoint(self.grid, coords.x, coords.y, coords.z, function(id) visitCoords = coords; return visitPoint(id) end)\n",
+      "why": "Build the candidate visitor as a closure over the pass coords again, as the original refresh did. Every point pass then allocates a function in the steady state; section 19 sees the grid handed a new visitor each pass (and, under Lua 5.4, the heap grow)."
+    },
+    {
+      "id": "M276",
+      "file": "client/core/zones.lua",
+      "find": "    self.Grid.queryPoint(self.grid, coords.x, coords.y, coords.z, visitZone)\n",
+      "replace": "    self.Grid.queryPoint(self.grid, coords.x, coords.y, coords.z, function(id, item) visitCoords = coords; return visitZone(id, item) end)\n",
+      "why": "Build the zone visitor as a closure per refresh. A zone pass then allocates in the steady state, which is exactly what the consumer engine promises not to do."
+    },
+    {
+      "id": "M277",
+      "file": "init.lua",
+      "find": "    local function mirrored(key)\n        return engine('mirror'):get(key)\n    end\n",
+      "replace": "    local function mirrored(key)\n        local snap = exportCall('GetCacheSnapshot')\n        return snap and snap[key]\n    end\n",
+      "why": "Read every player value through an export again instead of the mirror. Cis.player.vehicle() in a Wait(0) loop becomes an export per frame -- the crossing this architecture removed; the zero-export assertion counts them."
+    },
+    {
+      "id": "M278",
+      "file": "client/core/mirror.lua",
+      "find": "        if type(from) == 'string' and from ~= self.resource and from ~= self.selfName then\n            return\n        end\n",
+      "replace": "",
+      "why": "Accept a cis_libs:cache push from any resource. Any client script can TriggerEvent that name and write a vehicle, a seat or a weapon into every consumer mirror."
+    },
+    {
+      "id": "M279",
+      "file": "client/core/mirror.lua",
+      "find": "        values.vehicle = value\n        values.seat = seat\n        if prevVehicle ~= value then\n            self:emit('vehicle', value, prevVehicle)\n        end\n",
+      "replace": "        values.vehicle = value\n        if prevVehicle ~= value then\n            self:emit('vehicle', value, prevVehicle)\n        end\n        values.seat = seat\n",
+      "why": "Announce the vehicle before its seat lands in the mirror. A vehicle listener then reads the previous seat -- the driver-only listener running for a passenger, the defect the producer fixed and the mirror must not reintroduce."
+    },
+    {
+      "id": "M280",
+      "file": "client/core/zones.lua",
+      "find": "    }, Zones)\n    return self\nend\n",
+      "replace": "    }, Zones)\n    if self.autoDrive then self:drive() end\n    return self\nend\n",
+      "why": "Start the consumer zone thread when the engine is created rather than on the first zone. A resource that only ever asks contains() then runs a thread for nothing."
+    },
+    {
+      "id": "M281",
+      "file": "client/core/zones.lua",
+      "find": "        while next(self.zones) ~= nil do\n",
+      "replace": "        while true do\n",
+      "why": "Keep the consumer zone thread alive after the last zone goes. A resource that once had a zone pays a pass forever."
+    },
+    {
+      "id": "M282",
+      "file": "client/core/marker.lua",
+      "find": "        if ddx * ddx + ddy * ddy + ddz * ddz <= m.distance2 then\n",
+      "replace": "        if ddx == ddx then\n",
+      "why": "Draw every marker every frame regardless of distance. A marker across the map costs a DrawMarker per frame nobody can see, and the pass never sleeps."
+    },
+    {
+      "id": "M283",
+      "file": "client/core/controls.lua",
+      "find": "        local n = (counts[c] or 1) - 1\n        counts[c] = n > 0 and n or nil\n",
+      "replace": "        counts[c] = nil\n",
+      "why": "Release a control outright on the first enable. Two holds on the same control then cancel each other: the first feature to finish re-enables attack for the second."
+    },
+    {
+      "id": "M284",
+      "file": "client/core/anim.lua",
+      "find": "    RemoveAnimDict(dict)\n",
+      "replace": "",
+      "why": "Never release the dictionary after TaskPlayAnim. Every animation a resource plays pins its dictionary for the rest of the session."
+    },
+    {
+      "id": "M285",
+      "file": "init.lua",
+      "find": "            for _, name in ipairs({ 'scaleform', 'dui' }) do\n",
+      "replace": "            for _, name in ipairs({ 'scaleform' }) do\n",
+      "why": "Forget the DUI pages when the consumer stops. Each one is a browser left running for the rest of the session."
+    },
+    {
+      "id": "M286",
+      "file": "client/cache.lua",
+      "find": "    if prevVehicle ~= vehicle or prevSeat ~= seat then\n        push('vehicle', vehicle, seat)\n    end\n",
+      "replace": "",
+      "why": "Stop pushing vehicle and seat changes to consumer mirrors. Every consumer keeps the vehicle it snapshotted, forever."
+    },
+    {
+      "id": "M287",
+      "file": "client/cache.lua",
+      "find": "            push('weapon', CisCache.weapon, nil, true)\n",
+      "replace": "            push('weapon', CisCache.weapon)\n",
+      "why": "Announce an ammo-only refresh as a weapon change. Every consumer weapon listener then fires on every shot, which the producer itself has never done."
+    },
+    {
+      "id": "M288",
+      "file": "client/core/scaleform.lua",
+      "find": "        if mtype == 'integer' or (mtype == nil and value % 1 == 0) then\n",
+      "replace": "        if true then\n",
+      "why": "Push every number as an int. A scaleform method that takes a float (a scale, an alpha fraction) receives it truncated."
+    },
+    {
+      "id": "M289",
+      "file": "client/core/keybind.lua",
+      "find": "    if pressFn == nil then pressFn = options.onPressed end\n",
+      "replace": "",
+      "why": "Ignore ox_lib's onPressed spelling. A binding ported from ox_lib is refused for having no handler."
+    },
+    {
+      "id": "M290",
+      "file": "client/core/mirror.lua",
+      "find": "        if resource == self.resource then\n            self.snapped = false\n            self.lastTry = nil\n            self:ensure()\n        end\n",
+      "replace": "        if resource == self.resource then\n            self.lastTry = nil\n        end\n",
+      "why": "Do not re-snapshot when cis_libs restarts. A value that moved while it was down -- the player left the vehicle -- is never corrected, because the restarted producer only pushes what differs from its own defaults."
+    },
+    {
+      "id": "M291",
+      "file": "client/core/mirror.lua",
+      "find": "    if self.lastTry ~= nil and now - self.lastTry < RETRY_MS then\n        return false\n    end\n",
+      "replace": "",
+      "why": "Retry the snapshot on every read while cis_libs is down. A Wait(0) loop reading the player becomes an export call per frame aimed at a resource that is not there."
+    },
+    {
+      "id": "M292",
+      "file": "init.lua",
+      "find": "        return engine('zones'):contains(name, point)\n",
+      "replace": "        return exportCall('ZoneContains', name, point)\n",
+      "why": "Route a consumer zones.contains back through the export. The per-frame containment test crosses into cis_libs again, and asks about a zone cis_libs does not have."
+    },
+    {
+      "id": "M293",
+      "file": "client/core/marker.lua",
+      "find": "        while self.count > 0 do\n",
+      "replace": "        while true do\n",
+      "why": "Keep the marker thread after the last marker. A resource that drew one marker once pays a frame loop forever."
+    },
+    {
+      "id": "M294",
+      "file": "init.lua",
+      "find": "            __newindex = function(_, global)\n",
+      "replace": "            __unused = function(_, global)\n",
+      "why": "Load an engine into a sandbox that accepts global writes. A helper an engine leaks lands in a private table today and in nobody's view; the loader is supposed to say so loudly, as Cis.require does."
     }
   ]
 }
