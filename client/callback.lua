@@ -5,7 +5,7 @@ local handlers = {}
 -- who registered which client callback.
 local callbackOwned = CisOwned.new()
 
-local function timeoutMs()
+local function configuredTimeoutMs()
     return (Config and Config.CallbackTimeout) or 10000
 end
 
@@ -107,7 +107,7 @@ CreateThread(CisLoopGuard.Run('client.callback.sweep', 1000, function()
 end))
 
 local function startCall(name, cb, ...)
-    local key = CisPending.alloc(pending, { cb = cb, sentAt = GetGameTimer() }, GetGameTimer() + timeoutMs())
+    local key = CisPending.alloc(pending, { cb = cb, sentAt = GetGameTimer() }, GetGameTimer() + configuredTimeoutMs())
     TriggerServerEvent('cis_libs:cb', name, key, ...)
     return key
 end
@@ -184,10 +184,22 @@ exports('CallCallback', function(name, cb, ...)
     end, ...)
 end)
 
--- The shared body of both await forms, so they cannot drift.
-local function awaitLocal(name, ...)
+-- A per-call limit: a positive number of milliseconds, at most this.
+local MAX_CALL_TIMEOUT_MS = 300000
+
+local function checkLimit(limitMs)
+    if type(limitMs) ~= 'number' or limitMs ~= limitMs or limitMs <= 0 or limitMs > MAX_CALL_TIMEOUT_MS then
+        return nil, ('timeout must be a number of milliseconds in (0, %d], got %s')
+            :format(MAX_CALL_TIMEOUT_MS, tostring(limitMs))
+    end
+    return limitMs
+end
+
+-- The shared body of every await form, so they cannot drift. `limitMs` is the
+-- call's own timeout; the configured one otherwise.
+local function awaitFor(limitMs, name, ...)
     local p = promise.new()
-    local key = CisPending.alloc(pending, { promise = p, sentAt = GetGameTimer() }, GetGameTimer() + timeoutMs())
+    local key = CisPending.alloc(pending, { promise = p, sentAt = GetGameTimer() }, GetGameTimer() + limitMs)
     TriggerServerEvent('cis_libs:cb', name, key, ...)
     -- C1 · CITIZEN.AWAIT RETURNS ONE VALUE, AND A REJECTION THROWS.
     local okCall, value = pcall(Citizen.Await, p)
@@ -200,6 +212,10 @@ local function awaitLocal(name, ...)
         return true, table.unpack(value, 1, value.n)
     end
     return true, value
+end
+
+local function awaitLocal(name, ...)
+    return awaitFor(configuredTimeoutMs(), name, ...)
 end
 
 exports('AwaitCallback', function(name, ...)
@@ -216,6 +232,17 @@ end)
 -- The non-raising form (minor).
 exports('TryAwaitCallback', function(name, ...)
     return awaitLocal(name, ...)
+end)
+
+-- A PER-CALL TIMEOUT. The configured CallbackTimeout is one number for every
+-- call; a caller that cannot wait that long, or must wait longer, says so here.
+-- Non-raising: (true, ...) or (false, reason), 'timeout' when the limit passes.
+exports('TryAwaitCallbackWithin', function(name, timeoutMs, ...)
+    local limit, why = checkLimit(timeoutMs)
+    if not limit then
+        return false, why
+    end
+    return awaitFor(limit, name, ...)
 end)
 
 -- Legacy alias kept for the 1.x export surface.

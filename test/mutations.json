@@ -2227,6 +2227,328 @@
       "find": "        out[#out + 1] = CisConfigUtil.digest(name)\n",
       "replace": "        out[#out + 1] = name\n",
       "why": "Send the allow-list names to every client. AuthorizedResources is server-only and would be readable by any client script."
+    },
+    {
+      "id": "M325",
+      "file": "client/core/vehicle.lua",
+      "find": "            RollUpWindow(vehicle, i)\n            if IsVehicleWindowIntact(vehicle, i) then\n                RollDownWindow(vehicle, i)\n            else\n                windows = windows + 1\n                damage.windows[windows] = i\n            end",
+      "replace": "            windows = windows + 1\n            damage.windows[windows] = i",
+      "why": "Record every not-intact window as broken again. A car saved with a window rolled down comes back with that window removed."
+    },
+    {
+      "id": "M326",
+      "file": "client/core/vehicle.lua",
+      "find": "            if IsVehicleWindowIntact(vehicle, i) then\n                RollDownWindow(vehicle, i)\n            else",
+      "replace": "            if IsVehicleWindowIntact(vehicle, i) then\n            else",
+      "why": "Leave a rolled-down window rolled up after reading it. The getter changes the vehicle it reads."
+    },
+    {
+      "id": "M327",
+      "file": "client/core/points.lua",
+      "find": "    if not indexed then\n        return false, ('point not indexed: %s'):format(tostring(indexWhy))\n    end",
+      "replace": "    if false then\n        return false, ('point not indexed: %s'):format(tostring(indexWhy))\n    end",
+      "why": "Keep a point the grid refused. It gets an id and getClosest finds it, but onEnter never fires."
+    },
+    {
+      "id": "M328",
+      "file": "client/core/zones.lua",
+      "find": "    local fits, fitWhy = self.Grid.admits(zone.aabb)\n    if not fits then",
+      "replace": "    local fits, fitWhy = true, nil\n    if not fits then",
+      "why": "Skip the index check before replacing a zone. Re-creating a live zone with bad geometry destroys the original."
+    },
+    {
+      "id": "M329",
+      "file": "client/core/zones.lua",
+      "find": "    if interval ~= nil and (type(interval) ~= 'number' or interval ~= interval or interval < 0) then",
+      "replace": "    if false then",
+      "why": "Accept a string insideInterval. The comparison against the clamp raises inside create."
+    },
+    {
+      "id": "M330",
+      "file": "client/core/mirror.lua",
+      "find": "    if not self.snapped and not self:ensure() then\n        return nil\n    end",
+      "replace": "    if not self.snapped then\n        self:ensure()\n    end",
+      "why": "Answer the last values while cis_libs is down. Cis.player.vehicle() keeps naming a car the player may have left."
+    },
+    {
+      "id": "M331",
+      "file": "init.lua",
+      "find": "                    elseif r.rebind then\n                        r.rebind(table.unpack(res, 2, res.n))",
+      "replace": "                    elseif false then\n                        r.rebind(table.unpack(res, 2, res.n))",
+      "why": "Do not map a handle to its new id after a replay. The consumer's old cookie removes nothing after a cis_libs restart."
+    },
+    {
+      "id": "M332",
+      "file": "init.lua",
+      "find": "        if resource ~= RESOURCE or #replayOrder == 0 then\n            return\n        end",
+      "replace": "        if true then\n            return\n        end",
+      "why": "Never replay. Every callback, target, sync hook and watcher a consumer made is gone after a cis_libs restart."
+    },
+    {
+      "id": "M333",
+      "file": "init.lua",
+      "find": "    function Cis.target.remove(name, isPed)\n        forget('target:' .. tostring(name))",
+      "replace": "    function Cis.target.remove(name, isPed)\n        forget('nothing:' .. tostring(name))",
+      "why": "Keep a removed target in the replay ledger. A cis_libs restart brings back a target the consumer removed."
+    },
+    {
+      "id": "M334",
+      "file": "client/core/dui.lua",
+      "find": "    local dictName = ('cis_dui_%s_%s_%d'):format(self.resource, self.loadTag, id)",
+      "replace": "    local dictName = ('cis_dui_%s_%d'):format(self.resource, id)",
+      "why": "Name DUI dictionaries by resource and counter only. A restarted consumer draws into the destroyed browser's dictionary."
+    },
+    {
+      "id": "M335",
+      "file": "init.lua",
+      "find": "if type(Cis) == 'table' and rawget(Cis, '__initLoaded') then\n    return\nend",
+      "replace": "if false then\n    return\nend",
+      "why": "Run init.lua again when it is included twice. A second engine set is built and the first one's zones are orphaned."
+    },
+    {
+      "id": "M336",
+      "file": "client/zones.lua",
+      "find": "    autoDrive = true,\n    awaitReady = awaitReady,",
+      "replace": "    autoDrive = false,\n    awaitReady = awaitReady,",
+      "why": "Never drive cis_libs' own zone engine. No zone made through CreateZone ever fires."
+    },
+    {
+      "id": "M337",
+      "file": "client/core/zones.lua",
+      "find": "        if self.awaitReady then\n            self.awaitReady()\n        end",
+      "replace": "        if false then\n            self.awaitReady()\n        end",
+      "why": "Pass zones before the library is ready. A first ready wait that times out is not waited out."
+    },
+    {
+      "id": "M338",
+      "file": "client/points.lua",
+      "find": "    autoDrive = true,\n    onRegister",
+      "replace": "    autoDrive = false,\n    onRegister",
+      "why": "Never drive cis_libs' own point engine. No point made through CreatePoint ever fires."
+    },
+    {
+      "id": "M339",
+      "file": "client/core/raycast.lua",
+      "find": "    return StartShapeTestLosProbe(\n        x1, y1, z1, x2, y2, z2, flags, ignore, LOS_OPTIONS)",
+      "replace": "    return StartExpensiveSynchronousShapeTestLosProbe(\n        x1, y1, z1, x2, y2, z2, flags, ignore, LOS_OPTIONS)",
+      "why": "Go back to the synchronous LOS probe. Every raycast blocks the game thread until it resolves."
+    },
+    {
+      "id": "M340",
+      "file": "client/vehicle.lua",
+      "find": "    if not coroutine.isyieldable() then\n        return nil\n    end",
+      "replace": "    if false then\n        return nil\n    end",
+      "why": "Start the async probe for a caller that cannot yield. Its Wait raises across the export boundary."
+    },
+    {
+      "id": "M341",
+      "file": "client/vehicle.lua",
+      "find": "    local handle = StartShapeTestLosProbe(\n        from.x, from.y, from.z, to.x, to.y, to.z, PROBE_VEHICLES, ped, 7)",
+      "replace": "    local handle = StartExpensiveSynchronousShapeTestLosProbe(\n        from.x, from.y, from.z, to.x, to.y, to.z, PROBE_VEHICLES, ped, 7)",
+      "why": "Go back to the synchronous probe in GetClosestVehicle. It blocks the game thread."
+    },
+    {
+      "id": "M342",
+      "file": "client/core/streaming.lua",
+      "find": "        requestArgs = function(hash) return hash, 31, 0 end,",
+      "replace": "        requestArgs = function(hash) return hash, 0, 0 end,",
+      "why": "Request a weapon asset with p1 = 0. None of the weapon's asset parts are asked for."
+    },
+    {
+      "id": "M343",
+      "file": "client/streaming.lua",
+      "find": "        allComplete = HaveAllStreamingRequestsCompleted(PlayerPedId()),",
+      "replace": "        allComplete = HaveAllStreamingRequestsCompleted(),",
+      "why": "Call HaveAllStreamingRequestsCompleted without its ped. The diagnostics read an undefined argument."
+    },
+    {
+      "id": "M344",
+      "file": "client/utils.lua",
+      "find": "exports('Round', round)",
+      "replace": "Round = round\nexports('Round', round)",
+      "why": "Rebind the ROUND native with the export's function again. Every file in cis_libs that means the native gets a different one."
+    },
+    {
+      "id": "M345",
+      "file": "client/core/streaming.lua",
+      "find": "            return nil, ('%s %q did not load within %sms')\n                :format(kind, tostring(name), tonumber(timeout) or DEFAULT_TIMEOUT_MS)\n        end\n        Wait(POLL_MS)\n    end\nend",
+      "replace": "            return nil, ('%s %q did not load within %dms')\n                :format(kind, tostring(name), tonumber(timeout) or DEFAULT_TIMEOUT_MS)\n        end\n        Wait(POLL_MS)\n    end\nend",
+      "why": "Format a streaming timeout with %d. A fractional timeout raises in Lua 5.4 instead of answering a reason."
+    },
+    {
+      "id": "M346",
+      "file": "client/core/raycast.lua",
+      "find": "            return nil, ('the shape test did not resolve within %sms'):format(timeoutMs)",
+      "replace": "            return nil, ('the shape test did not resolve within %dms'):format(timeoutMs)",
+      "why": "Format a raycast timeout with %d. A fractional timeout raises in Lua 5.4."
+    },
+    {
+      "id": "M347",
+      "file": "init.lua",
+      "find": "        local ok, why = exportCall(exportName, data, ...)\n        if ok then\n            remember(kind .. idsOf(data), exportName, table.pack(data, ...))\n        end",
+      "replace": "        local ok, why = exportCall(exportName, data, ...)\n        if false then\n            remember(kind .. idsOf(data), exportName, table.pack(data, ...))\n        end",
+      "why": "Do not record UI registrations. A consumer's context menus, list menus and radial items are gone after a cis_libs restart."
+    },
+    {
+      "id": "M348",
+      "file": "init.lua",
+      "find": "    function Cis.ui.radial.remove(id)\n        forget('radialItem:' .. tostring(id))",
+      "replace": "    function Cis.ui.radial.remove(id)\n        forget('nothing:' .. tostring(id))",
+      "why": "Keep a removed radial item in the ledger. A cis_libs restart brings it back."
+    },
+    {
+      "id": "M349",
+      "file": "init.lua",
+      "find": "    function Cis.ui.menu.show(id, startIndex)\n        return exportCall('ShowMenu', id, startIndex)",
+      "replace": "    function Cis.ui.menu.show(id, startIndex)\n        return exportCall('ShowMenu', id)",
+      "why": "Drop the menu start index. A menu always opens on its first option."
+    },
+    {
+      "id": "M350",
+      "file": "client/core/zones.lua",
+      "find": "            if minZ == nil and maxZ == nil and #points > 0 then",
+      "replace": "            if false then",
+      "why": "Ignore a poly thickness. A ported zone spans z -1000 to 10000 and holds every floor of a building."
+    },
+    {
+      "id": "M351",
+      "file": "client/core/zones.lua",
+      "find": "            if type(thickness) ~= 'number' or thickness ~= thickness or thickness <= 0 then",
+      "replace": "            if false then",
+      "why": "Accept a string thickness. Create raises on the arithmetic instead of refusing with a reason."
+    },
+    {
+      "id": "M352",
+      "file": "client/zones.lua",
+      "find": "    if caller == 'cis_libs' then\n        return nil\n    end\n    return caller\nend\n\nfunction CisZonesGetCurrent()",
+      "replace": "    if caller == 'cis_libs' then\n        return nil\n    end\n    return nil\nend\n\nfunction CisZonesGetCurrent()",
+      "why": "List every resource's zones to any caller. One resource reads the zone names another made."
+    },
+    {
+      "id": "M353",
+      "file": "client/core/zones.lua",
+      "find": "            if dx * dx + dy * dy <= r2 then",
+      "replace": "            if true then",
+      "why": "Answer every zone as nearby. A zone across the map is reported next to the player."
+    },
+    {
+      "id": "M354",
+      "file": "client/points.lua",
+      "find": "    if caller == 'cis_libs' then\n        return nil\n    end\n    return caller\nend",
+      "replace": "    if caller == 'cis_libs' then\n        return nil\n    end\n    return nil\nend",
+      "why": "List every resource's points to any caller."
+    },
+    {
+      "id": "M355",
+      "file": "client/core/points.lua",
+      "find": "    self:callHook(point, 'onEnter', coords, point.id)",
+      "replace": "    self:callHook(point, 'onEnter', coords)",
+      "why": "Call onEnter without the point id. One handler serving many points cannot tell which it entered."
+    },
+    {
+      "id": "M356",
+      "file": "client/core/points.lua",
+      "find": "    return sortedIds(self.inside, self.points, owner)",
+      "replace": "    return sortedIds(self.points, self.points, owner)",
+      "why": "Answer every point as nearby, inside or not."
+    },
+    {
+      "id": "M357",
+      "file": "client/core/keybind.lua",
+      "find": "    if secondaryKey then\n        RegisterKeyMapping('~!' .. handle.command",
+      "replace": "    if false then\n        RegisterKeyMapping('~!' .. handle.command",
+      "why": "Ignore secondaryKey. A binding ported from ox_lib loses its alternate key."
+    },
+    {
+      "id": "M358",
+      "file": "client/core/keybind.lua",
+      "find": "        enabled = options.disabled ~= true,",
+      "replace": "        enabled = true,",
+      "why": "Ignore disabled = true. A binding meant to start off fires from the first press."
+    },
+    {
+      "id": "M359",
+      "file": "client/core/keybind.lua",
+      "find": "        local control = (GetHashKey(self.command) & 0xFFFFFFFF) | 0x80000000",
+      "replace": "        local control = GetHashKey(self.command) & 0xFFFFFFFF",
+      "why": "Ask for the command hash without the top bit. The game reads it as a control index, not the console binding."
+    },
+    {
+      "id": "M360",
+      "file": "init.lua",
+      "find": "        return index, ped, at\n    end",
+      "replace": "        return ped, at, index\n    end",
+      "why": "Answer getClosestPlayerId in getClosestPlayer's order. Ported ox_lib code reads the ped as the player id."
+    },
+    {
+      "id": "M361",
+      "file": "init.lua",
+      "find": "            maxDistance or 2.0, nil, { includeSelf = includePlayer == true })",
+      "replace": "            maxDistance, nil, { includeSelf = includePlayer == true })",
+      "why": "Drop the 2 m default. getClosestPlayerId finds a player anywhere on the map."
+    },
+    {
+      "id": "M362",
+      "file": "client/callback.lua",
+      "find": "    if type(limitMs) ~= 'number' or limitMs ~= limitMs or limitMs <= 0 or limitMs > MAX_CALL_TIMEOUT_MS then",
+      "replace": "    if type(limitMs) ~= 'number' then",
+      "why": "Accept a negative or huge per-call timeout. A call either expires at once or parks a pending entry for days."
+    },
+    {
+      "id": "M363",
+      "file": "client/callback.lua",
+      "find": "local function awaitLocal(name, ...)\n    return awaitFor(configuredTimeoutMs(), name, ...)",
+      "replace": "local function awaitLocal(name, ...)\n    return awaitFor(1, name, ...)",
+      "why": "Give every await a 1 ms deadline. The configured CallbackTimeout is ignored."
+    },
+    {
+      "id": "M364",
+      "file": "client/callback.lua",
+      "find": "    return awaitFor(limit, name, ...)",
+      "replace": "    return awaitFor(configuredTimeoutMs(), name, ...)",
+      "why": "Ignore the per-call timeout. TryAwaitCallbackWithin waits the configured time."
+    },
+    {
+      "id": "M365",
+      "file": "client/cache.lua",
+      "find": "    if key ~= 'heading' or headingFollowed() then\n        push(key, value)\n    end",
+      "replace": "    push(key, value)",
+      "why": "Push every heading change again. Four to ten TriggerEvent fan-outs a second reach every client resource for a value nobody follows."
+    },
+    {
+      "id": "M366",
+      "file": "client/core/mirror.lua",
+      "find": "    if key == 'heading' and not self.followingHeading then\n        self.followingHeading = pcall(self.follow)\n    end",
+      "replace": "    if false then\n        self.followingHeading = pcall(self.follow)\n    end",
+      "why": "Never ask cis_libs to push heading. A consumer's onCache('heading') listener hears nothing."
+    },
+    {
+      "id": "M367",
+      "file": "client/cache.lua",
+      "find": "            if not sameList(attachments, current.attachments or {}) then",
+      "replace": "            if false then",
+      "why": "Never notice an attachment change on the same weapon. A suppressor fitted while held stays invisible."
+    },
+    {
+      "id": "M368",
+      "file": "client/cache.lua",
+      "find": "    driveNear()",
+      "replace": "    -- driveNear()",
+      "why": "Never start the near-watcher thread. A watcher made through WatchNear never fires."
+    },
+    {
+      "id": "M369",
+      "file": "init.lua",
+      "find": "    if owner ~= nil and coroutine.isyieldable() then\n        while requireLoading[key] ~= nil do",
+      "replace": "    if false then\n        while requireLoading[key] ~= nil do",
+      "why": "Do not wait for another thread's load. Two threads requiring one module run its body twice."
+    },
+    {
+      "id": "M370",
+      "file": "init.lua",
+      "find": "    if owner == co then\n        local chain = {}",
+      "replace": "    if owner ~= nil then\n        local chain = {}",
+      "why": "Key the require guard on the module only. A second thread waiting on a load is told circular dependency X -> X."
     }
   ]
 }

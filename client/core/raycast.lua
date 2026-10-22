@@ -56,7 +56,8 @@ local function read(handle, deadline, timeoutMs)
             return nil, ('the shape test answered an unknown status %s'):format(tostring(state))
         end
         if GetGameTimer() >= deadline then
-            return nil, ('the shape test did not resolve within %dms'):format(timeoutMs)
+            -- %s, not %d: a fractional timeout raised in Lua 5.4.
+            return nil, ('the shape test did not resolve within %sms'):format(timeoutMs)
         end
         Wait(POLL_MS)
     end
@@ -75,8 +76,10 @@ local function defaultIgnore()
 end
 
 local function startProbe(x1, y1, z1, x2, y2, z2, flags, ignore)
-    -- START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE (0x377906D8A31E5586).
-    return StartExpensiveSynchronousShapeTestLosProbe(
+    -- START_SHAPE_TEST_LOS_PROBE (0x7EE9F5D83DD4F90E), the ASYNCHRONOUS probe.
+    -- The synchronous one blocked the game thread for a result `read` polls for
+    -- anyway, and its own native docs say to use this one.
+    return StartShapeTestLosProbe(
         x1, y1, z1, x2, y2, z2, flags, ignore, LOS_OPTIONS)
 end
 

@@ -24,6 +24,7 @@ CisDiagnostics.Register('client', 'streaming', function()
     -- Counts and queries, which are the only two things that can be asked about the
     return {
         pending = GetNumberOfStreamingRequests(),
-        allComplete = HaveAllStreamingRequestsCompleted(),
+        -- HAVE_ALL_STREAMING_REQUESTS_COMPLETED takes the ped whose requests count.
+        allComplete = HaveAllStreamingRequestsCompleted(PlayerPedId()),
     }
 end)

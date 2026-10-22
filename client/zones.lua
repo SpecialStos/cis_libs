@@ -14,6 +14,18 @@ local collisionWarned = {}
 -- who asked for which zone.
 local owned = CisOwned.new()
 
+-- NEVER GIVE UP ON READINESS. initialize.lua marks the library ready at the same
+-- 15 s this used to wait, so a waiter could lose that race, get `false`, and
+-- return -- ending the zone loop for the session. A failed boot still runs on the
+-- built-in defaults, like every other client module.
+local function awaitReady()
+    while not CisReadyState.wait(15000) do
+        if CisReadyState.failed then
+            return
+        end
+    end
+end
+
 local engine = Engine.new({
     grid = CisGrid,
     geom = CisZoneGeom,
@@ -23,6 +35,10 @@ local engine = Engine.new({
     log = function(level, message) CisLog(level, message) end,
     guard = CisLoopGuard.Body,
     timing = CisTiming,
+    -- ON DEMAND, as in a consumer: the engine runs its pass thread only while a
+    -- zone exists. Two always-on loops woke six times a second with no zone.
+    autoDrive = true,
+    awaitReady = awaitReady,
     -- [D3] A NAME HELD BY ANOTHER RESOURCE IS REFUSED, NOT REPLACED.
     admit = function(name, held, zoneOwner)
         local holder = held and held.owner
@@ -73,40 +89,27 @@ function CisZonesContains(name, point)
     return engine:contains(name, point)
 end
 
--- NEVER GIVE UP ON READINESS. initialize.lua marks the library ready at the same
--- 15 s this used to wait, so a waiter could lose that race, get `false`, and
--- return -- ending the zone loop for the session. A failed boot still runs on the
--- built-in defaults, like every other client module.
-local function awaitReady()
-    while not CisReadyState.wait(15000) do
-        if CisReadyState.failed then
-            return
-        end
+-- THE CALLER'S ZONES ONLY, as remove is: this set is shared, and one resource
+-- listing another's is a view nothing needs. cis_libs sees every zone.
+local function queryOwner()
+    local caller = GetInvokingResource() or 'cis_libs'
+    if caller == 'cis_libs' then
+        return nil
     end
+    return caller
 end
 
-CreateThread(function()
-    awaitReady()
-    -- GUARDED (3.10). One raise in here used to end this loop for good: the thread
-    -- unwound and never came back.
-    local tick = CisLoopGuard.Body('client.zones.pass', function() return engine:pass() end)
-    -- The interval this pass uses when the guarded body raises and therefore cannot
-    -- return one.
-    local PASS_DEFAULT_MS = 250
-    while true do
-        -- The Wait is HERE, outside the guard's pcall, so a yield cannot be swallowed
-        Wait(tick() or PASS_DEFAULT_MS)
-    end
-end)
+function CisZonesGetCurrent()
+    return engine:insideNames(queryOwner())
+end
 
-CreateThread(function()
-    awaitReady()
-    -- GUARDED (3.10): an `inside` callback raising used to end this loop for good, and
-    local tickInside = CisLoopGuard.Body('client.zones.inside', function() return engine:insidePass() end)
-    while true do
-        Wait(tickInside() or 250)
-    end
-end)
+function CisZonesGetAll()
+    return engine:allNames(queryOwner())
+end
+
+function CisZonesGetNearby(coords, radius)
+    return engine:nearbyNames(coords, radius, queryOwner())
+end
 
 -- A CONSUMER THAT STOPS TAKES ITS ZONES WITH IT ().
 AddEventHandler('onResourceStop', function(resource)
@@ -132,6 +135,9 @@ end)
 exports('CreateZone', CisZonesCreate)
 exports('RemoveZone', CisZonesRemove)
 exports('ZoneContains', CisZonesContains)
+exports('GetCurrentZones', CisZonesGetCurrent)
+exports('GetAllZones', CisZonesGetAll)
+exports('GetNearbyZones', CisZonesGetNearby)
 
 -- Built on request rather than on every pass: the pass used to rebuild and SORT
 -- this list for a debug view nobody was reading.

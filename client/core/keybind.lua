@@ -98,6 +98,22 @@ function M.new(cfg)
         return self
     end
 
+    -- The key the player has bound now, as the game labels it ("E", "F7"), or nil
+    -- for a retired binding. The control is the +command's hash with the top bit
+    -- set, the console-binding form ox_lib's getCurrentKey reads as well.
+    function Bind:getCurrentKey()
+        if instance.binds[self.id] ~= self then
+            return nil
+        end
+        local control = (GetHashKey(self.command) & 0xFFFFFFFF) | 0x80000000
+        local label = GetControlInstructionalButton(0, control, true)
+        if type(label) ~= 'string' or #label < 3 then
+            return nil
+        end
+        -- The label is prefixed with its button type: "t_E", "b_1015".
+        return label:sub(3)
+    end
+
     function Bind:destroy()
         if instance.binds[self.id] ~= self then
             return false
@@ -173,6 +189,15 @@ function Keybinds:add(options, owner)
     if mapper ~= nil and type(mapper) ~= 'string' then
         return false, ('defaultMapper must be a mapper name like "keyboard", got %s'):format(type(mapper))
     end
+    local secondaryKey = options.secondaryKey
+    if secondaryKey ~= nil and type(secondaryKey) ~= 'string' then
+        return false, ('secondaryKey must be a key name string like "F7" or "X", got %s'):format(type(secondaryKey))
+    end
+    local secondaryMapper = options.secondaryMapper
+    if secondaryMapper ~= nil and type(secondaryMapper) ~= 'string' then
+        return false, ('secondaryMapper must be a mapper name like "pad_digitalbutton", got %s')
+            :format(type(secondaryMapper))
+    end
 
     -- A NAME HELD BY ANOTHER RESOURCE IS REFUSED, NOT TAKEN. Re-registering the
     -- command would silently route the other resource's key to this one.
@@ -195,7 +220,8 @@ function Keybinds:add(options, owner)
         owner = owner,
         command = ('+%s'):format(name),
         releaseCommand = ('-%s'):format(name),
-        enabled = true,
+        -- `disabled = true` registers the binding switched off, as ox_lib's does.
+        enabled = options.disabled ~= true,
         pressed = false,
     }, self.Bind)
 
@@ -226,6 +252,13 @@ function Keybinds:add(options, owner)
     -- native by a LITERAL call, so wrapping it made it invisible to the realm
     -- check.
     RegisterKeyMapping(handle.command, options.description or name, mapper or 'keyboard', key or '')
+    -- THE ALTERNATE KEY. A `~!` prefix on the command string registers a second
+    -- binding for the same command (REGISTER_KEY_MAPPING's own docs), so a pad
+    -- button and a keyboard key both press it.
+    if secondaryKey then
+        RegisterKeyMapping('~!' .. handle.command, options.description or name,
+            secondaryMapper or mapper or 'keyboard', secondaryKey)
+    end
 
     -- The handle's METHODS work in this realm only: a table returned across the
     -- exports boundary loses its metatable. A consumer of the export keeps

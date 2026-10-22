@@ -840,7 +840,10 @@ Generated from `api.lua`. Do not edit between the markers.
 | `DisableRadial` | client | `(state)` | 1.1.0 | exports.cis_libs:DisableRadial(state) |
 | `DrawText3D` | client | `(x, y, z, text, settings?)` | 1.0.0 | no proxy equivalent |
 | `FixDoor` | server | `(identifier)` | 1.0.0 | no proxy equivalent; exports["cis_libs"]:FixDoor(identifier) |
+| `FollowCacheHeading` | client | `()` | 1.1.0 | Cis.player.on("heading", fn) -- init.lua calls it for the first heading listener |
 | `GetAllDoorData` | server | `()` | 1.0.0 | no proxy equivalent; the full door and group tables |
+| `GetAllPoints` | client | `()` | 1.1.0 | Cis.points.getAll() |
+| `GetAllZones` | client | `()` | 1.1.0 | Cis.zones.getAll() |
 | `GetAuditLog` | server | `(limit?)` | 1.0.0 | The capability and configuration change log, newest last. Gated on Security.AuthorizedResources like every other mutating call. Entries carry resource and slot names and never a player name, identifier or IP. Bounded by Config.AuditLines, default 500 |
 | `GetCacheSnapshot` | client | `()` | 1.1.0 | Cis.player.* and Cis.cache(key) -- init.lua takes this once per consumer |
 | `GetCachedHeading` | client | `()` | 1.0.0 | Cis.player.heading(), which reads the native directly in a consumer VM |
@@ -858,6 +861,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `GetClosestVehicle` | client | `()` | 1.0.0 | no proxy equivalent; a 5 unit forward ray, then the nearest vehicle in the CVehicle pool within 5 units. The Lua global is CisGetClosestVehicle; the native GetClosestVehicle is left alone |
 | `GetConfigSummary` | server | `()` | 1.0.0 | no proxy equivalent; the non-secret half of the server config |
 | `GetCurrentWeaponData` | client | `(ped?)` | 1.0.0 | Cis.player.weapon() |
+| `GetCurrentZones` | client | `()` | 1.1.0 | Cis.zones.getCurrent() |
 | `GetDiagnostics` | both | `(opts?)` | 1.0.0 | Counts, never player data: capability slots and owners, sync records by owner, pending callbacks, net handlers, error and warning counters, memory, uptime, and pass timings. The harness diffs counters and probes only; timings are a sibling so a pass does not fail every case |
 | `GetDiscordConfig` | server | `()` | 1.0.0 | The outbound/webhook configuration SetConfig was handed, for the capability that does the sending. Server realm only -- it holds webhook URLs and is deliberately not on the client payload whitelist |
 | `GetDiscordQueueDepth` | server | `()` | 1.0.0 | no proxy equivalent; queued message count and dropped count |
@@ -867,6 +871,8 @@ Generated from `api.lua`. Do not edit between the markers.
 | `GetLastRefusal` | server | `()` | 1.0.0 | Read after a nil/false answer from a capability export to learn WHY it was refused. Returns a sentence naming the missing or failing capability, or nil when the last call succeeded. Additive: no existing return shape changes |
 | `GetLibsPrefix` | server | `()` | 1.0.0 | no proxy equivalent; the configured Security.EventPrefix |
 | `GetLogging` | server | `()` | 1.0.0 | Cis.log.debug / info / warn / error |
+| `GetNearbyPoints` | client | `()` | 1.1.0 | Cis.points.getNearby() |
+| `GetNearbyZones` | client | `(coords?, radius?)` | 1.1.0 | Cis.zones.getNearby(coords, radius) |
 | `GetNormalizedPlayer` | server | `(src)` | 1.0.0 | Cis.framework.player(src) |
 | `GetOnlineJobCount` | server | `(jobs)` | 1.0.0 | no proxy equivalent; the callback cis_libs:getOnlineJobCount |
 | `GetOpenContextMenu` | client | `()` | 1.1.0 | exports.cis_libs:GetOpenContextMenu() |
@@ -976,6 +982,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `Toast` | client | `(data)` | 1.1.0 | exports.cis_libs:Toast(data). The library's own NUI notification; Cis.ui.notify routes here once wired. Not Notify: that export is the framework notify, a different signature |
 | `TriggerLibCallback` | client | `(name, cb?, ...)` | 1.0.0 | the client-to-server round trip whose callback receives only the results |
 | `TryAwaitCallback` | both | `()` | 1.0.0 | Cis.callback.tryAwait(name, ...) -> ok, ... on success; false, reason on a refusal |
+| `TryAwaitCallbackWithin` | client | `(name, timeoutMs, ...)` | 1.1.0 | Cis.callback.tryAwaitWithin(name, timeoutMs, ...) -> ok, ... ; a per-call timeout instead of Config.CallbackTimeout |
 | `UiConfirm` | client | `(opts)` | 1.0.0 | Cis.ui.confirm(opts). A ui provider if registered, else the built-in AlertDialog. RETURNS, does not take a callback |
 | `UiInput` | client | `(opts)` | 1.0.0 | Cis.ui.input(opts). A ui provider if registered, else the built-in InputDialog. RETURNS, does not take a callback |
 | `UiNotify` | client | `(message, kind?)` | 1.0.0 | Cis.ui.notify(message, kind). NOT Cis.framework.notify: that one is player-targeted, rate-limited, and the one a server uses. This is the local toast |
@@ -1019,10 +1026,12 @@ Generated from `api.lua`. Do not edit between the markers.
 | `Cis.cache` | client | `(key)` | 1.1.0 |  |
 | `Cis.callback.await` | both | `(name, ...)` | 1.0.0 |  |
 | `Cis.callback.awaitClient` | server | `(src, name, ...)` | 1.0.0 |  |
+| `Cis.callback.awaitWithin` | client | `(name, timeoutMs, ...)` | 1.1.0 |  |
 | `Cis.callback.call` | both | `(name, cb?, ...)` | 1.0.0 |  |
 | `Cis.callback.callClient` | server | `(src, name, cb?, ...)` | 1.0.0 |  |
 | `Cis.callback.register` | both | `(name, handler, opts?)` | 1.0.0 |  |
 | `Cis.callback.tryAwait` | both | `(name, ...)` | 1.0.0 |  |
+| `Cis.callback.tryAwaitWithin` | client | `(name, timeoutMs, ...)` | 1.1.0 |  |
 | `Cis.command.add` | server | `(name, options, handler)` | 1.0.0 |  |
 | `Cis.command.list` | server | `()` | 1.0.0 |  |
 | `Cis.command.remove` | server | `(name)` | 1.0.0 |  |
@@ -1063,6 +1072,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `Cis.player.coords` | client | `()` | 1.0.0 |  |
 | `Cis.player.heading` | client | `()` | 1.0.0 |  |
 | `Cis.player.near` | client | `(coords, distance?, onEnter?, onExit?, onEnterEvent?, onExitEvent?)` | 1.0.0 |  |
+| `Cis.player.nearStop` | client | `(id)` | 1.1.0 |  |
 | `Cis.player.on` | client | `(key, cb)` | 1.0.0 |  |
 | `Cis.player.ped` | client | `()` | 1.0.0 |  |
 | `Cis.player.playerId` | client | `()` | 1.0.0 |  |
@@ -1071,7 +1081,9 @@ Generated from `api.lua`. Do not edit between the markers.
 | `Cis.player.vehicle` | client | `()` | 1.0.0 |  |
 | `Cis.player.weapon` | client | `()` | 1.0.0 |  |
 | `Cis.points.add` | client | `(data)` | 1.0.0 |  |
+| `Cis.points.getAll` | client | `()` | 1.1.0 |  |
 | `Cis.points.getClosest` | client | `()` | 1.0.0 |  |
+| `Cis.points.getNearby` | client | `()` | 1.1.0 |  |
 | `Cis.points.remove` | client | `(id)` | 1.0.0 |  |
 | `Cis.raycast.camera` | client | `(flags?, ignore?, distance?, timeoutMs?)` | 1.0.0 |  |
 | `Cis.raycast.fromCoords` | client | `(origin, target, flags?, ignore?, timeoutMs?)` | 1.0.0 |  |
@@ -1105,10 +1117,32 @@ Generated from `api.lua`. Do not edit between the markers.
 | `Cis.target.exists` | client | `(name)` | 1.0.0 |  |
 | `Cis.target.remove` | client | `(name, isPed?)` | 1.0.0 |  |
 | `Cis.target.update` | client | `(name, options?)` | 1.0.0 |  |
+| `Cis.ui.cancelProgress` | client | `()` | 1.1.0 |  |
+| `Cis.ui.cancelSkillCheck` | client | `()` | 1.1.0 |  |
+| `Cis.ui.closeAlert` | client | `()` | 1.1.0 |  |
+| `Cis.ui.closeInput` | client | `()` | 1.1.0 |  |
 | `Cis.ui.confirm` | client | `(opts)` | 1.0.0 |  |
+| `Cis.ui.context.getOpen` | client | `()` | 1.1.0 |  |
+| `Cis.ui.context.hide` | client | `(onExit?)` | 1.1.0 |  |
+| `Cis.ui.context.register` | client | `(context)` | 1.1.0 |  |
+| `Cis.ui.context.show` | client | `(id)` | 1.1.0 |  |
 | `Cis.ui.input` | client | `(opts)` | 1.0.0 |  |
+| `Cis.ui.menu.getOpen` | client | `()` | 1.1.0 |  |
+| `Cis.ui.menu.hide` | client | `(onExit?)` | 1.1.0 |  |
+| `Cis.ui.menu.register` | client | `(data, cb?)` | 1.1.0 |  |
+| `Cis.ui.menu.setOptions` | client | `(id, options, index?)` | 1.1.0 |  |
+| `Cis.ui.menu.show` | client | `(id, startIndex?)` | 1.1.0 |  |
 | `Cis.ui.notify` | client | `(message, kind?)` | 1.0.0 |  |
 | `Cis.ui.progress` | client | `(opts)` | 1.0.0 |  |
+| `Cis.ui.progressActive` | client | `()` | 1.1.0 |  |
+| `Cis.ui.radial.add` | client | `(data)` | 1.1.0 |  |
+| `Cis.ui.radial.clear` | client | `()` | 1.1.0 |  |
+| `Cis.ui.radial.disable` | client | `(state)` | 1.1.0 |  |
+| `Cis.ui.radial.hide` | client | `()` | 1.1.0 |  |
+| `Cis.ui.radial.register` | client | `(radial)` | 1.1.0 |  |
+| `Cis.ui.radial.remove` | client | `(id)` | 1.1.0 |  |
+| `Cis.ui.skillCheck` | client | `(difficulty, inputs?)` | 1.1.0 |  |
+| `Cis.ui.skillCheckActive` | client | `()` | 1.1.0 |  |
 | `Cis.ui.textUI.hide` | client | `()` | 1.0.0 |  |
 | `Cis.ui.textUI.isOpen` | client | `()` | 1.0.0 |  |
 | `Cis.ui.textUI.show` | client | `(text, opts?)` | 1.0.0 |  |
@@ -1119,6 +1153,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `Cis.world.getClosestObject` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
 | `Cis.world.getClosestPed` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
 | `Cis.world.getClosestPlayer` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
+| `Cis.world.getClosestPlayerId` | client | `(coords?, maxDistance?, includePlayer?)` | 1.1.0 |  |
 | `Cis.world.getClosestVehicle` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
 | `Cis.world.getNearbyObjects` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
 | `Cis.world.getNearbyPeds` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
@@ -1126,6 +1161,9 @@ Generated from `api.lua`. Do not edit between the markers.
 | `Cis.world.getNearbyVehicles` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
 | `Cis.zones.box` | client | `(name, center, size, options?)` | 1.0.0 |  |
 | `Cis.zones.contains` | client | `(name, point?)` | 1.0.0 |  |
+| `Cis.zones.getAll` | client | `()` | 1.1.0 |  |
+| `Cis.zones.getCurrent` | client | `()` | 1.1.0 |  |
+| `Cis.zones.getNearby` | client | `(coords?, radius?)` | 1.1.0 |  |
 | `Cis.zones.poly` | client | `(name, points, options?)` | 1.0.0 |  |
 | `Cis.zones.remove` | client | `(name)` | 1.0.0 |  |
 | `Cis.zones.server.box` | server | `(center, size, opts?)` | 1.0.0 |  |

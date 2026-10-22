@@ -14,6 +14,8 @@ local engine = Engine.new({
     callable = CisCallable,
     log = function(level, message) CisLog(level, message) end,
     guard = CisLoopGuard.Body,
+    -- ON DEMAND, as in a consumer: a pass thread only while a point exists.
+    autoDrive = true,
     onRegister = function(point)
         -- recorded so a consumer's stop can take its points with it.
         CisOwned.track(owned, point.owner, 'point', point.id)
@@ -59,17 +61,23 @@ function CisPointsGetDebug()
     return engine:debug()
 end
 
--- GUARDED, for the reason zones are: one raise in here used to end the loop for good.
--- AND A LOOP. This thread used to call `Wait(tick())` once and fall off the end, so
--- the first pass was the only pass and no point ever fired after it.
-CreateThread(function()
-    local tick = CisLoopGuard.Body('client.points.pass', function() return engine:pass() end)
-    while true do
-        -- The interval is returned by the body and waited on HERE, so a yield is never
-        -- swallowed by the guard's pcall.
-        Wait(tick() or Engine.IDLE_MS)
+-- THE CALLER'S POINTS ONLY, as remove is: this set is shared, and one resource
+-- listing another's is a view nothing needs. cis_libs sees every point.
+local function queryOwner()
+    local caller = GetInvokingResource() or 'cis_libs'
+    if caller == 'cis_libs' then
+        return nil
     end
-end)
+    return caller
+end
+
+function CisPointsGetAll()
+    return engine:allIds(queryOwner())
+end
+
+function CisPointsGetNearby()
+    return engine:nearbyIds(queryOwner())
+end
 
 -- A point that outlives the resource that made it is invisible from the server and
 AddEventHandler('onResourceStop', function(resource)
@@ -99,6 +107,8 @@ exports('CreatePoint', CisPointsCreate)
 exports('RemovePoint', CisPointsRemove)
 exports('GetClosestPoint', CisPointsGetClosest)
 exports('GetPointsDebug', CisPointsGetDebug)
+exports('GetAllPoints', CisPointsGetAll)
+exports('GetNearbyPoints', CisPointsGetNearby)
 
 CisDiagnostics.Register('client', 'points', function()
     local out = { total = 0, byOwner = {} }

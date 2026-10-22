@@ -14,6 +14,24 @@ under **Changed** so nobody upgrades into them blind.
 
 ### Changed
 
+- **cis_libs' own zone, point and near-watcher threads run on demand**, as a
+  consumer's always did: started by the first zone, point or watcher and
+  ended by the last. A client with none runs no loop (they woke about nine
+  times a second). The zone thread still waits for readiness first.
+- **`heading` is pushed only while something follows it.** The cache sent a
+  `cis_libs:cache` event to every client resource 4-10 times a second while
+  moving; now a consumer's `Cis.onCache('heading', ...)` asks for it with the
+  new `FollowCacheHeading` export, and `Cis.player.heading()` reads the native.
+- **The consumer mirror answers nil while cis_libs is stopped** instead of
+  the last values (`Cis.player.vehicle()` kept naming a car the player may
+  have left). The values come back with the re-snapshot on restart.
+- **Point handlers get the point id** as a second argument:
+  `onEnter(coords, id)`, `onExit(coords, id)`, `nearby(coords, id)`.
+- Raycasts and `GetClosestVehicle` use the asynchronous LOS probe. The
+  synchronous one blocked the game thread; `GetClosestVehicle` polls the
+  probe only for a caller that can yield and otherwise answers from the
+  vehicle pool alone.
+- The `Round` export no longer rebinds the `ROUND` native inside cis_libs.
 - **Per-frame client work runs in the consumer's own VM** (DOCUMENTATION.md
   §5.2). Through `init.lua`, `Cis.zones.*`, `Cis.points.*`, `Cis.keybind.add`,
   `Cis.raycast.*` and `Cis.streaming.*` no longer cross into cis_libs: each
@@ -102,6 +120,31 @@ under **Changed** so nobody upgrades into them blind.
 
 ### Added
 
+- **The rest of the built-in interface under `Cis.ui`** (ox_lib names):
+  `Cis.ui.context.register/show/hide/getOpen`, `Cis.ui.menu.register/show/
+  hide/getOpen/setOptions`, `Cis.ui.radial.add/remove/clear/register/hide/
+  disable`, `Cis.ui.skillCheck`, `skillCheckActive`, `cancelSkillCheck`,
+  `progressActive`, `cancelProgress`, `closeAlert` and `closeInput`.
+  Registrations are made again when cis_libs restarts.
+- **Registrations held by cis_libs survive its restart.** `Cis.callback.register`,
+  `Cis.target.add/update`, `Cis.sync.onSpawn/onDespawn`, `Cis.statebag.*`,
+  `Cis.player.near` and the UI registrations above are recorded in the
+  consumer and made again when cis_libs starts; watcher ids the consumer
+  holds keep working. New `Cis.player.nearStop(id)`.
+- **Zone and point queries:** `Cis.zones.getCurrent/getAll/getNearby` and
+  `Cis.points.getAll/getNearby` (exports `GetCurrentZones`, `GetAllZones`,
+  `GetNearbyZones`, `GetAllPoints`, `GetNearbyPoints`), answering names and
+  ids of the caller's own zones and points.
+- **Poly `thickness`** (ox_lib): a slab that many metres tall around the
+  average z of the points, instead of z -1000 to 10000.
+- **Keybinds:** `secondaryKey` and `secondaryMapper` (the `~!` alternate
+  mapping), `disabled = true`, and `handle:getCurrentKey()`.
+- **`Cis.world.getClosestPlayerId(coords, maxDistance, includePlayer)`** in
+  ox_lib's order, `(playerIndex, ped, coords)`, within 2 m by default.
+  `getClosestPlayer` keeps its documented order.
+- **A per-call callback timeout:** `Cis.callback.awaitWithin(name, ms, ...)`
+  and `tryAwaitWithin` (export `TryAwaitCallbackWithin`), 0 < ms <= 300000.
+- `FollowCacheHeading` export (client).
 - **Nine developer-experience modules** for `Cis.require`, bringing the count
   to twenty-four (DOCUMENTATION.md §5.1):
   - `locale` — per-resource `locales/<lang>.json`, language from the
@@ -179,6 +222,25 @@ under **Changed** so nobody upgrades into them blind.
 
 ### Fixed
 
+- A saved vehicle with a window rolled down came back with that window
+  removed: `IsVehicleWindowIntact` is false for both. The getter now rolls a
+  not-intact window up, records it only if it is still not intact, and rolls
+  it back down.
+- `Points:add` returned an id for a point the grid refused (NaN coords, or a
+  radius of about 1,780 m and up); `onEnter` never fired. It is refused with
+  a reason now.
+- Re-creating a zone with bad geometry destroyed the live one before the new
+  one was validated. A non-number `insideInterval` raised; it is refused.
+- Cached weapon attachments went stale on the same weapon; they are re-read
+  every second while it is held.
+- DUI texture dictionary names restarted at 1 after a consumer restart and
+  reused a destroyed browser's dictionary; each load now has its own tag.
+- Including `init.lua` twice built a second engine set whose zones could not
+  be removed. `Cis.require` from two threads at once reported a false
+  circular dependency; the guard is per coroutine and a second thread waits.
+- `RequestWeaponAsset` was asked with p1 = 0 (31, as the native docs and
+  ox_lib); `HaveAllStreamingRequestsCompleted` was called without its ped; a
+  fractional streaming or raycast timeout raised on `%d`.
 - The point pass allocated a closure on every discovery refresh; its grid
   visitor is now file-level, like the zone visitor.
 - **Exploitable:** a net event handler was registered again on every consumer

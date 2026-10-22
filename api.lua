@@ -193,6 +193,13 @@ return {
         -- Answers `ok, ...` on success and `false, reason` on a refusal; the
         -- return shape lives in `use` because a signature is a parameter list
         -- and the validator enforces that.
+        TryAwaitCallbackWithin = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Cis.callback.tryAwaitWithin(name, timeoutMs, ...) -> ok, ... ; a per-call timeout instead of Config.CallbackTimeout',
+            realm = 'client',
+            params = { { name = 'name', type = 'string', doc = 'a previously registered server callback name' }, { name = 'timeoutMs', type = 'number', doc = 'this call own timeout, milliseconds in (0, 300000]; anything else is refused with a reason' }, { name = '...', type = '...', optional = true, variadic = true, doc = 'the arguments for the handler' } },
+            returns = { { type = 'boolean, any', why = "the handler's own result list, whose arity and types the handler alone decides", doc = "true plus the whole packed reply; false plus a reason otherwise ('timeout' once the limit passes). Never raises" } }
+        },
         TryAwaitCallback = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.callback.tryAwait(name, ...) -> ok, ... on success; false, reason on a refusal',
@@ -361,7 +368,7 @@ return {
             use = 'Cis.keybind.add({ name, description, defaultKey, onPress, onRelease })',
             realm = 'client',
             params = { { name = 'options', type = 'CisKeybindOptions', doc = 'name is REQUIRED and validated, and refused while another resource holds it; onPress and onRelease are functions, which reach cis_libs as funcrefs and are called there. A stopped owner takes its bindings with it' } },
-            returns = { { type = 'table|false, string|nil', doc = 'a handle with id, name and owner, or false plus a reason. Its methods (disable, isPressed, reset, destroy) work only inside cis_libs -- across exports the metatable is lost, so keep handle.id and use KeybindDisable, KeybindEnable, KeybindIsPressed and KeybindRemove. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so renaming a binding creates a SECOND one rather than renaming the first' } }
+            returns = { { type = 'table|false, string|nil', doc = 'a handle with id, name and owner, or false plus a reason. Its methods (disable, isPressed, reset, destroy, getCurrentKey) work only inside cis_libs -- across exports the metatable is lost, so keep handle.id and use KeybindDisable, KeybindEnable, KeybindIsPressed and KeybindRemove. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so renaming a binding creates a SECOND one rather than renaming the first' } }
         },
         Keybinds = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -1012,6 +1019,13 @@ return {
             params = {},
             returns = { { type = 'integer', doc = 'the local player index. Falls back to PlayerId() when the cache is 0' } },
         },
+        FollowCacheHeading = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Cis.player.on("heading", fn) -- init.lua calls it for the first heading listener',
+            realm = 'client',
+            params = {},
+            returns = { { type = 'boolean', doc = 'true. From then until the caller stops, heading changes are pushed on the cis_libs:cache event; without a follower they are not pushed at all' } },
+        },
         GetCacheSnapshot = {
             since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.player.* and Cis.cache(key) -- init.lua takes this once per consumer',
@@ -1478,6 +1492,41 @@ return {
             params = { { name = 'message', type = 'any', why = 'concatenated through tostring, so any value is safe', doc = 'no type requirement; it is concatenated through tostring' } },
             returns = { { type = 'nil', doc = 'nothing comes back, and nothing prints unless Config.Printing.Debug is set' } },
         },
+        GetAllPoints = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Cis.points.getAll()',
+            realm = 'client',
+            params = {},
+            returns = { { type = 'integer[]', doc = 'the ids of the CALLER own points, ascending; cis_libs sees every point' } }
+        },
+        GetNearbyPoints = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Cis.points.getNearby()',
+            realm = 'client',
+            params = {},
+            returns = { { type = 'integer[]', doc = 'the ids of the CALLER own points the player is inside right now, ascending' } }
+        },
+        GetCurrentZones = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Cis.zones.getCurrent()',
+            realm = 'client',
+            params = {},
+            returns = { { type = 'string[]', doc = 'the names of the CALLER own zones the player is inside, sorted; cis_libs sees every zone' } }
+        },
+        GetAllZones = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Cis.zones.getAll()',
+            realm = 'client',
+            params = {},
+            returns = { { type = 'string[]', doc = 'the names of the CALLER own zones, sorted' } }
+        },
+        GetNearbyZones = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'Cis.zones.getNearby(coords, radius)',
+            realm = 'client',
+            params = { { name = 'coords', type = 'vector3|table', optional = true, doc = 'default the player coords' }, { name = 'radius', type = 'number', optional = true, doc = 'metres on the ground plane, default 50' } },
+            returns = { { type = 'string[]', doc = 'the names of the CALLER own zones whose footprint comes within radius, sorted; empty for a bad radius' } }
+        },
         GetClosestPoint = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.points.getClosest()',
@@ -1610,7 +1659,7 @@ return {
         realm = 'both',
         forwardsTo = 'RegisterCallback',
         params = { { name = 'name', type = 'string', doc = 'a non-empty handler name' }, { name = 'handler', type = 'function|string', doc = "a function (from any resource; it crosses as a callable reference and is released when that resource stops) or a 'resource:Export' string" }, { name = 'opts', type = 'table', optional = true, doc = "server only: { remote, ace, schema, maxStringLen }, as RegisterCallback" } },
-        returns = { { type = 'boolean, string|nil', doc = "true once bound; false plus the reason on a refusal" } },
+        returns = { { type = 'boolean, string|nil', doc = "true once bound; false plus the reason on a refusal. From a consumer it is bound again when cis_libs restarts" } },
     },
     ['Cis.callback.tryAwait'] = {
         since = '1.0.0',
@@ -1618,6 +1667,20 @@ return {
         forwardsTo = 'TryAwaitCallback',
         params = { { name = 'name', type = 'string', doc = 'a registered name' }, { name = '...', type = '...', optional = true, variadic = true, doc = 'the arguments for the handler' } },
         returns = { { type = 'boolean, any', why = "the handler's own result list, whose arity and types the handler alone decides -- the handler is a function in another resource, and its return contract is that resource's, not this library's", doc = 'true plus the whole result list, so a nil in the middle survives; false plus a reason otherwise. Never raises' } },
+    },
+    ['Cis.callback.tryAwaitWithin'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'TryAwaitCallbackWithin',
+        params = { { name = 'name', type = 'string', doc = 'a registered name' }, { name = 'timeoutMs', type = 'number', doc = 'this call own timeout in milliseconds, (0, 300000]' }, { name = '...', type = '...', optional = true, variadic = true, doc = 'the arguments for the handler' } },
+        returns = { { type = 'boolean, any', why = "the handler's own result list, whose arity and types the handler alone decides", doc = "true plus the whole result list; false plus a reason ('timeout' once the limit passes). Never raises" } },
+    },
+    ['Cis.callback.awaitWithin'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'TryAwaitCallbackWithin',
+        params = { { name = 'name', type = 'string', doc = 'a registered name' }, { name = 'timeoutMs', type = 'number', doc = 'this call own timeout in milliseconds, (0, 300000]' }, { name = '...', type = '...', optional = true, variadic = true, doc = 'the arguments for the handler' } },
+        returns = { { type = 'any', why = "the handler's own result list, whose arity and types the handler alone decides", doc = 'the result list; RAISES with the callback name and the reason on a refusal or timeout, as await does' } },
     },
     ['Cis.db.insert'] = {
         since = '1.0.0',
@@ -1793,7 +1856,14 @@ return {
         realm = 'client',
         forwardsTo = 'WatchNear',
         params = { { name = 'coords', type = 'vector3|table', doc = 'the point to watch. Receives the distance on the server half' }, { name = 'distance', type = 'number', optional = true, doc = 'the radius, default 2.0' }, { name = 'onEnter', type = 'function', optional = true, doc = 'on the client this is a function argument and it is DROPPED across the boundary' }, { name = 'onExit', type = 'function', optional = true, doc = 'on the client this is a function argument and it is DROPPED across the boundary' }, { name = 'onEnterEvent', type = 'string', optional = true, doc = 'an event name, which is a string and does cross -- this is the working form from a consumer' }, { name = 'onExitEvent', type = 'string', optional = true, doc = 'an event name, which is a string and does cross' } },
-        returns = { { type = 'function, integer', doc = 'the in-realm unsubscribe and the watcher id. Refusal is nil plus a reason naming what arrived as nil' } },
+        returns = { { type = 'function, integer', doc = 'the in-realm unsubscribe (unusable once it has crossed) and the watcher id, for Cis.player.nearStop. The watcher is made again, under the same id, when cis_libs restarts. Refusal is nil plus a reason naming what arrived as nil' } },
+    },
+    ['Cis.player.nearStop'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'RemoveNearWatcher',
+        params = { { name = 'id', type = 'integer', doc = 'the id Cis.player.near answered in its second slot; it stays valid across a cis_libs restart, which makes the watcher again' } },
+        returns = { { type = 'boolean, string', doc = 'true once removed; false plus a reason for an unknown id or one another resource owns' } },
     },
     ['Cis.player.on'] = {
         since = '1.0.0',
@@ -1857,6 +1927,20 @@ return {
         runsIn = 'consumer',
         params = { { name = 'id', type = 'integer', doc = 'the id add returned' } },
         returns = { { type = 'boolean', doc = 'false when no point holds that id, which is a no-op and not an error. A point the player was inside fires onExit first, with the PLAYER coordinates and not the point coordinates' } },
+    },
+    ['Cis.points.getAll'] = {
+        since = '1.1.0',
+        realm = 'client',
+        runsIn = 'consumer',
+        params = {},
+        returns = { { type = 'integer[]', doc = 'the ids of the CALLER own points, ascending (ox_lib getAllPoints, as ids)' } },
+    },
+    ['Cis.points.getNearby'] = {
+        since = '1.1.0',
+        realm = 'client',
+        runsIn = 'consumer',
+        params = {},
+        returns = { { type = 'integer[]', doc = 'the ids of the CALLER own points the player is inside right now (ox_lib getNearbyPoints, as ids)' } },
     },
     ['Cis.points.getClosest'] = {
         since = '1.0.0',
@@ -1988,7 +2072,7 @@ return {
         realm = 'both',
         forwardsTo = 'AddSyncSpawnHandler',
         params = { { name = 'fn', type = 'function', doc = 'a function or a cross-resource reference, released when its resource stops; anything that cannot be called is refused' } },
-        returns = { { type = 'boolean, string', doc = "true on success, and never a handle -- there is no deregister. Called pcall'd as (key, record, entity)" } },
+        returns = { { type = 'boolean, string', doc = "true on success, and never a handle -- there is no deregister. Called pcall'd as (key, record, entity). From a consumer the hook is added again when cis_libs restarts" } },
     },
     ['Cis.sync.ped'] = {
         since = '1.0.0',
@@ -2023,7 +2107,7 @@ return {
         realm = 'client',
         forwardsTo = 'CreateTarget',
         params = { { name = 'zoneType', type = 'string', doc = 'box, sphere or ped' }, { name = 'name', type = 'string', doc = 'the target name' }, { name = 'coords', type = 'vector3|table', doc = 'the centre' }, { name = 'size', type = 'vector3|number', doc = 'the size' }, { name = 'options', type = 'CisTargetOptions', optional = true, doc = 'the options, defaulted to {}' } },
-        returns = { { type = 'boolean, string', doc = 'true, or false plus a reason. update is a remove and re-create internally, so treat it as a rebuild rather than a patch on the provider' } },
+        returns = { { type = 'boolean, string', doc = 'true, or false plus a reason. update is a remove and re-create internally, so treat it as a rebuild rather than a patch on the provider. From a consumer the target (and its last update) is made again when cis_libs restarts' } },
     },
     ['Cis.target.exists'] = {
         since = '1.0.0',
@@ -2071,7 +2155,7 @@ return {
         realm = 'client',
         runsIn = 'consumer',
         params = { { name = 'options', type = 'CisKeybindOptions', doc = 'name REQUIRED; onPress / onRelease (or ox_lib onPressed / onReleased) are plain local functions, run in the calling resource' } },
-        returns = { { type = 'table|false, string|nil', doc = 'the handle, with working methods in a consumer: disable(state), isPressed(), reset(), destroy(). The commands and the mapping belong to the CALLING resource (since 1.1.0; before, to cis_libs -- a player rebind saved under cis_libs does not carry over). THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so a renamed binding is a second binding and the first still shows in the menu' } },
+        returns = { { type = 'table|false, string|nil', doc = 'the handle, with working methods in a consumer: disable(state), isPressed(), reset(), destroy(), getCurrentKey() (the label of the bound key, as ox_lib getCurrentKey). The commands and the mapping belong to the CALLING resource (since 1.1.0; before, to cis_libs -- a player rebind saved under cis_libs does not carry over). THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so a renamed binding is a second binding and the first still shows in the menu' } },
     },
     ['Cis.ui.notify'] = {
         since = '1.0.0',
@@ -2122,19 +2206,173 @@ return {
         params = { { name = 'opts', type = 'table', doc = 'heading, rows, options. RETURNS, does not take a callback' } },
         returns = { { type = 'any, string|nil', why = 'a registered provider chooses its own value', doc = 'built-in: the list of values, or nil on cancel' } },
     },
+    ['Cis.ui.context.register'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'RegisterContext',
+        params = { { name = 'context', type = 'table', doc = 'one context or a list: { id, title, menu (parent id), canClose, onExit, onBack, options = { { title, description, icon, iconColor, arrow, disabled, readOnly, progress, colorScheme, metadata, image, menu, onSelect, event, serverEvent, args } } }. serverEvent is fired by THIS CLIENT with TriggerServerEvent(name, args): the server handler must validate it like any client event' } },
+        returns = { { type = 'boolean, string|nil', doc = 'true once registered; made again when cis_libs restarts. Owned by the calling resource and removed when it stops' } }
+    },
+    ['Cis.ui.context.show'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'ShowContext',
+        params = { { name = 'id', type = 'string', doc = 'a registered context id' } },
+        returns = { { type = 'boolean, string|nil', doc = 'true once shown; false plus a reason for an unknown id or before the page has loaded' } }
+    },
+    ['Cis.ui.context.hide'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'HideContext',
+        params = { { name = 'onExit', type = 'boolean', optional = true, doc = 'true runs the menu onExit' } },
+        returns = { { type = 'boolean', doc = 'true when one was open' } }
+    },
+    ['Cis.ui.context.getOpen'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'GetOpenContextMenu',
+        params = {},
+        returns = { { type = 'string|nil', doc = 'the id of the open context menu' } }
+    },
+    ['Cis.ui.menu.register'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'RegisterMenu',
+        params = { { name = 'data', type = 'table', doc = '{ id, title, position = top-left|top-right|bottom-left|bottom-right, options = { { label, description, icon, iconColor, values, defaultIndex, checked, progress, colorScheme, args, close } }, onSelected, onSideScroll, onCheck, onClose, disableInput, canClose }' }, { name = 'cb', type = 'function', optional = true, doc = 'called (selected, scrollIndex, args) when an option is confirmed with Enter' } },
+        returns = { { type = 'boolean, string|nil', doc = 'true once registered; made again when cis_libs restarts. Owned by the calling resource and removed when it stops' } }
+    },
+    ['Cis.ui.menu.show'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'ShowMenu',
+        params = { { name = 'id', type = 'string', doc = 'a registered menu id' }, { name = 'startIndex', type = 'integer', optional = true, doc = 'the option selected first' } },
+        returns = { { type = 'boolean, string|nil', doc = 'true once shown. Keyboard-driven (arrows, Enter, Backspace/Escape); the player keeps control unless disableInput' } }
+    },
+    ['Cis.ui.menu.hide'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'HideMenu',
+        params = { { name = 'onExit', type = 'boolean', optional = true, doc = 'true runs the menu onClose' } },
+        returns = { { type = 'boolean', doc = 'true when one was open' } }
+    },
+    ['Cis.ui.menu.getOpen'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'GetOpenMenu',
+        params = {},
+        returns = { { type = 'string|nil', doc = 'the id of the open list menu' } }
+    },
+    ['Cis.ui.menu.setOptions'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'SetMenuOptions',
+        params = { { name = 'id', type = 'string', doc = 'a registered menu id' }, { name = 'options', type = 'table', doc = 'the full option list, or one option when index is given' }, { name = 'index', type = 'integer', optional = true, doc = 'replace (or append, one past the end) this option only' } },
+        returns = { { type = 'boolean, string|nil', doc = 'true once replaced; an open menu is redrawn' } }
+    },
+    ['Cis.ui.radial.add'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'AddRadialItem',
+        params = { { name = 'data', type = 'table', doc = 'one item or a list: { id, label, icon, iconColor, menu (a RegisterRadial id), onSelect, keepOpen }. onSelect is called (menuId, index)' } },
+        returns = { { type = 'boolean, string|nil', doc = 'true once added; made again when cis_libs restarts. The radial key (default Z) is registered with the first item' } }
+    },
+    ['Cis.ui.radial.remove'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'RemoveRadialItem',
+        params = { { name = 'id', type = 'string', doc = 'the item id' } },
+        returns = { { type = 'boolean', doc = 'true when it existed' } }
+    },
+    ['Cis.ui.radial.clear'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'ClearRadialItems',
+        params = {},
+        returns = { { type = 'boolean', doc = 'always true; removes every global item' } }
+    },
+    ['Cis.ui.radial.register'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'RegisterRadial',
+        params = { { name = 'radial', type = 'table', doc = '{ id, items } -- a submenu opened by an item whose menu is this id' } },
+        returns = { { type = 'boolean, string|nil', doc = 'true once registered; made again when cis_libs restarts' } }
+    },
+    ['Cis.ui.radial.hide'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'HideRadial',
+        params = {},
+        returns = { { type = 'boolean', doc = 'true when it was open' } }
+    },
+    ['Cis.ui.radial.disable'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'DisableRadial',
+        params = { { name = 'state', type = 'boolean', doc = 'true (default) stops the key opening the menu and closes it; false allows it again' } },
+        returns = { { type = 'boolean', doc = 'always true' } }
+    },
+    ['Cis.ui.skillCheck'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'SkillCheck',
+        params = { { name = 'difficulty', type = 'string|table', doc = '\'easy\' | \'medium\' | \'hard\', { areaSize, speedMultiplier }, or a list of those (one round each)' }, { name = 'inputs', type = 'table', optional = true, doc = 'key names to pick from per round (e, q, r, f, g, w, a, s, d, 1-4); default { e }' } },
+        returns = { { type = 'boolean, string|nil', doc = 'YIELDS. true when every round was hit; false on a miss, a wrong key, CancelSkillCheck, the caller stopping, or a refusal' } }
+    },
+    ['Cis.ui.skillCheckActive'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'SkillCheckActive',
+        params = {},
+        returns = { { type = 'boolean', doc = 'whether a skill check is running' } }
+    },
+    ['Cis.ui.cancelSkillCheck'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'CancelSkillCheck',
+        params = {},
+        returns = { { type = 'boolean', doc = 'true when one was running; its caller gets false' } }
+    },
+    ['Cis.ui.progressActive'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'ProgressActive',
+        params = {},
+        returns = { { type = 'boolean', doc = 'whether a progress bar or circle is running' } }
+    },
+    ['Cis.ui.cancelProgress'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'CancelProgress',
+        params = {},
+        returns = { { type = 'boolean', doc = 'true when one was running and is now cancelled (its caller gets false)' } }
+    },
+    ['Cis.ui.closeAlert'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'CloseAlertDialog',
+        params = {},
+        returns = { { type = 'boolean', doc = 'true when one was open; its caller gets \'cancel\'' } }
+    },
+    ['Cis.ui.closeInput'] = {
+        since = '1.1.0',
+        realm = 'client',
+        forwardsTo = 'CloseInputDialog',
+        params = {},
+        returns = { { type = 'boolean', doc = 'true when one was open; its caller gets nil' } }
+    },
     ['Cis.statebag.onEntity'] = {
         since = '1.0.0',
         realm = 'both',
         forwardsTo = 'StatebagOnEntity',
         params = { { name = 'key', type = 'string', doc = 'the key or *' }, { name = 'handler', type = 'function', doc = 'called (entity, value, replicated, deleted); crosses the boundary as a callable reference and is released when the calling resource stops' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'how long the client keeps a change whose entity has not streamed in, default 2000. The server does not wait' } },
-        returns = { { type = 'integer|nil, string|nil', doc = 'a cookie, or nil plus a reason' } },
+        returns = { { type = 'integer|nil, string|nil', doc = 'a cookie for Cis.statebag.remove, or nil plus a reason. From a consumer the watcher is made again, under the same cookie, when cis_libs restarts' } },
     },
     ['Cis.statebag.onPlayer'] = {
         since = '1.0.0',
         realm = 'both',
         forwardsTo = 'StatebagOnPlayer',
         params = { { name = 'key', type = 'string', doc = 'the key or *' }, { name = 'handler', type = 'function', doc = 'called (serverId, value, replicated, deleted); released when the calling resource stops' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'unused: a player watcher never waits' } },
-        returns = { { type = 'integer|nil, string|nil', doc = 'a cookie, or nil plus a reason' } },
+        returns = { { type = 'integer|nil, string|nil', doc = 'a cookie for Cis.statebag.remove, or nil plus a reason. From a consumer the watcher is made again, under the same cookie, when cis_libs restarts' } },
     },
     ['Cis.statebag.remove'] = {
         since = '1.0.0',
@@ -2248,6 +2486,27 @@ return {
         params = { { name = 'name', type = 'string', doc = 'the zone name' }, { name = 'point', type = 'vector3|table', optional = true, doc = 'the point to test; a nil answers false rather than raising' } },
         returns = { { type = 'boolean', doc = 'true only on a real containment hit. FREE in a consumer: it tests the CALLER own zones, locally' } },
     },
+    ['Cis.zones.getCurrent'] = {
+        since = '1.1.0',
+        realm = 'client',
+        runsIn = 'consumer',
+        params = {},
+        returns = { { type = 'string[]', doc = 'the names of the CALLER own zones the player is inside, sorted (ox_lib getCurrentZones, as names)' } },
+    },
+    ['Cis.zones.getAll'] = {
+        since = '1.1.0',
+        realm = 'client',
+        runsIn = 'consumer',
+        params = {},
+        returns = { { type = 'string[]', doc = 'the names of the CALLER own zones, sorted (ox_lib getAllZones, as names)' } },
+    },
+    ['Cis.zones.getNearby'] = {
+        since = '1.1.0',
+        realm = 'client',
+        runsIn = 'consumer',
+        params = { { name = 'coords', type = 'vector3|table', optional = true, doc = 'default the player coords' }, { name = 'radius', type = 'number', optional = true, doc = 'metres on the ground plane, default 50' } },
+        returns = { { type = 'string[]', doc = 'the names of the CALLER own zones whose footprint comes within radius, sorted (ox_lib getNearbyZones, as names)' } },
+    },
     ['Cis.zones.poly'] = {
         since = '1.0.0',
         realm = 'client',
@@ -2320,6 +2579,13 @@ return {
         runsIn = 'consumer',
         params = { { name = 'coords', type = 'vector3|table', optional = true, doc = 'default the player coords' }, { name = 'maxDistance', type = 'number', optional = true, doc = 'metres; nil means no limit' }, { name = 'filter', type = 'fun(entity: integer, coords: vector3): boolean', optional = true, doc = 'a plain function' }, { name = 'opts', type = 'table', optional = true, doc = '{ includeSelf = true } puts the local player back in' } },
         returns = { { type = 'integer|false, vector3|string|nil, integer|nil', doc = 'the player PED, its coords, and the player index in slot 3' } },
+    },
+    ['Cis.world.getClosestPlayerId'] = {
+        since = '1.1.0',
+        realm = 'client',
+        runsIn = 'consumer',
+        params = { { name = 'coords', type = 'vector3|table', optional = true, doc = 'default the player coords' }, { name = 'maxDistance', type = 'number', optional = true, doc = 'metres; default 2.0, as ox_lib' }, { name = 'includePlayer', type = 'boolean', optional = true, doc = 'true puts the local player in, as ox_lib' } },
+        returns = { { type = 'integer|false, integer|string|nil, vector3|nil', doc = 'ox_lib getClosestPlayer order: the player INDEX, its ped and its coords; or false plus a reason' } },
     },
     ['Cis.world.getNearbyPeds'] = {
         since = '1.1.0',
@@ -2478,7 +2744,7 @@ return {
     },
     CisKeybindOptions = {
         doc = 'The table Cis.keybind.add takes. The NAME IS REQUIRED and is validated against letters, digits, underscore and hyphen, because RegisterKeyMapping writes it into the player settings and builds a command from it -- and a malformed one produces a mapping that appears in the menu and does nothing.',
-        fields = { { name = 'name', type = 'string', optional = false, doc = 'the command name, and the +name / -name pair behind it' }, { name = 'description', type = 'string', optional = true, doc = 'what shows in the settings menu; defaults to the name' }, { name = 'defaultKey', type = 'string', optional = true, doc = 'a key NAME like F7 or X, not a control index. An empty string means unbound. This is RegisterKeyMapping defaultParameter, the FOURTH argument' }, { name = 'defaultMapper', type = 'string', optional = true, doc = 'RegisterKeyMapping defaultMapper, the THIRD argument, default keyboard. Not a boolean' }, { name = 'onPress', type = 'fun()', optional = true, doc = 'on the +name command, under pcall: a raise cannot end the handler and leave the binding stuck pressed' }, { name = 'onRelease', type = 'fun()', optional = true, doc = 'on the -name command, under pcall' }, { name = 'onPressed', type = 'fun()', optional = true, doc = 'ox_lib spelling of onPress' }, { name = 'onReleased', type = 'fun()', optional = true, doc = 'ox_lib spelling of onRelease' } },
+        fields = { { name = 'name', type = 'string', optional = false, doc = 'the command name, and the +name / -name pair behind it' }, { name = 'description', type = 'string', optional = true, doc = 'what shows in the settings menu; defaults to the name' }, { name = 'defaultKey', type = 'string', optional = true, doc = 'a key NAME like F7 or X, not a control index. An empty string means unbound. This is RegisterKeyMapping defaultParameter, the FOURTH argument' }, { name = 'defaultMapper', type = 'string', optional = true, doc = 'RegisterKeyMapping defaultMapper, the THIRD argument, default keyboard. Not a boolean' }, { name = 'onPress', type = 'fun()', optional = true, doc = 'on the +name command, under pcall: a raise cannot end the handler and leave the binding stuck pressed' }, { name = 'onRelease', type = 'fun()', optional = true, doc = 'on the -name command, under pcall' }, { name = 'onPressed', type = 'fun()', optional = true, doc = 'ox_lib spelling of onPress' }, { name = 'onReleased', type = 'fun()', optional = true, doc = 'ox_lib spelling of onRelease' }, { name = 'secondaryKey', type = 'string', optional = true, doc = 'an alternate key NAME for the same command, registered as the ~! alternate mapping' }, { name = 'secondaryMapper', type = 'string', optional = true, doc = 'the mapper of secondaryKey; defaults to defaultMapper' }, { name = 'disabled', type = 'boolean', optional = true, doc = 'true registers the binding switched off; enable it with handle:disable(false)' } },
     },
     CisLocale = {
         doc = "The table Cis.require('locale') returns. Translations from the CALLING resource's locales/<lang>.json, language from the replicated convar cis:locale else en, with en as the fallback file and the fallback per key. t(key, ...) fills ${name} from a table and %s positionally; a missing key answers the key and warns once.",
@@ -2514,7 +2780,7 @@ return {
     },
     CisPointOptions = {
         doc = 'The table Cis.points.add takes. coords and distance are REQUIRED and are refused by name when absent -- a defaulted radius is a specific number nobody asked for, and a defaulted coordinate is a point at the world origin that fires for a player who spawned there. Every other field is optional. From init.lua (Cis.points.add) the function fields are plain local functions in the calling resource; through the CreatePoint export they arrive as funcrefs. The event-name twins fire either way.',
-        fields = { { name = 'coords', type = 'vector3|vector4|table', optional = false, doc = 'the centre' }, { name = 'distance', type = 'number', optional = false, doc = 'the enter radius in metres. Must be finite and greater than zero; NaN and infinity are both refused by name, because NaN makes every containment test false and infinity has no cell to index' }, { name = 'onEnter', type = 'fun(coords: vector3)', optional = true, doc = 'called under pcall on arrival' }, { name = 'onExit', type = 'fun(coords: vector3)', optional = true, doc = 'called under pcall on departure and on removal' }, { name = 'nearby', type = 'fun(coords: vector3)', optional = true, doc = 'called under pcall every nearbyInterval while the player is inside, and ONLY inside' }, { name = 'nearbyInterval', type = 'integer', optional = true, doc = 'ms between nearby calls, default 200. Zero is allowed: a local function asking for every pass is legitimate' }, { name = 'onEnterEvent', type = 'string', optional = true, doc = 'the net event fired on arrival, with (id, x, y, z). The id lets one handler watch several points' }, { name = 'onExitEvent', type = 'string', optional = true, doc = 'the net event fired on departure, with (id, x, y, z)' }, { name = 'nearbyEvent', type = 'string', optional = true, doc = 'the net event fired inside every nearbyInterval, with (id, x, y, z). Aimed at the server, so nearbyInterval is clamped to at least 250 ms when it is set -- the same floor a zone insideEvent has' } },
+        fields = { { name = 'coords', type = 'vector3|vector4|table', optional = false, doc = 'the centre' }, { name = 'distance', type = 'number', optional = false, doc = 'the enter radius in metres. Must be finite and greater than zero; NaN and infinity are both refused by name, because NaN makes every containment test false and infinity has no cell to index' }, { name = 'onEnter', type = 'fun(coords: vector3, id: integer)', optional = true, doc = 'called under pcall on arrival' }, { name = 'onExit', type = 'fun(coords: vector3, id: integer)', optional = true, doc = 'called under pcall on departure and on removal' }, { name = 'nearby', type = 'fun(coords: vector3, id: integer)', optional = true, doc = 'called under pcall every nearbyInterval while the player is inside, and ONLY inside' }, { name = 'nearbyInterval', type = 'integer', optional = true, doc = 'ms between nearby calls, default 200. Zero is allowed: a local function asking for every pass is legitimate' }, { name = 'onEnterEvent', type = 'string', optional = true, doc = 'the net event fired on arrival, with (id, x, y, z). The id lets one handler watch several points' }, { name = 'onExitEvent', type = 'string', optional = true, doc = 'the net event fired on departure, with (id, x, y, z)' }, { name = 'nearbyEvent', type = 'string', optional = true, doc = 'the net event fired inside every nearbyInterval, with (id, x, y, z). Aimed at the server, so nearbyInterval is clamped to at least 250 ms when it is set -- the same floor a zone insideEvent has' } },
     },
     CisAuditEntry = {
         doc = 'One ring-buffer entry from GetAuditLog. RESOURCE AND SLOT NAMES ONLY -- never a player identifier, which is why this is in memory at all.',
@@ -2626,7 +2892,7 @@ return {
     },
     CisZoneOptions = {
         doc = 'The options table for Cis.zones.* and Cis.target.add. Every field is optional; a zone is created with defaults when one is absent. From init.lua (Cis.zones.*) the function fields are plain local functions run in the calling resource; through the CreateZone export they arrive as funcrefs. The event-name twins fire either way.',
-        fields = { { name = 'onEnter', type = 'fun(zone: CisZone, coords: vector3)', optional = true, doc = "called pcall'd on the inside edge, with the ZONE and the player's own coordinates" }, { name = 'onExit', type = 'fun(zone: CisZone, coords: vector3)', optional = true, doc = "called pcall'd on the outside edge and on removal" }, { name = 'inside', type = 'fun(zone: CisZone)', optional = true, doc = 'called every insideInterval while the player is inside' }, { name = 'insideInterval', type = 'integer', optional = true, doc = 'ms between inside calls, default 500. Clamped up to 250 whenever insideEvent is set, so a networked event cannot be asked for faster than a quarter second' }, { name = 'debug', type = 'boolean', optional = true, doc = 'truthy starts the draw thread once registration succeeds' }, { name = 'onEnterEvent', type = 'string', optional = true, doc = 'fires with (zoneName, x, y, z). Falls back to TriggerServerEvent when onEnter is absent' }, { name = 'onExitEvent', type = 'string', optional = true, doc = 'fires with (zoneName, x, y, z). The only way a consumer outside this VM learns the player left' }, { name = 'insideEvent', type = 'string', optional = true, doc = 'its presence is what forces the 250ms clamp' }, { name = 'local', type = 'boolean', optional = true, doc = 'truthy switches the events to client-local TriggerEvent instead of TriggerServerEvent' }, { name = 'minZ', type = 'number', optional = true, doc = 'the floor, default -1000.0, and the fallback Z for any poly point with no z' }, { name = 'maxZ', type = 'number', optional = true, doc = 'the ceiling, default 10000.0' }, { name = 'heading', type = 'number', optional = true, doc = 'the box heading' }, { name = 'rotation', type = 'number', optional = true, doc = 'an alias for the box heading' } },
+        fields = { { name = 'onEnter', type = 'fun(zone: CisZone, coords: vector3)', optional = true, doc = "called pcall'd on the inside edge, with the ZONE and the player's own coordinates" }, { name = 'onExit', type = 'fun(zone: CisZone, coords: vector3)', optional = true, doc = "called pcall'd on the outside edge and on removal" }, { name = 'inside', type = 'fun(zone: CisZone)', optional = true, doc = 'called every insideInterval while the player is inside' }, { name = 'insideInterval', type = 'integer', optional = true, doc = 'ms between inside calls, default 500. Clamped up to 250 whenever insideEvent is set, so a networked event cannot be asked for faster than a quarter second' }, { name = 'debug', type = 'boolean', optional = true, doc = 'truthy starts the draw thread once registration succeeds' }, { name = 'onEnterEvent', type = 'string', optional = true, doc = 'fires with (zoneName, x, y, z). Falls back to TriggerServerEvent when onEnter is absent' }, { name = 'onExitEvent', type = 'string', optional = true, doc = 'fires with (zoneName, x, y, z). The only way a consumer outside this VM learns the player left' }, { name = 'insideEvent', type = 'string', optional = true, doc = 'its presence is what forces the 250ms clamp' }, { name = 'local', type = 'boolean', optional = true, doc = 'truthy switches the events to client-local TriggerEvent instead of TriggerServerEvent' }, { name = 'minZ', type = 'number', optional = true, doc = 'the floor, default -1000.0, and the fallback Z for any poly point with no z' }, { name = 'maxZ', type = 'number', optional = true, doc = 'the ceiling, default 10000.0' }, { name = 'thickness', type = 'number', optional = true, doc = 'poly only: a slab this many metres tall around the average z of the points, as ox_lib; ignored when minZ or maxZ is given' }, { name = 'heading', type = 'number', optional = true, doc = 'the box heading' }, { name = 'rotation', type = 'number', optional = true, doc = 'an alias for the box heading' } },
     },
     },
 

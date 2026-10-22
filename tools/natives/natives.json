@@ -6,13 +6,13 @@
   },
   "counts": {
     "shippedFiles": 71,
-    "nativesUsed": 243,
+    "nativesUsed": 247,
     "byRealm": {
-      "client": 163,
+      "client": 166,
       "server": 6,
-      "shared": 74
+      "shared": 75
     },
-    "unresolvedPascalCaseGlobals": 79
+    "unresolvedPascalCaseGlobals": 86
   },
   "natives": {
     "AddDoorToSystem": {
@@ -836,6 +836,24 @@
         "client/vehicle.lua"
       ]
     },
+    "GetControlInstructionalButton": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "PAD"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/core/keybind.lua"
+      ]
+    },
     "GetCurrentResourceName": {
       "realm": "shared",
       "evidence": [
@@ -854,6 +872,7 @@
         "client/cache.lua",
         "client/callback.lua",
         "client/interface/nui.lua",
+        "client/proxy.lua",
         "client/sync.lua",
         "client/target.lua",
         "client/ui.lua",
@@ -1101,6 +1120,7 @@
       "files": [
         "client/cache.lua",
         "client/callback.lua",
+        "client/core/dui.lua",
         "client/core/mirror.lua",
         "client/core/points.lua",
         "client/core/raycast.lua",
@@ -1110,6 +1130,7 @@
         "client/interface/menu.lua",
         "client/interface/nui.lua",
         "client/interface/progress.lua",
+        "client/vehicle.lua",
         "init.lua",
         "server/callback.lua",
         "server/logging.lua",
@@ -1179,6 +1200,26 @@
         "client/core/raycast.lua"
       ]
     },
+    "GetHashKey": {
+      "realm": "shared",
+      "evidence": [
+        "client",
+        "server"
+      ],
+      "sources": [
+        "gta",
+        "cfx"
+      ],
+      "namespaces": [
+        "MISC"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/core/keybind.lua"
+      ]
+    },
     "GetInvokingResource": {
       "realm": "shared",
       "evidence": [
@@ -1200,16 +1241,19 @@
         "client/interface/nui.lua",
         "client/keybind.lua",
         "client/points.lua",
+        "client/proxy.lua",
         "client/sync.lua",
         "client/target.lua",
         "client/ui.lua",
         "client/zones.lua",
+        "init.lua",
         "server/callback.lua",
         "server/command.lua",
         "server/proxy.lua",
         "server/security.lua",
         "server/sync.lua",
         "server/zones.lua",
+        "shared/owned.lua",
         "shared/statebag.lua"
       ]
     },
@@ -2458,6 +2502,7 @@
       "files": [
         "client/core/world.lua",
         "init.lua",
+        "shared/owned.lua",
         "shared/registry.lua",
         "shared/statebag.lua"
       ]
@@ -3332,6 +3377,42 @@
       ],
       "files": [
         "client/core/streaming.lua"
+      ]
+    },
+    "RollDownWindow": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "VEHICLE"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/core/vehicle.lua"
+      ]
+    },
+    "RollUpWindow": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "VEHICLE"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/core/vehicle.lua"
       ]
     },
     "Round": {
@@ -4456,7 +4537,7 @@
         "client/core/vehicle.lua"
       ]
     },
-    "StartExpensiveSynchronousShapeTestLosProbe": {
+    "StartShapeTestLosProbe": {
       "realm": "client",
       "evidence": [
         "client"
@@ -4599,9 +4680,8 @@
         "client/interface/progress.lua",
         "client/interface/radial.lua",
         "client/interface/skillcheck.lua",
-        "client/points.lua",
         "client/sync.lua",
-        "client/zones.lua",
+        "client/vehicle.lua",
         "init.lua",
         "server/initialize.lua",
         "server/sync.lua",
@@ -4637,15 +4717,19 @@
     "CisLog",
     "CisNetOn",
     "CisPointsCreate",
+    "CisPointsGetAll",
     "CisPointsGetClosest",
     "CisPointsGetDebug",
+    "CisPointsGetNearby",
     "CisPointsRemove",
     "CisRateBucketCount",
     "CisRateOk",
     "CisRaycastCamera",
     "CisRaycastFromCoords",
+    "CisRealStop",
     "CisRegisterCallback",
     "CisRememberJob",
+    "CisSecurityDigests",
     "CisSecurityPinned",
     "CisSecurityPosture",
     "CisSecurityRebuild",
@@ -4670,6 +4754,9 @@
     "CisWorldNearby",
     "CisZonesContains",
     "CisZonesCreate",
+    "CisZonesGetAll",
+    "CisZonesGetCurrent",
+    "CisZonesGetNearby",
     "CisZonesRemove",
     "CreateThread",
     "DebugLog",

@@ -383,7 +383,7 @@ local function newEnv(opts)
         -- letters and a fixed-width cut silently drops it.
         for _, prefix in ipairs({
             'Get', 'Is', 'Has', 'Set', 'Add', 'Remove', 'Does', 'Can',
-            'Create', 'Delete', 'Freeze', 'Request', 'Clear', 'Toggle',
+            'Create', 'Delete', 'Freeze', 'Request', 'Clear', 'Toggle', 'Roll',
         }) do
             if key:sub(1, #prefix) == prefix then
                 -- A getter answers a number and a predicate answers a boolean.
@@ -592,8 +592,25 @@ do
     check(props and props.livery == 4,
         ('7.10: getter carries livery from GetVehicleLivery, not only mod 48 (got %s)')
             :format(tostring(props and props.livery)))
-    -- RollUpWindow is not stubbed. If the getter called it while reading,
-    -- this would raise "attempt to call a nil value" and M89 would still die.
+
+    -- A ROLLED-DOWN WINDOW IS NOT A BROKEN ONE. Window 1 is smashed, window 2 is
+    -- only down; both read not-intact. Saving both made the setter remove
+    -- window 2 on restore. The getter tells them apart by rolling up and asking
+    -- again, and puts window 2 back down.
+    local broken, down, rolled = { [1] = true }, { [2] = true }, {}
+    env.save('IsVehicleWindowIntact')
+    env.save('RollUpWindow')
+    env.save('RollDownWindow')
+    IsVehicleWindowIntact = function(_, i) return not broken[i] and not down[i] end
+    RollUpWindow = function(_, i) down[i] = nil; rolled[#rolled + 1] = 'up' .. i end
+    RollDownWindow = function(_, i) down[i] = true; rolled[#rolled + 1] = 'down' .. i end
+    local winProps = GetVehicleProperties(9)
+    check(winProps and #winProps.windows == 1 and winProps.windows[1] == 1,
+        ('7.10: only the smashed window is saved, not the rolled-down one (got %s)')
+            :format(winProps and table.concat(winProps.windows, ',') or 'nil'))
+    check(down[2] == true and not down[1],
+        '7.10: and the getter leaves the rolled-down window down')
+    IsVehicleWindowIntact = function() return true end
 
     SetVehicleProperties(9, { lockState = 0 })
     check(#env.locks == 1 and env.locks[1].state == 0,
@@ -1316,12 +1333,9 @@ local function zoneEnv()
     -- collected rather than run, for the reason in the base harness.
     local threads = {}
     function CreateThread(fn) threads[#threads + 1] = fn end
-    -- zones.lua starts TWO threads and the ORDER IS LOAD-BEARING FOR THE TEST:
-    -- threads[1] is the main pass loop (movement, containment, inside-events)
-    -- and threads[2] is the `Wait(0)` loop that only exists to serve a zone
-    -- asking for interval 0 -- which is precisely the flood under test. Driving
-    -- the second one would measure the loop that was always going to be fast
-    -- rather than the one that had to be clamped.
+    -- zones.lua starts ONE thread, on the first create: the engine's on-demand
+    -- driver, which runs the main pass and the per-frame inside pass together
+    -- and ends once no zone is left. threads[1] is that thread.
     env.saved[#env.saved + 1] = { name = 'Cis', value = rawget(_ENV, 'Cis') }
     env.saved[#env.saved + 1] = { name = 'vector3', value = rawget(_ENV, 'vector3') }
     Cis = Cis or {}
@@ -1369,7 +1383,9 @@ local function simulateSecond(env)
     local wakeups = 0
     local realWait = Wait
     Wait = function(ms)
-        env.clock = env.clock + (tonumber(ms) or 0)
+        -- A Wait resumes no sooner than the next frame, so `Wait(0)` is one 16 ms
+        -- frame here as in game; counted as 0 ms the second never ended.
+        env.clock = env.clock + math.max(tonumber(ms) or 0, 16)
         wakeups = wakeups + 1
         if env.clock >= 1000 then
             error(TICK_LIMIT, 0)
@@ -1496,24 +1512,27 @@ do
             insideInterval = 0,
         })
 
-    -- The MAIN loop first, and deliberately: an `inside` FUNCTION with interval 0
-    -- is SKIPPED by it (`if interval > 0`), because the second loop is the one
-    -- that serves interval 0. So the main loop's job here is to put the player
-    -- INSIDE the zone, which is a precondition rather than the measurement.
+    -- The first second puts the player INSIDE the zone, which is a precondition
+    -- rather than the measurement.
     simulateSecond(env)
 
-    -- The second loop is where the measurement happens. This is the thread the
-    -- clamp must NOT have made unnecessary: a function callback costs nothing on
-    -- the server, so clamping it would silently take a per-frame callback away
-    -- from a caller who explicitly asked for one.
+    -- The per-frame inside pass is where the measurement happens. The clamp must
+    -- NOT reach it: a function callback costs nothing on the server, so clamping
+    -- it would silently take a per-frame callback away from a caller who
+    -- explicitly asked for one.
+    -- The player STOPS here: the stub walks 0.1 per read, and at per-frame rate
+    -- it would walk out of the box before the burst is counted.
+    Cis.player.coords = function() return vector3(0.0, 0.0, 0.0) end
     local before = insideCalls
     local TICK = {}
     local realWait = Wait
+    local frames = 0
     Wait = function(ms)
-        env.clock = env.clock + (tonumber(ms) or 0)
-        if insideCalls - before >= 30 then error(TICK, 0) end
+        env.clock = env.clock + math.max(tonumber(ms) or 0, 16)
+        frames = frames + 1
+        if insideCalls - before >= 30 or frames >= 600 then error(TICK, 0) end
     end
-    local ok, err = pcall(env.threads[2])
+    local ok, err = pcall(env.threads[1])
     Wait = realWait
     if not ok and err ~= TICK then error(err, 0) end
 
@@ -1648,6 +1667,55 @@ local function cachePasses(env, n, between)
     Wait = realWait
     if not ok and err ~= CACHE_DONE then error(err, 0) end
     return waits
+end
+
+-- HEADING IS PUSHED ONLY WHILE A CONSUMER FOLLOWS IT. Every push is a
+-- TriggerEvent into every client resource's runtime, several times a second
+-- while the player moves, and only a heading listener needs it.
+do
+    local env = cacheEnv()
+    local function headingPushes()
+        local n = 0
+        for _, e in ipairs(env.serverEvents) do
+            if e.name == 'cis_libs:cache' and e.args[1] == 'heading' then n = n + 1 end
+        end
+        return n
+    end
+    env.serverEvents = {}
+    local h = 0
+    cachePasses(env, 4, function() h = h + 10; env.heading = h end)
+    check(headingPushes() == 0, ('cache: with no follower, heading changes are not pushed (%d)'):format(headingPushes()))
+    env.invoking = 'res_a'
+    check(exports.FollowCacheHeading() == true, 'cache: a consumer follows the heading')
+    env.invoking = nil
+    cachePasses(env, 4, function() h = h + 10; env.heading = h end)
+    check(headingPushes() > 0, 'cache: and from then heading changes are pushed')
+    env.fire('onResourceStop', 'res_a')
+    env.serverEvents = {}
+    cachePasses(env, 4, function() h = h + 10; env.heading = h end)
+    check(headingPushes() == 0, 'cache: the follower stopping ends the pushes')
+    env.reset()
+end
+
+-- AN ATTACHMENT FITTED TO THE HELD WEAPON IS SEEN. The same hash only re-read
+-- the ammo, so a suppressor added while holding the gun stayed invisible until
+-- the player switched weapons.
+do
+    local env = cacheEnv()
+    local fitted = {}
+    function GetWeaponAttachments() return fitted end
+    local seen = 0
+    CisCache.on('weapon', function() seen = seen + 1 end)
+    env.armed = true
+    cachePasses(env, 2)
+    check(CisCache.weapon and #CisCache.weapon.attachments == 0, 'cache: the weapon starts bare')
+    local before = seen
+    fitted = { 0xABCD }
+    cachePasses(env, 12)
+    check(CisCache.weapon and #CisCache.weapon.attachments == 1 and CisCache.weapon.attachments[1] == 0xABCD,
+        'cache: a suppressor fitted to the held weapon reaches the cache')
+    check(seen > before, 'cache: and weapon listeners are told')
+    env.reset()
 end
 
 -- A SEAT SHUFFLE IS SEEN, and the vehicle listener sees the NEW seat.
@@ -1790,6 +1858,43 @@ do
     local _, wid2 = exports.WatchNear({ x = 0.0, y = 0.0, z = 0.0 }, 2.0, nil, nil, 'a:in', 'a:out')
     GetInvokingResource = function() return nil end
     check(exports.RemoveNearWatcher(wid2) == true, 'cache: and so does cis_libs')
+    env.reset()
+end
+
+-- THE NEAR-WATCHER THREAD IS ON DEMAND. It used to wake twice a second on
+-- every client with no watcher at all: started with the first watcher, ended
+-- with the last, and started again by the next one.
+do
+    local env = cacheEnv()
+    env.saved[#env.saved + 1] = { name = 'Cis', value = rawget(_ENV, 'Cis') }
+    Cis = Cis or {}
+    Cis.player = Cis.player or {}
+    local priorCoords = Cis.player.coords
+    Cis.player.coords = function() return vector3(0.0, 0.0, 0.0) end
+    local base = #(env.threads or {})
+    check(base == 1, ('near: a client with no watcher runs only the cache loop (%d threads)'):format(base))
+    GetInvokingResource = function() return 'res_a' end
+    local _, w1 = exports.WatchNear({ x = 0.0, y = 0.0, z = 0.0 }, 2.0, nil, nil, 'a:in', 'a:out')
+    local _, w2 = exports.WatchNear({ x = 1.0, y = 0.0, z = 0.0 }, 2.0, nil, nil, 'a:in', 'a:out')
+    check(#env.threads == base + 1, ('near: two watchers start ONE thread (%d)'):format(#env.threads - base))
+    local nearThread = env.threads[#env.threads]
+    -- The thread runs while a watcher is left and returns once none is.
+    local waits = 0
+    local realWait = Wait
+    Wait = function(ms)
+        waits = waits + 1
+        env.clock = env.clock + (tonumber(ms) or 0)
+        if waits == 1 then exports.RemoveNearWatcher(w1) end
+        if waits == 2 then exports.RemoveNearWatcher(w2) end
+        if waits > 10 then error('near: the thread did not end with its last watcher', 0) end
+    end
+    local ok, err = pcall(nearThread)
+    Wait = realWait
+    check(ok and waits == 2, ('near: the thread ends with the last watcher (waits=%d %s)'):format(waits, tostring(err)))
+    check(#env.serverEventsOf('a:in') >= 1, 'near: and while it ran it told the watcher it was entered')
+    exports.WatchNear({ x = 0.0, y = 0.0, z = 0.0 }, 2.0, nil, nil, 'a:in', 'a:out')
+    check(#env.threads == base + 2, 'near: and the next watcher starts it again')
+    Cis.player.coords = priorCoords
     env.reset()
 end
 
@@ -2146,21 +2251,42 @@ do
     local pos = { [1] = { x = 0.0, y = 0.0, z = 0.0 }, [300] = { x = 3.0, y = 0.0, z = 0.0 }, [301] = { x = 4.0, y = 0.0, z = 0.0 } }
     function GetEntityCoords(e) return pos[e] end
     function GetOffsetFromEntityInWorldCoords() return { x = 0.0, y = 5.0, z = 0.0 } end
-    local probe
-    function StartExpensiveSynchronousShapeTestLosProbe(...)
+    env.save('StartShapeTestLosProbe')
+    local probe, reads, waits = nil, 0, 0
+    -- The synchronous probe blocks the game thread; calling it fails the test.
+    rawset(_ENV, 'StartExpensiveSynchronousShapeTestLosProbe', function()
+        error('vehicle: the synchronous LOS probe blocks the game thread', 0)
+    end)
+    function StartShapeTestLosProbe(...)
         probe = table.pack(...)
         return 1
     end
-    function GetShapeTestResult() return 2, 0, { x = 0, y = 0, z = 0 }, { x = 0, y = 0, z = 0 }, 0 end
-    function GetEntityType() return 0 end
+    -- PENDING once, then a hit on vehicle 400, so a result needs a later frame.
+    function GetShapeTestResult()
+        reads = reads + 1
+        if reads == 1 then return 1, 0, nil, nil, 0 end
+        return 2, 1, { x = 0, y = 0, z = 0 }, { x = 0, y = 0, z = 0 }, 400
+    end
+    function GetEntityType(e) return e == 400 and 2 or 0 end
     function GetGamePool(name)
         assert(name == 'CVehicle', 'GetGamePool: unknown pool ' .. tostring(name))
         return { 301, 300 }
     end
     loadModule('client/vehicle.lua')
     check(GetClosestVehicle == native, 'vehicle: loading cis_libs does not replace the GetClosestVehicle native')
+    -- A caller that cannot yield gets the pool's answer, and no probe is started.
     local got = exports.GetClosestVehicle()
     check(got == 300, ('vehicle: the export walks the vehicle pool for the nearest (got %s)'):format(tostring(got)))
+    check(probe == nil, 'vehicle: a caller that cannot yield starts no probe it could not read')
+    -- A caller in a thread waits for the async probe, and the vehicle ahead wins.
+    local realWait = Wait
+    Wait = function(ms) waits = waits + 1; realWait(ms) end
+    local co = coroutine.create(function() return exports.GetClosestVehicle() end)
+    local done, ahead = coroutine.resume(co)
+    Wait = realWait
+    check(done and ahead == 400 and waits == 1,
+        ('vehicle: in a thread the async probe is polled a frame and its vehicle answers (got %s, waits=%d)')
+            :format(tostring(ahead), waits))
     check(probe and probe.n == 9 and type(probe[1]) == 'number' and type(probe[6]) == 'number',
         'vehicle: the aim probe is given six floats, not two vectors')
     env.reset()
@@ -2205,6 +2331,22 @@ do
     -- the observable: the zone B tried to create was at the origin, A's moved.
     check(exports.ZoneContains('shop', { x = 5.0, y = 0.0, z = 0.0 }) == true,
         'and the FIRST zone is still the one registered under that name')
+
+    -- A BAD RE-CREATE LEAVES THE LIVE ZONE ALONE. The old zone was removed before
+    -- the new geometry was checked, so a re-create that failed destroyed it.
+    env.invoking = 'res_a'
+    local bad = exports.CreateZone('poly', 'shop', {}, {})
+    check(bad == false and exports.ZoneContains('shop', { x = 5.0, y = 0.0, z = 0.0 }) == true,
+        'a re-create with an empty point list is refused and the live zone survives')
+    local huge = exports.CreateZone('sphere', 'shop', { x = 0.0, y = 0.0, z = 0.0 }, 1e6, {})
+    check(huge == false and exports.ZoneContains('shop', { x = 5.0, y = 0.0, z = 0.0 }) == true,
+        'so does one the index refuses (a sphere a thousand kilometres wide)')
+    local str, strWhy = exports.CreateZone('box', 'shop2',
+        { x = 0.0, y = 0.0, z = 0.0 }, { x = 2.0, y = 2.0, z = 2.0 },
+        { inside = function() end, insideInterval = '250' })
+    check(str == false and tostring(strWhy):find('insideInterval', 1, true) ~= nil,
+        ('a string insideInterval is refused with a reason, not a raise (%s)'):format(tostring(strWhy)))
+    env.invoking = 'res_b'
 
     -- H5 · A RETRY LOOP MUST NOT FLOOD THE CONSOLE.
     --
@@ -2567,8 +2709,14 @@ do
     -- already stubbed by newEnv; vec2 was not, which is why the first version of
     -- this test failed on a NATIVE and looked like the fix had not worked.
     _G.vec2 = function(x, y) return { x = x, y = y } end
+    -- The ROUND native, which the Round export must leave alone.
+    env.save('Round')
+    local nativeRound = function() return 'native' end
+    rawset(_ENV, 'Round', nativeRound)
 
     loadModule('client/utils.lua')
+    check(rawget(_ENV, 'Round') == nativeRound, '10: loading cis_libs does not replace the ROUND native')
+    check(exports.Round(1.256, 2) == 1.26, ('10: the Round export still rounds (got %s)'):format(tostring(exports.Round(1.256, 2))))
 
     local ok, err = pcall(function()
         exports.DrawText3D(10.0, 20.0, 30.0, 'harness')
@@ -3796,6 +3944,16 @@ do
     check(ok2 == false and type(why2) == 'string',
         ('7.1: a zero distance is refused (got %s)'):format(tostring(why2)))
 
+    -- A POINT THE INDEX REFUSES IS NOT ADDED. The grid's refusal was ignored, so
+    -- a radius it cannot hold, or NaN coords, still got an id: getClosest found
+    -- the point and onEnter never fired.
+    local okBig, whyBig = whyOf({ coords = { x = 0, y = 0, z = 0 }, distance = 5000 })
+    check(okBig == false and tostring(whyBig):find('indexed', 1, true) ~= nil,
+        ('7.1: a radius the index cannot hold is refused (got %s, %s)'):format(tostring(okBig), tostring(whyBig)))
+    local okNan = whyOf({ coords = { x = 0 / 0, y = 0, z = 0 }, distance = 5 })
+    check(okNan == false, '7.1: and so are NaN coords')
+    check(exports.GetClosestPoint() == nil, '7.1: neither left a point behind for getClosest')
+
     -- NaN IS TRUTHY. `if distance ~= distance` is the NaN test; `if not
     -- distance` is not, and a NaN radius makes every containment test false --
     -- a point that registers and then silently never fires.
@@ -4678,6 +4836,39 @@ end
 -- options 7. The shape-test stub answers what the native answers: status 1
 -- while pending, 2 when done, 0 for a dead handle, and `hit` as the INTEGER
 -- 0 or 1 that CfxLua returns for a BOOL* out-parameter.
+-- ITEM 10 NATIVE ARGUMENTS. REQUEST_WEAPON_ASSET's p1 is 31 in the scripts the
+-- native docs cite; HAVE_ALL_STREAMING_REQUESTS_COMPLETED takes a ped; and a
+-- fractional timeout is reported, not raised on by `%d`.
+do
+    local env = streamEnv({ loadedAfter = 50 })
+    exports.WeaponAsset(0x1F45D307, 1000)
+    local req = env.called('RequestWeaponAsset')
+    check(req and req.args[2] == 31 and req.args[3] == 0,
+        ('10: RequestWeaponAsset is asked with p1 = 31, p2 = 0 (got %s, %s)')
+            :format(tostring(req and req.args[2]), tostring(req and req.args[3])))
+    env.reset()
+
+    env = streamEnv({ never = true })
+    local ok, got, why = pcall(exports.AnimDict, 'missing_dict', 10.5)
+    check(ok and got == nil and tostring(why):find('10.5ms', 1, true) ~= nil,
+        ('10: a fractional streaming timeout answers a reason, not a raise (%s, %s)'):format(tostring(got), tostring(why)))
+    env.reset()
+
+    -- The diagnostics probe is captured as it registers, then asked.
+    local probes = {}
+    local realRegister = CisDiagnostics.Register
+    CisDiagnostics.Register = function(realm, name, fn) probes[name] = fn end
+    env = streamEnv({})
+    CisDiagnostics.Register = realRegister
+    local askedWith
+    HaveAllStreamingRequestsCompleted = function(...) askedWith = table.pack(...); return true end
+    local report = probes.streaming and probes.streaming()
+    check(report and report.allComplete == true and askedWith and askedWith.n == 1 and askedWith[1] == PlayerPedId(),
+        ('10: HaveAllStreamingRequestsCompleted is given the player ped (got %s)')
+            :format(tostring(askedWith and askedWith[1])))
+    env.reset()
+end
+
 local function raycastEnv(opts)
     opts = opts or {}
     local env = newEnv({})
@@ -4698,8 +4889,13 @@ local function raycastEnv(opts)
     function GetGameTimer() return env.clock end
     function GetGameplayCamRot() return env.rot end
     function GetGameplayCamCoord() return env.cam end
-    function StartExpensiveSynchronousShapeTestLosProbe(...)
-        env.calls[#env.calls + 1] = { name = 'StartExpensiveSynchronousShapeTestLosProbe', args = table.pack(...) }
+    -- THE ASYNC PROBE. The synchronous one blocks the game thread; calling it fails.
+    env.save('StartShapeTestLosProbe')
+    rawset(_ENV, 'StartExpensiveSynchronousShapeTestLosProbe', function()
+        error('raycast: the synchronous LOS probe blocks the game thread', 0)
+    end)
+    function StartShapeTestLosProbe(...)
+        env.calls[#env.calls + 1] = { name = 'StartShapeTestLosProbe', args = table.pack(...) }
         return opts.refused and 0 or 9
     end
     function GetShapeTestResultIncludingMaterial(handle)
@@ -4782,6 +4978,16 @@ do
         { x = 0, y = 0, z = 0 }, { x = 1, y = 0, z = 0 }, -1, 0, 5)
     check(hit == nil and type(why) == 'string' and why:find('did not resolve', 1, true),
         ('7.4: a probe that never resolves times out WITH A REASON (got %s, %s)'):format(tostring(hit), tostring(why)))
+    env.reset()
+end
+
+-- A FRACTIONAL TIMEOUT times out with a reason; `%d` raised on it in Lua 5.4.
+do
+    local env = raycastEnv({ never = true })
+    local ok, hit, why = pcall(exports.RaycastFromCoords,
+        { x = 0, y = 0, z = 0 }, { x = 1, y = 0, z = 0 }, -1, 0, 5.5)
+    check(ok and hit == nil and tostring(why):find('5.5ms', 1, true) ~= nil,
+        ('10: a fractional raycast timeout answers a reason, not a raise (%s, %s)'):format(tostring(hit), tostring(why)))
     env.reset()
 end
 
@@ -5634,6 +5840,142 @@ do
     env.fire('onResourceStop', GetCurrentResourceName())
     check(env.EXPORTS.GetSyncedEntity(wireKeyOf('kept')) == nil,
         'forged stop: the real cis_libs stop still despawns them')
+    env.reset()
+end
+
+-- ============================ 11. the ox_lib gaps in the export path
+--
+-- Zones: a poly `thickness` (a ported zone spanned z -1000 to 10000) and the
+-- getCurrent / getAll / getNearby queries, each limited to the caller's zones.
+do
+    local env = zoneEnv()
+    local square = { { x = -5.0, y = -5.0, z = 10.0 }, { x = 5.0, y = -5.0, z = 10.0 },
+        { x = 5.0, y = 5.0, z = 10.0 }, { x = -5.0, y = 5.0, z = 10.0 } }
+    check(exports.CreateZone('poly', 'slab', square, { thickness = 4.0 }) == true, '11: a poly with thickness creates')
+    check(exports.ZoneContains('slab', { x = 0.0, y = 0.0, z = 11.5 }) == true,
+        '11: thickness 4 around z 10 holds z 11.5')
+    check(exports.ZoneContains('slab', { x = 0.0, y = 0.0, z = 13.0 }) == false,
+        '11: and not z 13 -- the floor above is outside the slab')
+    local bad, badWhy = exports.CreateZone('poly', 'badslab', square, { thickness = 'tall' })
+    check(bad == false and tostring(badWhy):find('thickness', 1, true) ~= nil,
+        ('11: a non-number thickness is refused by name (%s)'):format(tostring(badWhy)))
+    exports.RemoveZone('slab')
+
+    env.invoking = 'res_a'
+    exports.CreateZone('box', 'a_here', { x = 0.0, y = 0.0, z = 0.0 }, { x = 4.0, y = 4.0, z = 4.0 }, {})
+    exports.CreateZone('box', 'a_far', { x = 500.0, y = 0.0, z = 0.0 }, { x = 4.0, y = 4.0, z = 4.0 }, {})
+    env.invoking = 'res_b'
+    exports.CreateZone('box', 'b_here', { x = 0.0, y = 0.0, z = 0.0 }, { x = 4.0, y = 4.0, z = 4.0 }, {})
+    Cis.player.coords = function() return vector3(0.0, 0.0, 0.0) end
+    local SENT = {}
+    local realWait = Wait
+    Wait = function(ms) env.clock = env.clock + math.max(tonumber(ms) or 0, 16); error(SENT, 0) end
+    local ok, err = pcall(env.threads[#env.threads])
+    Wait = realWait
+    if not ok and err ~= SENT then error(err, 0) end
+    env.invoking = 'res_a'
+    check(table.concat(exports.GetAllZones(), ',') == 'a_far,a_here',
+        ('11: GetAllZones answers the caller own zones, sorted (%s)'):format(table.concat(exports.GetAllZones(), ',')))
+    check(table.concat(exports.GetCurrentZones(), ',') == 'a_here',
+        ('11: GetCurrentZones answers the caller zones the player is in (%s)'):format(table.concat(exports.GetCurrentZones(), ',')))
+    check(table.concat(exports.GetNearbyZones({ x = 0.0, y = 0.0, z = 0.0 }, 50), ',') == 'a_here',
+        '11: GetNearbyZones leaves out a zone 500 m away')
+    check(#exports.GetNearbyZones({ x = 0.0, y = 0.0, z = 0.0 }, -1) == 0, '11: and answers nothing for a bad radius')
+    env.invoking = nil
+    check(table.concat(exports.GetAllZones(), ',') == 'a_far,a_here,b_here', ('11: cis_libs sees every zone (%s)'):format(table.concat(exports.GetAllZones(), ',')))
+    env.reset()
+end
+
+-- Points: handlers get the point's id, and getAll / getNearby list the caller's.
+do
+    local env = pointEnv()
+    env.invoking = 'res_a'
+    local enteredWith
+    local idA = exports.CreatePoint({ coords = { x = 0.0, y = 0.0, z = 0.0 }, distance = 5.0,
+        onEnter = function(coords, id) enteredWith = { coords, id } end })
+    local idFar = exports.CreatePoint({ coords = { x = 300.0, y = 0.0, z = 0.0 }, distance = 5.0 })
+    env.invoking = 'res_b'
+    exports.CreatePoint({ coords = { x = 0.0, y = 0.0, z = 0.0 }, distance = 5.0 })
+    pointPass(env)
+    check(enteredWith and enteredWith[2] == idA and type(enteredWith[1]) == 'table',
+        ('11: onEnter gets (coords, id) (id=%s)'):format(tostring(enteredWith and enteredWith[2])))
+    env.invoking = 'res_a'
+    local all = exports.GetAllPoints()
+    check(#all == 2 and all[1] == idA and all[2] == idFar, '11: GetAllPoints answers the caller own ids, ascending')
+    local near = exports.GetNearbyPoints()
+    check(#near == 1 and near[1] == idA, ('11: GetNearbyPoints answers the points the player is inside (%d)'):format(#near))
+    env.invoking = nil
+    check(#exports.GetAllPoints() == 3, '11: cis_libs sees every point')
+    env.reset()
+end
+
+-- Keybinds: secondaryKey registers the ~! alternate, disabled starts off, and
+-- getCurrentKey reads the label of the bound key.
+do
+    local env = newEnv({})
+    env.mappings = {}
+    function RegisterKeyMapping(...)
+        env.mappings[#env.mappings + 1] = table.pack(...)
+    end
+    env.save('GetHashKey')
+    env.save('GetControlInstructionalButton')
+    local askedControl
+    function GetHashKey() return 0x12345678 end
+    function GetControlInstructionalButton(pad, control, p2)
+        askedControl = { pad, control, p2 }
+        return 't_F7'
+    end
+    loadModule('client/keybind.lua')
+    local pressed = 0
+    local handle = exports.KeybindAdd({
+        name = 'cis_two_keys', defaultKey = 'F7', secondaryKey = 'IOM_WHEEL_UP',
+        secondaryMapper = 'mouse_wheel', disabled = true,
+        onPress = function() pressed = pressed + 1 end,
+    })
+    local alt = env.mappings[2]
+    check(alt and alt[1] == '~!+cis_two_keys' and alt[3] == 'mouse_wheel' and alt[4] == 'IOM_WHEEL_UP',
+        ('11: secondaryKey registers the ~! alternate mapping (%s %s %s)')
+            :format(tostring(alt and alt[1]), tostring(alt and alt[3]), tostring(alt and alt[4])))
+    env.commands['+cis_two_keys'].fn()
+    check(pressed == 0, '11: a binding added with disabled = true does not fire')
+    handle:disable(false)
+    env.commands['+cis_two_keys'].fn()
+    check(pressed == 1, '11: and fires once enabled')
+    check(handle:getCurrentKey() == 'F7', ('11: getCurrentKey reads the label (%s)'):format(tostring(handle:getCurrentKey())))
+    check(askedControl and askedControl[2] == (0x12345678 | 0x80000000),
+        '11: and asks for the command hash with the top bit set')
+    local badAlt, badWhy = exports.KeybindAdd({ name = 'cis_bad_alt', secondaryKey = 5, onPress = function() end })
+    check(badAlt == false and tostring(badWhy):find('secondaryKey', 1, true) ~= nil, '11: a non-string secondaryKey is refused by name')
+    env.reset()
+end
+
+-- Callbacks: a per-call timeout, refused by name when it is not one.
+do
+    local env = newEnv({})
+    loadModule('client/callback.lua')
+    local deadlines = {}
+    local realAlloc = CisPending.alloc
+    CisPending.alloc = function(pending, payload, deadline)
+        deadlines[#deadlines + 1] = deadline - GetGameTimer()
+        return realAlloc(pending, payload, deadline)
+    end
+    env.awaitHook = function()
+        local req = env.serverEvents[#env.serverEvents]
+        env.net('cis_libs:cb:res', 0, req.args[2], true, 'quick')
+    end
+    local ok, v = env.EXPORTS.TryAwaitCallbackWithin('shop:price', 1500, 'apple')
+    check(ok == true and v == 'quick', ('11: TryAwaitCallbackWithin answers the reply (%s, %s)'):format(tostring(ok), tostring(v)))
+    check(deadlines[1] == 1500, ('11: and the call carries its own deadline (%s ms)'):format(tostring(deadlines[1])))
+    -- A plain await keeps the configured deadline (Config.CallbackTimeout, else 10 s).
+    local configured = (Config and Config.CallbackTimeout) or 10000
+    env.EXPORTS.TryAwaitCallback('shop:price')
+    check(deadlines[2] == configured,
+        ('11: a plain await still uses the configured timeout (%s ms, want %s)'):format(tostring(deadlines[2]), tostring(configured)))
+    local refused, why = env.EXPORTS.TryAwaitCallbackWithin('shop:price', -1)
+    check(refused == false and tostring(why):find('timeout', 1, true) ~= nil,
+        ('11: a bad timeout is refused by name (%s)'):format(tostring(why)))
+    CisPending.alloc = realAlloc
+    env.awaitHook = nil
     env.reset()
 end
 

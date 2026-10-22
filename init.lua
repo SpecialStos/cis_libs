@@ -20,7 +20,16 @@ local function realStop(resource)
     return by == nil or by == resource
 end
 
+-- ONCE PER VM. A manifest that lists @cis_libs/init.lua twice (directly, or
+-- through a shared file that includes it) ran it twice: a second set of
+-- engines, and the first copy's zones orphaned on their own thread, unable to
+-- be removed and still firing. The second run does nothing.
+if type(Cis) == 'table' and rawget(Cis, '__initLoaded') then
+    return
+end
+
 Cis = Cis or {}
+rawset(Cis, '__initLoaded', true)
 Cis.resource = RESOURCE
 
 local EXPORT_TABLE = exports[RESOURCE]
@@ -154,6 +163,105 @@ function Cis.wait(timeout)
     return ok == true
 end
 
+-- REGISTRATIONS THAT LIVE INSIDE cis_libs ARE REPLAYED WHEN IT RESTARTS.
+-- Callbacks, targets, sync hooks, statebag watchers and near watchers are held
+-- by cis_libs, so a restart of cis_libs dropped every one of them and told the
+-- consumer nothing. Each Cis.* call that makes one records it here; when
+-- cis_libs starts again they are made again, in order, from a thread (some of
+-- those exports wait for readiness). Zones, points and keybinds need none of
+-- this: they run in the consumer's own VM.
+--
+-- A watcher id is a HANDLE the consumer keeps, mapped to cis_libs' current id
+-- for it. The first id is the handle, so an export call with it still works
+-- until a restart; one that would collide with a live handle gets a fresh
+-- negative one.
+local replayOrder, replayed = {}, {}
+local handles, nextLocalHandle = {}, 0
+
+local function remember(key, exportName, args, rebind)
+    if IS_SELF then
+        return
+    end
+    if not replayed[key] then
+        replayOrder[#replayOrder + 1] = key
+    end
+    replayed[key] = { export = exportName, args = args, rebind = rebind }
+end
+
+local function forget(key)
+    replayed[key] = nil
+end
+
+-- Every record whose key starts with `prefix`, for a clear-all.
+local function forgetPrefix(prefix)
+    for key in pairs(replayed) do
+        if key:sub(1, #prefix) == prefix then
+            replayed[key] = nil
+        end
+    end
+end
+
+-- A watcher whose export answers an id in result slot `slot`. Answers the
+-- export's results with the consumer's handle in that slot.
+local function watched(slot, exportName, ...)
+    local args = table.pack(...)
+    local out = table.pack(exportCall(exportName, ...))
+    local id = out[slot]
+    if type(id) ~= 'number' or IS_SELF then
+        return table.unpack(out, 1, out.n)
+    end
+    local handle = id
+    if handles[handle] ~= nil then
+        nextLocalHandle = nextLocalHandle - 1
+        handle = nextLocalHandle
+    end
+    handles[handle] = id
+    remember('watch:' .. tostring(handle), exportName, args, function(...)
+        local newId = select(slot, ...)
+        if type(newId) == 'number' then
+            handles[handle] = newId
+        end
+    end)
+    out[slot] = handle
+    return table.unpack(out, 1, out.n)
+end
+
+-- The current id for a handle, and the handle is done with.
+local function releaseHandle(handle)
+    local id = handles[handle]
+    if id == nil then
+        return handle
+    end
+    handles[handle] = nil
+    forget('watch:' .. tostring(handle))
+    return id
+end
+
+if not IS_SELF and AddEventHandler then
+    AddEventHandler('onResourceStart', function(resource)
+        if resource ~= RESOURCE or #replayOrder == 0 then
+            return
+        end
+        CreateThread(function()
+            local kept = {}
+            for _, key in ipairs(replayOrder) do
+                local r = replayed[key]
+                if r then
+                    kept[#kept + 1] = key
+                    local res = table.pack(pcall(exportCall, r.export, table.unpack(r.args, 1, r.args.n)))
+                    if not res[1] then
+                        print(('[%s] cis_libs restarted; %s could not be made again: %s')
+                            :format(THIS, r.export, tostring(res[2])))
+                    elseif r.rebind then
+                        r.rebind(table.unpack(res, 2, res.n))
+                    end
+                end
+            end
+            replayOrder = kept
+        end)
+    end)
+end
+
 Cis.player = Cis.player or {}
 Cis.callback = Cis.callback or {}
 Cis.framework = Cis.framework or {}
@@ -176,6 +284,9 @@ Cis.statebag = Cis.statebag or {}
 Cis.command = Cis.command or {}
 Cis.ui = Cis.ui or {}
 Cis.ui.textUI = Cis.ui.textUI or {}
+Cis.ui.context = Cis.ui.context or {}
+Cis.ui.menu = Cis.ui.menu or {}
+Cis.ui.radial = Cis.ui.radial or {}
 Cis.world = Cis.world or {}
 Cis.vehicle = Cis.vehicle or {}
 Cis.marker = Cis.marker or {}
@@ -300,6 +411,8 @@ if not IS_SERVER then
                 resource = RESOURCE, self = THIS, log = consumerLog,
                 -- THE ONE EXPORT. Every later read is local.
                 snapshot = function() return exportCall('GetCacheSnapshot') end,
+                follow = function() return exportCall('FollowCacheHeading') end,
+                heading = function() return GetEntityHeading(PlayerPedId()) end,
             })
         elseif name == 'marker' then
             e = loadCore('marker').new({ coords = playerCoords, guard = consumerGuard, log = consumerLog })
@@ -429,7 +542,13 @@ if not IS_SERVER then
 
     -- onEnter/onExit cannot cross the boundary; pass event names instead when calling
     function Cis.player.near(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent)
-        return exportCall('WatchNear', coords, distance, onEnter, onExit, onEnterEvent, onExitEvent)
+        return watched(2, 'WatchNear', coords, distance, onEnter, onExit, onEnterEvent, onExitEvent)
+    end
+
+    -- Stop a near watcher by the id near() answered in its second slot. The
+    -- unsubscribe in slot one cannot be called once it has crossed.
+    function Cis.player.nearStop(id)
+        return exportCall('RemoveNearWatcher', releaseHandle(id))
     end
 
     -- Shape tests run in the CALLER's VM: the poll yields the caller's thread.
@@ -487,17 +606,134 @@ if not IS_SERVER then
         return exportCall('UiInput', opts)
     end
 
+    -- THE BUILT-IN INTERFACE'S OTHER PARTS, the ox_lib names: context and list
+    -- menus, the radial, the skill check, and progress/alert/input control. These
+    -- forward to the built-in NUI directly; a ui provider covers only the seven
+    -- calls above. Registrations are held by cis_libs, so each is recorded and
+    -- made again when cis_libs restarts.
+    local function idsOf(data)
+        if type(data) ~= 'table' then
+            return tostring(data)
+        end
+        if data.id ~= nil then
+            return tostring(data.id)
+        end
+        local ids = {}
+        for i = 1, #data do
+            ids[i] = type(data[i]) == 'table' and tostring(data[i].id) or '?'
+        end
+        return table.concat(ids, ',')
+    end
+
+    local function registered(kind, exportName, data, ...)
+        local ok, why = exportCall(exportName, data, ...)
+        if ok then
+            remember(kind .. idsOf(data), exportName, table.pack(data, ...))
+        end
+        return ok, why
+    end
+
+    function Cis.ui.context.register(context)
+        return registered('context:', 'RegisterContext', context)
+    end
+
+    function Cis.ui.context.show(id)
+        return exportCall('ShowContext', id)
+    end
+
+    function Cis.ui.context.hide(onExit)
+        return exportCall('HideContext', onExit)
+    end
+
+    function Cis.ui.context.getOpen()
+        return exportCall('GetOpenContextMenu')
+    end
+
+    function Cis.ui.menu.register(data, cb)
+        return registered('menu:', 'RegisterMenu', data, cb)
+    end
+
+    function Cis.ui.menu.show(id, startIndex)
+        return exportCall('ShowMenu', id, startIndex)
+    end
+
+    function Cis.ui.menu.hide(onExit)
+        return exportCall('HideMenu', onExit)
+    end
+
+    function Cis.ui.menu.getOpen()
+        return exportCall('GetOpenMenu')
+    end
+
+    function Cis.ui.menu.setOptions(id, options, index)
+        return exportCall('SetMenuOptions', id, options, index)
+    end
+
+    function Cis.ui.radial.add(data)
+        return registered('radialItem:', 'AddRadialItem', data)
+    end
+
+    function Cis.ui.radial.remove(id)
+        forget('radialItem:' .. tostring(id))
+        return exportCall('RemoveRadialItem', id)
+    end
+
+    function Cis.ui.radial.clear()
+        forgetPrefix('radialItem:')
+        return exportCall('ClearRadialItems')
+    end
+
+    function Cis.ui.radial.register(radial)
+        return registered('radial:', 'RegisterRadial', radial)
+    end
+
+    function Cis.ui.radial.hide()
+        return exportCall('HideRadial')
+    end
+
+    function Cis.ui.radial.disable(state)
+        return exportCall('DisableRadial', state)
+    end
+
+    function Cis.ui.skillCheck(difficulty, inputs)
+        return exportCall('SkillCheck', difficulty, inputs)
+    end
+
+    function Cis.ui.skillCheckActive()
+        return exportCall('SkillCheckActive')
+    end
+
+    function Cis.ui.cancelSkillCheck()
+        return exportCall('CancelSkillCheck')
+    end
+
+    function Cis.ui.progressActive()
+        return exportCall('ProgressActive')
+    end
+
+    function Cis.ui.cancelProgress()
+        return exportCall('CancelProgress')
+    end
+
+    function Cis.ui.closeAlert()
+        return exportCall('CloseAlertDialog')
+    end
+
+    function Cis.ui.closeInput()
+        return exportCall('CloseInputDialog')
+    end
+
     -- A COOKIE, not a boolean. `AddStateBagChangeHandler` answers one, and a watcher
     function Cis.statebag.onEntity(key, handler, timeoutMs)
-        return exportCall('StatebagOnEntity', key, handler, timeoutMs)
+        return watched(1, 'StatebagOnEntity', key, handler, timeoutMs)
     end
 
     function Cis.statebag.onPlayer(key, handler, timeoutMs)
-        return exportCall('StatebagOnPlayer', key, handler, timeoutMs)
+        return watched(1, 'StatebagOnPlayer', key, handler, timeoutMs)
     end
 
     function Cis.statebag.remove(cookie)
-        return exportCall('RemoveStatebagHandler', cookie)
+        return exportCall('RemoveStatebagHandler', releaseHandle(cookie))
     end
 
     function Cis.command.add()
@@ -577,6 +813,30 @@ if not IS_SERVER then
         return engine('zones'):contains(name, point)
     end
 
+    -- QUERIES, ox_lib's getCurrentZones / getAllZones / getNearbyZones. Each
+    -- answers a sorted list of zone NAMES (the name is the handle here), and only
+    -- this resource's zones.
+    function Cis.zones.getCurrent()
+        if IS_SELF then
+            return exportCall('GetCurrentZones')
+        end
+        return engine('zones'):insideNames()
+    end
+
+    function Cis.zones.getAll()
+        if IS_SELF then
+            return exportCall('GetAllZones')
+        end
+        return engine('zones'):allNames()
+    end
+
+    function Cis.zones.getNearby(coords, radius)
+        if IS_SELF then
+            return exportCall('GetNearbyZones', coords, radius)
+        end
+        return engine('zones'):nearbyNames(coords or playerCoords(), radius)
+    end
+
     -- A POINT IS NOT A ZONE. `Cis.zones.box('shop', coords, 4.0)` expresses the common
     function Cis.points.add(data)
         if IS_SELF then
@@ -601,17 +861,46 @@ if not IS_SERVER then
         return engine('points'):getClosest(playerCoords())
     end
 
+    -- ox_lib's getAllPoints / getNearbyPoints, as ascending ID lists. "Nearby"
+    -- is the points the player is inside right now.
+    function Cis.points.getAll()
+        if IS_SELF then
+            return exportCall('GetAllPoints')
+        end
+        return engine('points'):allIds()
+    end
+
+    function Cis.points.getNearby()
+        if IS_SELF then
+            return exportCall('GetNearbyPoints')
+        end
+        return engine('points'):nearbyIds()
+    end
+
     -- Targets cross on the same terms as zones, including the two-value refusal.
     function Cis.target.add(zoneType, name, coords, size, options)
-        return exportCall('CreateTarget', zoneType, name, coords, size, options)
+        local ok, why = exportCall('CreateTarget', zoneType, name, coords, size, options)
+        if ok then
+            forget('targetUpdate:' .. tostring(name))
+            remember('target:' .. tostring(name), 'CreateTarget',
+                table.pack(zoneType, name, coords, size, options))
+        end
+        return ok, why
     end
 
     function Cis.target.remove(name, isPed)
+        forget('target:' .. tostring(name))
+        forget('targetUpdate:' .. tostring(name))
         return exportCall('RemoveTarget', name, isPed)
     end
 
+    -- Replayed AFTER the add it changes: its key is recorded later.
     function Cis.target.update(name, options)
-        return exportCall('UpdateTarget', name, options)
+        local ok, why = exportCall('UpdateTarget', name, options)
+        if ok then
+            remember('targetUpdate:' .. tostring(name), 'UpdateTarget', table.pack(name, options))
+        end
+        return ok, why
     end
 
     function Cis.target.exists(name)
@@ -700,6 +989,18 @@ if not IS_SERVER then
 
     function Cis.world.getClosestPlayer(coords, maxDistance, filter, opts)
         return engine('world'):closest('player', coords or playerCoords(), maxDistance, filter, opts)
+    end
+
+    -- OX_LIB'S SHAPE, for ported code: (playerIndex, ped, coords), within 2 m
+    -- unless told otherwise, and `includePlayer` as ox_lib's third argument.
+    -- getClosestPlayer keeps its own order; slot 1 there is the ped.
+    function Cis.world.getClosestPlayerId(coords, maxDistance, includePlayer)
+        local ped, at, index = engine('world'):closest('player', coords or playerCoords(),
+            maxDistance or 2.0, nil, { includeSelf = includePlayer == true })
+        if not ped then
+            return false, at
+        end
+        return index, ped, at
     end
 
     function Cis.world.getNearbyPeds(coords, maxDistance, filter, opts)
@@ -868,15 +1169,15 @@ else
     end
 
     function Cis.statebag.onEntity(key, handler, timeoutMs)
-        return exportCall('StatebagOnEntity', key, handler, timeoutMs)
+        return watched(1, 'StatebagOnEntity', key, handler, timeoutMs)
     end
 
     function Cis.statebag.onPlayer(key, handler, timeoutMs)
-        return exportCall('StatebagOnPlayer', key, handler, timeoutMs)
+        return watched(1, 'StatebagOnPlayer', key, handler, timeoutMs)
     end
 
     function Cis.statebag.remove(cookie)
-        return exportCall('RemoveStatebagHandler', cookie)
+        return exportCall('RemoveStatebagHandler', releaseHandle(cookie))
     end
 
     function Cis.security.report(src, reason)
@@ -931,6 +1232,10 @@ function Cis.player.near()
     return false, 'client only'
 end
 
+function Cis.player.nearStop()
+    return false, 'client only'
+end
+
 function Cis.zones.poly()
     return false, 'client only'
 end
@@ -960,6 +1265,26 @@ function Cis.points.remove()
 end
 
 function Cis.points.getClosest()
+    return false, 'client only'
+end
+
+function Cis.zones.getCurrent()
+    return false, 'client only'
+end
+
+function Cis.zones.getAll()
+    return false, 'client only'
+end
+
+function Cis.zones.getNearby()
+    return false, 'client only'
+end
+
+function Cis.points.getAll()
+    return false, 'client only'
+end
+
+function Cis.points.getNearby()
     return false, 'client only'
 end
 
@@ -1051,6 +1376,94 @@ function Cis.ui.input()
     return false, 'client only'
 end
 
+function Cis.ui.context.register()
+    return false, 'client only'
+end
+
+function Cis.ui.context.show()
+    return false, 'client only'
+end
+
+function Cis.ui.context.hide()
+    return false, 'client only'
+end
+
+function Cis.ui.context.getOpen()
+    return false, 'client only'
+end
+
+function Cis.ui.menu.register()
+    return false, 'client only'
+end
+
+function Cis.ui.menu.show()
+    return false, 'client only'
+end
+
+function Cis.ui.menu.hide()
+    return false, 'client only'
+end
+
+function Cis.ui.menu.getOpen()
+    return false, 'client only'
+end
+
+function Cis.ui.menu.setOptions()
+    return false, 'client only'
+end
+
+function Cis.ui.radial.add()
+    return false, 'client only'
+end
+
+function Cis.ui.radial.remove()
+    return false, 'client only'
+end
+
+function Cis.ui.radial.clear()
+    return false, 'client only'
+end
+
+function Cis.ui.radial.register()
+    return false, 'client only'
+end
+
+function Cis.ui.radial.hide()
+    return false, 'client only'
+end
+
+function Cis.ui.radial.disable()
+    return false, 'client only'
+end
+
+function Cis.ui.skillCheck()
+    return false, 'client only'
+end
+
+function Cis.ui.skillCheckActive()
+    return false, 'client only'
+end
+
+function Cis.ui.cancelSkillCheck()
+    return false, 'client only'
+end
+
+function Cis.ui.progressActive()
+    return false, 'client only'
+end
+
+function Cis.ui.cancelProgress()
+    return false, 'client only'
+end
+
+function Cis.ui.closeAlert()
+    return false, 'client only'
+end
+
+function Cis.ui.closeInput()
+    return false, 'client only'
+end
+
 function Cis.cache()
     return false, 'client only'
 end
@@ -1076,6 +1489,10 @@ function Cis.world.getClosestObject()
 end
 
 function Cis.world.getClosestPlayer()
+    return false, 'client only'
+end
+
+function Cis.world.getClosestPlayerId()
     return false, 'client only'
 end
 
@@ -1168,10 +1585,12 @@ end
 -- A function cannot be SENT across the exports boundary, so `handler` may be: a
 -- opts (server only): { remote, ace, schema, maxStringLen } -- see RegisterCallback.
 function Cis.callback.register(name, handler, opts)
-    if opts == nil then
-        return exportCall('RegisterCallback', name, handler)
+    local args = opts == nil and table.pack(name, handler) or table.pack(name, handler, opts)
+    local ok, why = exportCall('RegisterCallback', table.unpack(args, 1, args.n))
+    if ok then
+        remember('callback:' .. tostring(name), 'RegisterCallback', args)
     end
-    return exportCall('RegisterCallback', name, handler, opts)
+    return ok, why
 end
 
 -- The inner await, so `call` below and `await` above share ONE implementation.
@@ -1186,6 +1605,32 @@ end
 -- The non-raising await ().
 function Cis.callback.tryAwait(name, ...)
     return exportCall('TryAwaitCallback', name, ...)
+end
+
+-- A PER-CALL TIMEOUT, on the client. The configured CallbackTimeout is one
+-- number for every call; these take the call's own, in milliseconds.
+if IS_SERVER then
+    function Cis.callback.tryAwaitWithin()
+        return false, 'client only'
+    end
+
+    function Cis.callback.awaitWithin()
+        return false, 'client only'
+    end
+else
+    -- Non-raising: (true, ...) or (false, reason), 'timeout' once it passes.
+    function Cis.callback.tryAwaitWithin(name, timeoutMs, ...)
+        return exportCall('TryAwaitCallbackWithin', name, timeoutMs, ...)
+    end
+
+    -- The raising form, as await is to tryAwait.
+    function Cis.callback.awaitWithin(name, timeoutMs, ...)
+        local reply = table.pack(exportCall('TryAwaitCallbackWithin', name, timeoutMs, ...))
+        if not reply[1] then
+            error(('callback %q: %s'):format(tostring(name), tostring(reply[2])), 2)
+        end
+        return table.unpack(reply, 2, reply.n)
+    end
 end
 
 -- `cb` IS A FUNCTION, and a function cannot cross the exports boundary, so
@@ -1285,14 +1730,25 @@ function Cis.sync.entity(key)
 end
 
 -- Both run under pcall inside the library: a consumer hook that raises must not take
+-- There is no deregister, so each hook is replayed for the life of the consumer.
+local syncHooks = 0
+local function syncHook(exportName, fn)
+    local ok, why = exportCall(exportName, fn)
+    if ok then
+        syncHooks = syncHooks + 1
+        remember('sync:' .. syncHooks, exportName, table.pack(fn))
+    end
+    return ok, why
+end
+
 function Cis.sync.onSpawn(fn)
     if IS_SERVER then return serverOnly() end
-    return exportCall('AddSyncSpawnHandler', fn)
+    return syncHook('AddSyncSpawnHandler', fn)
 end
 
 function Cis.sync.onDespawn(fn)
     if IS_SERVER then return serverOnly() end
-    return exportCall('AddSyncDespawnHandler', fn)
+    return syncHook('AddSyncDespawnHandler', fn)
 end
 
 -- Debug is gated on Config.Printing.Debug and is usually silent; the other three always
@@ -1357,29 +1813,59 @@ local requireCache = {}
 -- itself -- directly, or through a chain that comes back round -- used to recurse
 -- until the C stack ran out, and the error that finally surfaced named neither
 -- module. Now the second entry raises at once with the whole chain.
+-- PER COROUTINE. Two threads requiring one module whose body yields are not a
+-- cycle: the second used to be told "circular dependency X -> X". The set is
+-- keyed by the loading coroutine; another thread asking for a module that is
+-- mid-load waits for that load (it can yield, or it would not be a thread) and
+-- then reads the cache.
 local requireLoading = {}
-local requireStack = {}
+local requireStacks = setmetatable({}, { __mode = 'k' })
 
+local function stackOf(co)
+    local stack = requireStacks[co]
+    if not stack then
+        stack = {}
+        requireStacks[co] = stack
+    end
+    return stack
+end
+
+-- Answers true when it WAITED for another thread's load of `key`: the caller
+-- looks in its cache again and, if that load failed, asks again to load it.
 local function beginLoad(key)
-    if requireLoading[key] then
+    local co = coroutine.running()
+    local owner = requireLoading[key]
+    local stack = stackOf(co)
+    if owner == co then
         local chain = {}
         local from = 1
-        for i = 1, #requireStack do
-            if requireStack[i] == key then from = i break end
+        for i = 1, #stack do
+            if stack[i] == key then from = i break end
         end
-        for i = from, #requireStack do chain[#chain + 1] = requireStack[i] end
+        for i = from, #stack do chain[#chain + 1] = stack[i] end
         chain[#chain + 1] = key
         error(('Cis.require: circular dependency %s'):format(table.concat(chain, ' -> ')), 3)
     end
-    requireLoading[key] = true
-    requireStack[#requireStack + 1] = key
+    if owner ~= nil and coroutine.isyieldable() then
+        while requireLoading[key] ~= nil do
+            Wait(0)
+        end
+        return true
+    end
+    requireLoading[key] = co
+    stack[#stack + 1] = key
+    return false
 end
 
 local function endLoad(key)
-    requireLoading[key] = nil
-    for i = #requireStack, 1, -1 do
-        if requireStack[i] == key then
-            table.remove(requireStack, i)
+    local co = coroutine.running()
+    if requireLoading[key] == co then
+        requireLoading[key] = nil
+    end
+    local stack = stackOf(co)
+    for i = #stack, 1, -1 do
+        if stack[i] == key then
+            table.remove(stack, i)
             break
         end
     end
@@ -1454,11 +1940,15 @@ end
 -- gives, so two modules cannot clobber each other's helpers by accident.
 local function requireFile(name, resource, path)
     local key = ('@%s/%s'):format(resource, path)
-    local cached = requireCache[key]
-    if cached ~= nil then
-        return cached
+    while true do
+        local cached = requireCache[key]
+        if cached ~= nil then
+            return cached
+        end
+        if not beginLoad(key) then
+            break
+        end
     end
-    beginLoad(key)
     local ok, result = pcall(function()
         local src = LoadResourceFile(resource, path)
         if type(src) ~= 'string' then
@@ -1508,11 +1998,14 @@ function Cis.require(name)
             .. 'is a path: Cis.require(\'folder.file\') or Cis.require(\'@resource/folder/file\')')
             :format(name, table.concat(REQUIRE_NAMES, ', ')), 2)
     end
-    if requireCache[name] then
-        return requireCache[name]
+    while true do
+        if requireCache[name] then
+            return requireCache[name]
+        end
+        if not beginLoad(name) then
+            break
+        end
     end
-
-    beginLoad(name)
     local ok, result = pcall(function()
         local src = LoadResourceFile('cis_libs', spec.path)
         if not src then
@@ -1669,7 +2162,11 @@ loadCore = function(name)
         return published[name]
     end
     local key = 'core:' .. name
-    beginLoad(key)
+    while beginLoad(key) do
+        if coreCache[name] ~= nil then
+            return coreCache[name]
+        end
+    end
     local ok, result = pcall(function()
         local sandbox = setmetatable({}, {
             __index = _ENV,

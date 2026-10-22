@@ -15,6 +15,8 @@
 --   resource      the producer's name ('cis_libs')
 --   self          the consumer's own name
 --   snapshot()    -> table|nil   the one export call
+--   follow()      asks the producer to push heading (FollowCacheHeading)
+--   heading()     -> number      the native read, while nothing follows it
 --   log(level, message)
 
 local M = {}
@@ -43,6 +45,9 @@ function M.new(cfg)
         resource = cfg.resource,
         selfName = cfg.self,
         takeSnapshot = cfg.snapshot,
+        follow = cfg.follow or noop,
+        readHeading = cfg.heading,
+        followingHeading = false,
         log = cfg.log or noop,
         values = {},
         snapped = false,
@@ -71,6 +76,10 @@ function M.new(cfg)
         if resource == self.resource then
             self.snapped = false
             self.lastTry = nil
+            -- A restarted producer has forgotten who follows the heading.
+            if self.followingHeading then
+                pcall(self.follow)
+            end
             self:ensure()
         end
     end)
@@ -158,9 +167,17 @@ function Mirror:ensure()
     return true
 end
 
+-- NIL WHILE THE PRODUCER IS DOWN. The values are kept, so the re-snapshot after
+-- a restart tells listeners only what moved, but they are not answered: a
+-- mirror that went on returning the last vehicle handle while cis_libs was
+-- stopped claimed a car the player may have left minutes ago.
 function Mirror:get(key)
-    if not self.snapped then
-        self:ensure()
+    -- Not pushed unless something listens for it, so read where it lives.
+    if key == 'heading' and not self.followingHeading and self.readHeading then
+        return self.readHeading()
+    end
+    if not self.snapped and not self:ensure() then
+        return nil
     end
     return self.values[key]
 end
@@ -177,6 +194,9 @@ function Mirror:on(key, cb)
     -- A listener is only told about changes it can see, so the mirror has to be
     -- following the producer from now on.
     self:ensure()
+    if key == 'heading' and not self.followingHeading then
+        self.followingHeading = pcall(self.follow)
+    end
     self.seq = self.seq + 1
     local id = self.seq
     local old = self.listeners[key] or {}

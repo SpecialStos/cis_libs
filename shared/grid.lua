@@ -74,13 +74,14 @@ local function eachOverlappingCells(aabb, fn)
     end
 end
 
--- insert() re-inserts rather than updating, so a caller that grows an AABB does not
-function CisGrid.insert(grid, id, aabb, data)
+--- Would insert() take this AABB? The same checks, with nothing changed, so a
+--- caller replacing a record can ask BEFORE it tears the old one down.
+--- @return boolean, string|nil
+function CisGrid.admits(aabb)
     local ok, why = checkAabb(aabb)
     if not ok then
         return false, why
     end
-
     -- The cell count is computed BEFORE the loop, not inside it, so the refusal happens
     local minCx = math.floor(aabb.minX / CELL)
     local maxCx = math.floor(aabb.maxX / CELL)
@@ -92,6 +93,15 @@ function CisGrid.insert(grid, id, aabb, data)
         return false, ('the AABB covers %.0fx%.0f cells; at most %d are allowed. '
             .. 'A size in metres read as a cell count lands here.')
             :format(cols, rows, MAX_CELLS)
+    end
+    return true
+end
+
+-- insert() re-inserts rather than updating, so a caller that grows an AABB does not
+function CisGrid.insert(grid, id, aabb, data)
+    local ok, why = CisGrid.admits(aabb)
+    if not ok then
+        return false, why
     end
 
     CisGrid.remove(grid, id)

@@ -92,12 +92,22 @@ function M.getProperties(vehicle)
 
     local damage = { windows = {}, doors = {}, tyres = {} }
     local windows = 0
-    -- Do not roll windows up while reading. A getter that mutates the vehicle
-    -- is not a getter.
+    -- A ROLLED-DOWN WINDOW IS NOT A BROKEN ONE, but IsVehicleWindowIntact is
+    -- false for both, and the setter removes every window listed: a car saved
+    -- with a window down came back with that window gone. No native reads the
+    -- roll state, so a window that reads not-intact is rolled up and asked
+    -- again (ox_lib rolls every window up for the same reason). One that is
+    -- intact now was only down, and is rolled back down, so the getter leaves
+    -- the vehicle as it found it.
     for i = 0, 7 do
         if not IsVehicleWindowIntact(vehicle, i) then
-            windows = windows + 1
-            damage.windows[windows] = i
+            RollUpWindow(vehicle, i)
+            if IsVehicleWindowIntact(vehicle, i) then
+                RollDownWindow(vehicle, i)
+            else
+                windows = windows + 1
+                damage.windows[windows] = i
+            end
         end
     end
     local doors = 0

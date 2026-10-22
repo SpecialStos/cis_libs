@@ -3305,6 +3305,25 @@ do
         check(not okCycle2 and tostring(cycleErr2):find('circular', 1, true) ~= nil,
             '5.1: and a failed load leaves no in-progress marker behind')
 
+        -- TWO THREADS ARE NOT A CYCLE. A module whose body yields, required by a
+        -- second thread while the first is still inside it, was refused as
+        -- "circular dependency X -> X". The second thread now waits for the
+        -- first load and gets the same module.
+        virtualFiles.consumer_res['mods/slow.lua'] = 'Wait(0) return { slow = true }'
+        local savedWait = Wait
+        Wait = function() coroutine.yield() end
+        local resA, resB
+        local coA = coroutine.create(function() resA = table.pack(pcall(lib.require, 'mods.slow')) end)
+        local coB = coroutine.create(function() resB = table.pack(pcall(lib.require, 'mods.slow')) end)
+        coroutine.resume(coA)
+        coroutine.resume(coB)
+        coroutine.resume(coA)
+        coroutine.resume(coB)
+        Wait = savedWait
+        check(resA and resA[1] and resB and resB[1] and type(resB[2]) == 'table' and resB[2] == resA[2],
+            ('5.1: a second thread requiring a module mid-load waits for it, not "circular" (%s)')
+                :format(tostring(resB and resB[2])))
+
         local okMissing, missingErr = pcall(lib.require, 'mods.nope')
         check(not okMissing and tostring(missingErr):find('mods/nope.lua', 1, true) ~= nil,
             ('5.1: a missing file raises and names the path it looked for (%s)'):format(tostring(missingErr)))
@@ -4000,7 +4019,26 @@ end
             .. 'zones.contains and points.getClosest made ZERO export calls (made %d)'):format(#calls))
     check(Cis.player.serverId() == 42 and Cis.player.playerId() == 3,
         '19: the ids answer from the snapshot')
-    check(Cis.cache('heading') == 90.0, '19: Cis.cache reads any mirrored key')
+    check(Cis.cache('aiming') == false and Cis.cache('ped') == 7, '19: Cis.cache reads any mirrored key')
+
+    -- HEADING IS NOT PUSHED UNLESS SOMETHING LISTENS. It changes several times a
+    -- second while moving, and each push reaches every resource's runtime. With
+    -- no listener the mirror reads the native; the first listener asks cis_libs
+    -- to push it, once.
+    local savedHeading = GetEntityHeading
+    GetEntityHeading = function() return 123.0 end
+    calls = {}
+    check(Cis.cache('heading') == 123.0 and #calls == 0,
+        '19: with no heading listener, the heading is read from the native, crossing nothing')
+    Cis.player.on('heading', function() end)
+    Cis.player.on('heading', function() end)
+    local follows = 0
+    for _, c in ipairs(calls) do if c == 'FollowCacheHeading' then follows = follows + 1 end end
+    check(follows == 1, ('19: the first heading listener asks cis_libs to push it, once (%d)'):format(follows))
+    fire('cis_libs:cache', 'heading', 45.0)
+    check(Cis.cache('heading') == 45.0, '19: and from then the pushed heading is the one read')
+    GetEntityHeading = savedHeading
+    calls = {}
 
     -- ---- pushes ------------------------------------------------------
     local heard = {}
@@ -4038,8 +4076,10 @@ end
     -- ---- a cis_libs restart re-snapshots; a stop retries, throttled ----
     snap.vehicle, snap.seat = 77, 0
     fire('onClientResourceStart', 'cis_libs')
-    check(#calls == 1 and calls[1] == 'GetCacheSnapshot',
-        ('19: a cis_libs restart re-snapshots with ONE export call (%d)'):format(#calls))
+    -- Plus one to follow the heading again: this consumer has heading listeners,
+    -- and the restarted cis_libs has forgotten them.
+    check(#calls == 2 and calls[1] == 'FollowCacheHeading' and calls[2] == 'GetCacheSnapshot',
+        ('19: a cis_libs restart re-follows the heading and re-snapshots, two export calls (%d)'):format(#calls))
     check(Cis.player.vehicle() == 77, '19: and the mirror carries the new values')
     calls = {}
     -- A stop TriggerEvent'd by another script is not cis_libs stopping: the
@@ -4053,6 +4093,8 @@ end
     for _ = 1, 100 do Cis.player.vehicle() end
     check(#calls == 1,
         ('19: while cis_libs is down, 100 reads retry the snapshot ONCE (%d)'):format(#calls))
+    check(Cis.player.vehicle() == nil,
+        '19: and the mirror no longer answers the vehicle it last saw')
     check(Cis.player.playerId() == 3 and Cis.player.serverId() == 42,
         '19: and the ids fall back to the natives meanwhile')
     clock = clock + 1000
@@ -4260,6 +4302,310 @@ end
         '19: and releases the scaleform it still held')
 
     for i, n in ipairs(NAMES) do env[n] = saved[i] end
+end
+
+-- ============================ 20. a cis_libs restart does not drop a consumer
+--
+-- Callbacks, targets, sync hooks, statebag watchers and near watchers live in
+-- cis_libs. A restart of cis_libs dropped every one, and nothing told the
+-- consumer. init.lua now records each and makes it again when cis_libs starts,
+-- keeping the ids the consumer already holds.
+do
+    local NAMES = { 'GetCurrentResourceName', 'IsDuplicityVersion', 'AddEventHandler', 'exports',
+        'CreateThread', 'Cis', 'GetInvokingResource', 'print' }
+    local saved = {}
+    for i, n in ipairs(NAMES) do saved[i] = rawget(_ENV, n) end
+    local handlers, threads, calls = {}, {}, {}
+    AddEventHandler = function(name, fn)
+        handlers[name] = handlers[name] or {}
+        handlers[name][#handlers[name] + 1] = fn
+    end
+    CreateThread = function(fn) threads[#threads + 1] = fn end
+    GetInvokingResource = function() return nil end
+    print = function() end
+    local nextCookie = 0
+    local function record(name)
+        return function(_, ...)
+            calls[#calls + 1] = { name = name, args = table.pack(...) }
+            if name == 'StatebagOnEntity' or name == 'StatebagOnPlayer' then
+                nextCookie = nextCookie + 1
+                return nextCookie
+            elseif name == 'WatchNear' then
+                nextCookie = nextCookie + 1
+                return {}, nextCookie
+            end
+            return true
+        end
+    end
+    local lib = setmetatable({}, { __index = function(t, k) local f = record(k); rawset(t, k, f); return f end })
+    exports = { cis_libs = lib }
+    GetCurrentResourceName = function() return 'cis_consumer' end
+    IsDuplicityVersion = function() return false end
+    Cis = nil
+    assert(loadfile('./init.lua'))()
+
+    -- A second include of init.lua in one VM does nothing: no second engine set,
+    -- no second handler for anything.
+    local firstRegister, startHandlers = Cis.callback.register, #(handlers.onResourceStart or {})
+    assert(loadfile('./init.lua'))()
+    check(Cis.callback.register == firstRegister and #(handlers.onResourceStart or {}) == startHandlers,
+        '20: including init.lua twice runs it once')
+
+    local function bagHandler() end
+    check(Cis.callback.register('shop:price', function() return 1 end) == true, '20: a callback registers')
+    check(Cis.target.add('box', 'till', { x = 0, y = 0, z = 0 }, { x = 1, y = 1, z = 1 }, {}) == true,
+        '20: a target is added')
+    Cis.target.add('box', 'gone', { x = 0, y = 0, z = 0 }, { x = 1, y = 1, z = 1 }, {})
+    Cis.target.remove('gone')
+    Cis.sync.onSpawn(function() end)
+    local bag = Cis.statebag.onEntity('cis_x', bagHandler)
+    local _, near = Cis.player.near({ x = 1, y = 2, z = 3 }, 2.0, nil, nil, 'in', 'out')
+    check(bag == 1 and near == 2, ('20: the watchers answer their ids (%s, %s)'):format(tostring(bag), tostring(near)))
+
+    -- cis_libs restarts: its ids start again from 1.
+    nextCookie = 10
+    calls = {}
+    for _, fn in ipairs(handlers.onResourceStart or {}) do fn('cis_libs') end
+    for _, t in ipairs(threads) do t() end
+    local made = {}
+    for _, c in ipairs(calls) do made[#made + 1] = c.name end
+    local list = table.concat(made, ',')
+    check(list == 'RegisterCallback,CreateTarget,AddSyncSpawnHandler,StatebagOnEntity,WatchNear',
+        ('20: everything still registered is made again, in order, and the removed target is not (%s)'):format(list))
+    check(calls[4] and calls[4].args[1] == 'cis_x' and calls[4].args[2] == bagHandler,
+        '20: with the arguments it was first made with')
+
+    -- The consumer's ids still work, and reach cis_libs' NEW ids.
+    calls = {}
+    Cis.statebag.remove(bag)
+    Cis.player.nearStop(near)
+    check(calls[1] and calls[1].name == 'RemoveStatebagHandler' and calls[1].args[1] == 11,
+        ('20: the old cookie removes the watcher under its new cookie (%s)'):format(tostring(calls[1] and calls[1].args[1])))
+    check(calls[2] and calls[2].name == 'RemoveNearWatcher' and calls[2].args[1] == 12,
+        '20: and the old near id stops the new watcher')
+    calls, threads = {}, {}
+    for _, fn in ipairs(handlers.onResourceStart or {}) do fn('cis_libs') end
+    for _, t in ipairs(threads) do t() end
+    local again = {}
+    for _, c in ipairs(calls) do again[#again + 1] = c.name end
+    check(table.concat(again, ',') == 'RegisterCallback,CreateTarget,AddSyncSpawnHandler',
+        ('20: a removed watcher is not made again on the next restart (%s)'):format(table.concat(again, ',')))
+    for _, fn in ipairs(handlers.onResourceStart or {}) do fn('other_res') end
+    check(#threads == 1, '20: another resource starting replays nothing')
+    for i, n in ipairs(NAMES) do rawset(_ENV, n, saved[i]) end
+end
+
+-- ============================ 21. DUI texture names are never reused
+--
+-- A runtime texture dictionary cannot be freed. The name was resource + counter,
+-- and the counter starts at 1 again when the consumer restarts, so the new page
+-- drew into the destroyed browser's dictionary.
+do
+    local NAMES = { 'CreateDui', 'GetDuiHandle', 'CreateRuntimeTxd', 'CreateRuntimeTextureFromDuiHandle',
+        'GetGameTimer' }
+    local saved = {}
+    for i, n in ipairs(NAMES) do saved[i] = rawget(_ENV, n) end
+    CreateDui = function() return 900 end
+    GetDuiHandle = function() return 'h' end
+    CreateRuntimeTxd = function() return 1 end
+    CreateRuntimeTextureFromDuiHandle = function() end
+    local clock = 5000
+    GetGameTimer = function() return clock end
+    local function firstName()
+        local M = assert(loadfile('./client/core/dui.lua'))()
+        return M.new({ resource = 'cis_consumer' }):create({ url = 'https://example.invalid' }).dictName
+    end
+    local before = firstName()
+    clock = clock + 60000
+    local after = firstName()
+    check(type(before) == 'string' and before ~= after,
+        ('21: a restarted consumer\'s first DUI gets a new dictionary name (%s vs %s)')
+            :format(tostring(before), tostring(after)))
+    for i, n in ipairs(NAMES) do rawset(_ENV, n, saved[i]) end
+end
+
+-- ============================ 22. Cis.ui reaches the whole built-in interface
+--
+-- Cis.ui wrapped 7 of the interface's 33 exports; context and list menus, the
+-- radial, the skill check and progress/alert/input control had no Cis.* name.
+-- Each now forwards with its arguments, and a registration is made again when
+-- cis_libs restarts.
+do
+    local NAMES = { 'GetCurrentResourceName', 'IsDuplicityVersion', 'AddEventHandler', 'exports',
+        'CreateThread', 'Cis', 'GetInvokingResource', 'print' }
+    local saved = {}
+    for i, n in ipairs(NAMES) do saved[i] = rawget(_ENV, n) end
+    local handlers, threads, calls = {}, {}, {}
+    AddEventHandler = function(name, fn)
+        handlers[name] = handlers[name] or {}
+        handlers[name][#handlers[name] + 1] = fn
+    end
+    CreateThread = function(fn) threads[#threads + 1] = fn end
+    GetInvokingResource = function() return nil end
+    print = function() end
+    local lib = setmetatable({}, { __index = function(t, k)
+        local f = function(_, ...)
+            calls[#calls + 1] = { name = k, args = table.pack(...) }
+            return true
+        end
+        rawset(t, k, f)
+        return f
+    end })
+    exports = { cis_libs = lib }
+    GetCurrentResourceName = function() return 'cis_consumer' end
+    IsDuplicityVersion = function() return false end
+    Cis = nil
+    assert(loadfile('./init.lua'))()
+
+    local ROWS = {
+        { Cis.ui.context.register, 'RegisterContext', { { id = 'shop' } } },
+        { Cis.ui.context.show, 'ShowContext', { 'shop' } },
+        { Cis.ui.context.hide, 'HideContext', { true } },
+        { Cis.ui.context.getOpen, 'GetOpenContextMenu', {} },
+        { Cis.ui.menu.register, 'RegisterMenu', { { id = 'list' } } },
+        { Cis.ui.menu.show, 'ShowMenu', { 'list', 2 } },
+        { Cis.ui.menu.hide, 'HideMenu', { true } },
+        { Cis.ui.menu.getOpen, 'GetOpenMenu', {} },
+        { Cis.ui.menu.setOptions, 'SetMenuOptions', { 'list', { label = 'x' }, 1 } },
+        { Cis.ui.radial.add, 'AddRadialItem', { { id = 'wave' } } },
+        { Cis.ui.radial.register, 'RegisterRadial', { { id = 'sub' } } },
+        { Cis.ui.radial.hide, 'HideRadial', {} },
+        { Cis.ui.radial.disable, 'DisableRadial', { true } },
+        { Cis.ui.skillCheck, 'SkillCheck', { 'easy', { 'e' } } },
+        { Cis.ui.skillCheckActive, 'SkillCheckActive', {} },
+        { Cis.ui.cancelSkillCheck, 'CancelSkillCheck', {} },
+        { Cis.ui.progressActive, 'ProgressActive', {} },
+        { Cis.ui.cancelProgress, 'CancelProgress', {} },
+        { Cis.ui.closeAlert, 'CloseAlertDialog', {} },
+        { Cis.ui.closeInput, 'CloseInputDialog', {} },
+    }
+    for _, row in ipairs(ROWS) do
+        calls = {}
+        local fn, export, args = row[1], row[2], row[3]
+        local ok = type(fn) == 'function' and fn(table.unpack(args))
+        local c = calls[1]
+        local same = c ~= nil and c.name == export
+        for i = 1, #args do
+            same = same and c.args[i] == args[i]
+        end
+        check(ok == true and same, ('22: Cis.ui forwards to %s with its arguments'):format(export))
+    end
+
+    -- A second radial item, then one removed: the restart makes the context,
+    -- menu, radial and the item that is left, in order, and nothing else.
+    Cis.ui.radial.add({ id = 'dance' })
+    Cis.ui.radial.remove('wave')
+    calls = {}
+    for _, fn in ipairs(handlers.onResourceStart or {}) do fn('cis_libs') end
+    for _, t in ipairs(threads) do t() end
+    local made = {}
+    for _, c in ipairs(calls) do made[#made + 1] = c.name .. ':' .. tostring(c.args[1].id) end
+    local list = table.concat(made, ',')
+    check(list == 'RegisterContext:shop,RegisterMenu:list,RegisterRadial:sub,AddRadialItem:dance',
+        ('22: registrations are made again on a restart, a removed item is not (%s)'):format(list))
+    Cis.ui.radial.clear()
+    calls, threads = {}, {}
+    for _, fn in ipairs(handlers.onResourceStart or {}) do fn('cis_libs') end
+    for _, t in ipairs(threads) do t() end
+    made = {}
+    for _, c in ipairs(calls) do made[#made + 1] = c.name end
+    check(table.concat(made, ',') == 'RegisterContext,RegisterMenu,RegisterRadial',
+        ('22: and a clear forgets every radial item (%s)'):format(table.concat(made, ',')))
+    for i, n in ipairs(NAMES) do rawset(_ENV, n, saved[i]) end
+end
+
+-- ============================ 23. the ox_lib gaps in a consumer
+--
+-- getClosestPlayerId answers ox_lib's order (index, ped, coords) within 2 m by
+-- default; the zone and point queries answer this resource's own names and ids;
+-- awaitWithin raises with the reason as await does.
+do
+    local NAMES = { 'GetCurrentResourceName', 'IsDuplicityVersion', 'AddEventHandler', 'exports',
+        'CreateThread', 'Cis', 'GetInvokingResource', 'print', 'GetActivePlayers', 'GetPlayerPed',
+        'PlayerId', 'PlayerPedId', 'GetEntityCoords', 'DoesEntityExist', 'GetGameTimer', 'Wait', 'vector3',
+        'LoadResourceFile' }
+    local saved = {}
+    for i, n in ipairs(NAMES) do saved[i] = rawget(_ENV, n) end
+    local Vec = {}
+    Vec.__index = Vec
+    Vec.__sub = function(a, b) return vector3(a.x - b.x, a.y - b.y, a.z - b.z) end
+    Vec.__len = function(v) return math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z) end
+    vector3 = function(x, y, z) return setmetatable({ x = x, y = y, z = z }, Vec) end
+    -- The engines load from cis_libs' files, as in test 19.
+    LoadResourceFile = function(resource, path)
+        if resource ~= 'cis_libs' then return nil end
+        return CIS_TEST_FILES[path]
+    end
+    local threads, calls = {}, {}
+    AddEventHandler = function() end
+    CreateThread = function(fn) threads[#threads + 1] = fn end
+    GetInvokingResource = function() return nil end
+    print = function() end
+    GetGameTimer = function() return 0 end
+    Wait = function() end
+    local reply = { false, 'timeout' }
+    local lib = setmetatable({}, { __index = function(t, k)
+        local f = function(_, ...)
+            calls[#calls + 1] = { name = k, args = table.pack(...) }
+            if k == 'TryAwaitCallbackWithin' then return table.unpack(reply) end
+            return true
+        end
+        rawset(t, k, f)
+        return f
+    end })
+    exports = { cis_libs = lib }
+    GetCurrentResourceName = function() return 'cis_consumer' end
+    IsDuplicityVersion = function() return false end
+    -- Me (index 0) at the origin, player 4 at 1.5 m, player 7 at 3 m.
+    local peds = { [0] = 100, [4] = 104, [7] = 107 }
+    local at = { [100] = vector3(0.0, 0.0, 0.0), [104] = vector3(1.5, 0.0, 0.0), [107] = vector3(3.0, 0.0, 0.0) }
+    GetActivePlayers = function() return { 0, 4, 7 } end
+    GetPlayerPed = function(i) return peds[i] or 0 end
+    PlayerId = function() return 0 end
+    PlayerPedId = function() return 100 end
+    GetEntityCoords = function(e) return at[e] end
+    DoesEntityExist = function(e) return at[e] ~= nil end
+    Cis = nil
+    assert(loadfile('./init.lua'))()
+
+    local here = vector3(0.0, 0.0, 0.0)
+    local id, ped, coords = Cis.world.getClosestPlayerId(here)
+    check(id == 4 and ped == 104 and coords and coords.x == 1.5,
+        ('23: getClosestPlayerId answers (index, ped, coords) in ox_lib order (%s, %s)'):format(tostring(id), tostring(ped)))
+    local none, why = Cis.world.getClosestPlayerId(vector3(2.5, 50.0, 0.0))
+    check(none == false and type(why) == 'string', '23: and nothing within the default 2 m is false plus a reason')
+    local far = Cis.world.getClosestPlayerId(vector3(2.5, 50.0, 0.0), 100.0)
+    check(far == 7 or far == 4, '23: a larger maxDistance is honoured')
+    check(Cis.world.getClosestPlayerId(here, 2.0, true) == 0, '23: includePlayer puts the local player in')
+    local p1 = Cis.world.getClosestPlayer(here)
+    check(p1 == 104, '23: getClosestPlayer keeps its own order, the ped first')
+
+    -- Zones and points, in this VM.
+    Cis.zones.box('z_here', here, { x = 4.0, y = 4.0, z = 4.0 })
+    Cis.zones.box('z_far', vector3(400.0, 0.0, 0.0), { x = 4.0, y = 4.0, z = 4.0 })
+    check(table.concat(Cis.zones.getAll(), ',') == 'z_far,z_here', '23: Cis.zones.getAll answers sorted names')
+    check(table.concat(Cis.zones.getNearby(here, 50), ',') == 'z_here', '23: Cis.zones.getNearby leaves out the far zone')
+    check(#Cis.zones.getCurrent() == 0, '23: getCurrent is empty before any pass')
+    local pid = Cis.points.add({ coords = here, distance = 3.0 })
+    check(type(pid) == 'number' and Cis.points.getAll()[1] == pid, '23: Cis.points.getAll answers the ids')
+    check(#Cis.points.getNearby() == 0, '23: getNearby is empty before any pass')
+    Cis.zones.remove('z_here')
+    Cis.zones.remove('z_far')
+    Cis.points.remove(pid)
+
+    -- awaitWithin forwards the timeout and raises on a refusal.
+    calls = {}
+    local okRaise, err = pcall(Cis.callback.awaitWithin, 'shop:price', 750, 'apple')
+    check(not okRaise and tostring(err):find('timeout', 1, true) and tostring(err):find('shop:price', 1, true),
+        ('23: awaitWithin raises with the name and the reason (%s)'):format(tostring(err)))
+    check(calls[1] and calls[1].name == 'TryAwaitCallbackWithin' and calls[1].args[2] == 750 and calls[1].args[3] == 'apple',
+        '23: and forwards the timeout and the arguments')
+    reply = { true, 1.25, 'GBP' }
+    local price, cur = Cis.callback.awaitWithin('shop:price', 750)
+    check(price == 1.25 and cur == 'GBP', '23: and answers the reply when it comes')
+    local tOk, tPrice = Cis.callback.tryAwaitWithin('shop:price', 750)
+    check(tOk == true and tPrice == 1.25, '23: tryAwaitWithin answers ok first')
+    for i, n in ipairs(NAMES) do rawset(_ENV, n, saved[i]) end
 end
 
 -- ------------------------------------------------------------------ report

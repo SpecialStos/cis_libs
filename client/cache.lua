@@ -85,6 +85,17 @@ local function push(key, value, seat, silent)
     TriggerEvent('cis_libs:cache', key, value, seat, silent)
 end
 
+-- HEADING IS PUSHED ONLY TO A CONSUMER THAT LISTENS FOR IT. It changes several
+-- times a second while the player moves, and every push is a TriggerEvent
+-- dispatched into every client resource's runtime. A consumer mirror asks for
+-- it (FollowCacheHeading) when its first heading listener is added; a read of
+-- the heading uses the native and needs none of this.
+local headingFollowers = CisOwned.new()
+
+local function headingFollowed()
+    return next(headingFollowers.byKind) ~= nil
+end
+
 local function emit(key, current, previous)
     local list = listeners[key]
     if not list then
@@ -147,7 +158,9 @@ local function setField(key, value)
     end
     CisCache[key] = value
     emit(key, value, previous)
-    push(key, value)
+    if key ~= 'heading' or headingFollowed() then
+        push(key, value)
+    end
     return true
 end
 
@@ -238,6 +251,25 @@ local function refreshVehicle(ped)
     setVehicleSeat(vehicle, seat)
 end
 
+-- ATTACHMENTS ARE RE-READ ON THE SAME WEAPON, at most this often. A suppressor
+-- fitted while the weapon is held changes nothing the hash check sees, and the
+-- cache answered the old attachments until the player switched weapons. One
+-- HasPedGotWeaponComponent per component the weapon takes, once a second.
+local ATTACHMENT_MS = 1000
+local attachmentsReadAt = 0
+
+local function sameList(a, b)
+    if #a ~= #b then
+        return false
+    end
+    for i = 1, #a do
+        if a[i] ~= b[i] then
+            return false
+        end
+    end
+    return true
+end
+
 local function refreshWeapon(ped)
     ped = ped or CisCache.ped
     local armed = IsPedArmed(ped, 7)
@@ -249,6 +281,21 @@ local function refreshWeapon(ped)
     local hash = GetSelectedPedWeapon(ped)
     local current = CisCache.weapon
     if current and current.hash == hash then
+        local now = GetGameTimer()
+        if now - attachmentsReadAt >= ATTACHMENT_MS then
+            attachmentsReadAt = now
+            local attachments = GetWeaponAttachments(ped, hash)
+            if not sameList(attachments, current.attachments or {}) then
+                -- A different weapon as far as a listener is concerned.
+                setField('weapon', {
+                    hash = hash,
+                    ammo = GetAmmoInPedWeapon(ped, hash),
+                    ammoType = current.ammoType,
+                    attachments = attachments,
+                })
+                return
+            end
+        end
         local ammo = GetAmmoInPedWeapon(ped, hash)
         if current.ammo ~= ammo then
             -- Replace rather than mutate: consumers hold a reference to the
@@ -264,6 +311,7 @@ local function refreshWeapon(ped)
         end
         return
     end
+    attachmentsReadAt = GetGameTimer()
     setField('weapon', weaponPayload(ped, hash))
 end
 
@@ -338,51 +386,59 @@ CreateThread(function()
     end
 end)
 
--- Proximity watchers. Idle at 500ms with no watchers at all -- `next()` on an
--- empty table is the cheapest possible test, and a server with nothing near it
--- pays nothing for the feature existing.
-CreateThread(function()
-    awaitReady()
-    local lastCoords
-    local lastCheck = 0
-    -- GUARDED (3.10): this loop carries `lastCoords` and `lastCheck` across
-    -- ticks, so a raise used to leave them stale AND end the loop.
-    local tickNear = CisLoopGuard.Body('client.cache.near', function()
-        if next(nearWatchers) == nil then
-            return 500
-        end
-        local now = GetGameTimer()
-        local coords = Cis.player.coords()
-        local moved = not lastCoords or #(coords - lastCoords) >= 8.0
-        if moved or (now - lastCheck) >= 500 then
-            lastCoords = coords
-            lastCheck = now
-            for _, watcher in pairs(nearWatchers) do
-                local dist = #(coords - watcher.coords)
-                local inside = dist <= watcher.distance
-                if inside and not watcher.inside then
-                    watcher.inside = true
-                    if CisCallable(watcher.onEnter) then
-                        pcall(watcher.onEnter, dist)
-                    elseif watcher.onEnterEvent then
-                        pcall(TriggerServerEvent, watcher.onEnterEvent, dist)
-                    end
-                elseif not inside and watcher.inside then
-                    watcher.inside = false
-                    if CisCallable(watcher.onExit) then
-                        pcall(watcher.onExit, dist)
-                    elseif watcher.onExitEvent then
-                        pcall(TriggerServerEvent, watcher.onExitEvent, dist)
+-- Proximity watchers. ON DEMAND: the thread starts with the first watcher and
+-- ends with the last, so a client with no watcher has no thread to wake (it
+-- woke twice a second for nothing).
+local nearDriving = false
+local function driveNear()
+    if nearDriving then
+        return
+    end
+    nearDriving = true
+    CreateThread(function()
+        awaitReady()
+        local lastCoords
+        local lastCheck = 0
+        -- GUARDED (3.10): this loop carries `lastCoords` and `lastCheck` across
+        -- ticks, so a raise used to leave them stale AND end the loop.
+        local tickNear = CisLoopGuard.Body('client.cache.near', function()
+            if next(nearWatchers) == nil then
+                return 500
+            end
+            local now = GetGameTimer()
+            local coords = Cis.player.coords()
+            local moved = not lastCoords or #(coords - lastCoords) >= 8.0
+            if moved or (now - lastCheck) >= 500 then
+                lastCoords = coords
+                lastCheck = now
+                for _, watcher in pairs(nearWatchers) do
+                    local dist = #(coords - watcher.coords)
+                    local inside = dist <= watcher.distance
+                    if inside and not watcher.inside then
+                        watcher.inside = true
+                        if CisCallable(watcher.onEnter) then
+                            pcall(watcher.onEnter, dist)
+                        elseif watcher.onEnterEvent then
+                            pcall(TriggerServerEvent, watcher.onEnterEvent, dist)
+                        end
+                    elseif not inside and watcher.inside then
+                        watcher.inside = false
+                        if CisCallable(watcher.onExit) then
+                            pcall(watcher.onExit, dist)
+                        elseif watcher.onExitEvent then
+                            pcall(TriggerServerEvent, watcher.onExitEvent, dist)
+                        end
                     end
                 end
             end
+            return 200
+        end)
+        while next(nearWatchers) ~= nil do
+            Wait(tickNear() or 200)
         end
-        return 200
+        nearDriving = false
     end)
-    while true do
-        Wait(tickNear() or 200)
-    end
-end)
+end
 
 local function dropListener(id)
     local key = listenerKey[id]
@@ -502,6 +558,7 @@ function CisCache.watchNear(coords, distance, onEnter, onExit, onEnterEvent, onE
     -- restarts, and an abandoned watcher still costs a distance check every tick
     -- for as long as it lives.
     CisOwned.track(nearOwned, GetInvokingResource() or 'cis_libs', 'nearWatcher', id)
+    driveNear()
     return unsubscribe, id
 end
 
@@ -522,6 +579,13 @@ exports('GetCacheSnapshot', function()
         aiming = CisCache.aiming,
         shooting = CisCache.shooting,
     }
+end)
+
+-- A consumer mirror with a heading listener. Released when that consumer stops.
+exports('FollowCacheHeading', function()
+    local owner = GetInvokingResource() or 'cis_libs'
+    CisOwned.track(headingFollowers, owner, 'heading', owner)
+    return true
 end)
 
 exports('GetCachedPed', function()
@@ -599,6 +663,9 @@ AddEventHandler('onResourceStop', function(resource)
     end
     if resource == GetCurrentResourceName() then
         return
+    end
+    if CisOwned.forget(headingFollowers, 'heading', resource) then
+        CisOwned.release(headingFollowers, resource)
     end
     local freed = CisOwned.release(nearOwned, resource)
     local dropped = 0

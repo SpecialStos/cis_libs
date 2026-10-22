@@ -55,7 +55,9 @@ function CisCreatePed(model, coords, heading, options)
     return ped
 end
 
-function Round(num, numDecimalPlaces)
+-- LOCAL, published only as the `Round` export. A global named Round rebound the
+-- ROUND native for every file in cis_libs.
+local function round(num, numDecimalPlaces)
     return tonumber(string.format('%.' .. (numDecimalPlaces or 0) .. 'f', num))
 end
 
@@ -156,7 +158,7 @@ function GetTableSize(t)
     return count
 end
 
-exports('Round', Round)
+exports('Round', round)
 exports('GetDistanceBetweenCoords', CisGetDistanceBetweenCoords)
 exports('DebugLog', DebugLog)
 exports('DrawText3D', DrawText3D)

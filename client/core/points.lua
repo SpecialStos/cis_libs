@@ -121,13 +121,14 @@ end
 function Points:enter(point, coords)
     -- `lastNearby` IS SET HERE, and that is the whole fix for a feature that registers,
     self.inside[point.id] = { since = GetGameTimer(), lastNearby = GetGameTimer() - point.nearbyInterval }
-    self:callHook(point, 'onEnter', coords)
+    -- The point's id rides along, so one handler can serve many points.
+    self:callHook(point, 'onEnter', coords, point.id)
     self:fireEvent(point, 'onEnterEvent', coords)
 end
 
 function Points:exit(point, coords)
     self.inside[point.id] = nil
-    self:callHook(point, 'onExit', coords)
+    self:callHook(point, 'onExit', coords, point.id)
     self:fireEvent(point, 'onExitEvent', coords)
 end
 
@@ -194,16 +195,22 @@ function Points:add(data, owner)
         point.nearbyInterval = MIN_EVENT_INTERVAL_MS
     end
 
-    self.nextId = self.nextId + 1
-    point.id = self.nextId
-
     -- THE INDEX BOX IS THE EXIT RADIUS, NOT THE ENTER RADIUS.
     local aabb = self.Grid.aabbFromCenter(
         point.x, point.y, point.z,
         exitDistance + 0.5, exitDistance + 0.5, exitDistance + 0.5)
     point.aabb = aabb
+
+    self.nextId = self.nextId + 1
+    point.id = self.nextId
+    -- THE INDEX HAS TO TAKE IT, or nothing is recorded. A point the grid refused
+    -- (NaN coords, or a radius of about 1,780 m and up) was still stored and
+    -- given an id: getClosest found it and onEnter never fired.
+    local indexed, indexWhy = self.Grid.insert(self.grid, point.id, aabb, point)
+    if not indexed then
+        return false, ('point not indexed: %s'):format(tostring(indexWhy))
+    end
     self.points[point.id] = point
-    self.Grid.insert(self.grid, point.id, aabb, point)
     -- recorded so a consumer's stop can take its points with it.
     self.onRegister(point)
 
@@ -222,6 +229,28 @@ end
 
 function Points:hasPoints()
     return next(self.points) ~= nil
+end
+
+local function sortedIds(set, points, owner)
+    local ids = {}
+    for id in pairs(set) do
+        local point = points[id]
+        if point and (owner == nil or point.owner == owner) then
+            ids[#ids + 1] = id
+        end
+    end
+    table.sort(ids)
+    return ids
+end
+
+-- Every point's id, or one resource's, ascending.
+function Points:allIds(owner)
+    return sortedIds(self.points, self.points, owner)
+end
+
+-- The ids of the points the player is inside right now, ascending.
+function Points:nearbyIds(owner)
+    return sortedIds(self.inside, self.points, owner)
 end
 
 --- Remove a point, with no owner check (the wrapper owns that). `silent` drops
@@ -332,7 +361,7 @@ function Points:serveInside(coords, now)
         if point and (point.nearby ~= nil or point.nearbyEvent ~= nil) then
             if now - state.lastNearby >= point.nearbyInterval then
                 state.lastNearby = now
-                self:callHook(point, 'nearby', coords)
+                self:callHook(point, 'nearby', coords, point.id)
                 -- The event twin, exactly as enter and exit have one: the only form a
                 -- server-side consumer can observe.
                 self:fireEvent(point, 'nearbyEvent', coords)

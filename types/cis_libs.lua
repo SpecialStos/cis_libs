@@ -248,6 +248,9 @@ local CisJson = {}
 ---@field onRelease? fun() on the -name command, under pcall
 ---@field onPressed? fun() ox_lib spelling of onPress
 ---@field onReleased? fun() ox_lib spelling of onRelease
+---@field secondaryKey? string an alternate key NAME for the same command, registered as the ~! alternate mapping
+---@field secondaryMapper? string the mapper of secondaryKey; defaults to defaultMapper
+---@field disabled? boolean true registers the binding switched off; enable it with handle:disable(false)
 local CisKeybindOptions = {}
 
 ---@class CisLRU
@@ -325,9 +328,9 @@ local CisModuleInfo = {}
 -- The table Cis.points.add takes. coords and distance are REQUIRED and are refused by name when absent -- a defaulted radius is a specific number nobody asked for, and a defaulted coordinate is a point at the world origin that fires for a player who spawned there. Every other field is optional. From init.lua (Cis.points.add) the function fields are plain local functions in the calling resource; through the CreatePoint export they arrive as funcrefs. The event-name twins fire either way.
 ---@field coords vector3|vector4|table the centre
 ---@field distance number the enter radius in metres. Must be finite and greater than zero; NaN and infinity are both refused by name, because NaN makes every containment test false and infinity has no cell to index
----@field onEnter? fun(coords: vector3) called under pcall on arrival
----@field onExit? fun(coords: vector3) called under pcall on departure and on removal
----@field nearby? fun(coords: vector3) called under pcall every nearbyInterval while the player is inside, and ONLY inside
+---@field onEnter? fun(coords: vector3, id: integer) called under pcall on arrival
+---@field onExit? fun(coords: vector3, id: integer) called under pcall on departure and on removal
+---@field nearby? fun(coords: vector3, id: integer) called under pcall every nearbyInterval while the player is inside, and ONLY inside
 ---@field nearbyInterval? integer ms between nearby calls, default 200. Zero is allowed: a local function asking for every pass is legitimate
 ---@field onEnterEvent? string the net event fired on arrival, with (id, x, y, z). The id lets one handler watch several points
 ---@field onExitEvent? string the net event fired on departure, with (id, x, y, z)
@@ -706,11 +709,12 @@ local CisZoneDebug = {}
 ---@field local? boolean truthy switches the events to client-local TriggerEvent instead of TriggerServerEvent
 ---@field minZ? number the floor, default -1000.0, and the fallback Z for any poly point with no z
 ---@field maxZ? number the ceiling, default 10000.0
+---@field thickness? number poly only: a slab this many metres tall around the average z of the points, as ox_lib; ignored when minZ or maxZ is given
 ---@field heading? number the box heading
 ---@field rotation? number an alias for the box heading
 local CisZoneOptions = {}
 
--- ================================================= RAW EXPORTS (195)
+-- ================================================= RAW EXPORTS (202)
 
 ---@overload fun(...)
   ---@param groupData table #the group record handed to the provider's addGroup
@@ -1066,10 +1070,25 @@ function DrawText3D(x, y, z, text, settings) end
 --- realm: server
 function FixDoor(identifier) end
 
+--- Cis.player.on("heading", fn) -- init.lua calls it for the first heading listener
+---@return boolean #true. From then until the caller stops, heading changes are pushed on the cis_libs:cache event; without a follower they are not pushed at all
+--- realm: client
+function FollowCacheHeading() end
+
 --- no proxy equivalent; the full door and group tables
 ---@return table|nil #the provider's FULL door table, to whoever asks. Deprecated because Cis.doors.list() is scoped to the calling resource and refuses one that is not authorised, while this hands over the whole table
 --- realm: server
 function GetAllDoorData() end
+
+--- Cis.points.getAll()
+---@return integer[] #the ids of the CALLER own points, ascending; cis_libs sees every point
+--- realm: client
+function GetAllPoints() end
+
+--- Cis.zones.getAll()
+---@return string[] #the names of the CALLER own zones, sorted
+--- realm: client
+function GetAllZones() end
 
 --- The capability and configuration change log, newest last. Gated on Security.AuthorizedResources like every other mutating call. Entries carry resource and slot names and never a player name, identifier or IP. Bounded by Config.AuditLines, default 500
 ---@param limit? integer #how many entries to return; under 1 means every entry the ring holds
@@ -1161,6 +1180,11 @@ function GetConfigSummary() end
 --- realm: client
 function GetCurrentWeaponData(ped) end
 
+--- Cis.zones.getCurrent()
+---@return string[] #the names of the CALLER own zones the player is inside, sorted; cis_libs sees every zone
+--- realm: client
+function GetCurrentZones() end
+
 ---@overload fun(...)
   ---@param opts? table #opts.collect = true runs collectgarbage in THIS resource before counting. A collect in the caller VM does not collect cis_libs
   ---@return CisDiagnostics #CisDiagnostics.Collect('server'): counts and counters only, never player data
@@ -1225,6 +1249,18 @@ function GetLibsPrefix() end
 ---@return table #the live Logging table, not a copy -- writing to it mutates the library's logger
 --- realm: server
 function GetLogging() end
+
+--- Cis.points.getNearby()
+---@return integer[] #the ids of the CALLER own points the player is inside right now, ascending
+--- realm: client
+function GetNearbyPoints() end
+
+--- Cis.zones.getNearby(coords, radius)
+---@param coords? vector3|table #default the player coords
+---@param radius? number #metres on the ground plane, default 50
+---@return string[] #the names of the CALLER own zones whose footprint comes within radius, sorted; empty for a bad radius
+--- realm: client
+function GetNearbyZones(coords, radius) end
 
 --- Cis.framework.player(src)
 ---@param src integer #the player id, handed to the provider with no local check
@@ -1402,7 +1438,7 @@ function IsTextUIOpen() end
 
 --- Cis.keybind.add({ name, description, defaultKey, onPress, onRelease })
 ---@param options CisKeybindOptions #name is REQUIRED and validated, and refused while another resource holds it; onPress and onRelease are functions, which reach cis_libs as funcrefs and are called there. A stopped owner takes its bindings with it
----@return table|false, string|nil #a handle with id, name and owner, or false plus a reason. Its methods (disable, isPressed, reset, destroy) work only inside cis_libs -- across exports the metatable is lost, so keep handle.id and use KeybindDisable, KeybindEnable, KeybindIsPressed and KeybindRemove. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so renaming a binding creates a SECOND one rather than renaming the first
+---@return table|false, string|nil #a handle with id, name and owner, or false plus a reason. Its methods (disable, isPressed, reset, destroy, getCurrentKey) work only inside cis_libs -- across exports the metatable is lost, so keep handle.id and use KeybindDisable, KeybindEnable, KeybindIsPressed and KeybindRemove. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so renaming a binding creates a SECOND one rather than renaming the first
 --- realm: client
 function KeybindAdd(options) end
 
@@ -2012,6 +2048,15 @@ function TriggerLibCallback(name, cb, ...) end
 function TryAwaitCallback.server(name, ...) end
 function TryAwaitCallback.client(name, ...) end
 
+--- Cis.callback.tryAwaitWithin(name, timeoutMs, ...) -> ok, ... ; a per-call timeout instead of Config.CallbackTimeout
+---@param name string #a previously registered server callback name
+---@param timeoutMs number #this call own timeout, milliseconds in (0, 300000]; anything else is refused with a reason
+---@param ... ... #the arguments for the handler
+---@return boolean, any #true plus the whole packed reply; false plus a reason otherwise ('timeout' once the limit passes). Never raises 
+-- Why `any`: the handler's own result list, whose arity and types the handler alone decides
+--- realm: client
+function TryAwaitCallbackWithin(name, timeoutMs, ...) end
+
 --- Cis.ui.confirm(opts). A ui provider if registered, else the built-in AlertDialog. RETURNS, does not take a callback
 ---@param opts table #header (or title), content (or message), cancel, labels, size, centered
 ---@return any, string|nil #built-in: true plus 'confirm', or false plus 'cancel'; a provider answers its own value 
@@ -2113,7 +2158,7 @@ function WeaponAsset(name, timeout) end
 --- realm: client
 function ZoneContains(name, point) end
 
--- ================================================= Cis.* PROXIES (120)
+-- ================================================= Cis.* PROXIES (151)
 
 ---@class Cis.anim.play
 ---@field since string 1.1.0
@@ -2154,6 +2199,17 @@ function Cis.callback.await(name, ...) end
 -- Why `any`: the handler's own result list, whose arity and types the handler alone decides -- the handler is a function in another resource, and its return contract is that resource's, not this library's
 function Cis.callback.awaitClient(src, name, ...) end
 
+---@class Cis.callback.awaitWithin
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string TryAwaitCallbackWithin
+---@param name string #a registered name
+---@param timeoutMs number #this call own timeout in milliseconds, (0, 300000]
+---@param ... ... #the arguments for the handler
+---@return any #the result list; RAISES with the callback name and the reason on a refusal or timeout, as await does 
+-- Why `any`: the handler's own result list, whose arity and types the handler alone decides
+function Cis.callback.awaitWithin(name, timeoutMs, ...) end
+
 ---@class Cis.callback.call
 ---@field since string 1.0.0
 ---@field realm "both"
@@ -2182,7 +2238,7 @@ function Cis.callback.callClient(src, name, cb, ...) end
 ---@param name string #a non-empty handler name
 ---@param handler function|string #a function (from any resource; it crosses as a callable reference and is released when that resource stops) or a 'resource:Export' string
 ---@param opts? table #server only: { remote, ace, schema, maxStringLen }, as RegisterCallback
----@return boolean, string|nil #true once bound; false plus the reason on a refusal
+---@return boolean, string|nil #true once bound; false plus the reason on a refusal. From a consumer it is bound again when cis_libs restarts
 function Cis.callback.register(name, handler, opts) end
 
 ---@class Cis.callback.tryAwait
@@ -2194,6 +2250,17 @@ function Cis.callback.register(name, handler, opts) end
 ---@return boolean, any #true plus the whole result list, so a nil in the middle survives; false plus a reason otherwise. Never raises 
 -- Why `any`: the handler's own result list, whose arity and types the handler alone decides -- the handler is a function in another resource, and its return contract is that resource's, not this library's
 function Cis.callback.tryAwait(name, ...) end
+
+---@class Cis.callback.tryAwaitWithin
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string TryAwaitCallbackWithin
+---@param name string #a registered name
+---@param timeoutMs number #this call own timeout in milliseconds, (0, 300000]
+---@param ... ... #the arguments for the handler
+---@return boolean, any #true plus the whole result list; false plus a reason ('timeout' once the limit passes). Never raises 
+-- Why `any`: the handler's own result list, whose arity and types the handler alone decides
+function Cis.callback.tryAwaitWithin(name, timeoutMs, ...) end
 
 ---@class Cis.command.add
 ---@field since string 1.0.0
@@ -2431,7 +2498,7 @@ function Cis.inventory.remove(src, item, amount) end
 ---@field since string 1.0.0
 ---@field realm "client"
 ---@param options CisKeybindOptions #name REQUIRED; onPress / onRelease (or ox_lib onPressed / onReleased) are plain local functions, run in the calling resource
----@return table|false, string|nil #the handle, with working methods in a consumer: disable(state), isPressed(), reset(), destroy(). The commands and the mapping belong to the CALLING resource (since 1.1.0; before, to cis_libs -- a player rebind saved under cis_libs does not carry over). THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so a renamed binding is a second binding and the first still shows in the menu
+---@return table|false, string|nil #the handle, with working methods in a consumer: disable(state), isPressed(), reset(), destroy(), getCurrentKey() (the label of the bound key, as ox_lib getCurrentKey). The commands and the mapping belong to the CALLING resource (since 1.1.0; before, to cis_libs -- a player rebind saved under cis_libs does not carry over). THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so a renamed binding is a second binding and the first still shows in the menu
 function Cis.keybind.add(options) end
 
 ---@class Cis.log.debug
@@ -2547,8 +2614,16 @@ function Cis.player.heading() end
 ---@param onExit? function #on the client this is a function argument and it is DROPPED across the boundary
 ---@param onEnterEvent? string #an event name, which is a string and does cross -- this is the working form from a consumer
 ---@param onExitEvent? string #an event name, which is a string and does cross
----@return function, integer #the in-realm unsubscribe and the watcher id. Refusal is nil plus a reason naming what arrived as nil
+---@return function, integer #the in-realm unsubscribe (unusable once it has crossed) and the watcher id, for Cis.player.nearStop. The watcher is made again, under the same id, when cis_libs restarts. Refusal is nil plus a reason naming what arrived as nil
 function Cis.player.near(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent) end
+
+---@class Cis.player.nearStop
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string RemoveNearWatcher
+---@param id integer #the id Cis.player.near answered in its second slot; it stays valid across a cis_libs restart, which makes the watcher again
+---@return boolean, string #true once removed; false plus a reason for an unknown id or one another resource owns
+function Cis.player.nearStop(id) end
 
 ---@class Cis.player.on
 ---@field since string 1.0.0
@@ -2602,11 +2677,23 @@ function Cis.player.weapon() end
 ---@return integer|false, string|nil #the id, which is a number this library allocates and NEVER reuses -- so a stale id is a false refusal rather than another point vanishing. Every refusal is false plus a reason
 function Cis.points.add(data) end
 
+---@class Cis.points.getAll
+---@field since string 1.1.0
+---@field realm "client"
+---@return integer[] #the ids of the CALLER own points, ascending (ox_lib getAllPoints, as ids)
+function Cis.points.getAll() end
+
 ---@class Cis.points.getClosest
 ---@field since string 1.0.0
 ---@field realm "client"
 ---@return integer|nil, number|string|nil #the nearest of the CALLER own points and the distance in metres, or nil plus a reason. TWO SHAPES, and the second slot is the distance when there is an id and the reason when there is not. FREE in a consumer
 function Cis.points.getClosest() end
+
+---@class Cis.points.getNearby
+---@field since string 1.1.0
+---@field realm "client"
+---@return integer[] #the ids of the CALLER own points the player is inside right now (ox_lib getNearbyPoints, as ids)
+function Cis.points.getNearby() end
 
 ---@class Cis.points.remove
 ---@field since string 1.0.0
@@ -2683,7 +2770,7 @@ function Cis.security.report(src, reason) end
 ---@param key string #the key or *
 ---@param handler function #called (entity, value, replicated, deleted); crosses the boundary as a callable reference and is released when the calling resource stops
 ---@param timeoutMs? number #how long the client keeps a change whose entity has not streamed in, default 2000. The server does not wait
----@return integer|nil, string|nil #a cookie, or nil plus a reason
+---@return integer|nil, string|nil #a cookie for Cis.statebag.remove, or nil plus a reason. From a consumer the watcher is made again, under the same cookie, when cis_libs restarts
 function Cis.statebag.onEntity(key, handler, timeoutMs) end
 
 ---@class Cis.statebag.onPlayer
@@ -2693,7 +2780,7 @@ function Cis.statebag.onEntity(key, handler, timeoutMs) end
 ---@param key string #the key or *
 ---@param handler function #called (serverId, value, replicated, deleted); released when the calling resource stops
 ---@param timeoutMs? number #unused: a player watcher never waits
----@return integer|nil, string|nil #a cookie, or nil plus a reason
+---@return integer|nil, string|nil #a cookie for Cis.statebag.remove, or nil plus a reason. From a consumer the watcher is made again, under the same cookie, when cis_libs restarts
 function Cis.statebag.onPlayer(key, handler, timeoutMs) end
 
 ---@class Cis.statebag.remove
@@ -2811,7 +2898,7 @@ function Cis.sync.onDespawn(fn) end
 ---@field realm "both"
 ---@field forwardsTo string AddSyncSpawnHandler
 ---@param fn function #a function or a cross-resource reference, released when its resource stops; anything that cannot be called is refused
----@return boolean, string #true on success, and never a handle -- there is no deregister. Called pcall'd as (key, record, entity)
+---@return boolean, string #true on success, and never a handle -- there is no deregister. Called pcall'd as (key, record, entity). From a consumer the hook is added again when cis_libs restarts
 function Cis.sync.onSpawn(fn) end
 
 ---@class Cis.sync.ped
@@ -2855,7 +2942,7 @@ function Cis.sync.vehicle(data) end
 ---@param coords vector3|table #the centre
 ---@param size vector3|number #the size
 ---@param options? CisTargetOptions #the options, defaulted to {}
----@return boolean, string #true, or false plus a reason. update is a remove and re-create internally, so treat it as a rebuild rather than a patch on the provider
+---@return boolean, string #true, or false plus a reason. update is a remove and re-create internally, so treat it as a rebuild rather than a patch on the provider. From a consumer the target (and its last update) is made again when cis_libs restarts
 function Cis.target.add(zoneType, name, coords, size, options) end
 
 ---@class Cis.target.exists
@@ -2884,6 +2971,34 @@ function Cis.target.remove(name, isPed) end
 ---@return boolean, string #false with NO reason for an unknown name; false plus a reason when another resource owns it; otherwise whatever the implicit create returned
 function Cis.target.update(name, options) end
 
+---@class Cis.ui.cancelProgress
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string CancelProgress
+---@return boolean #true when one was running and is now cancelled (its caller gets false)
+function Cis.ui.cancelProgress() end
+
+---@class Cis.ui.cancelSkillCheck
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string CancelSkillCheck
+---@return boolean #true when one was running; its caller gets false
+function Cis.ui.cancelSkillCheck() end
+
+---@class Cis.ui.closeAlert
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string CloseAlertDialog
+---@return boolean #true when one was open; its caller gets 'cancel'
+function Cis.ui.closeAlert() end
+
+---@class Cis.ui.closeInput
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string CloseInputDialog
+---@return boolean #true when one was open; its caller gets nil
+function Cis.ui.closeInput() end
+
 ---@class Cis.ui.confirm
 ---@field since string 1.0.0
 ---@field realm "client"
@@ -2893,6 +3008,37 @@ function Cis.target.update(name, options) end
 -- Why `any`: a registered provider chooses its own value
 function Cis.ui.confirm(opts) end
 
+---@class Cis.ui.context.getOpen
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string GetOpenContextMenu
+---@return string|nil #the id of the open context menu
+function Cis.ui.context.getOpen() end
+
+---@class Cis.ui.context.hide
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string HideContext
+---@param onExit? boolean #true runs the menu onExit
+---@return boolean #true when one was open
+function Cis.ui.context.hide(onExit) end
+
+---@class Cis.ui.context.register
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string RegisterContext
+---@param context table #one context or a list: { id, title, menu (parent id), canClose, onExit, onBack, options = { { title, description, icon, iconColor, arrow, disabled, readOnly, progress, colorScheme, metadata, image, menu, onSelect, event, serverEvent, args } } }. serverEvent is fired by THIS CLIENT with TriggerServerEvent(name, args): the server handler must validate it like any client event
+---@return boolean, string|nil #true once registered; made again when cis_libs restarts. Owned by the calling resource and removed when it stops
+function Cis.ui.context.register(context) end
+
+---@class Cis.ui.context.show
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string ShowContext
+---@param id string #a registered context id
+---@return boolean, string|nil #true once shown; false plus a reason for an unknown id or before the page has loaded
+function Cis.ui.context.show(id) end
+
 ---@class Cis.ui.input
 ---@field since string 1.0.0
 ---@field realm "client"
@@ -2901,6 +3047,49 @@ function Cis.ui.confirm(opts) end
 ---@return any, string|nil #built-in: the list of values, or nil on cancel 
 -- Why `any`: a registered provider chooses its own value
 function Cis.ui.input(opts) end
+
+---@class Cis.ui.menu.getOpen
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string GetOpenMenu
+---@return string|nil #the id of the open list menu
+function Cis.ui.menu.getOpen() end
+
+---@class Cis.ui.menu.hide
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string HideMenu
+---@param onExit? boolean #true runs the menu onClose
+---@return boolean #true when one was open
+function Cis.ui.menu.hide(onExit) end
+
+---@class Cis.ui.menu.register
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string RegisterMenu
+---@param data table #{ id, title, position = top-left|top-right|bottom-left|bottom-right, options = { { label, description, icon, iconColor, values, defaultIndex, checked, progress, colorScheme, args, close } }, onSelected, onSideScroll, onCheck, onClose, disableInput, canClose }
+---@param cb? function #called (selected, scrollIndex, args) when an option is confirmed with Enter
+---@return boolean, string|nil #true once registered; made again when cis_libs restarts. Owned by the calling resource and removed when it stops
+function Cis.ui.menu.register(data, cb) end
+
+---@class Cis.ui.menu.setOptions
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string SetMenuOptions
+---@param id string #a registered menu id
+---@param options table #the full option list, or one option when index is given
+---@param index? integer #replace (or append, one past the end) this option only
+---@return boolean, string|nil #true once replaced; an open menu is redrawn
+function Cis.ui.menu.setOptions(id, options, index) end
+
+---@class Cis.ui.menu.show
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string ShowMenu
+---@param id string #a registered menu id
+---@param startIndex? integer #the option selected first
+---@return boolean, string|nil #true once shown. Keyboard-driven (arrows, Enter, Backspace/Escape); the player keeps control unless disableInput
+function Cis.ui.menu.show(id, startIndex) end
 
 ---@class Cis.ui.notify
 ---@field since string 1.0.0
@@ -2918,6 +3107,75 @@ function Cis.ui.notify(message, kind) end
 ---@param opts table #ProgressBar options; type = 'circle' for the circle
 ---@return boolean|nil, string|nil #true on completion, false on cancel. YIELDS until done
 function Cis.ui.progress(opts) end
+
+---@class Cis.ui.progressActive
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string ProgressActive
+---@return boolean #whether a progress bar or circle is running
+function Cis.ui.progressActive() end
+
+---@class Cis.ui.radial.add
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string AddRadialItem
+---@param data table #one item or a list: { id, label, icon, iconColor, menu (a RegisterRadial id), onSelect, keepOpen }. onSelect is called (menuId, index)
+---@return boolean, string|nil #true once added; made again when cis_libs restarts. The radial key (default Z) is registered with the first item
+function Cis.ui.radial.add(data) end
+
+---@class Cis.ui.radial.clear
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string ClearRadialItems
+---@return boolean #always true; removes every global item
+function Cis.ui.radial.clear() end
+
+---@class Cis.ui.radial.disable
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string DisableRadial
+---@param state boolean #true (default) stops the key opening the menu and closes it; false allows it again
+---@return boolean #always true
+function Cis.ui.radial.disable(state) end
+
+---@class Cis.ui.radial.hide
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string HideRadial
+---@return boolean #true when it was open
+function Cis.ui.radial.hide() end
+
+---@class Cis.ui.radial.register
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string RegisterRadial
+---@param radial table #{ id, items } -- a submenu opened by an item whose menu is this id
+---@return boolean, string|nil #true once registered; made again when cis_libs restarts
+function Cis.ui.radial.register(radial) end
+
+---@class Cis.ui.radial.remove
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string RemoveRadialItem
+---@param id string #the item id
+---@return boolean #true when it existed
+function Cis.ui.radial.remove(id) end
+
+---@class Cis.ui.skillCheck
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string SkillCheck
+---@param difficulty string|table #'easy' | 'medium' | 'hard', { areaSize, speedMultiplier }, or a list of those (one round each)
+---@param inputs? table #key names to pick from per round (e, q, r, f, g, w, a, s, d, 1-4); default { e }
+---@return boolean, string|nil #YIELDS. true when every round was hit; false on a miss, a wrong key, CancelSkillCheck, the caller stopping, or a refusal
+function Cis.ui.skillCheck(difficulty, inputs) end
+
+---@class Cis.ui.skillCheckActive
+---@field since string 1.1.0
+---@field realm "client"
+---@field forwardsTo string SkillCheckActive
+---@return boolean #whether a skill check is running
+function Cis.ui.skillCheckActive() end
 
 ---@class Cis.ui.textUI.hide
 ---@field since string 1.0.0
@@ -3006,6 +3264,15 @@ function Cis.world.getClosestPed(coords, maxDistance, filter, opts) end
 ---@return integer|false, vector3|string|nil, integer|nil #the player PED, its coords, and the player index in slot 3
 function Cis.world.getClosestPlayer(coords, maxDistance, filter, opts) end
 
+---@class Cis.world.getClosestPlayerId
+---@field since string 1.1.0
+---@field realm "client"
+---@param coords? vector3|table #default the player coords
+---@param maxDistance? number #metres; default 2.0, as ox_lib
+---@param includePlayer? boolean #true puts the local player in, as ox_lib
+---@return integer|false, integer|string|nil, vector3|nil #ox_lib getClosestPlayer order: the player INDEX, its ped and its coords; or false plus a reason
+function Cis.world.getClosestPlayerId(coords, maxDistance, includePlayer) end
+
 ---@class Cis.world.getClosestVehicle
 ---@field since string 1.1.0
 ---@field realm "client"
@@ -3073,6 +3340,26 @@ function Cis.zones.box(name, center, size, options) end
 ---@param point? vector3|table #the point to test; a nil answers false rather than raising
 ---@return boolean #true only on a real containment hit. FREE in a consumer: it tests the CALLER own zones, locally
 function Cis.zones.contains(name, point) end
+
+---@class Cis.zones.getAll
+---@field since string 1.1.0
+---@field realm "client"
+---@return string[] #the names of the CALLER own zones, sorted (ox_lib getAllZones, as names)
+function Cis.zones.getAll() end
+
+---@class Cis.zones.getCurrent
+---@field since string 1.1.0
+---@field realm "client"
+---@return string[] #the names of the CALLER own zones the player is inside, sorted (ox_lib getCurrentZones, as names)
+function Cis.zones.getCurrent() end
+
+---@class Cis.zones.getNearby
+---@field since string 1.1.0
+---@field realm "client"
+---@param coords? vector3|table #default the player coords
+---@param radius? number #metres on the ground plane, default 50
+---@return string[] #the names of the CALLER own zones whose footprint comes within radius, sorted (ox_lib getNearbyZones, as names)
+function Cis.zones.getNearby(coords, radius) end
 
 ---@class Cis.zones.poly
 ---@field since string 1.0.0
@@ -3194,10 +3481,12 @@ cis_libs.anim_play = Cis_anim_play
 cis_libs.cache = Cis_cache
 cis_libs.callback_await = Cis_callback_await
 cis_libs.callback_awaitClient = Cis_callback_awaitClient
+cis_libs.callback_awaitWithin = Cis_callback_awaitWithin
 cis_libs.callback_call = Cis_callback_call
 cis_libs.callback_callClient = Cis_callback_callClient
 cis_libs.callback_register = Cis_callback_register
 cis_libs.callback_tryAwait = Cis_callback_tryAwait
+cis_libs.callback_tryAwaitWithin = Cis_callback_tryAwaitWithin
 cis_libs.command_add = Cis_command_add
 cis_libs.command_list = Cis_command_list
 cis_libs.command_remove = Cis_command_remove
@@ -3238,6 +3527,7 @@ cis_libs.onCache = Cis_onCache
 cis_libs.player_coords = Cis_player_coords
 cis_libs.player_heading = Cis_player_heading
 cis_libs.player_near = Cis_player_near
+cis_libs.player_nearStop = Cis_player_nearStop
 cis_libs.player_on = Cis_player_on
 cis_libs.player_ped = Cis_player_ped
 cis_libs.player_playerId = Cis_player_playerId
@@ -3246,7 +3536,9 @@ cis_libs.player_serverId = Cis_player_serverId
 cis_libs.player_vehicle = Cis_player_vehicle
 cis_libs.player_weapon = Cis_player_weapon
 cis_libs.points_add = Cis_points_add
+cis_libs.points_getAll = Cis_points_getAll
 cis_libs.points_getClosest = Cis_points_getClosest
+cis_libs.points_getNearby = Cis_points_getNearby
 cis_libs.points_remove = Cis_points_remove
 cis_libs.raycast_camera = Cis_raycast_camera
 cis_libs.raycast_fromCoords = Cis_raycast_fromCoords
@@ -3280,10 +3572,32 @@ cis_libs.target_add = Cis_target_add
 cis_libs.target_exists = Cis_target_exists
 cis_libs.target_remove = Cis_target_remove
 cis_libs.target_update = Cis_target_update
+cis_libs.ui_cancelProgress = Cis_ui_cancelProgress
+cis_libs.ui_cancelSkillCheck = Cis_ui_cancelSkillCheck
+cis_libs.ui_closeAlert = Cis_ui_closeAlert
+cis_libs.ui_closeInput = Cis_ui_closeInput
 cis_libs.ui_confirm = Cis_ui_confirm
+cis_libs.ui_context_getOpen = Cis_ui_context_getOpen
+cis_libs.ui_context_hide = Cis_ui_context_hide
+cis_libs.ui_context_register = Cis_ui_context_register
+cis_libs.ui_context_show = Cis_ui_context_show
 cis_libs.ui_input = Cis_ui_input
+cis_libs.ui_menu_getOpen = Cis_ui_menu_getOpen
+cis_libs.ui_menu_hide = Cis_ui_menu_hide
+cis_libs.ui_menu_register = Cis_ui_menu_register
+cis_libs.ui_menu_setOptions = Cis_ui_menu_setOptions
+cis_libs.ui_menu_show = Cis_ui_menu_show
 cis_libs.ui_notify = Cis_ui_notify
 cis_libs.ui_progress = Cis_ui_progress
+cis_libs.ui_progressActive = Cis_ui_progressActive
+cis_libs.ui_radial_add = Cis_ui_radial_add
+cis_libs.ui_radial_clear = Cis_ui_radial_clear
+cis_libs.ui_radial_disable = Cis_ui_radial_disable
+cis_libs.ui_radial_hide = Cis_ui_radial_hide
+cis_libs.ui_radial_register = Cis_ui_radial_register
+cis_libs.ui_radial_remove = Cis_ui_radial_remove
+cis_libs.ui_skillCheck = Cis_ui_skillCheck
+cis_libs.ui_skillCheckActive = Cis_ui_skillCheckActive
 cis_libs.ui_textUI_hide = Cis_ui_textUI_hide
 cis_libs.ui_textUI_isOpen = Cis_ui_textUI_isOpen
 cis_libs.ui_textUI_show = Cis_ui_textUI_show
@@ -3294,6 +3608,7 @@ cis_libs.waitFor = Cis_waitFor
 cis_libs.world_getClosestObject = Cis_world_getClosestObject
 cis_libs.world_getClosestPed = Cis_world_getClosestPed
 cis_libs.world_getClosestPlayer = Cis_world_getClosestPlayer
+cis_libs.world_getClosestPlayerId = Cis_world_getClosestPlayerId
 cis_libs.world_getClosestVehicle = Cis_world_getClosestVehicle
 cis_libs.world_getNearbyObjects = Cis_world_getNearbyObjects
 cis_libs.world_getNearbyPeds = Cis_world_getNearbyPeds
@@ -3301,6 +3616,9 @@ cis_libs.world_getNearbyPlayers = Cis_world_getNearbyPlayers
 cis_libs.world_getNearbyVehicles = Cis_world_getNearbyVehicles
 cis_libs.zones_box = Cis_zones_box
 cis_libs.zones_contains = Cis_zones_contains
+cis_libs.zones_getAll = Cis_zones_getAll
+cis_libs.zones_getCurrent = Cis_zones_getCurrent
+cis_libs.zones_getNearby = Cis_zones_getNearby
 cis_libs.zones_poly = Cis_zones_poly
 cis_libs.zones_remove = Cis_zones_remove
 cis_libs.zones_server_box = Cis_zones_server_box

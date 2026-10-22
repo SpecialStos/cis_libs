@@ -7,7 +7,10 @@
 -- DESTROYED. destroy() frees the browser with DestroyDui, and releaseAll() --
 -- run by init.lua when the consumer stops -- frees every page still open. A
 -- runtime texture dictionary cannot be freed by any native, so each object names
--- its own from the resource and a counter and never reuses one.
+-- its own from the resource, this load and a counter. The counter alone started
+-- at 1 again when the consumer restarted, and the new page drew into the
+-- destroyed browser's dictionary; the load tag (game timer and random bits,
+-- ox_lib does the same) keeps a name from being reused.
 --
 -- cfg: resource (the consumer's name, for unique dictionary names)
 
@@ -30,6 +33,7 @@ function M.new(cfg)
     cfg = cfg or {}
     return setmetatable({
         resource = tostring(cfg.resource or 'res'),
+        loadTag = ('%x%04x'):format(GetGameTimer(), math.random(0, 0xffff)),
         live = {},
         nextId = 0,
     }, Factory)
@@ -52,7 +56,7 @@ function Factory:create(opts)
     end
     self.nextId = self.nextId + 1
     local id = self.nextId
-    local dictName = ('cis_dui_%s_%d'):format(self.resource, id)
+    local dictName = ('cis_dui_%s_%s_%d'):format(self.resource, self.loadTag, id)
     local txtName = 'page'
     local txd = CreateRuntimeTxd(dictName)
     CreateRuntimeTextureFromDuiHandle(txd, txtName, GetDuiHandle(object))

@@ -17,6 +17,7 @@
 --   onRegister(zone), onRemove(zone)   owner bookkeeping for the wrapper
 --   timing       CisTiming or nil
 --   autoDrive    true: the instance runs its own thread, ONLY while zones exist
+--   awaitReady() optional; the driven thread calls it once before its first pass
 
 local M = {}
 
@@ -81,6 +82,7 @@ function M.new(cfg)
         onRemove = cfg.onRemove or noop,
         timing = cfg.timing,
         autoDrive = cfg.autoDrive == true,
+        awaitReady = cfg.awaitReady,
         zones = {},
         inside = {},
         -- Set by any create or remove, so the next pass runs discovery at once.
@@ -176,9 +178,9 @@ function Zones:create(kind, name, a, b, options, owner)
     if kind == 'box' and (b == nil) then
         return false, 'a box zone needs a size; it arrived as nil'
     end
-    if self.zones[name] then
-        self:remove(name)
-    end
+    -- The old zone of this name is removed only once the new one is known to be
+    -- good (below): re-creating 'shop' with a bad point list returned false and
+    -- had already destroyed the live 'shop'.
     local zone = {
         name = name,
         kind = kind,
@@ -195,6 +197,10 @@ function Zones:create(kind, name, a, b, options, owner)
     zone.onExitEvent = options.onExitEvent
     zone.insideEvent = options.insideEvent
 
+    local interval = zone.insideInterval
+    if interval ~= nil and (type(interval) ~= 'number' or interval ~= interval or interval < 0) then
+        return false, ('insideInterval must be a number of milliseconds, got %s'):format(tostring(interval))
+    end
     -- THE INSIDE INTERVAL IS CLAMPED, AND A CLIENT-SIDE OPTION EXISTS.
     if zone.insideEvent then
         -- `local` is a Lua keyword, so this key is read with brackets.
@@ -212,8 +218,27 @@ function Zones:create(kind, name, a, b, options, owner)
     if kind == 'poly' then
         local points = normalizePoints(a, options.minZ)
         zone.points = points
-        zone.minZ = options.minZ or -1000.0
-        zone.maxZ = options.maxZ or 10000.0
+        local minZ, maxZ = options.minZ, options.maxZ
+        -- THICKNESS, as ox_lib's poly has it: a slab that tall around the points'
+        -- average z. Without it a ported zone spanned z -1000 to 10000, so every
+        -- floor of a building was inside. minZ/maxZ given explicitly still win.
+        local thickness = options.thickness
+        if thickness ~= nil then
+            if type(thickness) ~= 'number' or thickness ~= thickness or thickness <= 0 then
+                return false, ('poly zone %q: thickness must be a positive number, got %s')
+                    :format(name, tostring(thickness))
+            end
+            if minZ == nil and maxZ == nil and #points > 0 then
+                local sum = 0.0
+                for i = 1, #points do
+                    sum = sum + points[i].z
+                end
+                local mid = sum / #points
+                minZ, maxZ = mid - thickness * 0.5, mid + thickness * 0.5
+            end
+        end
+        zone.minZ = minZ or -1000.0
+        zone.maxZ = maxZ or 10000.0
         -- A poly zone with no points, or a point that did not survive the
         local box, boxWhy = self.Grid.aabbFromPoints(points, zone.minZ, zone.maxZ, 0.5)
         if not box then
@@ -254,17 +279,24 @@ function Zones:create(kind, name, a, b, options, owner)
             :format(tostring(kind))
     end
 
+    local fits, fitWhy = self.Grid.admits(zone.aabb)
+    if not fits then
+        return false, ('zone %q: %s'):format(name, tostring(fitWhy))
+    end
+    if self.zones[name] then
+        self:remove(name)
+    end
     local registered, registerWhy = self:register(zone)
     if not registered then
         return false, registerWhy
     end
     -- AFTER a successful registration, so a refused zone cannot start a thread that
     self.zonesDirty = true
-    if zone.debug then
-        self:ensureDebugDraw()
-    end
     if self.autoDrive then
         self:drive()
+    end
+    if zone.debug then
+        self:ensureDebugDraw()
     end
     return true
 end
@@ -539,15 +571,18 @@ function Zones:insidePass()
     return drew and 0 or 250
 end
 
--- THE CONSUMER'S DRIVER. One thread, started by the first create and ended by
+-- THE DRIVER. One thread, started by the first create and ended by
 -- the pass that finds the set empty, so a resource with no zones runs nothing.
--- cis_libs does not use this: client/zones.lua keeps its two guarded loops.
+-- cis_libs uses it too: client/zones.lua builds its engine with autoDrive.
 function Zones:drive()
     if self.driving then
         return
     end
     self.driving = true
     CreateThread(function()
+        if self.awaitReady then
+            self.awaitReady()
+        end
         local tick = self.guard('zones.pass', function() return self:pass() end)
         local tickInside = self.guard('zones.inside', function() return self:insidePass() end)
         while next(self.zones) ~= nil do
@@ -560,10 +595,50 @@ function Zones:drive()
 end
 
 -- Sorted names of the zones the player is inside, built on request only.
-function Zones:insideNames()
+-- `owner` limits it to one resource's zones.
+function Zones:insideNames(owner)
     local names = {}
     for id in pairs(self.inside) do
-        names[#names + 1] = id
+        local zone = self.zones[id]
+        if zone and (owner == nil or zone.owner == owner) then
+            names[#names + 1] = id
+        end
+    end
+    table.sort(names)
+    return names
+end
+
+-- Sorted names of every zone, or one resource's.
+function Zones:allNames(owner)
+    local names = {}
+    for id, zone in pairs(self.zones) do
+        if owner == nil or zone.owner == owner then
+            names[#names + 1] = id
+        end
+    end
+    table.sort(names)
+    return names
+end
+
+-- Sorted names of the zones whose footprint comes within `radius` metres of
+-- `coords` on the ground plane (default: the player, 50 m).
+function Zones:nearbyNames(coords, radius, owner)
+    coords = coords or self.coordsOf()
+    radius = radius or 50.0
+    local names = {}
+    if not coords or type(radius) ~= 'number' or radius ~= radius or radius < 0 then
+        return names
+    end
+    local r2 = radius * radius
+    for id, zone in pairs(self.zones) do
+        local box = zone.aabb
+        if box and (owner == nil or zone.owner == owner) then
+            local dx = math.max(box.minX - coords.x, 0.0, coords.x - box.maxX)
+            local dy = math.max(box.minY - coords.y, 0.0, coords.y - box.maxY)
+            if dx * dx + dy * dy <= r2 then
+                names[#names + 1] = id
+            end
+        end
     end
     table.sort(names)
     return names

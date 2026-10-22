@@ -41,8 +41,48 @@ function GetPlayerVehicleSeat()
 end
 
 local CLOSEST_RANGE = 5.0
--- START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE flags: 2 = vehicles.
+-- START_SHAPE_TEST_LOS_PROBE flags: 2 = vehicles.
 local PROBE_VEHICLES = 2
+-- How long the forward probe is polled for before the pool answers instead.
+local PROBE_WAIT_MS = 100
+
+-- The vehicle under the forward probe, or nil. ASYNCHRONOUS: the synchronous
+-- probe blocked the game thread. A result needs a later frame, so it is polled
+-- only by a caller that can yield; one that cannot gets the pool's answer and no
+-- probe is started, so no handle is left unread.
+local function probeAhead(ped, from)
+    if not coroutine.isyieldable() then
+        return nil
+    end
+    local to = GetOffsetFromEntityInWorldCoords(ped, 0.0, CLOSEST_RANGE, 0.0)
+    if not to or to.x == nil then
+        return nil
+    end
+    -- SIX FLOATS, not two vectors: the probe takes x1, y1, z1, x2, y2, z2.
+    local handle = StartShapeTestLosProbe(
+        from.x, from.y, from.z, to.x, to.y, to.z, PROBE_VEHICLES, ped, 7)
+    if not handle or handle == 0 then
+        return nil
+    end
+    local deadline = GetGameTimer() + PROBE_WAIT_MS
+    while true do
+        local status, hit, _, _, entityHit = GetShapeTestResult(handle)
+        if status == 2 then
+            -- `hit` is a BOOL out-parameter; CfxLua hands those back as 0/1. Both
+            -- spellings are accepted so a runtime that answers a boolean agrees.
+            if (hit == true or hit == 1) and entityHit and entityHit ~= 0
+                and GetEntityType(entityHit) == 2 then
+                return entityHit
+            end
+            return nil
+        end
+        -- 0 is a handle the engine no longer knows; anything but 1 is not pending.
+        if status ~= 1 or GetGameTimer() >= deadline then
+            return nil
+        end
+        Wait(0)
+    end
+end
 
 -- The vehicle the player means: the one under a 5 m forward probe if there is
 -- one, otherwise the nearest within 5 m from the vehicle pool. 0 when there is
@@ -58,18 +98,9 @@ function CisGetClosestVehicle()
     if not from or from.x == nil then
         return 0
     end
-    local to = GetOffsetFromEntityInWorldCoords(ped, 0.0, CLOSEST_RANGE, 0.0)
-    if to and to.x ~= nil then
-        -- SIX FLOATS, not two vectors: the probe takes x1, y1, z1, x2, y2, z2.
-        local handle = StartExpensiveSynchronousShapeTestLosProbe(
-            from.x, from.y, from.z, to.x, to.y, to.z, PROBE_VEHICLES, ped, 7)
-        local status, hit, _, _, entityHit = GetShapeTestResult(handle)
-        -- `hit` is a BOOL out-parameter; CfxLua hands those back as 0/1. Both
-        -- spellings are accepted so a runtime that answers a boolean agrees.
-        if status == 2 and (hit == true or hit == 1) and entityHit and entityHit ~= 0
-            and GetEntityType(entityHit) == 2 then
-            return entityHit
-        end
+    local ahead = probeAhead(ped, from)
+    if ahead then
+        return ahead
     end
     local best, best2 = 0, CLOSEST_RANGE * CLOSEST_RANGE
     local pool = GetGamePool('CVehicle')

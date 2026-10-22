@@ -50,7 +50,9 @@ local KINDS = {
         request = 'RequestWeaponAsset',
         loaded = 'HasWeaponAssetLoaded',
         release = 'RemoveWeaponAsset',
-        requestArgs = function(hash) return hash, 0, 0 end,
+        -- p1 is 31 in every script call of REQUEST_WEAPON_ASSET the native docs
+        -- cite, and in ox_lib; 0 asked for none of the weapon's asset parts.
+        requestArgs = function(hash) return hash, 31, 0 end,
     },
     scaleform = {
         request = 'RequestScaleformMovie',
@@ -150,7 +152,7 @@ local function requestAsset(kind, asset, timeout)
                 if release then
                     pcall(release, name)
                 end
-                return nil, ('%s %q did not load within %dms')
+                return nil, ('%s %q did not load within %sms')
                     :format(kind, tostring(name), tonumber(timeout) or DEFAULT_TIMEOUT_MS)
             end
             Wait(POLL_MS)
@@ -181,7 +183,8 @@ local function requestAsset(kind, asset, timeout)
             if release then
                 pcall(release, handle or (hash or name))
             end
-            return nil, ('%s %q did not load within %dms')
+            -- %s, not %d: a fractional timeout raised in Lua 5.4 on its way out.
+            return nil, ('%s %q did not load within %sms')
                 :format(kind, tostring(name), tonumber(timeout) or DEFAULT_TIMEOUT_MS)
         end
         Wait(POLL_MS)
