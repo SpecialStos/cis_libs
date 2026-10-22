@@ -2,7 +2,9 @@
 
 local M = {}
 
--- math.type is Lua 5.3+. A FiveM client runs LuaJIT and does not have it, so the
+-- math.type is Lua 5.3+. FiveM runs CfxLua 5.4 on both realms, so it is there
+-- in production; it is feature-detected for the other Lua hosts this file runs
+-- on (test interpreters, tooling).
 local HAS_MATH_TYPE = type(math.type) == 'function'
 
 local function typeName(v)
@@ -12,6 +14,15 @@ local function typeName(v)
         return 'integer'
     end
     return t
+end
+
+-- A bound as text. `%d` raises on 2.5 ("number has no integer representation"),
+-- and a bound is the caller's number, not ours to assume whole.
+local function num(n)
+    if type(n) == 'number' and n % 1 == 0 and n > -1e15 and n < 1e15 then
+        return ('%.0f'):format(n)
+    end
+    return tostring(n)
 end
 
 local function nameOf(opts)
@@ -27,10 +38,14 @@ local function wrongType(name, want, got)
 end
 
 --- Whether a number has no fractional part.
---- @param v
---- @return boolean  true for a number with no fractional part, INCLUDING 5.0. NaN is not an integer.
+---@param v any
+---@return boolean  false for NaN and for infinity
 function M.isInteger(v)
     if type(v) ~= 'number' then
+        return false
+    end
+    -- Infinity is not an integer, though math.floor(inf) == inf says otherwise.
+    if v == math.huge or v == -math.huge then
         return false
     end
     -- NaN fails this too, which is the right answer: NaN is not an integer.
@@ -38,8 +53,8 @@ function M.isInteger(v)
 end
 
 --- Whether a number is finite. NaN and +/-inf are rejected.
---- @param v
---- @return boolean  true only for a real number: NaN and +/-infinity are rejected
+---@param v any
+---@return boolean  true only for a real number: NaN and +/-infinity are rejected
 function M.isFinite(v)
     if type(v) ~= 'number' then
         return false
@@ -48,9 +63,10 @@ function M.isFinite(v)
 end
 
 --- Check a number. opts.min, opts.max inclusive bounds, either may be omitted
---- @param v
---- @param opts
---- @return `true`, or `false, reason`. nil is reported as MISSING rather than
+---@param v any
+---@param opts? table  { min, max, integer, name }
+---@return boolean
+---@return string|nil  why
 function M.number(v, opts)
     opts = opts or {}
     local name = nameOf(opts)
@@ -76,9 +92,10 @@ function M.number(v, opts)
 end
 
 --- Check that a value has no fractional part.
---- @param v
---- @param opts
---- @return boolean|nil,string  true, or nil and a reason. Same as number() with integer forced on, and opts is not mutated.
+---@param v any
+---@param opts? table  { min, max, name }
+---@return boolean
+---@return string|nil  why
 function M.integer(v, opts)
     opts = opts or {}
     -- A fresh table rather than mutating the caller's: adding `integer = true` to the
@@ -88,9 +105,10 @@ function M.integer(v, opts)
 end
 
 --- Check a string. opts.min, opts.max inclusive LENGTH bounds, in bytes opts.pattern a
---- @param v
---- @param opts
---- @return `true`, or `false, reason`.
+---@param v any
+---@param opts? table  { min, max, nonEmpty, oneOf, ignoreCase, pattern, trim, name }
+---@return boolean
+---@return string|nil  why
 function M.string(v, opts)
     opts = opts or {}
     local name = nameOf(opts)
@@ -105,10 +123,10 @@ function M.string(v, opts)
         return false, ('%s must not be empty'):format(name)
     end
     if opts.min ~= nil and len < opts.min then
-        return false, ('%s must be at least %d characters, got %d'):format(name, opts.min, len)
+        return false, ('%s must be at least %s characters, got %d'):format(name, num(opts.min), len)
     end
     if opts.max ~= nil and len > opts.max then
-        return false, ('%s must be at most %d characters, got %d'):format(name, opts.max, len)
+        return false, ('%s must be at most %s characters, got %d'):format(name, num(opts.max), len)
     end
     if opts.oneOf then
         local found = false
@@ -150,9 +168,10 @@ function M.string(v, opts)
 end
 
 --- Check a boolean. There is no truthy coercion: 1, 'true' and {} all fail, because
---- @param v
---- @param opts
---- @return boolean|nil,string  true only for a real boolean. There is no truthy coercion: 1, 'true' and {} all fail.
+---@param v any
+---@param opts? table  { name }
+---@return boolean
+---@return string|nil  why
 function M.boolean(v, opts)
     local name = nameOf(opts)
     if v == nil then
@@ -216,9 +235,10 @@ local function copyTree(v)
 end
 
 --- Check a table, and optionally its SHAPE.
---- @param v
---- @param opts
---- @return boolean|nil,string  true, or nil and a reason. Reads real storage, so an __index metatable cannot make an empty table pass a nonEmpty check.
+---@param v any
+---@param opts? table  { shape, nonEmpty, min, max, of, name }
+---@return boolean
+---@return string|nil  why
 function M.tableValue(v, opts)
     opts = opts or {}
     local name = nameOf(opts)
@@ -242,10 +262,10 @@ function M.tableValue(v, opts)
         return false, ('%s must not be empty'):format(name)
     end
     if opts.min ~= nil and count < opts.min then
-        return false, ('%s must have at least %d entries, got %d'):format(name, opts.min, count)
+        return false, ('%s must have at least %s entries, got %d'):format(name, num(opts.min), count)
     end
     if opts.max ~= nil and count > opts.max then
-        return false, ('%s must have at most %d entries, got %d'):format(name, opts.max, count)
+        return false, ('%s must have at most %s entries, got %d'):format(name, num(opts.max), count)
     end
     if opts.of then
         local ok, why = shapeOf(v, opts.of, name)
@@ -257,10 +277,11 @@ function M.tableValue(v, opts)
 end
 
 --- Validate one value against a field spec.
---- @param value
---- @param spec
---- @param path
---- @return `true`, or `false, reason` where reason carries the full path.
+---@param value any
+---@param spec table
+---@param path? string
+---@return boolean
+---@return string|nil  why, carrying the full path
 function M.field(value, spec, path)
     path = path or nameOf(spec)
     if type(spec) ~= 'table' then
@@ -348,10 +369,11 @@ function M.field(value, spec, path)
 end
 
 --- Validate a whole table against a schema of field specs.
---- @param value
---- @param schema
---- @param opts
---- @return `true` when everything matches, or `false, errors` where `errors` is
+---@param value table|nil
+---@param schema table
+---@param opts? table  { strict, path }
+---@return boolean
+---@return string|string[]|nil  every problem found
 function M.schema(value, schema, opts)
     opts = opts or {}
     if type(schema) ~= 'table' then
@@ -419,9 +441,10 @@ local function applyFieldDefaults(value, spec)
 end
 
 --- Fill a table's missing fields from a schema's `default` values.
---- @param value
---- @param schema
---- @return the filled table, or `nil, reason` for a non-table value or schema.
+---@param value table
+---@param schema table
+---@return table|nil  a NEW filled table
+---@return string|nil  why
 function M.defaults(value, schema)
     if type(value) ~= 'table' then
         return nil, ('value must be a table, got %s'):format(type(value))
@@ -443,10 +466,11 @@ function M.defaults(value, schema)
 end
 
 --- Constrain a number to a range.
---- @param v
---- @param min
---- @param max
---- @return the clamped number, or `nil, reason` for a non-number, a NaN, or an
+---@param v number
+---@param min? number
+---@param max? number
+---@return number|nil
+---@return string|nil  why
 function M.clamp(v, min, max)
     if type(v) ~= 'number' then
         return nil, ('value must be a number, got %s'):format(typeName(v))

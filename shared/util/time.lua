@@ -19,6 +19,13 @@ local UNITS = {
     { key = 'second', field = 'seconds', symbol = 's', seconds = 1 },
 }
 
+-- A whole number as text, for any magnitude. `%d` raises on a float with no
+-- integer representation -- math.floor(1e300) is still a float in Lua 5.4 --
+-- and `%.0f` never does.
+local function wholeText(n)
+    return ('%.0f'):format(n)
+end
+
 local SYMBOL_SECONDS = {
     w = 604800, wk = 604800, week = 604800, weeks = 604800,
     d = 86400, day = 86400, days = 86400,
@@ -28,8 +35,9 @@ local SYMBOL_SECONDS = {
 }
 
 --- Read the clock from an INJECTED source.
---- @param clock function returning a number of seconds, or nil.
---- @return the number, or `nil, reason`.
+---@param clock fun(): number  returning a number of seconds, or nil.
+---@return number|nil
+---@return string|nil  why
 function M.now(clock)
     if type(clock) ~= 'function' then
         return nil, 'no clock was injected; pass clock() returning seconds'
@@ -45,8 +53,8 @@ function M.now(clock)
 end
 
 --- Break a duration into { weeks, days, hours, minutes, seconds }.
---- @param seconds
---- @return table  { weeks, days, hours, minutes, seconds, fractional, negative }. A non-number, NaN or infinity is 0 rather than an error.
+---@param seconds number
+---@return table  { weeks, days, hours, minutes, seconds, fractional, negative }. A non-number, NaN or infinity is 0 rather than an error.
 function M.parts(seconds)
     local negative = false
     -- Strict about the type, unlike a `tonumber(seconds) or 0`.
@@ -75,9 +83,9 @@ function M.parts(seconds)
 end
 
 --- Format a duration as "2h 14m".
---- @param seconds
---- @param opts
---- @return a string. A non-numeric input is '0s', not an error: this is a
+---@param seconds number
+---@param opts? table  { sep, max, ms }
+---@return string  "0s" for a non-number
 function M.formatDuration(seconds, opts)
     opts = opts or {}
     local sep = opts.sep or ' '
@@ -98,7 +106,7 @@ function M.formatDuration(seconds, opts)
             if ms <= 0 then
                 return sign .. '0ms'
             end
-            return ('%s%dms'):format(sign, ms)
+            return ('%s%sms'):format(sign, wholeText(ms))
         end
         return sign .. '0s'
     end
@@ -112,7 +120,7 @@ function M.formatDuration(seconds, opts)
         if n > 0 then
             remaining = remaining - n * u.seconds
             shown = shown + 1
-            pieces[#pieces + 1] = ('%d%s'):format(n, u.symbol)
+            pieces[#pieces + 1] = wholeText(n) .. u.symbol
             if shown >= max then
                 break
             end
@@ -125,8 +133,9 @@ function M.formatDuration(seconds, opts)
 end
 
 --- Parse a human duration back into seconds.
---- @param text
---- @return the number of seconds, or `nil, reason` naming the offending piece.
+---@param text string|number
+---@return number|nil  seconds
+---@return string|nil  the offending piece
 function M.parseDuration(text)
     if type(text) == 'number' then
         if text ~= text or text == math.huge or text == -math.huge then
@@ -184,15 +193,16 @@ function M.parseDuration(text)
 end
 
 --- Relative time in words: '3 minutes ago', 'in 3 minutes', 'just now'.
---- @param timestamp
---- @param now
---- @param opts
---- @return a string. nil in gives 'unknown', because "this thing has no
+---@param timestamp number
+---@param now number
+---@param opts? table  { within, justNow, future, past }
+---@return string  "unknown" for a non-finite instant
 function M.relative(timestamp, now, opts)
-    if type(timestamp) ~= 'number' or timestamp ~= timestamp then
+    if type(timestamp) ~= 'number' or timestamp ~= timestamp
+        or timestamp == math.huge or timestamp == -math.huge then
         return 'unknown'
     end
-    if type(now) ~= 'number' or now ~= now then
+    if type(now) ~= 'number' or now ~= now or now == math.huge or now == -math.huge then
         return 'unknown'
     end
     opts = opts or {}
@@ -210,19 +220,19 @@ function M.relative(timestamp, now, opts)
     local piece
     if magnitude >= M.WEEK then
         local n = math.floor(magnitude / M.WEEK)
-        piece = ('%d %s'):format(n, n == 1 and 'week' or 'weeks')
+        piece = ('%s %s'):format(wholeText(n), n == 1 and 'week' or 'weeks')
     elseif magnitude >= M.DAY then
         local n = math.floor(magnitude / M.DAY)
-        piece = ('%d %s'):format(n, n == 1 and 'day' or 'days')
+        piece = ('%s %s'):format(wholeText(n), n == 1 and 'day' or 'days')
     elseif magnitude >= M.HOUR then
         local n = math.floor(magnitude / M.HOUR)
-        piece = ('%d %s'):format(n, n == 1 and 'hour' or 'hours')
+        piece = ('%s %s'):format(wholeText(n), n == 1 and 'hour' or 'hours')
     elseif magnitude >= M.MINUTE then
         local n = math.floor(magnitude / M.MINUTE)
-        piece = ('%d %s'):format(n, n == 1 and 'minute' or 'minutes')
+        piece = ('%s %s'):format(wholeText(n), n == 1 and 'minute' or 'minutes')
     else
         local n = math.floor(magnitude)
-        piece = ('%d %s'):format(n, n == 1 and 'second' or 'seconds')
+        piece = ('%s %s'):format(wholeText(n), n == 1 and 'second' or 'seconds')
     end
     if future then
         if opts.future == false then
@@ -240,9 +250,9 @@ function M.relative(timestamp, now, opts)
 end
 
 --- Seconds elapsed between two instants: `now - since`.
---- @param now
---- @param since
---- @return a number, or 0 when either argument is not a number. Compare the
+---@param now number
+---@param since number
+---@return number  0 when either is not a number
 function M.elapsed(now, since)
     if type(now) ~= 'number' or type(since) ~= 'number' then
         return 0
@@ -251,9 +261,9 @@ function M.elapsed(now, since)
 end
 
 --- Round a duration in SECONDS to a whole number of `unit`s, to the NEAREST, and return
---- @param seconds
---- @param unit
---- @return SECONDS, rounded to a whole multiple of `unit`. Ties go UP (30s to a
+---@param seconds number
+---@param unit? number  default 60
+---@return number  seconds, rounded to a whole multiple of unit, ties up
 function M.roundTo(seconds, unit)
     if type(seconds) ~= 'number' or seconds ~= seconds then
         return 0

@@ -24,17 +24,17 @@ local CisAuditEntry = {}
 
 ---@class CisCurve
 -- The table Cis.require('curve') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.
----@field lengthOf function
----@field hermite function
----@field catmullRom function
----@field newPath function
----@field count function
----@field length function
----@field pointAtXYZ function
----@field pointAt function
----@field pointAtT function
----@field tangentAtXYZ function
----@field sample function
+---@field lengthOf fun(points: table|nil): number # Chord length of a polyline, summed.
+---@field hermite fun(p0: table, p1: table, m0: table, m1: table, t: number): number, number, number # Cubic Hermite basis evaluation.
+---@field catmullRom fun(p0: table|vector2|vector3|vector4|nil, p1: table|vector2|vector3|vector4, p2: table|vector2|vector3|vector4, p3: table|vector2|vector3|vector4|nil, t: number, alpha?: number): number, number, number # Evaluate one Catmull-Rom segment from four control points.
+---@field newPath fun(points: table, opts?: table): table # Build an arc-length parameterised Catmull-Rom path.
+---@field count fun(path: table): integer # Number of control points, or 0 for a path built from nothing.
+---@field length fun(path: table): number # Total arc length of the path in metres, measured along the CURVE and not along the
+---@field pointAtXYZ fun(path: table, distance: number): number, number, number, boolean # The point at `distance` metres along the path.
+---@field pointAt fun(path: table, distance: number, out?: table): table|nil # The point at `distance` metres along the path, as a table.
+---@field pointAtT fun(path: table, t: number, out?: table): table|nil # The point at a fraction of the whole path, 0..1.
+---@field tangentAtXYZ fun(path: table, distance: number): number, number, number # Unit tangent (the direction of travel) at `distance` metres along the path.
+---@field sample fun(path: table, count?: number): table # Evenly spaced samples along the path, for drawing a route, handing one to a native,
 local CisCurve = {}
 
 ---@class CisDetection
@@ -59,80 +59,80 @@ local CisDiagnostics = {}
 
 ---@class CisHeap
 -- The table Cis.require('heap') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.
----@field new function
----@field push function
----@field pop function
----@field peek function
----@field replaceTop function
----@field remove function
----@field size function
----@field isEmpty function
----@field clear function
----@field drain function
----@field build function
----@field newQueue function
----@field enqueue function
----@field dequeue function
----@field peekQueue function
+---@field new fun(less?: fun(a: any, b: any): boolean): table # Create an empty heap.
+---@field push fun(h: table, value: any): integer|nil, string|nil # Add a value.
+---@field pop fun(h: table): any # Remove and return the minimum.
+---@field peek fun(h: table): any # The minimum, without removing it.
+---@field replaceTop fun(h: table, value: any): any # Replace the minimum in place.
+---@field remove fun(h: table, value: any): boolean # Remove a specific value wherever it is.
+---@field size fun(h: table): integer # How many values are queued.
+---@field isEmpty fun(h: table): boolean # Is the heap empty?
+---@field clear fun(h: table) # Drop everything.
+---@field drain fun(h: table): table # Pop everything into a sorted array, cheapest element first.
+---@field build fun(list: table, less?: fun(a: any, b: any): boolean): table # Build a heap from an existing list in O(n).
+---@field newQueue fun(): table # A FIFO-ordered priority queue.
+---@field enqueue fun(q: table, value: any, priority?: number): integer # Add a value at a priority.
+---@field dequeue fun(q: table): any # Remove and return the highest-priority (lowest number) value.
+---@field peekQueue fun(q: table): any # The next value without removing it.
 local CisHeap = {}
 
 ---@class CisId
 -- The table Cis.require('id') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.
----@field draw function
----@field short function
----@field uuid function
----@field newCounter function
----@field next function
----@field normaliseName function
+---@field draw fun(count?: number, alphabet?: string, rng?: table|fun(): number): string|nil, string|nil # Draw `count` symbols from `alphabet`.
+---@field short fun(prefix?: string, opts?: table): string|nil, string|nil # A short opaque id, optionally prefixed.
+---@field uuid fun(rng?: table|fun(): number): string|nil, string|nil # An RFC 4122 version 4 shaped string, from the same injected generator.
+---@field newCounter fun(): table # A counter, for ids that must be readable and ordered.
+---@field next fun(counter: table, kind?: string): string|nil, string|nil # Take the next value from a counter.
+---@field normaliseName fun(raw: string, used?: table, opts?: table): string|nil, string|nil # Turn a display name into a key that is safe to use as a table key, a database column
 local CisId = {}
 
 ---@class CisInterp
 -- The table Cis.require('interp') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.
----@field hasEase function
----@field ease function
----@field clamp function
----@field clamp01 function
----@field sign function
----@field lerp function
----@field lerpClamped function
----@field inverseLerp function
----@field remap function
----@field wrap function
----@field smoothstep function
----@field smootherstep function
----@field moveTowards function
----@field damp function
----@field dampAngle function
----@field smoothDamp function
----@field wrapAngle function
----@field wrapAnglePositive function
----@field wrapDegrees function
----@field angleDelta function
----@field headingDelta function
----@field lerpHeading function
----@field headingToVector function
----@field vectorToHeading function
----@field dist2 function
----@field dist3 function
----@field distance2D function
----@field distance3D function
----@field moveTowardsVec3 function
----@field lerpVec3 function
----@field dampVec3 function
----@field clampLength function
----@field normalize function
+---@field hasEase fun(name: any): boolean # Is `name` one of the curves in EASINGS?
+---@field ease fun(name: string, t: number): number # Apply the named easing curve to t in [0, 1].
+---@field clamp fun(v: number, lo: number, hi: number): number|nil, string|nil # Limit v to [lo, hi].
+---@field clamp01 fun(v: number): number # Limit v to [0, 1].
+---@field sign fun(v: number): integer # The sign of v.
+---@field lerp fun(a: number, b: number, t: number): number # Linear interpolation; t is not clamped.
+---@field lerpClamped fun(a: number, b: number, t: number): number # Linear interpolation with t clamped to [0, 1].
+---@field inverseLerp fun(a: number, b: number, v: number): number # Where v sits between a and b, as t.
+---@field remap fun(v: number, inMin: number, inMax: number, outMin: number, outMax: number, clamped?: boolean): number # Map v from [inMin, inMax] to [outMin, outMax].
+---@field wrap fun(v: number, min: number, max: number): number # Wrap v into [min, max), correctly for negative input.
+---@field smoothstep fun(edge0: number, edge1: number, x: number): number # Hermite smoothstep of x between two edges.
+---@field smootherstep fun(edge0: number, edge1: number, x: number): number # Ken Perlin's smootherstep of x between two edges.
+---@field moveTowards fun(current: number, target: number, maxDelta: number): number # Step current toward target by at most maxDelta.
+---@field damp fun(current: number, target: number, smoothTime: number, dt: number): number # Frame-rate independent exponential approach to target.
+---@field dampAngle fun(current: number, target: number, smoothTime: number, dt: number): number # damp() for an angle in radians, along the shortest arc.
+---@field smoothDamp fun(current: number, target: number, velocity?: number, smoothTime: number, maxSpeed?: number, dt: number): number, number # Critically damped spring toward target (Unity-style SmoothDamp).
+---@field wrapAngle fun(rad: number): number # Wrap an angle in radians to [-pi, pi).
+---@field wrapAnglePositive fun(rad: number): number # Wrap an angle in radians to [0, 2pi).
+---@field wrapDegrees fun(deg: number): number # Wrap degrees to [0, 360).
+---@field angleDelta fun(a: number, b: number): number # Shortest signed difference from angle a to angle b, in radians.
+---@field headingDelta fun(a: number, b: number): number
+---@field lerpHeading fun(a: number, b: number, t: number): number # Interpolate two headings along the shortest arc.
+---@field headingToVector fun(headingDeg: number): number, number
+---@field vectorToHeading fun(x: number, y: number): number
+---@field dist2 fun(ax: number, ay: number, bx: number, by: number): number # Distance between two 2D points given as numbers.
+---@field dist3 fun(ax: number, ay: number, az: number|nil, bx: number, by: number, bz: number|nil): number # Distance between two 3D points given as numbers; a nil z is 0.
+---@field distance2D fun(a: table|vector2|vector3|vector4, b: table|vector2|vector3|vector4): number # Planar distance between two points.
+---@field distance3D fun(a: table|vector2|vector3|vector4, b: table|vector2|vector3|vector4): number # Distance between two points; a missing z is 0.
+---@field moveTowardsVec3 fun(current: table|vector2|vector3|vector4, target: table|vector2|vector3|vector4, maxDelta: number): table # Step a point toward a target by at most maxDelta metres.
+---@field lerpVec3 fun(a: table|vector2|vector3|vector4, b: table|vector2|vector3|vector4, t: number, out?: table): table # Linear interpolation between two points.
+---@field dampVec3 fun(current: table|vector2|vector3|vector4, target: table|vector2|vector3|vector4, smoothTime: number, dt: number, out?: table): table # damp() per component.
+---@field clampLength fun(v: table|vector2|vector3|vector4, maxLength: number, out?: table): table # Shorten a vector to at most maxLength.
+---@field normalize fun(v: table|vector2|vector3|vector4, out?: table): table # Unit vector in the direction of v.
 local CisInterp = {}
 
 ---@class CisJson
 -- The table Cis.require('json') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.
----@field check function
----@field bind function
----@field checkEncodable function
----@field encode function
----@field scanDepth function
----@field decode function
----@field tryDecode function
----@field roundTrip function
+---@field check fun(codec: table): table|nil, string|nil # Check that a value is shaped like a usable codec.
+---@field bind fun(codec: table): table|nil, string|nil # Bind the functions to one codec, so a hot path does not pass it every call.
+---@field checkEncodable fun(value: any, opts?: table): boolean, string|nil
+---@field encode fun(codec: table, value: any, opts?: table): string|nil, string|nil # Encode, refusing rather than raising.
+---@field scanDepth fun(text: string): integer|nil, string|nil # Measure nesting depth in JSON TEXT without parsing it.
+---@field decode fun(codec: table, text: string, opts?: table): any, string|nil # Decode, refusing rather than raising.
+---@field tryDecode fun(codec: table, text: string, opts?: table): boolean, any # Decode, returning a boolean, for callers that cannot use the three-way form.
+---@field roundTrip fun(codec: table, value: any, opts?: table): any, string|nil # Encode and decode back, and return the value that survived.
 local CisJson = {}
 
 ---@class CisKeybindOptions
@@ -147,18 +147,18 @@ local CisKeybindOptions = {}
 
 ---@class CisLRU
 -- The table Cis.require('lru') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.
----@field new function
----@field get function
----@field peek function
----@field has function
----@field put function
----@field popOldest function
----@field remove function
----@field removeWhere function
----@field count function
----@field clear function
----@field keys function
----@field each function
+---@field new fun(capacity?: number): table # Create an empty cache.
+---@field get fun(lru: table, key: any): any # Look up a key and mark it as most recently used.
+---@field peek fun(lru: table, key: any): any # Look up a key WITHOUT changing its recency.
+---@field has fun(lru: table, key: any): boolean # Is a key present, without changing its recency?
+---@field put fun(lru: table, key: any, value: any): any # Store a value and mark it most recently used.
+---@field popOldest fun(lru: table): any, any # Remove the least recently used entry.
+---@field remove fun(lru: table, key: any): any # Remove a key, whatever its position in the order.
+---@field removeWhere fun(lru: table, predicate: fun(key: any, value: any): boolean): integer # Remove every entry for which `predicate(key, value)` is true.
+---@field count fun(lru: table): integer # Number of live entries.
+---@field clear fun(lru: table) # Empty the cache.
+---@field keys fun(lru: table): any[] # Keys from most recently used to least.
+---@field each fun(lru: table, fn: fun(key: any, value: any)): number # Call `fn(key, value)` for every entry, most recently used first.
 local CisLRU = {}
 
 ---@class CisModuleInfo
@@ -199,28 +199,28 @@ local CisPointsDebug = {}
 
 ---@class CisRandom
 -- The table Cis.require('random') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.
----@field newGenerator function
----@field integer function
----@field float function
----@field shuffle function
----@field pick function
----@field sample function
----@field weighted function
----@field weightedIndex function
----@field gaussian function
+---@field newGenerator fun(seed?: number): table # A seeded, reproducible generator.
+---@field integer fun(lo: number, hi: number, rng?: table|fun(): number): integer|nil, string|nil # Integer in [lo, hi] INCLUSIVE, uniformly.
+---@field float fun(min: number, max: number, rng?: table|fun(): number): number|nil, string|nil # Float in [min, max).
+---@field shuffle fun(list: table, rng?: table|fun(): number): table|nil # Fisher-Yates shuffle, IN PLACE.
+---@field pick fun(list: table, rng?: table|fun(): number): any # One uniformly random element of a list.
+---@field sample fun(list: table, k: number, rng?: table|fun(): number): table # `k` distinct elements of a list, in random order, WITHOUT touching the input.
+---@field weighted fun(entries: table, rng?: table|fun(): number): any # Weighted choice.
+---@field weightedIndex fun(weights: number[], rng?: table|fun(): number): integer|nil # Index of a weighted choice, for callers that keep weights and values in parallel
+---@field gaussian fun(mean?: number, standardDeviation?: number, rng?: table|fun(): number): number # Normally distributed value, mean 0 and standard deviation 1 unless told otherwise.
 local CisRandom = {}
 
 ---@class CisRate
 -- The table Cis.require('rate') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.
----@field newFixed function
----@field newSliding function
----@field newTokenBucket function
----@field allow function
----@field peek function
----@field reset function
----@field clear function
----@field prune function
----@field count function
+---@field newFixed fun(opts?: table): table # A counter that resets on an aligned boundary.
+---@field newSliding fun(opts?: table): table # A two-bucket sliding window estimate.
+---@field newTokenBucket fun(opts?: table): table # A continuously refilling bucket.
+---@field allow fun(r: table, key: any, now?: number, cost?: number): boolean # Try to spend `cost` from a key's budget.
+---@field peek fun(r: table, key: any, now?: number): table # Inspect a key's budget WITHOUT spending from it.
+---@field reset fun(r: table, key: any) # Forget one key entirely.
+---@field clear fun(r: table) # Forget every key.
+---@field prune fun(r: table, now?: number, idleSec?: number): integer # Drop keys that have not been touched for `idleSec`.
+---@field count fun(r: table): integer # How many keys the limiter is tracking, including fully restored ones that have not
 local CisRate = {}
 
 ---@class CisSelfCheck
@@ -232,48 +232,48 @@ local CisSelfCheck = {}
 
 ---@class CisSemver
 -- The table Cis.require('semver') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.
----@field parse function
----@field compare function
----@field gte function
----@field lt function
----@field eq function
----@field satisfies function
----@field best function
+---@field parse fun(v: string|table, opts?: table): table|nil, string|nil # Parse a version into its parts.
+---@field compare fun(a: string|table, b: string|table, opts?: table): integer|nil, string|nil # Compare two versions by SemVer precedence.
+---@field gte fun(a: string|table, b: string|table, opts?: table): boolean|nil, string|nil
+---@field lt fun(a: string|table, b: string|table, opts?: table): boolean|nil, string|nil
+---@field eq fun(a: string|table, b: string|table, opts?: table): boolean|nil, string|nil
+---@field satisfies fun(version: string|table, range: string, opts?: table): boolean|nil, string|nil # Does `version` satisfy a range expression?
+---@field best fun(candidates: table, range: string, opts?: table): any|nil, string|nil # The highest version in a list that satisfies `range`.
 local CisSemver = {}
 
 ---@class CisSparse
 -- The table Cis.require('sparse') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.
----@field new function
----@field add function
----@field has function
----@field remove function
----@field at function
----@field each function
----@field toArray function
----@field clear function
----@field count function
----@field isEmpty function
----@field staleCount function
+---@field new fun(): table # An empty sparse set: O(1) add, has, remove, and an O(1) clear.
+---@field add fun(set: table, value: any): boolean # Add a value.
+---@field has fun(set: table, value: any): boolean # Is the value in the set?
+---@field remove fun(set: table, value: any): boolean # Remove a value; the last element moves into its slot.
+---@field at fun(set: table, index: integer): any # The value at a dense index.
+---@field each fun(set: table, fn: fun(value: any, index: integer)): integer # Visit every value present when the walk started.
+---@field toArray fun(set: table): any[] # The values, as a new array.
+---@field clear fun(set: table, hard?: boolean): integer # Empty the set in O(1).
+---@field count fun(set: table): integer # How many values are in the set.
+---@field isEmpty fun(set: table): boolean # Is the set empty?
+---@field staleCount fun(set: table): integer # Debug only: slots held, live or stale.
 local CisSparse = {}
 
 ---@class CisString
 -- The table Cis.require('string') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.
----@field words function
----@field camel function
----@field pascal function
----@field snake function
----@field kebab function
----@field split function
----@field truncate function
----@field hasUtf8 function
----@field collapse function
----@field contains function
----@field startsWith function
----@field endsWith function
----@field padStart function
----@field padEnd function
----@field levenshtein function
----@field suggest function
+---@field words fun(s: string): string[] # Break a string into words, in the sense the case converters mean.
+---@field camel fun(s: string): string # 'give_money' -> 'giveMoney'.
+---@field pascal fun(s: string): string # 'give_money' -> 'GiveMoney'.
+---@field snake fun(s: string): string # 'GiveMoney' -> 'give_money'.
+---@field kebab fun(s: string): string # 'GiveMoney' -> 'give-money'.
+---@field split fun(s: string, sep: string, opts?: table): string[]|nil, string|nil # Split on a separator.
+---@field truncate fun(s: string, max: number, ellipsis?: string|false): string # Cut to a maximum length, adding an ellipsis when it actually cut.
+---@field hasUtf8 fun(): boolean # Whether this runtime has the utf8 library.
+---@field collapse fun(s: string): string # Collapse every run of whitespace to one space and trim both ends.
+---@field contains fun(s: string, needle: string, ignoreCase?: boolean): boolean # Case-insensitive-ish containment test, matching the needle LITERALLY.
+---@field startsWith fun(s: string, prefix: string, ignoreCase?: boolean): boolean
+---@field endsWith fun(s: string, suffix: string, ignoreCase?: boolean): boolean
+---@field padStart fun(s: any, width: integer, fill?: string): string # Pad on the left to `width`.
+---@field padEnd fun(s: any, width: integer, fill?: string): string # Pad on the right to `width`.
+---@field levenshtein fun(a: string, b: string, maxDistance?: integer): integer|nil, string|nil # Levenshtein edit distance between two strings.
+---@field suggest fun(word: string, candidates: string[], opts?: table): string|nil, integer|string|nil # Pick the closest candidate to `word`.
 local CisString = {}
 
 ---@class CisSyncRecord
@@ -312,28 +312,28 @@ local CisSyncSummary = {}
 
 ---@class CisTable
 -- The table Cis.require('table') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.
----@field compareKeys function
----@field isArray function
----@field isMap function
----@field isEmpty function
----@field shallowCopy function
----@field deepCopy function
----@field depth function
----@field deepCopyStrict function
----@field findCycle function
----@field count function
----@field deepSize function
----@field keys function
----@field values function
----@field each function
----@field find function
----@field filter function
----@field map function
----@field reduce function
----@field sortBy function
----@field join function
----@field deepMerge function
----@field deepMergeInto function
+---@field compareKeys fun(a: any, b: any): integer # Total order over keys of ANY type.
+---@field isArray fun(t: any): boolean
+---@field isMap fun(t: any): boolean # Inverse of isArray, with one deliberate exception: an EMPTY table is a map.
+---@field isEmpty fun(t: any): boolean
+---@field shallowCopy fun(t: any): any # Shallow copy.
+---@field deepCopy fun(value: any, seen?: table): any # Deep copy with CYCLE PROTECTION.
+---@field depth fun(t: any, maxDepth?: integer): integer # How deeply nested a table is.
+---@field deepCopyStrict fun(value: any, opts?: table): any, string|nil # Deep copy that REFUSES a cyclic or over-deep input.
+---@field findCycle fun(t: any, maxDepth?: integer): any[]|nil # Find the key path that closes a cycle.
+---@field count fun(t: any): integer # Number of direct keys.
+---@field deepSize fun(t: any, opts?: table): integer # Number of key/value pairs at EVERY level.
+---@field keys fun(t: table, comparator?: fun(a: any, b: any): boolean|number): any[]|nil # Keys in a DETERMINISTIC order: the contiguous integer prefix 1..n first, in
+---@field values fun(t: table, comparator?: fun(a: any, b: any): boolean|number): any[]|nil # Values, index-aligned with CisTable.keys on the same table.
+---@field each fun(t: table, comparator: fun(a: any, b: any): boolean|number|nil, fn: fun(value: any, key: any): boolean|nil): boolean|nil, string|nil # Iterate in the same order as CisTable.keys without allocating the key array.
+---@field find fun(t: table, predicate: fun(value: any, key: any): any): any # First value whose `predicate(value, key)` is truthy.
+---@field filter fun(t: table, predicate: fun(value: any, key: any): any): table|nil, string|nil # Keep the entries whose `predicate(value, key)` is truthy.
+---@field map fun(t: table, fn: fun(value: any, key: any): any, opts?: table): table|nil, string|nil # Transform every value.
+---@field reduce fun(t: table, fn: fun(acc: any, value: any, key: any): any, initial?: any): any, string|nil # Fold a table into one value.
+---@field sortBy fun(list: table, keyOf: fun(item: any, index: integer): any, comparator?: fun(a: any, b: any): boolean|number): table|nil, string|nil # Sort a LIST by a derived key.
+---@field join fun(list: table, sep?: string): string # Concatenate a list, skipping entries that are not strings or numbers.
+---@field deepMerge fun(base: table|nil, overlay: table|nil, policy?: string, opts?: table): table|nil, string|nil # Deep merge into a NEW table.
+---@field deepMergeInto fun(target: table, overlay: table|nil, policy?: string, opts?: table): table|nil, string|nil # Deep merge that mutates `target` in place and returns it.
 local CisTable = {}
 
 ---@class CisTargetOptions
@@ -347,28 +347,28 @@ local CisTargetOptions = {}
 
 ---@class CisTime
 -- The table Cis.require('time') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.
----@field now function
----@field parts function
----@field formatDuration function
----@field parseDuration function
----@field relative function
----@field elapsed function
----@field roundTo function
+---@field now fun(clock: fun(): number): number|nil, string|nil # Read the clock from an INJECTED source.
+---@field parts fun(seconds: number): table # Break a duration into { weeks, days, hours, minutes, seconds }.
+---@field formatDuration fun(seconds: number, opts?: table): string # Format a duration as "2h 14m".
+---@field parseDuration fun(text: string|number): number|nil, string|nil # Parse a human duration back into seconds.
+---@field relative fun(timestamp: number, now: number, opts?: table): string # Relative time in words: '3 minutes ago', 'in 3 minutes', 'just now'.
+---@field elapsed fun(now: number, since: number): number # Seconds elapsed between two instants: `now - since`.
+---@field roundTo fun(seconds: number, unit?: number): number # Round a duration in SECONDS to a whole number of `unit`s, to the NEAREST, and return
 local CisTime = {}
 
 ---@class CisValidate
 -- The table Cis.require('validate') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.
----@field isInteger function
----@field isFinite function
----@field number function
----@field integer function
----@field string function
----@field boolean function
----@field tableValue function
----@field field function
----@field schema function
----@field defaults function
----@field clamp function
+---@field isInteger fun(v: any): boolean # Whether a number has no fractional part.
+---@field isFinite fun(v: any): boolean # Whether a number is finite.
+---@field number fun(v: any, opts?: table): boolean, string|nil # Check a number.
+---@field integer fun(v: any, opts?: table): boolean, string|nil # Check that a value has no fractional part.
+---@field string fun(v: any, opts?: table): boolean, string|nil # Check a string.
+---@field boolean fun(v: any, opts?: table): boolean, string|nil # Check a boolean.
+---@field tableValue fun(v: any, opts?: table): boolean, string|nil # Check a table, and optionally its SHAPE.
+---@field field fun(value: any, spec: table, path?: string): boolean, string|nil # Validate one value against a field spec.
+---@field schema fun(value: table|nil, schema: table, opts?: table): boolean, string|string[]|nil # Validate a whole table against a schema of field specs.
+---@field defaults fun(value: table, schema: table): table|nil, string|nil # Fill a table's missing fields from a schema's `default` values.
+---@field clamp fun(v: number, min?: number, max?: number): number|nil, string|nil # Constrain a number to a range.
 local CisValidate = {}
 
 ---@class CisVehicleProps
@@ -424,26 +424,26 @@ local CisWeaponData = {}
 
 ---@class CisWindow
 -- The table Cis.require('window') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.
----@field new function
----@field push function
----@field pop function
----@field newest function
----@field oldest function
----@field each function
----@field clear function
----@field newDedupe function
----@field seen function
----@field isSeen function
----@field reset function
----@field prune function
----@field dedupeCount function
----@field newStats function
----@field record function
----@field read function
----@field samples function
----@field count function
----@field extreme function
----@field pruneStats function
+---@field new fun(capacity: number): table # A fixed-capacity ring of the last N pushes.
+---@field push fun(w: table, value: any, time?: number): any # Append a value, overwriting the oldest one when the ring is full.
+---@field pop fun(w: table): any, number|nil # Remove and return the OLDEST value.
+---@field newest fun(w: table): any, number|nil # The newest value without removing it.
+---@field oldest fun(w: table): any, number|nil # The oldest value without removing it.
+---@field each fun(w: table, fn: fun(value: any, time: number|nil, index: integer)): integer # Walk from oldest to newest, calling `fn(value, time, index)`.
+---@field clear fun(w: table) # Empty the ring, keeping its allocated capacity.
+---@field newDedupe fun(windowSec: number): table # A per-key "seen recently" filter over a time window.
+---@field seen fun(d: table, key: any, now: number): boolean # Would this key be ACCEPTED right now?
+---@field isSeen fun(d: table, key: any, now: number): boolean # Is a key currently inside its window?
+---@field reset fun(d: table, key: any) # Forget a key entirely, so the next `seen` accepts it regardless of the window.
+---@field prune fun(d: table, now: number): integer # Drop every key whose window has expired.
+---@field dedupeCount fun(d: table): integer # How many keys are being tracked, including expired ones not yet pruned.
+---@field newStats fun(windowSec: number, bucketSec?: number): table # Count / min / max / sum / mean over a trailing time window, per key.
+---@field record fun(stats: table, key: any, value: number, now: number): boolean # Add a value to a key's window.
+---@field read fun(stats: table, key: any, now: number): table|nil # Read a key's window.
+---@field samples fun(stats: table, key: any, now: number): integer # The number of live SAMPLES for `key` inside the window.
+---@field count fun(stats: table, key: any, now: number): integer # The number of live SAMPLES for `key` inside the window.
+---@field extreme fun(stats: table, key: any, now: number, wantMax?: boolean): number|nil # Largest or smallest live sample, without building the result table.
+---@field pruneStats fun(stats: table, now: number): integer # Drop keys with no live sample.
 local CisWindow = {}
 
 ---@class CisWorldEntry
@@ -2203,7 +2203,7 @@ function Cis.log.warn(message) end
 ---@field realm "both"
 ---@param name string #a module name from the allow-list; a non-string is refused with the type in .why
 ---@param opts? table #only .load is read, and only as == true. It is opt-in because answering "is this name real" must not be the thing that parses fifteen files
----@return CisModuleInfo #a DESCRIPTION, not the module: ok, name, path, global, deps and globalPresent, plus functions, loaded and globalPresentAfterLoad under opts.load. A refusal is ok = false with .why, and an unknown name also carries .valid
+---@return CisModuleInfo #a DESCRIPTION, not the module: ok, name, path, global, deps (a fresh copy) and globalPresent, plus functions, loaded and globalPresentAfterLoad under opts.load. A refusal is ok = false with .why, and an unknown name also carries .valid
 function Cis.moduleInfo(name, opts) end
 
 ---@class Cis.moduleProbe
@@ -2359,8 +2359,9 @@ function Cis.ready(cb, timeout) end
 ---@class Cis.require
 ---@field since string 1.0.0
 ---@field realm "both"
----@param name string #a name from a closed allow-list of fifteen. It RAISES on an unknown name, naming every valid one, because a silent nil is a nil index three frames deeper in the caller
----@return CisCurve|CisHeap|CisInterp|CisLRU|CisRandom|CisRate|CisSparse|CisWindow|CisId|CisJson|CisSemver|CisString|CisTable|CisTime|CisValidate #the module table, cached per Lua state so two calls in one VM share one instance and its internal state. The type is a union because the return is whichever module was named; 6.3 adds one ---@overload per module so the editor narrows it
+---@param name string #one of the fifteen built-in names, OR a module of your own: `folder.file` / `folder/file` / `./file` from the calling resource, `@resource/folder/file` from any resource. A bare name that is not built in RAISES, naming every valid one, because a silent nil is a nil index three frames deeper in the caller. A path that leaves the resource (.., absolute, backslash) raises too
+---@return CisCurve|CisHeap|CisInterp|CisLRU|CisRandom|CisRate|CisSparse|CisWindow|CisId|CisJson|CisSemver|CisString|CisTable|CisTime|CisValidate|any #the module, cached per Lua state so two calls in one VM share one instance and its internal state. A file of your own is read once, loaded as TEXT ONLY into its own environment (reads fall through to your globals, writes stay private), called with (name, `@resource/path.lua`), and cached; a file that returns nothing is cached as true. A circular require raises and names the chain. The type is a union because the return is whichever module was named; one ---@overload per built-in narrows it 
+-- Why `any`: a module of your own returns whatever its file returns
 function Cis.require(name) end
 
 ---@class Cis.requireList
@@ -2779,7 +2780,7 @@ function CisRequire(name) end
 ---@overload fun(name: "id"): CisId
 ---@overload fun(name: "interp"): CisInterp
 ---@overload fun(name: "json"): CisJson
----@overload fun(name: "lru"): table
+---@overload fun(name: "lru"): CisLRU
 ---@overload fun(name: "random"): CisRandom
 ---@overload fun(name: "rate"): CisRate
 ---@overload fun(name: "semver"): CisSemver

@@ -4,6 +4,10 @@
 // the hardware, and a gate built on one fires on a slow runner and gets
 // ignored. This is a tool for whoever is changing the code.
 //
+// RELATIVE NUMBERS ONLY. The VM here is fengari (JavaScript), not the CfxLua
+// 5.4 a FiveM server runs, so a row compares with the same row from another
+// run, never with a server. The output says so at the top.
+//
 // The Lua lives in bench/bench.lua because the interesting part is the workload
 // definition, not the timing loop. Both halves print their conditions: a bare
 // ops-per-second number is a claim without a caveat and gets quoted without one.

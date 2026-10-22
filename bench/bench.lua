@@ -45,7 +45,11 @@ end
 say('=== cis_libs benchmarks ===')
 say('interpreter: fengari (Lua 5.3 semantics, JavaScript VM)')
 say('date: ' .. (os.date and os.date('%Y-%m-%dT%H:%M:%SZ') or '?'))
-say('these numbers are for COMPARISON between runs, not as absolute performance')
+say('RELATIVE ONLY. Every number below was measured under fengari, a Lua VM')
+say('written in JavaScript. A FiveM server runs CfxLua 5.4 natively, with a')
+say('different cost for every operation, so no row here says how fast anything')
+say('is on a server. Compare a row with the same row from another run of this')
+say('script on the same machine, or with its neighbours; nothing else.')
 say('fengari os.clock is often 0; a 0 ops/s row is a dead clock, not a free call')
 say('')
 
@@ -240,6 +244,84 @@ do
       end
     end
   end, 200, 'same 64 x 200 without the grid, for the trend check')
+end
+say('')
+
+-- -------------------------------------------------------------------- json
+say('-- CisJson (relative only) --')
+do
+  -- A trivial codec: the bench measures the refusal layer, not an encoder.
+  local codec = { encode = function() return '{}' end, decode = function() return {} end }
+  local payload = {}
+  for i = 1, 200 do payload['k' .. i] = { id = i, name = 'item' .. i, tags = { 'a', 'b' } } end
+  bench('checkEncodable() 200-key payload', nil, function()
+    CisJson.checkEncodable(payload)
+  end, 100, '200 objects of 3 fields, one level of arrays')
+  local shared = { leaf = true }
+  for _ = 1, 16 do shared = { a = shared, b = shared } end
+  bench('checkEncodable() 16-level shared DAG', nil, function()
+    CisJson.checkEncodable(shared)
+  end, 300, '17 tables, 2^16 routes: linear if shared tables are walked once')
+  local text = '[' .. string.rep('{"a":[1,2,{"b":"x"}]},', 300) .. '1]'
+  bench('decode() refusal layer, 7 KB', nil, function()
+    CisJson.decode(codec, text)
+  end, 100, 'scanDepth over the text plus the codec call')
+end
+say('')
+
+-- ------------------------------------------------------------------- table
+say('-- CisTable (relative only) --')
+do
+  local config = {}
+  for i = 1, 50 do
+    config['section' .. i] = { enabled = true, limits = { 1, 2, 3 }, nested = { a = { b = i } } }
+  end
+  bench('deepCopy() 50-section config', nil, function()
+    CisTable.deepCopy(config)
+  end, 300, '50 sections, 4 levels')
+  bench('deepMerge() config over itself', nil, function()
+    CisTable.deepMerge(config, config)
+  end, 100, 'cycle check on both sides, then the merge')
+  local mixed = {}
+  for i = 1, 100 do mixed[i] = i end
+  for i = 1, 100 do mixed['s' .. i] = i end
+  bench('keys() 100 array + 100 named', nil, function()
+    CisTable.keys(mixed)
+  end, 300, 'prefix walk plus a sort of the named keys')
+end
+say('')
+
+-- ------------------------------------------------------------------ semver
+say('-- CisSemver (relative only) --')
+do
+  bench('parse() strict', nil, function()
+    CisSemver.parse('1.2.3-rc.1+build.5')
+  end, 3000, 'prerelease and build')
+  bench('satisfies() OR of two ranges', nil, function()
+    CisSemver.satisfies('2.3.9', '^1.2 || ~2.3.4')
+  end, 2000, 'caret, tilde, prerelease rule')
+  local list = {}
+  for i = 1, 50 do list[i] = ('1.%d.%d'):format(i % 7, i) end
+  bench('best() of 50 candidates', nil, function()
+    CisSemver.best(list, '>=1.2.0 <1.6.0')
+  end, 100, 'the range is parsed once per candidate')
+end
+say('')
+
+-- ------------------------------------------------------------------ string
+say('-- CisString (relative only) --')
+do
+  local long = string.rep('héllo wörld ', 20)
+  bench('truncate() 240-char UTF-8', nil, function()
+    CisString.truncate(long, 40)
+  end, 3000, 'counts characters, cuts at a character boundary')
+  bench('levenshtein() 12 x 12', nil, function()
+    CisString.levenshtein('give_money_x', 'givemoney_xy')
+  end, 2000, 'full dynamic-programming table')
+  local csv = string.rep('alpha,beta,,gamma,', 25)
+  bench('split() 100 fields', nil, function()
+    CisString.split(csv, ',')
+  end, 2000, 'plain find, empty fields kept')
 end
 say('')
 

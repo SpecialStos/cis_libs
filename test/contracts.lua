@@ -2285,6 +2285,14 @@ do
     check(nan == nil and type(nanr) == 'string' and nanr:find('finite', 1, true) ~= nil,
         ('7.8: NaN timeout is refused, not an infinite loop (got %s)'):format(tostring(nanr)))
 
+    -- A FRACTIONAL timeout times out like any other. The reason used to be
+    -- formatted with %d, which Lua 5.4 refuses for 2.5 -- so the timeout
+    -- path raised instead of answering.
+    clock = 0
+    local okFrac, frac, fracr = pcall(Cis.waitFor, function() return false end, 'frac', 2.5)
+    check(okFrac and frac == nil and type(fracr) == 'string' and fracr:find('2.5ms', 1, true) ~= nil,
+        ('7.8: a fractional timeout answers nil + reason, it does not raise (got %s)'):format(tostring(fracr)))
+
     Wait, GetGameTimer = saved.Wait, saved.GetGameTimer
     GetCurrentResourceName, IsDuplicityVersion = saved.GetCurrentResourceName, saved.IsDuplicityVersion
     GetResourceState, exports = saved.GetResourceState, saved.exports
@@ -3034,9 +3042,12 @@ end
 -- dead weight in the load order, paying for itself in boot time and namespace.
 --
 -- THE CONTRACT BEING PROVED HERE, in the order that matters:
---   * a plain include still sets the legacy global, because 28 sibling
---     resources on disk may include these files directly and a silent nil is
---     the worst possible answer;
+--   * a plain include (the chunk run WITHOUT the loader's marker) still sets
+--     the legacy global. That is how this repository's own suites and bench
+--     load the files; it is NOT a consumer integration. A consumer
+--     shared_scripts init.lua and nothing else (README, DOCUMENTATION.md §1)
+--     and reaches a module through Cis.require -- asserted below, so the docs
+--     and this file cannot drift apart again;
 --   * a load through `Cis.require` sets NOTHING, or the sandbox is decorative;
 --   * two requires of one name are the same table, or state is duplicated;
 --   * a name that is not on the allow-list is refused, and the refusal LISTS
@@ -3067,7 +3078,15 @@ do
     -- `LoadResourceFile` is a FiveM native. fengari has no filesystem, so the
     -- stub reads the real file -- a stub that ANSWERED a made-up module would
     -- make every assertion below a test of the stub.
+    -- Files of OTHER resources, for the consumer-module loader: resource ->
+    -- path -> source. cis_libs' own files still come from the real tree.
+    local virtualFiles = {}
+    local fileReads = {}
     LoadResourceFile = function(resource, relPath)
+        fileReads[#fileReads + 1] = tostring(resource) .. ':' .. tostring(relPath)
+        if resource ~= 'cis_libs' then
+            return virtualFiles[resource] and virtualFiles[resource][relPath] or nil
+        end
         -- fengari has no filesystem. CIS_TEST_FILES is the harness' injected map
         -- of every path the MANIFEST names, keyed by relative path -- so this
         -- stub also proves the loader asks for a path the manifest knows about.
@@ -3075,6 +3094,9 @@ do
     end
     local savedIsDup = IsDuplicityVersion
     IsDuplicityVersion = function() return true end
+    -- init.lua runs in the CONSUMER's VM, so the current resource is the consumer.
+    local savedResName = GetCurrentResourceName
+    GetCurrentResourceName = function() return 'consumer_res' end
     local savedCis = rawget(_G, 'Cis')
     Cis = nil
     local okLoad, loadErr = pcall(function()
@@ -3168,6 +3190,107 @@ do
         -- A PATH THAT WILL NOT LOAD names the FILE, not just "load failed".
         local okPath = pcall(lib.require, 42)
         check(not okPath, '5.1: a non-string name is refused rather than concatenated into a path')
+
+        -- moduleInfo answers a COPY of the dependency list: editing the answer
+        -- must not edit the loader.
+        local info = lib.moduleInfo('lru')
+        info.deps[#info.deps + 1] = 'injected'
+        check(#lib.moduleInfo('lru').deps == 0,
+            '5.1: moduleInfo deps is a copy, so a caller cannot rewrite the loader\'s map')
+
+        -- ---- the consumer's OWN modules ----------------------------------
+        -- Read as bare globals on purpose: under either runner, a leak from a
+        -- module environment would land in THIS scope.
+        -- luacheck: globals helper SIDE_EFFECT_RAN
+        virtualFiles.consumer_res = {
+            ['client/utils.lua'] = 'local M = { loads = (LOADS or 0) + 1 } helper = "private" return M',
+            ['mods/a.lua'] = 'local b = Cis.require("mods.b") return { b = b }',
+            ['mods/b.lua'] = 'local a = Cis.require("mods/a") return { a = a }',
+            ['mods/self.lua'] = 'return Cis.require("./mods/self")',
+            ['mods/none.lua'] = 'SIDE_EFFECT_RAN = (SIDE_EFFECT_RAN or 0) + 1',
+            ['mods/args.lua'] = 'return { ... }',
+            ['mods/bad.lua'] = 'return {',
+            -- A REAL precompiled chunk from this interpreter, so the only thing
+            -- that can refuse it is the loader's text-only mode.
+            ['mods/bytecode.lua'] = string.dump(function() return { bytecode = true } end),
+            ['mods/reads.lua'] = 'return { cis = Cis ~= nil, str = string.format("%d", 7) }',
+        }
+        virtualFiles.other_res = {
+            ['shared/config.lua'] = 'return { from = "other" }',
+        }
+        -- Files where an ESCAPING path would land, so the only thing standing
+        -- between the name and the file is the resolver's refusal.
+        virtualFiles.consumer_res['../secret.lua'] = 'return "escaped"'
+        virtualFiles.consumer_res['mods/../../x.lua'] = 'return "escaped"'
+        virtualFiles.consumer_res['./x.lua'] = 'return "escaped"'
+        virtualFiles.other_res['../x.lua'] = 'return "escaped"'
+
+        local okRel, utils = pcall(lib.require, 'client.utils')
+        check(okRel and type(utils) == 'table' and utils.loads == 1,
+            ('5.1: a dotted name loads the CALLING resource\'s own file (%s)'):format(tostring(utils)))
+        local okSlash, again = pcall(lib.require, 'client/utils')
+        local okDot, again2 = pcall(lib.require, './client/utils')
+        local okAt, again3 = pcall(lib.require, '@consumer_res/client/utils')
+        check(okSlash and okDot and okAt and again == utils and again2 == utils and again3 == utils,
+            '5.1: client.utils, client/utils, ./client/utils and @consumer_res/client/utils are one cached module')
+        local readsOfUtils = 0
+        for _, r in ipairs(fileReads) do
+            if r == 'consumer_res:client/utils.lua' then readsOfUtils = readsOfUtils + 1 end
+        end
+        check(readsOfUtils == 1, ('5.1: the file is read once per VM (%d reads)'):format(readsOfUtils))
+        check(rawget(_G, 'helper') == nil and helper == nil,
+            '5.1: a global written by a consumer module stays in the module\'s own environment')
+
+        local okOther, other = pcall(lib.require, '@other_res/shared/config')
+        check(okOther and type(other) == 'table' and other.from == 'other',
+            '5.1: @resource/path loads from the named resource')
+
+        local okReads, reads = pcall(lib.require, 'mods.reads')
+        check(okReads and reads.cis == true and reads.str == '7',
+            '5.1: a consumer module reads the resource\'s globals and the standard library')
+
+        local okNone, none = pcall(lib.require, 'mods.none')
+        local okNone2 = pcall(lib.require, 'mods.none')
+        check(okNone and okNone2 and none == true and SIDE_EFFECT_RAN == nil,
+            '5.1: a module that returns nothing is cached as true and runs once')
+
+        local okArgs, args = pcall(lib.require, 'mods.args')
+        check(okArgs and args[1] == 'mods.args' and args[2] == '@consumer_res/mods/args.lua',
+            '5.1: the chunk receives (name, canonical path), like Lua\'s require')
+
+        local okCycle, cycleErr = pcall(lib.require, 'mods.a')
+        check(not okCycle and type(cycleErr) == 'string' and cycleErr:find('circular', 1, true) ~= nil
+            and cycleErr:find('mods/a.lua', 1, true) ~= nil and cycleErr:find('mods/b.lua', 1, true) ~= nil,
+            ('5.1: a circular require RAISES naming the chain instead of recursing forever (%s)')
+                :format(tostring(cycleErr)))
+        local okSelf, selfErr = pcall(lib.require, 'mods.self')
+        check(not okSelf and tostring(selfErr):find('circular', 1, true) ~= nil,
+            '5.1: a module that requires itself is a cycle too')
+        -- The failed load left nothing behind: the next attempt is the same
+        -- refusal, not a stale "in progress" or a half-loaded value.
+        local okCycle2, cycleErr2 = pcall(lib.require, 'mods.a')
+        check(not okCycle2 and tostring(cycleErr2):find('circular', 1, true) ~= nil,
+            '5.1: and a failed load leaves no in-progress marker behind')
+
+        local okMissing, missingErr = pcall(lib.require, 'mods.nope')
+        check(not okMissing and tostring(missingErr):find('mods/nope.lua', 1, true) ~= nil,
+            ('5.1: a missing file raises and names the path it looked for (%s)'):format(tostring(missingErr)))
+        local okSyntax, syntaxErr = pcall(lib.require, 'mods.bad')
+        check(not okSyntax and tostring(syntaxErr):find('compile', 1, true) ~= nil,
+            '5.1: a file that does not compile raises and says so')
+        local okByte, byteErr = pcall(lib.require, 'mods.bytecode')
+        check(not okByte and tostring(byteErr):find('binary', 1, true) ~= nil,
+            ('5.1: a precompiled chunk is refused: the loader is text-only (%s)'):format(tostring(byteErr)))
+        local escapes = { '../secret', '@other_res/../x', 'mods/../../x', '/etc/passwd', '@other_res/',
+            'mods//a', 'a\\b.c', '././x' }
+        local escaped = {}
+        for _, bad in ipairs(escapes) do
+            if pcall(lib.require, bad) then escaped[#escaped + 1] = bad end
+        end
+        check(#escaped == 0, '5.1: a path that leaves the resource is refused: ' .. table.concat(escaped, ' '))
+        local okPlain, plainErr = pcall(lib.require, 'utils')
+        check(not okPlain and tostring(plainErr):find('Valid names', 1, true) ~= nil,
+            '5.1: a bare name that is not built in is still a typo, answered with the valid names')
     else
         for i = 1, 8 do
             check(false, '5.1: Cis.require is missing, so these assertions never ran')
@@ -3177,14 +3300,25 @@ do
     exports = savedExports
     LoadResourceFile = savedLoad
     IsDuplicityVersion = savedIsDup
+    GetCurrentResourceName = savedResName
     _G.Cis = savedCis
 end
 
--- A PLAIN INCLUDE STILL SETS THE GLOBAL, which is the half that protects the 28
--- sibling resources on disk that may `@include` these files directly. Done by
--- running the chunk the way the manifest does -- no vararg -- rather than
--- through Cis.require, because the two paths differ by exactly one argument.
+-- A PLAIN INCLUDE STILL SETS THE GLOBAL. The test suites and bench/ load these
+-- files as plain chunks and read CisLRU and friends, so the no-marker path has
+-- to keep working -- but it is the HARNESS path, not a supported way for a
+-- consumer resource to use a module. The supported way is one manifest line
+-- (init.lua) plus Cis.require, and the README has to say so. Done by running
+-- the chunk with no vararg rather than through Cis.require, because the two
+-- paths differ by exactly one argument.
 do
+    local readme = CIS_TEST_FILES and CIS_TEST_FILES['README.md'] or ''
+    check(readme:find("shared_script '@cis_libs/init.lua'", 1, true) ~= nil
+        and readme:find('Cis.require', 1, true) ~= nil,
+        '5.1: README names init.lua as the one shared_script and Cis.require as the way to a module')
+    check(not readme:find("@cis_libs/shared/algo", 1, true) and not readme:find("@cis_libs/shared/util", 1, true),
+        '5.1: README does not tell a consumer to include a module file directly')
+
     local src = assert(CIS_TEST_FILES['shared/algo/lru.lua'],
         'the harness did not inject shared/algo/lru.lua -- is it still in the manifest?')
     local before = CisLRU

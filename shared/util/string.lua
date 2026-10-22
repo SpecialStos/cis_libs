@@ -27,8 +27,8 @@ local function isSpaceByte(b)
 end
 
 --- Break a string into words, in the sense the case converters mean.
---- @param s
---- @return table  a dense array of words; {} for a non-string or an empty one
+---@param s string
+---@return string[]  a dense array of words; {} for a non-string or an empty one
 function M.words(s)
     if type(s) ~= 'string' or s == '' then
         return {}
@@ -93,8 +93,8 @@ local function joinCased(words, firstUpper, restUpper)
 end
 
 --- 'give_money' -> 'giveMoney'.
---- @param s
---- @return string  '' in, '' out
+---@param s string
+---@return string  '' in, '' out
 function M.camel(s)
     local words = M.words(s)
     if #words == 0 then
@@ -104,8 +104,8 @@ function M.camel(s)
 end
 
 --- 'give_money' -> 'GiveMoney'.
---- @param s
---- @return string  same input contract as camel
+---@param s string
+---@return string  same input contract as camel
 function M.pascal(s)
     local words = M.words(s)
     if #words == 0 then
@@ -115,8 +115,8 @@ function M.pascal(s)
 end
 
 --- 'GiveMoney' -> 'give_money'.
---- @param s
---- @return string  '' for a non-string input
+---@param s string
+---@return string  '' for a non-string input
 function M.snake(s)
     local words = M.words(s)
     local parts = {}
@@ -127,8 +127,8 @@ function M.snake(s)
 end
 
 --- 'GiveMoney' -> 'give-money'.
---- @param s
---- @return string  same rules as snake, different joiner
+---@param s string
+---@return string  same rules as snake, different joiner
 function M.kebab(s)
     local words = M.words(s)
     local parts = {}
@@ -139,10 +139,11 @@ function M.kebab(s)
 end
 
 --- Split on a separator. This is the version with the edge cases the usual one gets
---- @param s
---- @param sep
---- @param opts
---- @return table|nil,string  the pieces, or nil and a reason for a bad separator or maxsplit
+---@param s string
+---@param sep string
+---@param opts? table  { keepEmpty, maxsplit }
+---@return string[]|nil
+---@return string|nil  why, for a bad separator or maxsplit
 function M.split(s, sep, opts)
     if type(s) ~= 'string' or s == '' then
         return {}
@@ -188,65 +189,73 @@ function M.split(s, sep, opts)
 end
 
 --- Cut to a maximum length, adding an ellipsis when it actually cut.
---- @param s
---- @param max
---- @param ellipsis
---- @return a string. nil in gives ''.
+---@param s string
+---@param max number  in CHARACTERS (bytes for invalid UTF-8); floored
+---@param ellipsis? string|false  default "..."
+---@return string  "" for a non-string
 function M.truncate(s, max, ellipsis)
     if type(s) ~= 'string' then
         return ''
     end
-    if type(max) ~= 'number' or max < 0 then
+    if type(max) ~= 'number' or max ~= max or max < 0 then
         return s
     end
+    -- A whole number of characters. utf8.offset raises on a fractional index
+    -- ("number has no integer representation"), so 2.5 used to be a crash.
+    max = math.floor(max)
     if ellipsis == nil then
         ellipsis = '...'
     elseif ellipsis == false or ellipsis == '' then
         ellipsis = ''
     end
+    -- Characters when the text is valid UTF-8, bytes when it is not. utf8.len
+    -- answers (count) for valid text and (nil, position) for invalid text; the
+    -- old code took the SECOND value, which is nil on valid text, so every
+    -- string was measured in bytes and "é" counted twice.
     local function length(str)
         if HAS_UTF8 then
-            -- utf8.len returns (count, positionOfFirstInvalidByte).
-            local _, count = utf8.len(str)
-            return count or #str
+            local count = utf8.len(str)
+            if count then
+                return count, true
+            end
         end
-        return #str
+        return #str, false
     end
-    local len = length(s)
+    -- The first `n` characters of `str`.
+    local function prefix(str, n, chars)
+        if n <= 0 then
+            return ''
+        end
+        if chars then
+            local cut = utf8.offset(str, n + 1)
+            return cut and str:sub(1, cut - 1) or str
+        end
+        return str:sub(1, n)
+    end
+    local len, chars = length(s)
     if len <= max then
         return s
     end
     if ellipsis == '' then
-        if HAS_UTF8 then
-            local cut = utf8.offset(s, max + 1)
-            return cut and s:sub(1, cut - 1) or ''
-        end
-        return s:sub(1, max)
+        return prefix(s, max, chars)
     end
-    local keep = max - length(ellipsis)
+    local ellipsisLen, ellipsisChars = length(ellipsis)
+    local keep = max - ellipsisLen
     if keep <= 0 then
-        if HAS_UTF8 then
-            local cut = utf8.offset(ellipsis, max + 1)
-            return cut and ellipsis:sub(1, cut - 1) or ''
-        end
-        return ellipsis:sub(1, max)
+        return prefix(ellipsis, max, ellipsisChars)
     end
-    if HAS_UTF8 then
-        local cut = utf8.offset(s, keep + 1)
-        return (cut and s:sub(1, cut - 1) or '') .. ellipsis
-    end
-    return s:sub(1, keep) .. ellipsis
+    return prefix(s, keep, chars) .. ellipsis
 end
 
 --- Whether this runtime has the utf8 library.
---- @return boolean  true when this runtime has the utf8 library
+---@return boolean  true when this runtime has the utf8 library
 function M.hasUtf8()
     return HAS_UTF8
 end
 
 --- Collapse every run of whitespace to one space and trim both ends.
---- @param s
---- @return string  every whitespace run collapsed to one space, both ends trimmed
+---@param s string
+---@return string  every whitespace run collapsed to one space, both ends trimmed
 function M.collapse(s)
     if type(s) ~= 'string' then
         return ''
@@ -275,10 +284,10 @@ function M.collapse(s)
 end
 
 --- Case-insensitive-ish containment test, matching the needle LITERALLY.
---- @param s
---- @param needle
---- @param ignoreCase
---- @return boolean. Never raises for any input, including nil.
+---@param s string
+---@param needle string
+---@param ignoreCase? boolean
+---@return boolean  never raises
 function M.contains(s, needle, ignoreCase)
     if type(s) ~= 'string' or type(needle) ~= 'string' then
         return false
@@ -292,10 +301,10 @@ function M.contains(s, needle, ignoreCase)
     return s:find(needle, 1, true) ~= nil
 end
 
---- @param s
---- @param prefix
---- @param ignoreCase
---- @return boolean  false for a non-string, and true for an empty prefix
+---@param s string
+---@param prefix string
+---@param ignoreCase? boolean
+---@return boolean  false for a non-string, and true for an empty prefix
 function M.startsWith(s, prefix, ignoreCase)
     if type(s) ~= 'string' or type(prefix) ~= 'string' then
         return false
@@ -309,10 +318,10 @@ function M.startsWith(s, prefix, ignoreCase)
     return s:sub(1, #prefix) == prefix
 end
 
---- @param s
---- @param suffix
---- @param ignoreCase
---- @return boolean  false for a non-string, and true for an empty suffix
+---@param s string
+---@param suffix string
+---@param ignoreCase? boolean
+---@return boolean  false for a non-string, and true for an empty suffix
 function M.endsWith(s, suffix, ignoreCase)
     if type(s) ~= 'string' or type(suffix) ~= 'string' then
         return false
@@ -327,10 +336,10 @@ function M.endsWith(s, suffix, ignoreCase)
 end
 
 --- Pad on the left to `width`. Text longer than `width` is returned unchanged --
---- @param s
---- @param width
---- @param fill
---- @return string  padded on the left to a BYTE width; unchanged when already long enough
+---@param s any
+---@param width integer
+---@param fill? string
+---@return string  padded on the left to a BYTE width; unchanged when already long enough
 function M.padStart(s, width, fill)
     s = type(s) == 'string' and s or tostring(s)
     fill = (type(fill) == 'string' and fill ~= '') and fill or ' '
@@ -342,10 +351,10 @@ function M.padStart(s, width, fill)
 end
 
 --- Pad on the right to `width`.
---- @param s
---- @param width
---- @param fill
---- @return string  padded on the right to a BYTE width
+---@param s any
+---@param width integer
+---@param fill? string
+---@return string  padded on the right to a BYTE width
 function M.padEnd(s, width, fill)
     s = type(s) == 'string' and s or tostring(s)
     fill = (type(fill) == 'string' and fill ~= '') and fill or ' '
@@ -357,10 +366,11 @@ function M.padEnd(s, width, fill)
 end
 
 --- Levenshtein edit distance between two strings.
---- @param a
---- @param b
---- @param maxDistance
---- @return the distance, or `nil, reason`. When maxDistance is given and the
+---@param a string
+---@param b string
+---@param maxDistance? integer
+---@return integer|nil  the distance; maxDistance + 1 once it is exceeded
+---@return string|nil  why
 function M.levenshtein(a, b, maxDistance)
     if type(a) ~= 'string' or type(b) ~= 'string' then
         return nil, 'both arguments must be strings'
@@ -412,10 +422,11 @@ function M.levenshtein(a, b, maxDistance)
 end
 
 --- Pick the closest candidate to `word`.
---- @param word
---- @param candidates
---- @param opts
---- @return `match, distance`, or `nil` when nothing is close enough, or
+---@param word string
+---@param candidates string[]
+---@param opts? table  { maxDistance, comparator }
+---@return string|nil  the closest candidate
+---@return integer|string|nil  its distance, or why
 function M.suggest(word, candidates, opts)
     if type(word) ~= 'string' or word == '' then
         return nil, 'word must be a non-empty string'

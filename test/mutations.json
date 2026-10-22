@@ -424,9 +424,9 @@
     {
       "id": "M66",
       "file": "init.lua",
-      "find": "    local spec = REQUIRE_MODULES[name]\n    if not spec then\n        error(('Cis.require: no module named %q. Valid names: %s'):format(",
-      "replace": "    local spec = REQUIRE_MODULES[name] or { path = name }\n    if not spec then\n        error(('Cis.require: no module named %q. Valid names: %s'):format(",
-      "why": "Fall back to treating the caller name as a path, so any name resolves. That turns a closed set of fifteen into arbitrary file execution inside the resource, and it is the one direction the allow-list exists to prevent. The first anchor matched three places -- Cis.require, Cis.moduleInfo and Cis.moduleProbe all read that table the same way -- and an anchor that is not unique is not an anchor. The first anchor was the bare lookup line, which occurs three times: Cis.require, Cis.moduleInfo and Cis.moduleProbe all read that table the same way. An anchor that is not unique is not an anchor, and the tool refusing it was right."
+      "find": "        elseif not rest:find('[%./]') then\n            return nil, nil\n        end\n",
+      "replace": "        end\n",
+      "why": "Treat a bare name that is not one of the fifteen built-ins as a file path. A typo ('jsno') then goes looking for jsno.lua instead of being answered with the valid names, and the closed set of built-in names stops being closed. Rewritten when Cis.require learned consumer paths: paths are now allowed on purpose, but only when they look like paths."
     },
     {
       "id": "M67",
@@ -558,8 +558,8 @@
     {
       "id": "M86",
       "file": "init.lua",
-      "find": "            return nil, ('waitFor timed out after %dms'):format(timeout)\n                .. (msg and (' (' .. tostring(msg) .. ')') or '')\n",
-      "replace": "            error(('waitFor timed out after %dms'):format(timeout)\n                .. (msg and (' (' .. tostring(msg) .. ')') or ''), 2)\n",
+      "find": "            return nil, ('waitFor timed out after %sms'):format(shown)\n                .. (msg and (' (' .. tostring(msg) .. ')') or '')\n",
+      "replace": "            error(('waitFor timed out after %sms'):format(shown)\n                .. (msg and (' (' .. tostring(msg) .. ')') or ''), 2)\n",
       "why": "Raise on timeout. Callers that cannot wrap the wait in pcall then crash a thread, and the 7.8 test that pcalls a timeout and requires it NOT to raise is the thing that sees it."
     },
     {
@@ -1394,6 +1394,349 @@
       "find": "    if not value or t.appliedRev == value.rev or not ownsEntity(entity) then",
       "replace": "    if not value or t.appliedRev == value.rev then",
       "why": "Apply a networked entity's metadata on every client that streams it rather than on its owner. Every client then fights over props and tasks it has no authority to set, and the owner's state is overwritten by whoever saw the bag last."
+    },
+    {
+      "id": "M206",
+      "file": "shared/algo/interp.lua",
+      "find": "local VECTOR_DIMS = { vector2 = 2, vector3 = 3, vector4 = 3 }",
+      "replace": "local VECTOR_DIMS = {}",
+      "why": "Stop interp reading FiveM vectors. `type(vector3(...))` is 'vector3', so every distance, lerp and normalize of a native coordinate silently answers zeros -- the defect this module shipped with."
+    },
+    {
+      "id": "M207",
+      "file": "shared/algo/curve.lua",
+      "find": "local VECTOR_DIMS = { vector2 = 2, vector3 = 3, vector4 = 3 }",
+      "replace": "local VECTOR_DIMS = {}",
+      "why": "Stop curve reading FiveM vectors: a path built from vector3 control points silently drops every point and has length 0."
+    },
+    {
+      "id": "M208",
+      "file": "shared/algo/interp.lua",
+      "find": "    return M.wrap(b - a, -180, 180)",
+      "replace": "    return M.wrapDegrees(b - a)",
+      "why": "headingDelta wrapped to [0, 360) instead of the shortest signed arc, so lerpHeading(10, 350, .5) answered 180 -- a turn the long way round."
+    },
+    {
+      "id": "M209",
+      "file": "shared/algo/interp.lua",
+      "find": "    return -math.sin(rad), math.cos(rad)",
+      "replace": "    return math.sin(rad), -math.cos(rad)",
+      "why": "headingToVector 180 degrees off GTA's forward vector (-sin h, cos h): everything placed 'in front of' an entity lands behind it."
+    },
+    {
+      "id": "M210",
+      "file": "shared/algo/interp.lua",
+      "find": "    if not tx then return { x = cx, y = cy, z = cz or 0 } end",
+      "replace": "    if not tx or cz == nil then return { x = cx, y = cy, z = cz or 0 } end",
+      "why": "moveTowardsVec3 returned a 2D current point unchanged, so anything driven in the plane never moved."
+    },
+    {
+      "id": "M211",
+      "file": "shared/algo/interp.lua",
+      "find": "    elseif speed < 0 then\n        speed = 0\n",
+      "replace": "    elseif speed < 0 then\n        speed = speed\n",
+      "why": "Let a negative maxSpeed through to the clamp. The range inverts; the original code then did arithmetic on M.clamp's nil and raised in a per-frame smoother."
+    },
+    {
+      "id": "M212",
+      "file": "shared/algo/curve.lua",
+      "find": "        local a, b = dt1 / dt0, dt1 / (dt0 + dt1)",
+      "replace": "        local a, b = dt0 / dt0, dt1 / (dt0 + dt1)",
+      "why": "Drop the dt1/dt0 knot scaling from the centripetal tangent. The curve is then exact only at alpha 0 or on evenly spaced points -- the shape the module shipped with."
+    },
+    {
+      "id": "M213",
+      "file": "shared/algo/lru.lua",
+      "find": "        if lru.map[node.key] == node then",
+      "replace": "        if true then",
+      "why": "CisLRU.each visits entries the callback already removed, handing out keys that are no longer in the cache."
+    },
+    {
+      "id": "M214",
+      "file": "shared/algo/rate.lua",
+      "find": "        entry.idx = 0\n    end\n",
+      "replace": "    end\n",
+      "why": "A sliding key whose first call is refused never gets a ring cursor, and the next roll forward does arithmetic on nil and raises out of the limiter."
+    },
+    {
+      "id": "M215",
+      "file": "shared/algo/rate.lua",
+      "find": "        error(('CisRate: now must be a number of seconds or nil, got %s')\n            :format(now ~= now and 'NaN' or type(now)), 3)",
+      "replace": "        return 0",
+      "why": "Coerce a NaN or non-number clock to 0 again. A fixed window is then pinned at index 0 and never rolls, so a key that filled it once is refused forever."
+    },
+    {
+      "id": "M216",
+      "file": "shared/algo/rate.lua",
+      "find": "    if now == nil then\n",
+      "replace": "    if now == false then\n",
+      "why": "Drop the default clock: an omitted `now` is no longer read from GetGameTimer, so the documented call shape without a timestamp raises."
+    },
+    {
+      "id": "M217",
+      "file": "shared/algo/random.lua",
+      "find": "    lo = math.ceil(lo)\n    hi = math.floor(hi)",
+      "replace": "    lo = math.floor(lo)\n    hi = math.ceil(hi)",
+      "why": "Round a fractional integer range OUTWARD: integer(1.5, 3.5) draws 1 and 4, outside the range asked for."
+    },
+    {
+      "id": "M218",
+      "file": "shared/algo/random.lua",
+      "find": "    k = math.floor(k)\n",
+      "replace": "",
+      "why": "sample(list, 2.5) clears the tail from key 3.5, which does not exist, and returns the whole list."
+    },
+    {
+      "id": "M219",
+      "file": "shared/algo/heap.lua",
+      "find": "    if value == nil then\n        return nil, 'cannot push nil into a heap'\n    end\n",
+      "replace": "",
+      "why": "push(nil) counts a slot that holds nothing, and the next sift compares nil and raises."
+    },
+    {
+      "id": "M220",
+      "file": "shared/algo/window.lua",
+      "find": "    if type(w) ~= 'number' or w ~= w or w <= 0 then\n        w = 1",
+      "replace": "    if type(w) ~= 'number' or w ~= w or w < 1 then\n        w = 1",
+      "why": "Raise every sub-second dedupe window to a whole second, so a 250 ms debounce swallows four times what it should."
+    },
+    {
+      "id": "M221",
+      "file": "shared/algo/window.lua",
+      "find": "    if entry.lastBucket == nil then",
+      "replace": "    if entry.lastBucket == nil or entry.lastBucket < 0 then",
+      "why": "Treat a negative bucket index as 'no data yet'. With negative timestamps every record re-initialises the key without clearing it, so expired samples are never dropped."
+    },
+    {
+      "id": "M222",
+      "file": "shared/algo/sparse.lua",
+      "find": "    set.dense = {}\n    set.size = 0\n",
+      "replace": "    set.size = 0\n",
+      "why": "A soft clear keeps the old dense array, so a cleared set still references every value it ever held."
+    },
+    {
+      "id": "M223",
+      "file": "shared/util/id.lua",
+      "find": "    rng = normaliseRng(rng)\n    if not rng then",
+      "replace": "    rng = rng or math.random\n    if not rng then",
+      "why": "uuid calls a CisRandom generator object as if it were a function and raises, unlike every other CisId function."
+    },
+    {
+      "id": "M224",
+      "file": "shared/util/table.lua",
+      "find": "    local n = 0\n    while rawget(t, n + 1) ~= nil do\n        n = n + 1\n    end\n    return n",
+      "replace": "    return #t",
+      "why": "Trust `#t` as the array prefix. On a table with a hole the border is arbitrary, so CisTable.keys({1, nil, 3}) invents key 2 and loses key 3, and values/each follow it."
+    },
+    {
+      "id": "M225",
+      "file": "shared/util/table.lua",
+      "find": "            if comparator(b, a) == true then return 1 end\n            return 0",
+      "replace": "            return 1",
+      "why": "Read a boolean comparator's false as 'after' instead of asking the reverse question, so equal keys are never a tie and sortBy -- documented stable -- reorders them."
+    },
+    {
+      "id": "M226",
+      "file": "shared/util/table.lua",
+      "find": "        out[k] = M.deepCopy(v, seen)",
+      "replace": "        out[M.deepCopy(k, seen)] = M.deepCopy(v, seen)",
+      "why": "deepCopy copies table KEYS, so a copy of an identity-keyed table cannot be looked up by the original keys."
+    },
+    {
+      "id": "M227",
+      "file": "shared/util/table.lua",
+      "find": "            out[i] = fn(t[i], i)\n",
+      "replace": "            out[i] = fn(t[i], i) or false\n",
+      "why": "map rewrites a nil result to false -- a value the callback never returned."
+    },
+    {
+      "id": "M228",
+      "file": "shared/util/table.lua",
+      "find": "    if acc == nil and next(t) == nil then\n        return nil, 'reduce of an empty table needs an initial value'\n    end\n",
+      "replace": "",
+      "why": "reduce({}, fn) answers a bare nil, indistinguishable from a fold whose result was nil."
+    },
+    {
+      "id": "M229",
+      "file": "shared/util/table.lua",
+      "find": "        if done and done <= depth then\n            return\n        end\n",
+      "replace": "",
+      "why": "findCycle walks a shared subtable once per route to it: exponential in depth, and deepMerge runs it on every merge."
+    },
+    {
+      "id": "M230",
+      "file": "shared/util/table.lua",
+      "find": "                if h > below then below = h end",
+      "replace": "                if below == 0 then below = h end",
+      "why": "depth() keeps the first route it walked to a child instead of the deepest, so deepCopyStrict's nesting limit depends on pairs() order."
+    },
+    {
+      "id": "M231",
+      "file": "shared/util/json.lua",
+      "find": "            local shape = shapeProblem(v)",
+      "replace": "            local shape = nil",
+      "why": "checkEncodable accepts mixed, sparse and fractional-key tables that codecs encode differently or refuse."
+    },
+    {
+      "id": "M232",
+      "file": "shared/util/json.lua",
+      "find": "            local known = height[v]",
+      "replace": "            local known = nil",
+      "why": "checkEncodable re-walks a shared subtable from every parent: 2^depth walks, seconds of a server frame for a 22-level structure."
+    },
+    {
+      "id": "M233",
+      "file": "shared/util/json.lua",
+      "find": "        if refusal then\n            return nil, ('the decoder refused: %s'):format(refusal)\n        end\n",
+      "replace": "",
+      "why": "A codec that refuses with `nil, err` (or dkjson's `nil, pos, err`) reads as a successful JSON null, so malformed input becomes data."
+    },
+    {
+      "id": "M234",
+      "file": "shared/util/string.lua",
+      "find": "            local count = utf8.len(str)",
+      "replace": "            local _, count = utf8.len(str)",
+      "why": "truncate takes utf8.len's SECOND return, nil on valid text, so every string is measured in bytes and multibyte text is cut short."
+    },
+    {
+      "id": "M235",
+      "file": "shared/util/string.lua",
+      "find": "    max = math.floor(max)\n",
+      "replace": "",
+      "why": "A fractional max reaches utf8.offset, which raises 'number has no integer representation'."
+    },
+    {
+      "id": "M236",
+      "file": "shared/util/time.lua",
+      "find": "    return ('%.0f'):format(n)",
+      "replace": "    return ('%d'):format(n)",
+      "why": "Format whole numbers with %d again: Lua 5.4 raises on a float with no integer representation, so relative() and formatDuration() raise on a large span."
+    },
+    {
+      "id": "M237",
+      "file": "shared/util/validate.lua",
+      "find": "    if v == math.huge or v == -math.huge then\n        return false\n    end\n    -- NaN fails this too",
+      "replace": "    -- NaN fails this too",
+      "why": "isInteger(math.huge) is true, because math.floor(inf) == inf."
+    },
+    {
+      "id": "M238",
+      "file": "shared/util/validate.lua",
+      "find": "    if type(n) == 'number' and n % 1 == 0 and n > -1e15 and n < 1e15 then\n        return ('%.0f'):format(n)\n    end\n    return tostring(n)",
+      "replace": "    return ('%d'):format(n)",
+      "why": "A fractional min/max bound reaches %d, and the validator raises on the caller's config instead of reporting it."
+    },
+    {
+      "id": "M239",
+      "file": "shared/util/semver.lua",
+      "find": "        if piece == '' then\n            return nil, ('%s %q has an empty identifier'):format(what, text)\n        end\n",
+      "replace": "",
+      "why": "Accept empty prerelease/build identifiers: '1.2.3-a..b' and '1.2.3+' parse, which SemVer 2.0.0 forbids."
+    },
+    {
+      "id": "M240",
+      "file": "shared/util/semver.lua",
+      "find": "    if #core < 3 and not loose then",
+      "replace": "    if false then",
+      "why": "Strict parse accepts '1' and '1.2' again -- the module said Strict and was not."
+    },
+    {
+      "id": "M241",
+      "file": "shared/util/semver.lua",
+      "find": "        if x.M == 0 then\n            return { cmp('>=', 0, x.m, 0, z), cmp('<', 0, x.m + 1, 0, '0') }\n        end\n",
+      "replace": "",
+      "why": "^0.0 and ^0.1 widen to <1.0.0, unlike npm, so a 0.x dependency range admits breaking minors."
+    },
+    {
+      "id": "M242",
+      "file": "shared/util/semver.lua",
+      "find": "    if #target.prereleaseIds > 0 and not incPre then",
+      "replace": "    if false then",
+      "why": "Drop npm's prerelease rule: ^1.2.3 admits 1.3.0-beta, so a range written against releases installs a prerelease."
+    },
+    {
+      "id": "M243",
+      "file": "shared/util/semver.lua",
+      "find": "        local xn, yn = x:match('^%d+$') ~= nil, y:match('^%d+$') ~= nil",
+      "replace": "        local xn, yn = tonumber(x) ~= nil, tonumber(y) ~= nil",
+      "why": "Classify prerelease identifiers with tonumber, which reads '0x1' and '1e3' as numeric, so they sort below plain numbers."
+    },
+    {
+      "id": "M244",
+      "file": "shared/util/semver.lua",
+      "find": "        if to.xm then\n            out[#out + 1] = cmp('<', to.M + 1, 0, 0, '0')",
+      "replace": "        if to.xm then\n            out[#out + 1] = cmp('<=', to.M, 0, 0)",
+      "why": "Read the partial upper end of a hyphen range as an exact bound: '1 - 2' stops at 2.0.0 instead of covering every 2.x."
+    },
+    {
+      "id": "M245",
+      "file": "shared/util/semver.lua",
+      "find": "    return { cmp('>=', x.M, x.m, x.p, x.pre), cmp('<', x.M, x.m + 1, 0, '0') }",
+      "replace": "    return { cmp('>=', x.M, x.m, x.p, x.pre), cmp('<', x.M + 1, 0, 0, '0') }",
+      "why": "~1.2.3 behaves like ^1.2.3 and admits the next minor."
+    },
+    {
+      "id": "M246",
+      "file": "shared/util/semver.lua",
+      "find": "    if not loose and #text > 1 and text:sub(1, 1) == '0' then",
+      "replace": "    if false then",
+      "why": "Strict parse accepts '01.2.3', a leading zero SemVer 2.0.0 forbids."
+    },
+    {
+      "id": "M247",
+      "file": "shared/util/semver.lua",
+      "find": "        if not (isWhole(v.major) and isWhole(v.minor) and isWhole(v.patch)) then",
+      "replace": "        if false then",
+      "why": "Trust a version table: parse({}) no longer refuses, and compare reaches nil components."
+    },
+    {
+      "id": "M248",
+      "file": "init.lua",
+      "find": "    if requireLoading[key] then",
+      "replace": "    if false then",
+      "why": "Drop the in-progress sentinel: a circular Cis.require recurses until the stack runs out, and the error names neither module."
+    },
+    {
+      "id": "M249",
+      "file": "init.lua",
+      "find": "        deps = { table.unpack(spec.deps) },",
+      "replace": "        deps = spec.deps,",
+      "why": "moduleInfo hands out the loader's live dependency list, so a caller editing the answer edits the loader."
+    },
+    {
+      "id": "M250",
+      "file": "init.lua",
+      "find": "        if segment == '' or segment == '.' or segment == '..' then",
+      "replace": "        if segment == '' then",
+      "why": "Let a module path walk out of the resource with '..', turning Cis.require into a reader of arbitrary files."
+    },
+    {
+      "id": "M251",
+      "file": "init.lua",
+      "find": "        local chunk, compileErr = load(src, ('@@%s/%s'):format(resource, path), 't', env)",
+      "replace": "        local chunk, compileErr = load(src, ('@@%s/%s'):format(resource, path), 'bt', env)",
+      "why": "Accept precompiled chunks from a resource file. The loader is text-only on purpose; bytecode can do what source cannot."
+    },
+    {
+      "id": "M252",
+      "file": "init.lua",
+      "find": "        local env = setmetatable({}, { __index = _ENV })",
+      "replace": "        local env = _ENV",
+      "why": "Load a consumer module straight into the resource's globals, so every helper it defines leaks and two modules can clobber each other."
+    },
+    {
+      "id": "M253",
+      "file": "init.lua",
+      "find": "            return nil, ('waitFor timed out after %sms'):format(shown)",
+      "replace": "            return nil, ('waitFor timed out after %dms'):format(timeout)",
+      "why": "Format the timeout with %d again: a fractional timeoutMs makes the timeout path raise instead of answering nil, reason."
+    },
+    {
+      "id": "M254",
+      "file": "init.lua",
+      "find": "        resource, rest = THIS, name",
+      "replace": "        resource, rest = RESOURCE, name",
+      "why": "Resolve a relative module path against cis_libs instead of the calling resource, so a consumer cannot load its own files."
     }
   ]
 }

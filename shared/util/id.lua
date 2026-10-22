@@ -3,7 +3,7 @@
 local M = {
     -- Crockford-style base32: the digits plus the consonants, with I, L, O and U
     ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ',
-    -- 8 characters of 5 bits is 40 bits.
+    -- 12 characters of 5 bits is 60 bits.
     LENGTH = 12,
 }
 
@@ -30,10 +30,12 @@ local function normaliseRng(value)
     return nil
 end
 
---- @param count number|nil     how many symbols; default CisId.LENGTH
---- @param alphabet string|nil  default CisId.ALPHABET
---- @param rng function|table|nil  a function returning [0,1), or an object
---- @return a string, or `nil, reason`.
+--- Draw `count` symbols from `alphabet`.
+---@param count? number  how many symbols; default CisId.LENGTH
+---@param alphabet? string  default CisId.ALPHABET
+---@param rng? table|fun(): number  a function returning [0,1), or an object
+---@return string|nil  the symbols
+---@return string|nil  why, for a bad rng, alphabet or count
 function M.draw(count, alphabet, rng)
     -- The original form was draw(rng, count, alphabet), and a consumer written against
     if isRng(count) then
@@ -77,9 +79,10 @@ function M.draw(count, alphabet, rng)
 end
 
 --- A short opaque id, optionally prefixed.
---- @param opts table|nil
---- @param prefix
---- @return the id, or `nil, reason`. A prefix that is not a string, or an
+---@param prefix? string
+---@param opts? table  { length, alphabet, rng }
+---@return string|nil  the id
+---@return string|nil  why
 function M.short(prefix, opts)
     opts = opts or {}
     -- The rng goes LAST, and no longer needs a closure wrapped round it: draw accepts a
@@ -98,10 +101,18 @@ function M.short(prefix, opts)
 end
 
 --- An RFC 4122 version 4 shaped string, from the same injected generator.
---- @param rng
---- @return string|nil,string  an RFC 4122 version-4 shaped string, or nil and a reason if the rng misbehaves. Not a UUID in the cryptographic sense -- see the header.
+---@param rng? table|fun(): number
+---@return string|nil  an RFC 4122 version-4 shaped string
+---@return string|nil  why, if the rng misbehaves
 function M.uuid(rng)
-    rng = rng or math.random
+    -- The same generator forms draw() takes: nil, a function, or a
+    -- CisRandom.newGenerator object. An object used to be CALLED, and raised.
+    local given = rng
+    rng = normaliseRng(rng)
+    if not rng then
+        return nil, ('rng must be a function returning a number in [0,1), '
+            .. 'or a CisRandom.newGenerator object, got %s'):format(type(given))
+    end
     local hex = '0123456789abcdef'
     local out = {}
     local i = 1
@@ -129,22 +140,22 @@ function M.uuid(rng)
 end
 
 --- A counter, for ids that must be readable and ordered.
---- @return a fresh counter table: `{ seq = 0 }`.
---- @return table  a counter handle; feed it to CisId.next
+---@return table  a counter handle { seq = 0 }; feed it to next
 function M.newCounter()
     return { seq = 0 }
 end
 
 --- Take the next value from a counter.
---- @param counter
---- @param kind
---- @return the id, or `nil, reason` when the counter is not a counter. There is
+---@param counter table
+---@param kind? string
+---@return string|nil  the id
+---@return string|nil  why, when the counter is not a counter
 function M.next(counter, kind)
     if type(counter) ~= 'table' then
         return nil, ('counter must be a table from CisId.newCounter(), got %s'):format(type(counter))
     end
-    if type(counter.seq) ~= 'number' then
-        return nil, 'counter.seq is not a number; this is not a counter'
+    if type(counter.seq) ~= 'number' or counter.seq % 1 ~= 0 then
+        return nil, 'counter.seq is not a whole number; this is not a counter'
     end
     counter.seq = counter.seq + 1
     if kind == nil or kind == '' then
@@ -153,7 +164,7 @@ function M.next(counter, kind)
     if type(kind) ~= 'string' then
         return nil, ('kind must be a string, got %s'):format(type(kind))
     end
-    return ('%s_%d'):format(kind, counter.seq)
+    return ('%s_%.0f'):format(kind, counter.seq)
 end
 
 -- Two escapes, because Lua uses different rules for a pattern and for a gsub
@@ -166,10 +177,11 @@ local function escapeReplacement(s)
 end
 
 --- Turn a display name into a key that is safe to use as a table key, a database column
---- @param opts table|nil
---- @param raw
---- @param used
---- @return the key, or `nil, reason` when `raw` is not a string or normalises
+---@param raw string
+---@param used? table
+---@param opts? table  { separator, maxLength }
+---@return string|nil  the key
+---@return string|nil  why
 function M.normaliseName(raw, used, opts)
     if type(raw) ~= 'string' then
         return nil, ('name must be a string, got %s'):format(type(raw))

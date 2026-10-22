@@ -920,13 +920,15 @@ do
         expect(ok2 and res2 == nil and type(why2) == 'string',
             'the same refusal applies to an over-wide major')
 
-        -- 15 digits is the last width a double holds exactly. 16 does not
-        -- round-trip -- it becomes a different number, silently -- which is why
-        -- it is refused rather than accepted.
+        -- 2^53 - 1 is the largest integer a double holds exactly, and the
+        -- limit node-semver applies. Anything above it would silently become a
+        -- different number, so it is refused rather than rounded.
         expect(S.parse('1.2.123456789012345').normalized == '1.2.123456789012345',
             'a 15-digit component parses and normalizes exactly')
-        local ok3, res3 = parseOf('1.2.1234567890123456')
-        expect(ok3 and res3 == nil, 'a 16-digit component is refused rather than rounded')
+        expect((S.parse('1.2.9007199254740991') or {}).normalized == '1.2.9007199254740991',
+            'a component of exactly 2^53 - 1 parses and normalizes exactly')
+        local ok3, res3 = parseOf('1.2.9007199254740992')
+        expect(ok3 and res3 == nil, 'a component of 2^53 is refused rather than rounded')
 
         -- The refusal has to survive the whole chain, or it just moves the
         -- raise one function up.
@@ -966,12 +968,12 @@ do
         expect(S.satisfies('1.2.5-rc1', '<=1.2') == false,
             "a prerelease of 1.2.5 is still refused by '<=1.2'")
 
-        -- The component count that drives both rewrites must ignore the digits
-        -- inside a prerelease: '~1-rc1' counted the '1' in 'rc1' as a second
-        -- component and became '>=1.0.0 <1.1.0'.
-        expect(S.satisfies('1.5.0', '~1') == true, "'~1' still means >=1.0.0 <2.0.0")
-        expect(S.satisfies('1.5.0', '~1-rc1') == true,
-            "'~1-rc1' does not count the prerelease digits as a component")
+        -- A prerelease only follows a full MAJOR.MINOR.PATCH, in a version and
+        -- in a range. '~1-rc1' used to be read as '~1' with the tag ignored;
+        -- npm refuses it, and so does this.
+        expect(S.satisfies('1.5.0', '~1') == true, "'~1' still means >=1.0.0 <2.0.0-0")
+        expect(S.satisfies('1.5.0', '~1-rc1') == nil,
+            "'~1-rc1' is not a range: a prerelease needs a full version")
     end
 end
 
@@ -1058,17 +1060,7 @@ do
 end
 
 -- =================================================================== CisJson
--- No codec is shipped: the module wraps an injected one. Under fengari there
--- is no real codec, so the contract under test is the refusal layer -- it
--- must never raise, whatever the injected codec does.
-do
-    local J = CisJson
-    local hostile = function() error('codec exploded') end
-    local ok = pcall(function() return J.check(hostile, { a = 1 }) end)
-    expect(ok, 'check does not raise when the codec raises')
-    local enc = pcall(function() return J.encode({ a = 1 }, hostile) end)
-    expect(enc, 'encode does not raise when the codec raises')
-end
+-- The real codec tests are in Phase 6 below, against a working reference codec.
 
 -- =================================================================== CisWindow
 -- A ring of time buckets. The invariant pinned here is that the ring cursor
@@ -1657,11 +1649,19 @@ do
         expect(halfCodec == nil and type(halfWhy) == 'string',
             'check refuses a codec missing decode, and says which half')
 
-        local hostile = function() error('codec exploded') end
-        expect(pcall(function() return J.encode(hostile, { a = 1 }) end),
-            'encode survives a codec that raises')
-        expect(pcall(function() return J.decode(hostile, '{}') end),
-            'decode survives a codec that raises')
+        -- A codec TABLE whose halves raise, in the argument order the module
+        -- takes: (codec, value). A bare function is not a codec and is refused
+        -- by check() before anything is called, so it tests nothing here.
+        local hostile = {
+            encode = function() error('codec exploded') end,
+            decode = function() error('codec exploded') end,
+        }
+        local okE, encoded, encWhy = pcall(J.encode, hostile, { a = 1 })
+        expect(okE and encoded == nil and type(encWhy) == 'string' and encWhy:find('exploded', 1, true),
+            'encode turns a raising codec into nil + the codec reason')
+        local okD, decoded, decWhy = pcall(J.decode, hostile, '{}')
+        expect(okD and decoded == nil and type(decWhy) == 'string' and decWhy:find('exploded', 1, true),
+            'decode turns a raising codec into nil + the codec reason')
 
         local good = J.checkEncodable({ a = 1, b = { c = 2 } })
         expect(good == true, 'a plain structure is encodable')
@@ -1669,6 +1669,1402 @@ do
         expect(bad == false and type(badWhy) == 'string',
             'a table carrying a function is refused, and the reason says so')
     end
+end
+
+-- ============================================ Phase 6 · properties, not examples
+--
+-- Every block below pins a defect that the example tests above let through.
+-- Most compare the module against a REFERENCE written here, over many
+-- generated cases, because a single hand-picked example is exactly what the
+-- original tests were and exactly what the defects slipped past.
+
+-- A deterministic generator owned by the TEST, so the cases do not depend on
+-- the module under test (CisRandom) being right. Park-Miller in doubles, which
+-- is exact on fengari's 32-bit integers and on Lua 5.4 alike.
+local function testRng(seed)
+    local state = math.floor(seed) % 2147483647
+    if state <= 0 then state = state + 2147483646 end
+    return function()
+        state = (state * 16807.0) % 2147483647
+        return state / 2147483647
+    end
+end
+
+-- Load a shipped module FRESH into its own environment, so a test can give it
+-- a `type` that knows about FiveM vectors. Both runners inject the source of
+-- every manifest file as CIS_TEST_FILES.
+local function freshModule(rel, overrides)
+    local src = assert(CIS_TEST_FILES and CIS_TEST_FILES[rel], 'no injected source for ' .. rel)
+    local env = setmetatable(overrides or {}, { __index = _G })
+    local chunk = assert(load(src, '@' .. rel, 't', env))
+    return chunk('cis_require')
+end
+
+-- Stand-ins for CfxLua's vector2/3/4. `type()` on a real one answers
+-- 'vector3', not 'table', and reading a field the vector does not have
+-- RAISES -- so a reader that touches .z on a vector2, or [1] on any vector,
+-- fails here the way it would in FiveM.
+local VECTOR_FIELDS = {
+    vector2 = { x = true, y = true },
+    vector3 = { x = true, y = true, z = true },
+    vector4 = { x = true, y = true, z = true, w = true },
+}
+local function fakeVector(kind, x, y, z, w)
+    local data = { x = x, y = y, z = z, w = w }
+    local allowed = VECTOR_FIELDS[kind]
+    return setmetatable({}, {
+        __vectype = kind,
+        __index = function(_, k)
+            if allowed[k] then return data[k] end
+            error(('invalid %s field %s'):format(kind, tostring(k)), 2)
+        end,
+        __newindex = function() error('vectors are read-only here', 2) end,
+    })
+end
+local realType = type
+local function vectorAwareType(v)
+    local mt = getmetatable(v)
+    if realType(mt) == 'table' and rawget(mt, '__vectype') then
+        return rawget(mt, '__vectype')
+    end
+    return realType(v)
+end
+
+local function angleClose(a, b, tol)
+    local d = math.abs((a - b) % 360)
+    return d <= tol or 360 - d <= tol
+end
+
+-- ---------------------------------------------------- interp: FiveM vectors
+do
+    local I = freshModule('shared/algo/interp.lua', { type = vectorAwareType })
+    local a3, b3 = fakeVector('vector3', 1, 2, 3), fakeVector('vector3', 4, 6, 3)
+    near(I.distance3D(a3, b3), 5, 1e-12, 'interp: distance3D reads two vector3s (was 0)')
+    near(I.distance2D(fakeVector('vector2', 0, 0), fakeVector('vector2', 3, 4)), 5, 1e-12,
+        'interp: distance2D reads two vector2s without touching .z')
+    local mid = I.lerpVec3(a3, b3, 0.5)
+    expect(mid.x == 2.5 and mid.y == 4 and mid.z == 3, 'interp: lerpVec3 blends vector3s')
+    local v4 = I.normalize(fakeVector('vector4', 0, 3, 4, 99))
+    near(v4.y, 0.6, 1e-12, 'interp: normalize reads x/y/z of a vector4 and ignores w')
+    local moved = I.moveTowardsVec3(fakeVector('vector3', 0, 0, 0), fakeVector('vector3', 10, 0, 0), 2)
+    expect(moved.x == 2 and moved.y == 0 and moved.z == 0, 'interp: moveTowardsVec3 moves a vector3')
+    local okUd = pcall(I.distance3D, io.stdout, a3)
+    expect(okUd, 'interp: a userdata with no .x is a refusal, not a raise')
+end
+
+-- ---------------------------------------------- interp: 2D moveTowardsVec3
+do
+    local I = CisInterp
+    local p = I.moveTowardsVec3({ x = 0, y = 0 }, { x = 3, y = 4 }, 1)
+    near(p.x, 0.6, 1e-12, 'interp: a 2D point moves toward a 2D target (it used to stay put)')
+    near(p.y, 0.8, 1e-12, 'interp: and along the right direction')
+    local q = I.moveTowardsVec3({ 0, 0 }, { x = 3, y = 4, z = 12 }, 100)
+    expect(q.x == 3 and q.y == 4 and q.z == 12, 'interp: a 2D point takes the 3D target\'s z')
+end
+
+-- -------------------------------------------- interp: smoothDamp maxSpeed
+do
+    local I = CisInterp
+    local ok, out, vel = pcall(I.smoothDamp, 0, 10, 0, 0.3, -5, 1 / 60)
+    expect(ok and out == 0 and vel == 0,
+        ('interp: smoothDamp with a negative maxSpeed holds still rather than raising (%s %s)')
+            :format(tostring(out), tostring(vel)))
+    local okNan, outNan = pcall(I.smoothDamp, 0, 10, 0, 0.3, 0 / 0, 1 / 60)
+    expect(okNan and outNan > 0 and outNan < 10, 'interp: a NaN maxSpeed is "no limit"')
+    -- The limit must still bite: a step cannot cover more than maxSpeed * smoothTime.
+    local capped = I.smoothDamp(0, 1000, 0, 0.5, 4, 0.1)
+    local free = I.smoothDamp(0, 1000, 0, 0.5, nil, 0.1)
+    expect(capped < free and capped > 0, 'interp: a positive maxSpeed still limits the step')
+end
+
+-- ------------------------------------------------- interp: GTA headings
+do
+    local I = CisInterp
+    near(I.lerpHeading(10, 350, 0.5), 0, 1e-9, 'interp: lerpHeading(10, 350, .5) goes through north')
+    near(I.lerpHeading(350, 10, 0.5), 0, 1e-9, 'interp: and the other way round')
+    local rng = testRng(9001)
+    local bad = {}
+    for _ = 1, 400 do
+        local a, b, t = rng() * 720 - 360, rng() * 720 - 360, rng()
+        local d = I.headingDelta(a, b)
+        -- Reference: the shortest signed arc, in [-180, 180).
+        local ref = ((b - a) % 360 + 540) % 360 - 180
+        if not (d >= -180 and d < 180 and math.abs(d - ref) < 1e-9) then
+            bad[#bad + 1] = ('delta(%g,%g)=%g want %g'):format(a, b, d, ref)
+        end
+        local h = I.lerpHeading(a, b, t)
+        if not (h >= 0 and h < 360 and angleClose(h, a + ref * t, 1e-7)) then
+            bad[#bad + 1] = ('lerp(%g,%g,%g)=%g'):format(a, b, t, h)
+        end
+    end
+    expect(#bad == 0, 'interp: headingDelta/lerpHeading take the shortest arc for 400 random pairs: '
+        .. table.concat(bad, '; ', 1, math.min(#bad, 3)))
+
+    -- GetEntityForwardVector at heading h is (-sin h, cos h): 0 faces +Y, 90 faces -X.
+    local fx, fy = I.headingToVector(0)
+    expect(math.abs(fx) < 1e-12 and math.abs(fy - 1) < 1e-12, 'interp: heading 0 faces +Y')
+    fx, fy = I.headingToVector(90)
+    expect(math.abs(fx + 1) < 1e-12 and math.abs(fy) < 1e-12, 'interp: heading 90 faces -X, as in GTA')
+    fx, fy = I.headingToVector(270)
+    expect(math.abs(fx - 1) < 1e-12 and math.abs(fy) < 1e-12, 'interp: heading 270 faces +X')
+    near(I.vectorToHeading(-1, 0), 90, 1e-9, 'interp: vectorToHeading(-1, 0) is 90')
+    near(I.vectorToHeading(0, -1), 180, 1e-9, 'interp: vectorToHeading(0, -1) is 180')
+    local trip = {}
+    for _ = 1, 400 do
+        local h = rng() * 1080 - 360
+        local x, y = I.headingToVector(h)
+        local back = I.vectorToHeading(x * 7, y * 7)
+        if not (angleClose(back, h, 1e-7) and back >= 0 and back < 360) then
+            trip[#trip + 1] = ('%g -> %g'):format(h, back)
+        end
+        if math.abs(x + math.sin(math.rad(h))) > 1e-12 or math.abs(y - math.cos(math.rad(h))) > 1e-12 then
+            trip[#trip + 1] = ('forward(%g)'):format(h)
+        end
+    end
+    expect(#trip == 0, 'interp: heading -> vector -> heading round-trips for 400 headings: '
+        .. table.concat(trip, '; ', 1, math.min(#trip, 3)))
+end
+
+-- -------------------------------- curve: centripetal against Barry-Goldman
+do
+    -- The reference: Barry and Goldman's pyramid, which IS the definition of a
+    -- non-uniform Catmull-Rom segment, evaluated at the knot that matches u.
+    local function dist3(a, b)
+        return math.sqrt((b[1] - a[1]) ^ 2 + (b[2] - a[2]) ^ 2 + (b[3] - a[3]) ^ 2)
+    end
+    local function barryGoldman(P0, P1, P2, P3, alpha, u)
+        local t0 = 0
+        local t1 = t0 + dist3(P0, P1) ^ alpha
+        local t2 = t1 + dist3(P1, P2) ^ alpha
+        local t3 = t2 + dist3(P2, P3) ^ alpha
+        local t = t1 + (t2 - t1) * u
+        local function L(A, B, ta, tb)
+            local o = {}
+            for i = 1, 3 do o[i] = (tb - t) / (tb - ta) * A[i] + (t - ta) / (tb - ta) * B[i] end
+            return o
+        end
+        local A1, A2, A3 = L(P0, P1, t0, t1), L(P1, P2, t1, t2), L(P2, P3, t2, t3)
+        local B1, B2 = L(A1, A2, t0, t2), L(A2, A3, t1, t3)
+        return L(B1, B2, t1, t2)
+    end
+    local function asPoint(P) return { x = P[1], y = P[2], z = P[3] } end
+
+    local C = CisCurve
+    local rng = testRng(4242)
+    local worst = { 0, 0, 0, 0 }
+    local alphas = { 0, 0.25, 0.5, 1 }
+    for _ = 1, 150 do
+        local P = {}
+        for i = 1, 4 do
+            P[i] = { rng() * 100 - 50, rng() * 100 - 50, rng() * 20 - 10 }
+        end
+        for ai, alpha in ipairs(alphas) do
+            local u = rng()
+            local ref = barryGoldman(P[1], P[2], P[3], P[4], alpha, u)
+            local x, y, z = C.catmullRom(asPoint(P[1]), asPoint(P[2]), asPoint(P[3]), asPoint(P[4]), u, alpha)
+            local err = math.max(math.abs(x - ref[1]), math.abs(y - ref[2]), math.abs(z - ref[3]))
+            if err > worst[ai] then worst[ai] = err end
+        end
+    end
+    for ai, alpha in ipairs(alphas) do
+        expect(worst[ai] < 1e-7, ('curve: catmullRom matches Barry-Goldman at alpha=%g over 150 random'
+            .. ' segments (worst error %g)'):format(alpha, worst[ai]))
+    end
+
+    -- The path stores its own tangents; the same reference checks them, on the
+    -- interior segments of an open path and on every segment of a closed one.
+    local pts = {}
+    for i = 1, 7 do pts[i] = { rng() * 80, rng() * 80, rng() * 8 } end
+    local tablePts = {}
+    for i = 1, #pts do tablePts[i] = asPoint(pts[i]) end
+    local pathWorst = 0
+    for _, closed in ipairs({ false, true }) do
+        local path = C.newPath(tablePts, { alpha = 0.5, closed = closed })
+        local n = #pts
+        local first, last = 2, n - 2
+        if closed then first, last = 1, n end
+        for s = first, last do
+            local function at(i) return pts[((i - 1) % n) + 1] end
+            for _, u in ipairs({ 0.1, 0.37, 0.5, 0.81 }) do
+                local ref = barryGoldman(at(s - 1), at(s), at(s + 1), at(s + 2), 0.5, u)
+                local x, y, z = C.hermite(asPoint(at(s)), asPoint(at(s + 1)),
+                    { x = path.m1x[s], y = path.m1y[s], z = path.m1z[s] },
+                    { x = path.m2x[s], y = path.m2y[s], z = path.m2z[s] }, u)
+                pathWorst = math.max(pathWorst, math.abs(x - ref[1]), math.abs(y - ref[2]), math.abs(z - ref[3]))
+            end
+        end
+    end
+    expect(pathWorst < 1e-7, ('curve: newPath tangents match Barry-Goldman, open and closed (worst %g)')
+        :format(pathWorst))
+end
+
+-- --------------------------------------------------- curve: FiveM vectors
+do
+    local C = freshModule('shared/algo/curve.lua', { type = vectorAwareType })
+    local asTables = { { x = 0, y = 0, z = 1 }, { x = 10, y = 0, z = 1 }, { x = 10, y = 10, z = 2 } }
+    local asVectors = {}
+    for i, p in ipairs(asTables) do asVectors[i] = fakeVector('vector3', p.x, p.y, p.z) end
+    local pt = C.newPath(asTables)
+    local pv = C.newPath(asVectors)
+    expect(C.count(pv) == 3, 'curve: newPath keeps vector3 control points (it dropped every one)')
+    near(C.length(pv), C.length(pt), 1e-9, 'curve: a vector3 path has the same length as the table path')
+    near(C.lengthOf({ fakeVector('vector2', 0, 0), fakeVector('vector2', 3, 4) }), 5, 1e-12,
+        'curve: lengthOf reads vector2s')
+    local x = C.catmullRom(asVectors[1], asVectors[1], asVectors[2], asVectors[3], 0.5)
+    expect(x > 0 and x < 10, 'curve: catmullRom reads vector3 control points (it answered 0)')
+end
+
+-- --------------------------------------------------- lru: each is re-entrant
+do
+    local L = CisLRU
+    local function build(n)
+        local c = L.new(100)
+        for i = 1, n do L.put(c, 'k' .. i, i) end
+        return c
+    end
+    local c = build(5)
+    local visits, seen, runaway = 0, {}, false
+    local ok, err = pcall(L.each, c, function(k)
+        visits = visits + 1
+        if visits > 50 then runaway = true error('runaway') end
+        seen[k] = (seen[k] or 0) + 1
+        L.get(c, k)                       -- relinks k to the front
+    end)
+    local once = true
+    for i = 1, 5 do if seen['k' .. i] ~= 1 then once = false end end
+    expect(ok and not runaway and once and visits == 5,
+        ('lru: each visits every key once when the callback calls get (%s, %d visits)')
+            :format(tostring(err), visits))
+
+    c = build(5)
+    local order = L.keys(c)
+    local got = {}
+    ok, err = pcall(L.each, c, function(k)
+        got[#got + 1] = k
+        -- Remove the entry being visited AND whatever comes next in the
+        -- original order. Removing the current node unlinks it, so a walk that
+        -- reads node.next afterwards reads nil.
+        L.remove(c, k)
+        for i = 1, #order - 1 do
+            if order[i] == k then L.remove(c, order[i + 1]) end
+        end
+    end)
+    expect(ok and #got == 3 and got[1] == order[1] and got[2] == order[3] and got[3] == order[5]
+        and L.count(c) == 0,
+        ('lru: each survives the callback removing the current and next entries (%s)'):format(tostring(err)))
+
+    c = build(4)
+    local n = 0
+    ok = pcall(L.each, c, function() n = n + 1 L.clear(c) end)
+    expect(ok and n == 1, 'lru: each stops visiting once the callback clears the cache')
+
+    c = build(3)
+    ok = pcall(L.each, c, function(k) L.put(c, k .. '_new', 0) end)
+    expect(ok and L.count(c) == 6, 'lru: an entry added during each is not visited, and nothing breaks')
+end
+
+-- --------------------------------------------------- rate: sliding and clock
+do
+    local R = CisRate
+    local r = R.newSliding({ limit = 3, windowSec = 1, subdivisions = 4 })
+    expect(R.allow(r, 'k', 0, 10) == false, 'rate: a first call over the limit is refused')
+    -- One slice later (a slice is 0.25 s), so the cursor steps by one rather
+    -- than wiping the ring -- the path that did arithmetic on the nil cursor.
+    local ok, res = pcall(R.allow, r, 'k', 0.3)
+    expect(ok and res == true,
+        ('rate: a sliding key whose first call was refused rolls forward without raising (%s)')
+            :format(tostring(res)))
+
+    -- nil `now` reads the game timer, in seconds, and the fixed window ROLLS.
+    local savedTimer = GetGameTimer
+    local ms = 100000
+    GetGameTimer = function() return ms end
+    local f = R.newFixed({ limit = 2, windowSec = 1 })
+    local a, b, c = R.allow(f, 'p'), R.allow(f, 'p'), R.allow(f, 'p')
+    ms = ms + 1000
+    local d = R.allow(f, 'p')
+    GetGameTimer = savedTimer
+    expect(a and b and not c and d,
+        'rate: with now omitted the default clock is used and the window rolls (it was pinned at 0)')
+
+    local okNaN = pcall(R.allow, f, 'p', 0 / 0)
+    expect(not okNaN, 'rate: a NaN clock raises rather than pinning the window at 0')
+    local okStr = pcall(R.allow, f, 'p', '5')
+    expect(not okStr, 'rate: a string clock raises')
+    local okPeek = pcall(R.peek, f, 'p', {})
+    expect(not okPeek, 'rate: peek validates the clock the same way')
+end
+
+-- -------------------------------------------- random: inward integer bounds
+do
+    local Rn = CisRandom
+    local sources = {
+        { 'math.random', nil },
+        { 'a function', testRng(77) },
+        { 'a generator', Rn.newGenerator(77) },
+    }
+    for _, src in ipairs(sources) do
+        local outside, hit2, hit3 = 0, false, false
+        for _ = 1, 400 do
+            local v = Rn.integer(1.5, 3.5, src[2])
+            if v == 2 then hit2 = true elseif v == 3 then hit3 = true else outside = outside + 1 end
+        end
+        expect(outside == 0 and hit2 and hit3,
+            ('random: integer(1.5, 3.5) draws only 2 and 3 from %s (%d outside)'):format(src[1], outside))
+    end
+    local none, why = Rn.integer(1.2, 1.8)
+    expect(none == nil and type(why) == 'string', 'random: a range holding no integer is a refusal')
+    local g = Rn.newGenerator(5)
+    local outside = 0
+    for _ = 1, 200 do
+        local v = g:int(-2.5, 0.5)
+        if v ~= -2 and v ~= -1 and v ~= 0 then outside = outside + 1 end
+    end
+    expect(outside == 0, 'random: generator:int rounds a fractional range inward too')
+
+    local list = { 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h' }
+    local wrong = {}
+    for _, k in ipairs({ 0, 0.5, 1, 1.9, 2.5, 7.2, 8, 9.5 }) do
+        local want = math.min(math.floor(k), #list)
+        local s = Rn.sample(list, k, testRng(k * 100 + 1))
+        local count, distinct, valid = 0, {}, true
+        for key, v in pairs(s) do
+            count = count + 1
+            if type(key) ~= 'number' or key % 1 ~= 0 or key < 1 or key > want then valid = false end
+            if distinct[v] then valid = false end
+            distinct[v] = true
+        end
+        if count ~= want or #s ~= want or not valid then
+            wrong[#wrong + 1] = ('k=%g gave %d'):format(k, count)
+        end
+    end
+    expect(#wrong == 0, 'random: sample returns floor(k) distinct elements: ' .. table.concat(wrong, ', '))
+end
+
+-- ----------------------------------------------- heap: refusals and a model
+do
+    local H = CisHeap
+    local h = H.new()
+    H.push(h, 3)
+    local okNil, size, why = pcall(H.push, h, nil)
+    local okNext = pcall(H.push, h, 1)
+    expect(okNil and size == nil and type(why) == 'string' and okNext and H.size(h) == 2,
+        'heap: push(nil) is refused, the size is unchanged, and the heap still works')
+    local okNan, nanSize = pcall(H.push, h, 0 / 0)
+    expect(okNan and nanSize == nil and H.size(h) == 2, 'heap: NaN is refused under the default ordering')
+
+    -- Model check: random pushes and pops against a sorted reference list.
+    local rng = testRng(31337)
+    local ref, mismatch = {}, nil
+    h = H.new()
+    for step = 1, 600 do
+        if rng() < 0.6 or #ref == 0 then
+            local v = math.floor(rng() * 50)
+            H.push(h, v)
+            ref[#ref + 1] = v
+            table.sort(ref)
+        else
+            local got = H.pop(h)
+            local want = table.remove(ref, 1)
+            if got ~= want then
+                mismatch = ('step %d popped %s, want %s'):format(step, tostring(got), tostring(want))
+                break
+            end
+        end
+    end
+    expect(mismatch == nil and H.size(h) == #ref,
+        'heap: 600 random push/pop steps agree with a sorted reference: ' .. tostring(mismatch))
+end
+
+-- --------------------------------------------- window: sub-second, negatives
+do
+    local W = CisWindow
+    local d = W.newDedupe(0.25)
+    expect(d.windowSec == 0.25, 'window: a sub-second dedupe window is kept (it was raised to 1s)')
+    expect(W.seen(d, 'k', 10.0) == true and W.seen(d, 'k', 10.1) == false and W.seen(d, 'k', 10.3) == true,
+        'window: and it behaves as a 250 ms window')
+
+    -- Shifting every timestamp by a whole number of buckets cannot change any
+    -- answer. Negative timestamps used to collide with the -1 "no data yet"
+    -- sentinel and re-initialise the key on every record without clearing it.
+    local function run(offset)
+        local rng = testRng(2718)
+        local st = W.newStats(10, 1)
+        local t = 0
+        local answers = {}
+        for i = 1, 120 do
+            t = t + rng() * 3
+            W.record(st, 'k', i, t + offset)
+            local r = W.read(st, 'k', t + offset)
+            answers[#answers + 1] = r and (r.count .. ':' .. r.sum .. ':' .. r.min .. ':' .. r.max) or 'nil'
+        end
+        return table.concat(answers, ' ')
+    end
+    expect(run(0) == run(-100000), 'window: stats answer identically for timestamps shifted below zero')
+    local st = W.newStats(10, 1)
+    W.record(st, 'k', 1, -30)
+    W.record(st, 'k', 1, -5)
+    expect(W.samples(st, 'k', -5) == 1, 'window: a sample 25 s older than a negative now has expired')
+end
+
+-- -------------------------------------- sparse: a soft clear lets go of values
+do
+    local Sp = CisSparse
+    local set = Sp.new()
+    local held = {}
+    Sp.add(set, held)
+    Sp.add(set, 'str')
+    Sp.clear(set)
+    local stillInDense = false
+    for _, v in pairs(set.dense) do if v == held then stillInDense = true end end
+    expect(not stillInDense, 'sparse: a soft clear drops the dense references')
+    expect(not Sp.has(set, held) and Sp.count(set) == 0, 'sparse: and the value is gone from the set')
+    expect(Sp.add(set, held) == true and Sp.has(set, held), 'sparse: and it can be added again')
+
+    -- Real collection, where the interpreter has weak tables (fengari does not).
+    local probe = setmetatable({}, { __mode = 'k' })
+    probe[{}] = true
+    local hasGc = pcall(collectgarbage) and pcall(collectgarbage)
+    if hasGc and next(probe) == nil then
+        local s2 = Sp.new()
+        local watch = setmetatable({}, { __mode = 'k' })
+        do
+            local obj = {}
+            watch[obj] = true
+            Sp.add(s2, obj)
+            Sp.add(s2, 'x')
+        end
+        Sp.clear(s2)
+        collectgarbage() collectgarbage()
+        expect(next(watch) == nil, 'sparse: after a soft clear the old member is garbage-collectable')
+        local s3 = Sp.new()
+        local keep = setmetatable({}, { __mode = 'k' })
+        do
+            local obj = {}
+            keep[obj] = true
+            Sp.add(s3, obj)
+        end
+        collectgarbage() collectgarbage()
+        expect(next(keep) ~= nil and Sp.count(s3) == 1, 'sparse: but a LIVE member is never collected')
+    end
+end
+
+-- ------------------------------------------------- id: uuid takes a generator
+do
+    local Id = CisId
+    local _, a = pcall(Id.uuid, CisRandom.newGenerator(11))
+    local _, b = pcall(Id.uuid, CisRandom.newGenerator(11))
+    expect(type(a) == 'string' and a == b, 'id: uuid accepts a CisRandom generator and is reproducible')
+    expect(type(a) == 'string'
+        and a:match('^%x%x%x%x%x%x%x%x%-%x%x%x%x%-4%x%x%x%-[89ab]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$') ~= nil,
+        'id: and the result is a version-4, variant-1 UUID: ' .. tostring(a))
+    local none, why = Id.uuid('nope')
+    expect(none == nil and type(why) == 'string', 'id: a non-generator is a refusal, not a raise')
+    expect(#Id.short() == Id.LENGTH and Id.LENGTH * 5 == 60, 'id: LENGTH is 12 symbols, 60 bits')
+end
+
+-- Structural equality, for round trips and reference comparisons.
+local function deepEqual(a, b)
+    if a == b then return true end
+    if type(a) ~= 'table' or type(b) ~= 'table' then return false end
+    for k, v in pairs(a) do
+        if not deepEqual(v, b[k]) then return false end
+    end
+    for k in pairs(b) do
+        if a[k] == nil then return false end
+    end
+    return true
+end
+
+-- ------------------------------------------------- json: a REAL codec
+--
+-- FiveM gives every resource `json.encode`/`json.decode`. Neither interpreter
+-- here has one, so this is a small, strict reference codec written for the
+-- test: it really encodes and really parses, and it raises on anything it
+-- cannot represent, the way a production codec does. The module's tests used
+-- to pass a bare function as the "codec", with the arguments in the wrong
+-- order, and assert only that nothing raised -- which a module that did
+-- nothing at all would also pass.
+local RefJson = {}
+do
+    local escapes = { ['"'] = '\\"', ['\\'] = '\\\\', ['\b'] = '\\b', ['\f'] = '\\f',
+        ['\n'] = '\\n', ['\r'] = '\\r', ['\t'] = '\\t' }
+    local function encodeString(s)
+        return '"' .. s:gsub('[%c"\\]', function(c)
+            return escapes[c] or ('\\u%04x'):format(c:byte())
+        end) .. '"'
+    end
+    local function isArray(t)
+        local n = 0
+        for k in pairs(t) do
+            if type(k) ~= 'number' or k % 1 ~= 0 or k < 1 then return false end
+            n = n + 1
+        end
+        for i = 1, n do if t[i] == nil then return false end end
+        return true, n
+    end
+    local function enc(v, out)
+        local t = type(v)
+        if v == nil then out[#out + 1] = 'null'
+        elseif t == 'boolean' then out[#out + 1] = tostring(v)
+        elseif t == 'number' then
+            if v ~= v or v == math.huge or v == -math.huge then error('cannot encode ' .. tostring(v)) end
+            if v % 1 == 0 and math.abs(v) < 1e15 then
+                out[#out + 1] = ('%.0f'):format(v)
+            else
+                out[#out + 1] = ('%.17g'):format(v)
+            end
+        elseif t == 'string' then out[#out + 1] = encodeString(v)
+        elseif t == 'table' then
+            local arr, n = isArray(v)
+            if arr then
+                out[#out + 1] = '['
+                for i = 1, n do
+                    if i > 1 then out[#out + 1] = ',' end
+                    enc(v[i], out)
+                end
+                out[#out + 1] = ']'
+            else
+                local keys = {}
+                for k in pairs(v) do
+                    if type(k) ~= 'string' then error('cannot encode a ' .. type(k) .. ' key') end
+                    keys[#keys + 1] = k
+                end
+                table.sort(keys)
+                out[#out + 1] = '{'
+                for i, k in ipairs(keys) do
+                    if i > 1 then out[#out + 1] = ',' end
+                    out[#out + 1] = encodeString(k)
+                    out[#out + 1] = ':'
+                    enc(v[k], out)
+                end
+                out[#out + 1] = '}'
+            end
+        else
+            error('cannot encode a ' .. t)
+        end
+    end
+    function RefJson.encode(v)
+        local out = {}
+        enc(v, out)
+        return table.concat(out)
+    end
+
+    function RefJson.decode(s)
+        local pos = 1
+        local function fail(what) error(('json: %s at byte %d'):format(what, pos), 0) end
+        local function ws() pos = s:find('[^ \t\r\n]', pos) or (#s + 1) end
+        local value
+        local function str()
+            pos = pos + 1
+            local buf = {}
+            while true do
+                local c = s:sub(pos, pos)
+                if c == '' then fail('unterminated string') end
+                if c == '"' then pos = pos + 1 break end
+                if c == '\\' then
+                    local e = s:sub(pos + 1, pos + 1)
+                    local map = { ['"'] = '"', ['\\'] = '\\', ['/'] = '/', b = '\b', f = '\f',
+                        n = '\n', r = '\r', t = '\t' }
+                    if map[e] then
+                        buf[#buf + 1] = map[e]
+                        pos = pos + 2
+                    elseif e == 'u' then
+                        local hex = s:sub(pos + 2, pos + 5)
+                        if not hex:match('^%x%x%x%x$') then fail('bad \\u escape') end
+                        local code = tonumber(hex, 16)
+                        if code >= 128 then fail('non-ASCII \\u escape is outside this reference') end
+                        buf[#buf + 1] = string.char(code)
+                        pos = pos + 6
+                    else
+                        fail('bad escape')
+                    end
+                elseif c:byte() < 32 then
+                    fail('raw control character in string')
+                else
+                    buf[#buf + 1] = c
+                    pos = pos + 1
+                end
+            end
+            return table.concat(buf)
+        end
+        function value()
+            ws()
+            local c = s:sub(pos, pos)
+            if c == '{' then
+                pos = pos + 1
+                local obj = {}
+                ws()
+                if s:sub(pos, pos) == '}' then pos = pos + 1 return obj end
+                while true do
+                    ws()
+                    if s:sub(pos, pos) ~= '"' then fail('expected a key') end
+                    local k = str()
+                    ws()
+                    if s:sub(pos, pos) ~= ':' then fail('expected :') end
+                    pos = pos + 1
+                    obj[k] = value()
+                    ws()
+                    local d = s:sub(pos, pos)
+                    pos = pos + 1
+                    if d == '}' then return obj end
+                    if d ~= ',' then fail('expected , or }') end
+                end
+            elseif c == '[' then
+                pos = pos + 1
+                local arr, n = {}, 0
+                ws()
+                if s:sub(pos, pos) == ']' then pos = pos + 1 return arr end
+                while true do
+                    n = n + 1
+                    arr[n] = value()
+                    ws()
+                    local d = s:sub(pos, pos)
+                    pos = pos + 1
+                    if d == ']' then return arr end
+                    if d ~= ',' then fail('expected , or ]') end
+                end
+            elseif c == '"' then
+                return str()
+            elseif s:sub(pos, pos + 3) == 'true' then pos = pos + 4 return true
+            elseif s:sub(pos, pos + 4) == 'false' then pos = pos + 5 return false
+            elseif s:sub(pos, pos + 3) == 'null' then pos = pos + 4 return nil
+            else
+                local num = s:match('^-?%d+%.?%d*[eE]?[-+]?%d*', pos)
+                if not num or num == '' or num == '-' then fail('unexpected character') end
+                pos = pos + #num
+                return tonumber(num) or fail('bad number')
+            end
+        end
+        local v = value()
+        ws()
+        if pos <= #s then fail('trailing text') end
+        return v
+    end
+end
+
+-- Random JSON-shaped values: arrays, string-keyed objects, scalars, and
+-- strings carrying every escape class plus raw UTF-8.
+local function randomJsonValue(rng, depth)
+    local r = rng()
+    if depth > 3 or r < 0.45 then
+        local s = rng()
+        if s < 0.25 then return math.floor(rng() * 2000000) - 1000000 end
+        if s < 0.4 then return (rng() - 0.5) * 1e6 end
+        if s < 0.5 then return rng() < 0.5 end
+        local pieces = { 'a', 'Z', '"', '\\', '\n', '\t', '\1', 'é', '€', '😀', ' ', '/', '{', ']' }
+        local out = {}
+        for i = 1, math.floor(rng() * 8) do out[i] = pieces[math.floor(rng() * #pieces) + 1] end
+        return table.concat(out)
+    end
+    local t = {}
+    if r < 0.7 then
+        for i = 1, math.floor(rng() * 5) do t[i] = randomJsonValue(rng, depth + 1) end
+    else
+        for i = 1, math.floor(rng() * 5) + 1 do
+            t['k' .. math.floor(rng() * 100) .. (i % 2 == 0 and '"' or '')] = randomJsonValue(rng, depth + 1)
+        end
+    end
+    return t
+end
+
+do
+    local J = CisJson
+    -- The reference itself first: a broken reference makes everything below
+    -- meaningless, so it has to prove it parses what it writes.
+    local refOk = deepEqual(RefJson.decode(RefJson.encode({ 1, 'two', { three = 3 } })),
+        { 1, 'two', { three = 3 } })
+    expect(refOk, 'json: the reference codec round-trips a known value')
+
+    local rng = testRng(1234)
+    local bad = {}
+    for i = 1, 250 do
+        local v = randomJsonValue(rng, 1)
+        local back, why = J.roundTrip(RefJson, v)
+        if why ~= nil or not deepEqual(back, v) then
+            bad[#bad + 1] = ('#%d %s'):format(i, tostring(why))
+        end
+        local text = J.encode(RefJson, v)
+        if text ~= RefJson.encode(v) then bad[#bad + 1] = ('#%d encode differs'):format(i) end
+    end
+    expect(#bad == 0, 'json: 250 random values round-trip through a real codec unchanged: '
+        .. table.concat(bad, '; ', 1, math.min(#bad, 3)))
+
+    local nullValue, nullWhy = J.decode(RefJson, 'null')
+    expect(nullValue == nil and nullWhy == nil, 'json: JSON null decodes to nil with NO reason')
+    local okT, tv = J.tryDecode(RefJson, '[1,2,3]')
+    expect(okT == true and deepEqual(tv, { 1, 2, 3 }), 'json: tryDecode answers true, value')
+    local okBad, badWhy = J.tryDecode(RefJson, '{"a":')
+    expect(okBad == false and type(badWhy) == 'string', 'json: malformed text is a refusal')
+
+    -- Codecs that REFUSE without raising. Both used to read as success-null.
+    local nilErr = {
+        encode = function(v)
+            local ok, out = pcall(RefJson.encode, v)
+            if ok then return out end
+            return nil, out
+        end,
+        decode = function(s)
+            local ok, out = pcall(RefJson.decode, s)
+            if ok then return out end
+            return nil, out
+        end,
+    }
+    local dkStyle = {
+        encode = RefJson.encode,
+        decode = function(s)
+            local ok, out = pcall(RefJson.decode, s)
+            if ok then return out, #s + 1 end
+            return nil, 1, out
+        end,
+    }
+    for _, codec in ipairs({ { 'nil, err', nilErr }, { 'nil, pos, err', dkStyle } }) do
+        local v, why = J.decode(codec[2], '{"a":')
+        expect(v == nil and type(why) == 'string' and why:find('json:', 1, true) ~= nil,
+            ('json: a codec answering `%s` is a refusal with its reason, not a null (%s)')
+                :format(codec[1], tostring(why)))
+        local ok2 = J.tryDecode(codec[2], '[1')
+        expect(ok2 == false, ('json: and tryDecode answers false for it (%s)'):format(codec[1]))
+        local good = J.decode(codec[2], '{"a":[1,2]}')
+        expect(deepEqual(good, { a = { 1, 2 } }), ('json: the same codec still decodes good text (%s)')
+            :format(codec[1]))
+    end
+    local nullDk, nullDkWhy = J.decode(dkStyle, 'null')
+    expect(nullDk == nil and nullDkWhy == nil, 'json: a dkjson-style `nil, position` for null is NOT a refusal')
+    local encNil, encWhy = J.encode({ encode = function() return nil, 'no can do' end, decode = RefJson.decode }, {})
+    expect(encNil == nil and type(encWhy) == 'string' and encWhy:find('no can do', 1, true) ~= nil,
+        'json: an encoder answering nil, err is refused with ITS reason')
+end
+
+-- ------------------------------------------ json: the shape rule, by reference
+do
+    local J = CisJson
+    -- The reference: what every codec agrees on. Written independently of
+    -- the module, recursively, with no memoisation.
+    local function refEncodable(v, depth, maxDepth)
+        local t = type(v)
+        if t == 'function' or t == 'thread' or t == 'userdata' then return false end
+        if t == 'number' then return v == v and v ~= math.huge and v ~= -math.huge end
+        if t ~= 'table' then return true end
+        if depth > maxDepth then return false end
+        local n, strings, numbers = 0, 0, 0
+        for k in pairs(v) do
+            n = n + 1
+            if type(k) == 'string' then strings = strings + 1
+            elseif type(k) == 'number' and k % 1 == 0 and k >= 1 then numbers = numbers + 1
+            else return false end
+        end
+        if strings > 0 and numbers > 0 then return false end
+        if numbers > 0 then for i = 1, n do if v[i] == nil then return false end end end
+        for _, child in pairs(v) do
+            if not refEncodable(child, depth + 1, maxDepth) then return false end
+        end
+        return true
+    end
+    -- Random tables, some with a defect planted somewhere inside.
+    local function plant(rng, depth)
+        local v = randomJsonValue(rng, depth)
+        if type(v) ~= 'table' or rng() < 0.5 then return v end
+        local d = rng()
+        if d < 0.2 then v.name = 'x' ; v[1] = v[1] or 1          -- mixed
+        elseif d < 0.4 then v[#v + 2] = 'gap'                     -- sparse
+        elseif d < 0.55 then v[1.5] = 'half'                      -- fractional key
+        elseif d < 0.65 then v[0] = 'zero'                        -- below 1
+        elseif d < 0.75 then v[{}] = 'table key'
+        elseif d < 0.85 then v.f = 0 / 0
+        else v.child = plant(rng, depth + 1) end
+        return v
+    end
+    local rng = testRng(777)
+    local disagree, refused, accepted = {}, 0, 0
+    for i = 1, 400 do
+        local v = plant(rng, 1)
+        local want = refEncodable(v, 1, 6)
+        local got, why = J.checkEncodable(v, { maxDepth = 6 })
+        if got then accepted = accepted + 1 else refused = refused + 1 end
+        if (got == true) ~= want or (not got and type(why) ~= 'string') then
+            disagree[#disagree + 1] = ('#%d want %s got %s (%s)'):format(i, tostring(want), tostring(got), tostring(why))
+        end
+    end
+    expect(#disagree == 0 and refused > 50 and accepted > 50,
+        ('json: checkEncodable agrees with the reference on 400 tables (%d refused, %d accepted): %s')
+            :format(refused, accepted, table.concat(disagree, '; ', 1, math.min(#disagree, 3))))
+
+    local _, mixedWhy = J.checkEncodable({ outer = { 1, 2, name = 'x' } })
+    expect(type(mixedWhy) == 'string' and mixedWhy:find('outer', 1, true) and mixedWhy:find('mixed', 1, true),
+        'json: a mixed table is refused and the reason names its path: ' .. tostring(mixedWhy))
+    local _, sparseWhy = J.checkEncodable({ list = { [1] = 'a', [3] = 'c' } })
+    expect(type(sparseWhy) == 'string' and sparseWhy:find('sparse', 1, true) ~= nil,
+        'json: a sparse array is refused: ' .. tostring(sparseWhy))
+    expect(J.checkEncodable({}) == true and J.checkEncodable({ {}, {} }) == true,
+        'json: empty tables are encodable')
+
+    -- A table shared by two parents is not a cycle, and must be checked once.
+    local function dag(depth)
+        local node = { leaf = true }
+        for _ = 1, depth do node = { a = node, b = node } end
+        return node
+    end
+    -- Counted, not timed: a fresh copy of the module whose `type` counts its
+    -- calls. 16 levels is 17 distinct tables and 2^17 ROUTES; a walk per table
+    -- is a few dozen calls, a walk per route is hundreds of thousands.
+    local calls = 0
+    local Jc = freshModule('shared/util/json.lua', {
+        type = function(v) calls = calls + 1 return realType(v) end,
+    })
+    local okDag = Jc.checkEncodable(dag(16), { maxDepth = 64 })
+    expect(okDag == true and calls < 1000,
+        ('json: a 16-level shared-subtable DAG is walked once per table, not once per route'
+            .. ' (%d type() calls; it was exponential)'):format(calls))
+    -- And the depth that matters is the DEEPEST route to a shared table, not
+    -- the first one the walk happened to take.
+    local shared = { x = { y = { z = {} } } }        -- 4 levels including itself
+    local tricky = { a = shared, b = { c = { d = shared } } }
+    local okShallow = J.checkEncodable(tricky, { maxDepth = 7 })
+    local okDeep, deepWhy = J.checkEncodable(tricky, { maxDepth = 6 })
+    expect(okShallow == true and okDeep == false and type(deepWhy) == 'string',
+        'json: a shared table too deep on its longer route is refused, whichever route is walked first')
+    local cyc = { name = 'loop' }
+    cyc.self = { back = cyc }
+    local okCyc, cycWhy = J.checkEncodable(cyc)
+    expect(okCyc == false and type(cycWhy) == 'string' and cycWhy:find('cycle', 1, true) ~= nil,
+        'json: a real cycle is still refused')
+end
+
+-- ------------------------------------------------- table: keys with holes
+do
+    local T = CisTable
+    local rng = testRng(5150)
+    local wrong = {}
+    for i = 1, 300 do
+        local t = {}
+        for k = 1, math.floor(rng() * 8) do
+            if rng() < 0.75 then t[k] = 'v' .. k end
+        end
+        for _ = 1, math.floor(rng() * 4) do t['s' .. math.floor(rng() * 50)] = true end
+        if rng() < 0.3 then t[math.floor(rng() * 20) + 10] = 'far' end
+        if rng() < 0.2 then t[-1] = 'neg' end
+        -- Reference: the contiguous prefix by rawget, then the rest sorted.
+        local n = 0
+        while rawget(t, n + 1) ~= nil do n = n + 1 end
+        local want = {}
+        for k = 1, n do want[k] = k end
+        local rest = {}
+        for k in pairs(t) do
+            if not (type(k) == 'number' and k >= 1 and k <= n and k % 1 == 0) then rest[#rest + 1] = k end
+        end
+        table.sort(rest, function(a, b) return T.compareKeys(a, b) < 0 end)
+        for _, k in ipairs(rest) do want[#want + 1] = k end
+        local got = T.keys(t)
+        local vals = T.values(t)
+        local visited = {}
+        T.each(t, nil, function(_, k) visited[#visited + 1] = k end)
+        local valsOk = #vals == #want
+        for j = 1, #want do if vals[j] ~= t[want[j]] then valsOk = false end end
+        if not deepEqual(got, want) or not valsOk or not deepEqual(visited, want) then
+            wrong[#wrong + 1] = ('#%d'):format(i)
+        end
+    end
+    expect(#wrong == 0, 'table: keys/values/each list every real key exactly once, in one order, for 300'
+        .. ' tables with holes: ' .. table.concat(wrong, ' ', 1, math.min(#wrong, 5)))
+    local holey = { 1, nil, 3 }
+    local ks = T.keys(holey)
+    expect(#ks == 2 and ks[1] == 1 and ks[2] == 3, 'table: keys({1, nil, 3}) is {1, 3}, not {1, 2}')
+end
+
+-- ------------------------------------------------- table: sortBy is stable
+do
+    local T = CisTable
+    local rng = testRng(8080)
+    local comparators = {
+        { 'boolean', function(a, b) return a < b end },
+        { 'three-way', function(a, b) return a - b end },
+        { 'default', nil },
+    }
+    for _, cmp in ipairs(comparators) do
+        local unstable = 0
+        for _ = 1, 60 do
+            local list = {}
+            for i = 1, 40 do list[i] = { k = math.floor(rng() * 5), id = i } end
+            -- Reference: insertion sort, which is stable by construction.
+            local ref = {}
+            for i, e in ipairs(list) do
+                local j = i
+                while j > 1 and ref[j - 1].k > e.k do ref[j] = ref[j - 1] j = j - 1 end
+                ref[j] = e
+            end
+            T.sortBy(list, function(e) return e.k end, cmp[2])
+            for i = 1, #list do if list[i] ~= ref[i] then unstable = unstable + 1 break end end
+        end
+        expect(unstable == 0, ('table: sortBy is stable with a %s comparator (%d of 60 lists out of order)')
+            :format(cmp[1], unstable))
+    end
+end
+
+-- -------------------------------------- table: deepCopy, map, reduce, DAGs
+do
+    local T = CisTable
+    local key = { id = 'player' }
+    local src = { [key] = { hp = 100 } }
+    local copy = T.deepCopy(src)
+    expect(copy[key] ~= nil and copy[key] ~= src[key] and copy[key].hp == 100,
+        'table: deepCopy keeps table KEYS by identity and copies the values')
+
+    local mapped = T.map({ 1, 2, 3 }, function(v) if v ~= 2 then return v * 10 end end)
+    expect(mapped[1] == 10 and mapped[2] == nil and mapped[3] == 30,
+        'table: map keeps a nil result as nil, not as an invented false')
+    local falses = T.map({ 1, 2 }, function() return false end)
+    expect(falses[1] == false and falses[2] == false, 'table: and a real false is kept')
+
+    local r, why = T.reduce({}, function(a, b) return a + b end)
+    expect(r == nil and type(why) == 'string', 'table: reduce of {} with no initial value is a refusal')
+    expect(T.reduce({}, function(a, b) return a + b end, 7) == 7, 'table: with an initial value it answers it')
+
+    -- depth() against a brute-force reference on random DAGs.
+    local rng = testRng(606)
+    local wrongDepth = 0
+    local function bruteDepth(v)
+        local best = 0
+        for _, c in pairs(v) do
+            if type(c) == 'table' then
+                local d = bruteDepth(c)
+                if d > best then best = d end
+            end
+        end
+        return best + 1
+    end
+    for _ = 1, 200 do
+        local nodes = {}
+        local count = math.floor(rng() * 10) + 2
+        for i = 1, count do nodes[i] = { id = i } end
+        for i = 1, count - 1 do
+            for _ = 1, math.floor(rng() * 3) do
+                local j = i + 1 + math.floor(rng() * (count - i))
+                nodes[i]['e' .. j .. '_' .. math.floor(rng() * 100)] = nodes[j]
+            end
+        end
+        if T.depth(nodes[1]) ~= bruteDepth(nodes[1]) then wrongDepth = wrongDepth + 1 end
+    end
+    expect(wrongDepth == 0, ('table: depth() counts the deepest route through shared tables on 200 random'
+        .. ' DAGs (%d wrong)'):format(wrongDepth))
+
+    local function dag(depth)
+        local node = { leaf = true }
+        for _ = 1, depth do node = { a = node, b = node } end
+        return node
+    end
+    local calls = 0
+    local Tc = freshModule('shared/util/table.lua', {
+        type = function(v) calls = calls + 1 return realType(v) end,
+    })
+    local merged, mergeWhy = Tc.deepMerge({}, dag(16))
+    expect(merged ~= nil and calls < 2000,
+        ('table: deepMerge of a 16-level shared DAG walks each table a bounded number of times'
+            .. ' (%d type() calls, %s; findCycle was exponential)'):format(calls, tostring(mergeWhy)))
+    local cyc = {}
+    cyc.a = { b = cyc }
+    expect(T.findCycle(cyc) ~= nil and T.findCycle(dag(10)) == nil,
+        'table: findCycle still tells a cycle from a shared table')
+end
+
+-- ---------------------------------------------------- string: truncate
+do
+    local S = CisString
+    if type(utf8) == 'table' and utf8.charpattern then
+        local chars = { 'a', 'b', ' ', 'é', '€', '😀', 'Z' }
+        local function split(str)
+            local out = {}
+            for ch in str:gmatch(utf8.charpattern) do out[#out + 1] = ch end
+            return out
+        end
+        local function firstN(list, n)
+            return table.concat(list, '', 1, math.min(n, #list))
+        end
+        local rng = testRng(3141)
+        local wrong = {}
+        for i = 1, 400 do
+            local parts = {}
+            for j = 1, math.floor(rng() * 12) do parts[j] = chars[math.floor(rng() * #chars) + 1] end
+            local s = table.concat(parts)
+            local max = math.floor(rng() * 14)
+            if rng() < 0.4 then max = max + 0.5 end
+            local ellipses = { { nil, '...' }, { '', '' }, { '…', '…' }, { '..', '..' } }
+            local e = ellipses[math.floor(rng() * #ellipses) + 1]
+            -- Reference, in CHARACTERS.
+            local whole = math.floor(max)
+            local want
+            if #parts <= whole then
+                want = s
+            elseif e[2] == '' then
+                want = firstN(parts, whole)
+            else
+                local ell = split(e[2])
+                local keep = whole - #ell
+                if keep <= 0 then want = firstN(ell, whole) else want = firstN(parts, keep) .. e[2] end
+            end
+            local ok, got = pcall(S.truncate, s, max, e[1])
+            if not ok or got ~= want then
+                wrong[#wrong + 1] = ('#%d max=%g %s'):format(i, max, ok and ('got %q want %q'):format(got, want) or got)
+            end
+        end
+        expect(#wrong == 0, 'string: truncate counts characters and floors max, for 400 random cases: '
+            .. table.concat(wrong, '; ', 1, math.min(#wrong, 3)))
+    end
+    local ok, out = pcall(S.truncate, 'abcdef', 3.7, '')
+    expect(ok and out == 'abc', 'string: a fractional max is floored rather than raising')
+    local okBad, outBad = pcall(S.truncate, 'ab\255cdef', 4, '')
+    expect(okBad and outBad == 'ab\255c', 'string: invalid UTF-8 is cut by bytes rather than raising')
+end
+
+-- ------------------------------------------- time/validate: %d and integers
+do
+    local Tm = CisTime
+    local ok, s = pcall(Tm.relative, 0, 1e300)
+    expect(ok and type(s) == 'string' and s:find(' ago', 1, true) ~= nil,
+        'time: relative() of an enormous span formats rather than raising: ' .. tostring(s))
+    local okF, f = pcall(Tm.formatDuration, 1e20)
+    expect(okF and type(f) == 'string' and f:match('^%d+w') ~= nil,
+        'time: formatDuration of 1e20 seconds formats rather than raising: ' .. tostring(f))
+    expect(Tm.relative(math.huge, 0) == 'unknown' and Tm.relative(0, -math.huge) == 'unknown',
+        'time: an infinite instant is unknown')
+    expect(Tm.formatDuration(90061) == '1d 1h' and Tm.relative(0, 120) == '2 minutes ago',
+        'time: ordinary values format as before')
+
+    local V = CisValidate
+    expect(V.isInteger(math.huge) == false and V.isInteger(-math.huge) == false,
+        'validate: infinity is not an integer')
+    expect(V.isInteger(5.0) == true and V.isInteger(5.5) == false and V.isInteger(0 / 0) == false,
+        'validate: 5.0 is an integer, 5.5 and NaN are not')
+    local okS, good, why = pcall(V.string, 'ab', { min = 2.5 })
+    expect(okS and good == false and type(why) == 'string' and why:find('2.5', 1, true) ~= nil,
+        'validate: a fractional length bound is reported, not raised: ' .. tostring(why))
+    local okT, goodT, whyT = pcall(V.tableValue, { 1 }, { min = 1.5 })
+    expect(okT and goodT == false and type(whyT) == 'string', 'validate: same for a table entry bound')
+    local _, intWhy = V.string('abc', { max = 2 })
+    expect(type(intWhy) == 'string' and intWhy:find('at most 2 characters', 1, true) ~= nil,
+        'validate: a whole bound still reads as a whole number: ' .. tostring(intWhy))
+end
+
+-- ------------------------------------------- semver: against node-semver
+--
+-- The expected answers below were PRODUCED, not written: node-semver 7.6.3
+-- evaluated every range against every version (plain, and with
+-- includePrerelease), and the semver.org 2.0.0 regex judged every parse case.
+-- npm's own behaviour is the contract for ranges; the spec is the contract for
+-- versions. Two node-semver quirks are deliberately left out of the table:
+-- numeric prerelease identifiers above 2^53 compare EQUAL there (it converts
+-- them to doubles), and a hyphen range whose lower end carries build metadata
+-- loses its '-0' under includePrerelease (string concatenation). Both are
+-- pinned separately below with the spec-correct answer.
+do
+    -- GENERATED from node-semver 7.6.3 (ranges, compare) and the semver.org
+    -- 2.0.0 regex (parse validity) by a one-off script;
+    -- see the comment above.
+    local SEMVER_PARSE = {
+        { "1.2.3", true },
+        { "0.0.0", true },
+        { "10.20.30", true },
+        { "1.1.2-prerelease+meta", true },
+        { "1.0.0-alpha", true },
+        { "1.0.0-alpha.beta", true },
+        { "1.0.0-alpha.1", true },
+        { "1.0.0-alpha0.valid", true },
+        { "1.0.0-alpha.0valid", true },
+        { "1.0.0-rc.1+build.1", true },
+        { "2.0.0-rc.1+build.123", true },
+        { "1.2.3-beta", true },
+        { "10.2.3-DEV-SNAPSHOT", true },
+        { "1.2.3-SNAPSHOT-123", true },
+        { "2.0.0+build.1848", true },
+        { "2.0.1-alpha.1227", true },
+        { "1.0.0-alpha+beta", true },
+        { "1.2.3----RC-SNAPSHOT.12.9.1--.12+788", true },
+        { "1.2.3----R-S.12.9.1--.12+meta", true },
+        { "1.0.0+0.build.1-rc.10000aaa-kk-0.1", true },
+        { "1.0.0-0A.is.legal", true },
+        { "1.2.3+001", true },
+        { "1.2.3-0x1", true },
+        { "1.2.3-1e3", true },
+        { "9007199254740991.0.0", true },
+        { "9007199254740992.0.0", false },
+        { "1", false },
+        { "1.2", false },
+        { "1.2.3-0123", false },
+        { "1.2.3-0123.0123", false },
+        { "1.1.2+.123", false },
+        { "+invalid", false },
+        { "-invalid", false },
+        { "-invalid+invalid", false },
+        { "-invalid.01", false },
+        { "alpha", false },
+        { "alpha.beta", false },
+        { "alpha.beta.1", false },
+        { "alpha.1", false },
+        { "alpha+beta", false },
+        { "alpha_beta", false },
+        { "alpha.", false },
+        { "alpha..", false },
+        { "beta", false },
+        { "1.0.0-alpha_beta", false },
+        { "-alpha.", false },
+        { "1.0.0-alpha..", false },
+        { "1.0.0-alpha..1", false },
+        { "1.0.0-alpha...1", false },
+        { "01.1.1", false },
+        { "1.01.1", false },
+        { "1.1.01", false },
+        { "1.2.3.DEV", false },
+        { "1.2-SNAPSHOT", false },
+        { "1.2.31.2.3----RC-SNAPSHOT.12.09.1--..12+788", false },
+        { "1.2-RC-SNAPSHOT", false },
+        { "-1.0.3-gamma+b7718", false },
+        { "+justmeta", false },
+        { "9.8.7+meta+meta", false },
+        { "9.8.7-whatever+meta+meta", false },
+        { "1..2", false },
+        { ".1.2.", false },
+        { "1.2.", false },
+        { ".1.2", false },
+        { "1.2.3-", false },
+        { "1.2.3+", false },
+        { "1.2.3-a..b", false },
+        { "v1.2.3", false },
+        { " 1.2.3", false },
+        { "1.2.3 ", false },
+        { "=1.2.3", false },
+        { "1.2.3.4", false },
+        { "", false },
+        { "1.2.3-a_b", false },
+        { "1.2.3-x.7.z.92", true },
+        { "1.2.3-é", false },
+    }
+    local SEMVER_VERSIONS = {
+        "0.0.0", "0.0.1", "0.0.2", "0.1.0", "0.1.5", "0.2.0",
+        "0.2.3", "1.0.0-0", "1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-beta", "1.0.0",
+        "1.0.1", "1.2.0", "1.2.3-beta.2", "1.2.3-beta.10", "1.2.3", "1.2.3+build.5",
+        "1.2.4-rc.1", "1.2.4", "1.2.99", "1.3.0-0", "1.3.0", "1.9.9",
+        "2.0.0-0", "2.0.0-alpha", "2.0.0", "2.3.4", "2.3.5", "3.0.0-rc.1",
+        "3.0.0", "10.0.0",
+    }
+    -- { range, plain row, includePrerelease row }: one character per version
+    -- above, '1' satisfies and '0' does not; 'E' is a range node-semver rejects.
+    local SEMVER_RANGES = {
+        { "", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "*", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "x", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "X", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "1", '00000000000111001101101100000000', '00000001111111111111111100000000' },
+        { "1.x", '00000000000111001101101100000000', '00000001111111111111111100000000' },
+        { "1.X", '00000000000111001101101100000000', '00000001111111111111111100000000' },
+        { "1.*", '00000000000111001101101100000000', '00000001111111111111111100000000' },
+        { "1.2", '00000000000001001101100000000000', '00000000000001111111100000000000' },
+        { "1.2.x", '00000000000001001101100000000000', '00000000000001111111100000000000' },
+        { "1.2.*", '00000000000001001101100000000000', '00000000000001111111100000000000' },
+        { "1.2.3", '00000000000000001100000000000000', '00000000000000001100000000000000' },
+        { "=1.2.3", '00000000000000001100000000000000', '00000000000000001100000000000000' },
+        { "v1.2.3", '00000000000000001100000000000000', '00000000000000001100000000000000' },
+        { "=v1.2.3", '00000000000000001100000000000000', '00000000000000001100000000000000' },
+        { "1.2.3-beta.2", '00000000000000100000000000000000', '00000000000000100000000000000000' },
+        { ">1.2.3", '00000000000000000001101100111011', '00000000000000000011111111111111' },
+        { ">=1.2.3", '00000000000000001101101100111011', '00000000000000001111111111111111' },
+        { "<1.2.3", '11111110000111000000000000000000', '11111111111111110000000000000000' },
+        { "<=1.2.3", '11111110000111001100000000000000', '11111111111111111100000000000000' },
+        { "> 1.2.3", '00000000000000000001101100111011', '00000000000000000011111111111111' },
+        { ">= 1.2.3", '00000000000000001101101100111011', '00000000000000001111111111111111' },
+        { "< 2", '11111110000111001101101100000000', '11111111111111111111111100000000' },
+        { ">1", '00000000000000000000000000111011', '00000000000000000000000011111111' },
+        { ">=1", '00000000000111001101101100111011', '00000001111111111111111111111111' },
+        { "<1", '11111110000000000000000000000000', '11111110000000000000000000000000' },
+        { "<=1", '11111110000111001101101100000000', '11111111111111111111111100000000' },
+        { ">1.2", '00000000000000000000001100111011', '00000000000000000000011111111111' },
+        { ">=1.2", '00000000000001001101101100111011', '00000000000001111111111111111111' },
+        { "<1.2", '11111110000110000000000000000000', '11111111111110000000000000000000' },
+        { "<=1.2", '11111110000111001101100000000000', '11111111111111111111100000000000' },
+        { "<1.x", '11111110000000000000000000000000', '11111110000000000000000000000000' },
+        { ">1.x", '00000000000000000000000000111011', '00000000000000000000000011111111' },
+        { "<=1.x", '11111110000111001101101100000000', '11111111111111111111111100000000' },
+        { ">=1.x", '00000000000111001101101100111011', '00000001111111111111111111111111' },
+        { ">*", '00000000000000000000000000000000', '00000000000000000000000000000000' },
+        { "<*", '00000000000000000000000000000000', '00000000000000000000000000000000' },
+        { ">=*", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { ">=x", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "~1", '00000000000111001101101100000000', '00000000000111111111111100000000' },
+        { "~1.2", '00000000000001001101100000000000', '00000000000001111111100000000000' },
+        { "~1.2.3", '00000000000000001101100000000000', '00000000000000001111100000000000' },
+        { "~0.2.3", '00000010000000000000000000000000', '00000010000000000000000000000000' },
+        { "~1.2.3-beta.2", '00000000000000111101100000000000', '00000000000000111111100000000000' },
+        { "~>1.2", '00000000000001001101100000000000', '00000000000001111111100000000000' },
+        { "~> 1.2.3", '00000000000000001101100000000000', '00000000000000001111100000000000' },
+        { "~ 1", '00000000000111001101101100000000', '00000000000111111111111100000000' },
+        { "~x", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "~*", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "~", 'E', 'E' },
+        { "^1", '00000000000111001101101100000000', '00000001111111111111111100000000' },
+        { "^1.x", '00000000000111001101101100000000', '00000001111111111111111100000000' },
+        { "^1.2", '00000000000001001101101100000000', '00000000000001111111111100000000' },
+        { "^1.2.x", '00000000000001001101101100000000', '00000000000001111111111100000000' },
+        { "^1.2.3", '00000000000000001101101100000000', '00000000000000001111111100000000' },
+        { "^0", '11111110000000000000000000000000', '11111110000000000000000000000000' },
+        { "^0.x", '11111110000000000000000000000000', '11111110000000000000000000000000' },
+        { "^0.0", '11100000000000000000000000000000', '11100000000000000000000000000000' },
+        { "^0.0.x", '11100000000000000000000000000000', '11100000000000000000000000000000' },
+        { "^0.0.1", '01000000000000000000000000000000', '01000000000000000000000000000000' },
+        { "^0.1", '00011000000000000000000000000000', '00011000000000000000000000000000' },
+        { "^0.1.x", '00011000000000000000000000000000', '00011000000000000000000000000000' },
+        { "^0.1.5", '00001000000000000000000000000000', '00001000000000000000000000000000' },
+        { "^0.0.1-beta", '01000000000000000000000000000000', '01000000000000000000000000000000' },
+        { "^1.2.3-beta.2", '00000000000000111101101100000000', '00000000000000111111111100000000' },
+        { "^0.2.3-beta", '00000010000000000000000000000000', '00000010000000000000000000000000' },
+        { "^ 1.2", '00000000000001001101101100000000', '00000000000001111111111100000000' },
+        { "^x", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "^*", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "^", 'E', 'E' },
+        { "1.2.3 - 2.3.4", '00000000000000001101101100110000', '00000000000000111111111111110000' },
+        { "1.2 - 2.3.4", '00000000000001001101101100110000', '00000000000001111111111111110000' },
+        { "1.2.3 - 2.3", '00000000000000001101101100111000', '00000000000000111111111111111000' },
+        { "1.2.3 - 2", '00000000000000001101101100111000', '00000000000000111111111111111000' },
+        { "1 - 2", '00000000000111001101101100111000', '00000001111111111111111111111000' },
+        { "* - 2", '11111110000111001101101100111000', '11111111111111111111111111111000' },
+        { "1.2.3 - *", '00000000000000001101101100111011', '00000000000000111111111111111111' },
+        { "1.2.3-beta.2 - 2.3.4", '00000000000000111101101100110000', '00000000000000111111111111110000' },
+        { "1.2.3 - 2.0.0-alpha", '00000000000000001101101111000000', '00000000000000111111111111000000' },
+        { "0.0.1 - 0.1.5", '01111000000000000000000000000000', '01111000000000000000000000000000' },
+        { ">=1.2.3 <2", '00000000000000001101101100000000', '00000000000000001111111100000000' },
+        { ">=1.2.3 <2.0.0", '00000000000000001101101100000000', '00000000000000001111111111000000' },
+        { ">1.2.3 <=2.3.4", '00000000000000000001101100110000', '00000000000000000011111111110000' },
+        { ">=1.0.0-alpha <1.0.0", '00000000111000000000000000000000', '00000000111000000000000000000000' },
+        { "<1.0.0-beta >=1.0.0-alpha", '00000000110000000000000000000000', '00000000110000000000000000000000' },
+        { "1.x || >=2.5.0 || 5.0.0 - 7.2.3", '00000000000111001101101100000011', '00000001111111111111111100000111' },
+        { "^1.2 || ^2", '00000000000001001101101100111000', '00000000000001111111111111111000' },
+        { "^2 ||", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "|| ^2", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "^1.0.0 || || ^3.0.0", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "<0.1 || >3", '11100000000000000000000000000001', '11100000000000000000000000000001' },
+        { "1.2.3 1.2.4", '00000000000000000000000000000000', '00000000000000000000000000000000' },
+        { ">=1.2.3-beta.2 <1.2.4", '00000000000000111100000000000000', '00000000000000111110000000000000' },
+        { "1..2", 'E', 'E' },
+        { ">=1.2.3-", 'E', 'E' },
+        { "^1.2.3.4", 'E', 'E' },
+        { "abc", 'E', 'E' },
+        { "~1-rc1", 'E', 'E' },
+        { ">=01.2.3", 'E', 'E' },
+        { ">>1", 'E', 'E' },
+        { "1.2.3 - ", 'E', 'E' },
+        { "x.1.2.3", 'E', 'E' },
+        { "^1.2.3-a..b", 'E', 'E' },
+        { ">=1.2.3 foo", 'E', 'E' },
+        { "1.2.3-01", 'E', 'E' },
+        { ">=", 'E', 'E' },
+        { "<", 'E', 'E' },
+        { "=", 'E', 'E' },
+        { "v", 'E', 'E' },
+        { "1.2.3 -2", 'E', 'E' },
+        { "1.2.3- 2", 'E', 'E' },
+        { ">=1.2.3+build", '00000000000000001101101100111011', '00000000000000001111111111111111' },
+        { ">=1.2.3-rc.1+b <2", '00000000000000001101101100000000', '00000000000000001111111100000000' },
+    }
+    -- In ascending precedence order where node-semver orders them; ties share a rank.
+    local SEMVER_ORDER = {
+        { "0.0.0", 0 },
+        { "1.0.0-1", 1 },
+        { "1.0.0-999", 2 },
+        { "1.0.0-1000", 3 },
+        { "1.0.0-0x1", 4 },
+        { "1.0.0-1e3", 5 },
+        { "1.0.0-a", 6 },
+        { "1.0.0-a-b", 7 },
+        { "1.0.0-alpha", 8 },
+        { "1.0.0-alpha.1", 9 },
+        { "1.0.0-alpha.beta", 10 },
+        { "1.0.0-beta", 11 },
+        { "1.0.0-beta.2", 12 },
+        { "1.0.0-beta.11", 13 },
+        { "1.0.0-rc.1", 14 },
+        { "1.0.0", 15 },
+        { "1.0.0+build", 15 },
+        { "1.9.0", 16 },
+        { "1.10.0", 17 },
+        { "2.0.0", 18 },
+    }
+
+    local S = CisSemver
+    local wrongParse = {}
+    for _, c in ipairs(SEMVER_PARSE) do
+        local parsed = S.parse(c[1])
+        if (parsed ~= nil) ~= c[2] then wrongParse[#wrongParse + 1] = ('%q'):format(c[1]) end
+    end
+    expect(#wrongParse == 0, ('semver: strict parse agrees with the SemVer 2.0.0 grammar on %d inputs: %s')
+        :format(#SEMVER_PARSE, table.concat(wrongParse, ' ')))
+
+    local wrongRange = {}
+    for _, r in ipairs(SEMVER_RANGES) do
+        for mode = 2, 3 do
+            local row, problem = {}, nil
+            for i, v in ipairs(SEMVER_VERSIONS) do
+                local res, why = S.satisfies(v, r[1], { includePrerelease = mode == 3 })
+                if res == nil then row, problem = 'E', why break end
+                row[i] = res and '1' or '0'
+            end
+            if type(row) == 'table' then row = table.concat(row) end
+            if row ~= r[mode] then
+                wrongRange[#wrongRange + 1] = ('%q%s want %s got %s (%s)'):format(r[1],
+                    mode == 3 and ' +pre' or '', r[mode], row, tostring(problem))
+            end
+        end
+    end
+    expect(#wrongRange == 0, ('semver: %d ranges x %d versions agree with node-semver, plain and with'
+        .. ' includePrerelease: %s'):format(#SEMVER_RANGES, #SEMVER_VERSIONS,
+        table.concat(wrongRange, '; ', 1, math.min(#wrongRange, 4))))
+
+    local wrongOrder = {}
+    for i = 1, #SEMVER_ORDER do
+        for j = 1, #SEMVER_ORDER do
+            local a, b = SEMVER_ORDER[i], SEMVER_ORDER[j]
+            local want = a[2] < b[2] and -1 or (a[2] > b[2] and 1 or 0)
+            if S.compare(a[1], b[1]) ~= want then
+                wrongOrder[#wrongOrder + 1] = a[1] .. ' vs ' .. b[1]
+            end
+        end
+    end
+    expect(#wrongOrder == 0, 'semver: compare orders every pair as node-semver does: '
+        .. table.concat(wrongOrder, '; ', 1, math.min(#wrongOrder, 4)))
+
+    -- Numeric identifiers are compared as NUMBERS of any size: tonumber
+    -- would call '0x1' and '1e3' numeric, and a double cannot tell the last
+    -- digit of a 20-digit id apart.
+    expect(S.compare('1.0.0-0x1', '1.0.0-2') == 1, "semver: '0x1' is alphanumeric, so it sorts above 2")
+    expect(S.compare('1.0.0-1e3', '1.0.0-999') == 1, "semver: '1e3' is alphanumeric too")
+    expect(S.compare('1.0.0-12345678901234567890', '1.0.0-12345678901234567891') == -1,
+        'semver: 20-digit numeric identifiers compare exactly')
+
+    -- loose is explicit, and is the only way the old lenient inputs get in.
+    local lv = S.parse(' v1.2 ', { loose = true })
+    expect(lv ~= nil and lv.normalized == '1.2.0', "semver: loose reads ' v1.2 ' as 1.2.0")
+    expect(S.parse('v1.2.3') == nil and S.parse('1') == nil, 'semver: strict does not')
+    expect(S.parse('1..2', { loose = true }) == nil and S.parse('.1.2.', { loose = true }) == nil,
+        "semver: '1..2' and '.1.2.' are not versions in any mode")
+    expect((S.parse('01.2.3', { loose = true }) or {}).major == 1, 'semver: loose allows a leading zero')
+    expect(S.satisfies(' v1.2.3', '^1', { loose = true }) == true and S.satisfies(' v1.2.3', '^1') == nil,
+        'semver: satisfies honours loose for the version, and is strict without it')
+
+    -- A table is validated, not trusted.
+    local fromTable = S.parse({ major = 1, minor = 2, patch = 3, prerelease = 'rc.1' })
+    expect(fromTable ~= nil and fromTable.normalized == '1.2.3-rc.1', 'semver: a version table normalises')
+    local badTables = {
+        {}, { major = 1, minor = 2 }, { major = -1, minor = 0, patch = 0 },
+        { major = 1.5, minor = 0, patch = 0 }, { major = 1, minor = 0, patch = 0, prerelease = 'a..b' },
+        { major = 1, minor = 0, patch = 0, prerelease = 7 }, { major = 0 / 0, minor = 0, patch = 0 },
+    }
+    local accepted = 0
+    for _, t in ipairs(badTables) do
+        if S.parse(t) ~= nil then accepted = accepted + 1 end
+    end
+    expect(accepted == 0, ('semver: malformed version tables are refused (%d accepted)'):format(accepted))
+    expect(S.compare({}, '1.0.0') == nil, 'semver: compare refuses a malformed table instead of comparing nil')
+
+    expect(S.best({ '1.2.3', '1.4.0', '2.0.0', '1.4.0-rc.1' }, '^1.2') == '1.4.0',
+        'semver: best picks the highest match and skips the prerelease')
+    expect(S.best({ '1.0.0', 'garbage' }, '*') == nil, 'semver: best refuses a malformed candidate')
 end
 
 io.write(('module tests: passed=%d failed=%d\n'):format(passed, failed))

@@ -8,9 +8,21 @@ local MAX_GENERATION = 9007199254740992
 -- The point of the structure is that clear is O(1), and the price is that it never
 local SWEEP_FLOOR = 64
 
+-- The slot map is WEAK-KEYED. A soft clear only bumps the generation, so every
+-- value from the old generation is still a key here; with strong keys a
+-- cleared set pinned everything it had ever held until the next sweep. A live
+-- value is still held strongly by `dense`, so weakness never drops a member.
+local SLOTS_MODE = { __mode = 'k' }
+
+local function newSlots()
+    return setmetatable({}, SLOTS_MODE)
+end
+
+--- An empty sparse set: O(1) add, has, remove, and an O(1) clear.
+---@return table
 function M.new()
     return {
-        slots = {},    -- value -> { gen, index }
+        slots = newSlots(),    -- value -> { gen, index }
         dense = {},    -- index -> value, valid for 1..size
         size = 0,
         generation = 1,
@@ -21,7 +33,7 @@ end
 
 -- Drop every slot that is not from the current generation.
 local function sweepSlots(set)
-    local live = {}
+    local live = newSlots()
     for value, slot in pairs(set.slots) do
         if slot.gen == set.generation then
             live[value] = slot
@@ -31,6 +43,10 @@ local function sweepSlots(set)
     set.written = set.size
 end
 
+--- Add a value.
+---@param set table
+---@param value any
+---@return boolean  false for nil or a value already present
 function M.add(set, value)
     if value == nil then
         return false
@@ -51,6 +67,10 @@ function M.add(set, value)
     return true
 end
 
+--- Is the value in the set?
+---@param set table
+---@param value any
+---@return boolean
 function M.has(set, value)
     local slot = set.slots[value]
     if slot == nil then
@@ -59,6 +79,10 @@ function M.has(set, value)
     return slot.gen == set.generation
 end
 
+--- Remove a value; the last element moves into its slot.
+---@param set table
+---@param value any
+---@return boolean  false when it was not present
 function M.remove(set, value)
     local slot = set.slots[value]
     if slot == nil or slot.gen ~= set.generation then
@@ -81,6 +105,10 @@ function M.remove(set, value)
 end
 
 -- bug: a caller that needs a deterministic order across removals wants a
+--- The value at a dense index. The order changes on remove.
+---@param set table
+---@param index integer
+---@return any  nil outside 1..count
 function M.at(set, index)
     if type(index) ~= 'number' or index < 1 or index > set.size then
         return nil
@@ -88,6 +116,10 @@ function M.at(set, index)
     return set.dense[index]
 end
 
+--- Visit every value present when the walk started.
+---@param set table
+---@param fn fun(value: any, index: integer)
+---@return integer  how many were visited
 function M.each(set, fn)
     if type(fn) ~= 'function' then
         return 0
@@ -100,6 +132,9 @@ function M.each(set, fn)
     return n
 end
 
+--- The values, as a new array.
+---@param set table
+---@return any[]  a NEW array
 function M.toArray(set)
     local out = {}
     for i = 1, set.size do
@@ -108,16 +143,23 @@ function M.toArray(set)
     return out
 end
 
+--- Empty the set in O(1). The old members are no longer referenced.
+---@param set table
+---@param hard? boolean  also drop the stale slots
+---@return integer  the new generation
 function M.clear(set, hard)
     if hard then
-        set.dense = {}
-        set.slots = {}
+        set.slots = newSlots()
         set.written = 0
     end
+    -- A fresh dense array in BOTH modes: it is one allocation, so the clear stays
+    -- O(1), and the old array was the other place a cleared set kept its former
+    -- members alive.
+    set.dense = {}
     set.size = 0
     if set.generation >= MAX_GENERATION then
         -- Unreachable, and handled anyway because "unreachable" is a property of the
-        set.slots = {}
+        set.slots = newSlots()
         set.dense = {}
         set.written = 0
         set.generation = 1
@@ -127,14 +169,23 @@ function M.clear(set, hard)
     return set.generation
 end
 
+--- How many values are in the set.
+---@param set table
+---@return integer
 function M.count(set)
     return set.size
 end
 
+--- Is the set empty?
+---@param set table
+---@return boolean
 function M.isEmpty(set)
     return set.size < 1
 end
 
+--- Debug only: slots held, live or stale. O(slots).
+---@param set table
+---@return integer  live plus stale slots
 function M.staleCount(set)
     -- Counting is O(slots) and defeats the purpose of the structure, so this is a debug
     local n = 0

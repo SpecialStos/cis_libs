@@ -1,7 +1,8 @@
 # cis_libs — documentation
 
-**Version 1.0.0.** Contract **`api = 1`**. The archived monolith document is
-`docs/archive/DOCUMENTATION-1.x.md`. It is not current.
+**Version 1.0.0**, the first public release. Contract **`api = 1`**.
+`docs/archive/DOCUMENTATION-1.x.md` describes the unpublished development
+builds that preceded 1.0.0. It is not current and documents no release.
 
 The machine-readable contract is `api.lua`. It is not listed in `fxmanifest.lua`.
 Load it with `loadfile`. `npm run test:api` fails if `api.lua` and the
@@ -16,8 +17,9 @@ Three facts the suite enforces:
 
 1. **`cis_libs` owns no table, reads no config file, and calls no third-party
    resource by name.** It is a boundary, not an implementation.
-2. **The `Cis.*` names did not change in the 2.0 split.** A 1.x consumer keeps
-   the same manifest line and the same calls. The contract major is still `1`.
+2. **The contract is versioned on its own.** `api.lua` declares `api = 1`; the
+   product version (1.0.0) can move without it. A consumer checks the
+   contract major, not the product version.
 3. **A missing product is a refusal with a reason**, not a nil that looks like
    "not found". Run `cis_debug` on the server console.
 
@@ -197,9 +199,349 @@ provider is registered, and `GetLibsPrefix()` reports it.
 - **Zones / points / hooks:** event names, not functions. Server zones exist
   (`Cis.zones.server.*`) and do not draw.
 
-Modules (fifteen, via `Cis.require`): `curve`, `heap`, `interp`, `lru`,
-`random`, `rate`, `sparse`, `window`, `id`, `json`, `semver`, `string`,
-`table`, `time`, `validate`. `Cis.require('unknown')` raises.
+### 5.1 Modules
+
+Fifteen pure-Lua modules ship in `files {}` and load on demand through
+`Cis.require(name)`: `curve`, `heap`, `interp`, `lru`, `random`, `rate`,
+`sparse`, `window`, `id`, `json`, `semver`, `string`, `table`, `time`,
+`validate`. Each loads into the **calling** resource's Lua state, once per
+state, and installs no global. `Cis.require('unknown')` raises and lists the
+valid names; `Cis.requireList()` returns them.
+
+A resource's own files load the same way. `Cis.require('client.utils')`,
+`Cis.require('client/utils')` and `Cis.require('./client/utils')` all read
+`client/utils.lua` from the calling resource; `Cis.require('@other/shared/cfg')`
+reads `shared/cfg.lua` from `other`. A file is read once per Lua state, loaded
+as text only, and runs in its own environment: reads fall through to the
+resource's globals, writes stay in the module. It receives
+`(name, '@resource/path.lua')` like Lua's `require`, and a file that returns
+nothing is cached as `true`. A path that leaves the resource (`..`, an
+absolute path, a backslash) is refused, and a circular require raises naming
+the chain.
+
+The supported way to use a module is `shared_script '@cis_libs/init.lua'`
+plus `Cis.require`. Loading a module file directly still sets its legacy
+global (`CisLRU`, …) because this repository's suites and bench load them that
+way; it is not a consumer integration.
+
+Conventions shared by every module: functions take the container as their
+first argument (`lru.get(cache, key)`, not `cache:get(key)`); a bad argument
+from configuration answers `nil, reason`, while a programming error (a
+non-number where only numbers make sense) raises; a point is `{ x, y, z }`,
+`{ 1, 2, 3 }` or a FiveM `vector2`/`vector3`/`vector4`. Headings are GTA
+headings: degrees, 0 facing +Y, 90 facing −X. Rate limiters and windows take
+time in **seconds**.
+
+The reference below is generated from the `---@param`/`---@return`
+annotations in each module's source by `npm run gen-types`, which also writes
+the editor types; `npm run gen-types:check` fails when either is stale or a
+module function is untyped.
+
+<!-- generated:modules:begin -->
+
+#### `curve` — `Cis.require('curve')`
+
+Source: `shared/algo/curve.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `catmullRom` | `(p0: table\|vector2\|vector3\|vector4\|nil, p1: table\|vector2\|vector3\|vector4, p2: table\|vector2\|vector3\|vector4, p3: table\|vector2\|vector3\|vector4\|nil, t: number, alpha?: number) → number, number, number` | Evaluate one Catmull-Rom segment from four control points. |
+| `count` | `(path: table) → integer` | Number of control points, or 0 for a path built from nothing. |
+| `hermite` | `(p0: table, p1: table, m0: table, m1: table, t: number) → number, number, number` | Cubic Hermite basis evaluation. |
+| `length` | `(path: table) → number` | Total arc length of the path in metres, measured along the CURVE and not along the |
+| `lengthOf` | `(points: table\|nil) → number` | Chord length of a polyline, summed. |
+| `newPath` | `(points: table, opts?: table) → table` | Build an arc-length parameterised Catmull-Rom path. |
+| `pointAt` | `(path: table, distance: number, out?: table) → table\|nil` | The point at `distance` metres along the path, as a table. |
+| `pointAtT` | `(path: table, t: number, out?: table) → table\|nil` | The point at a fraction of the whole path, 0..1. |
+| `pointAtXYZ` | `(path: table, distance: number) → number, number, number, boolean` | The point at `distance` metres along the path. |
+| `sample` | `(path: table, count?: number) → table` | Evenly spaced samples along the path, for drawing a route, handing one to a native, |
+| `tangentAtXYZ` | `(path: table, distance: number) → number, number, number` | Unit tangent (the direction of travel) at `distance` metres along the path. |
+
+#### `heap` — `Cis.require('heap')`
+
+Source: `shared/algo/heap.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `build` | `(list: table, less?: fun(a: any, b: any): boolean) → table` | Build a heap from an existing list in O(n). |
+| `clear` | `(h: table) → nil` | Drop everything. |
+| `dequeue` | `(q: table) → any` | Remove and return the highest-priority (lowest number) value. |
+| `drain` | `(h: table) → table` | Pop everything into a sorted array, cheapest element first. |
+| `enqueue` | `(q: table, value: any, priority?: number) → integer` | Add a value at a priority. |
+| `isEmpty` | `(h: table) → boolean` | Is the heap empty? |
+| `new` | `(less?: fun(a: any, b: any): boolean) → table` | Create an empty heap. |
+| `newQueue` | `() → table` | A FIFO-ordered priority queue. |
+| `peek` | `(h: table) → any` | The minimum, without removing it. |
+| `peekQueue` | `(q: table) → any` | The next value without removing it. |
+| `pop` | `(h: table) → any` | Remove and return the minimum. |
+| `push` | `(h: table, value: any) → integer\|nil, string\|nil` | Add a value. |
+| `remove` | `(h: table, value: any) → boolean` | Remove a specific value wherever it is. |
+| `replaceTop` | `(h: table, value: any) → any` | Replace the minimum in place. |
+| `size` | `(h: table) → integer` | How many values are queued. |
+
+#### `id` — `Cis.require('id')`
+
+Source: `shared/util/id.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `draw` | `(count?: number, alphabet?: string, rng?: table\|fun(): number) → string\|nil, string\|nil` | Draw `count` symbols from `alphabet`. |
+| `newCounter` | `() → table` | A counter, for ids that must be readable and ordered. |
+| `next` | `(counter: table, kind?: string) → string\|nil, string\|nil` | Take the next value from a counter. |
+| `normaliseName` | `(raw: string, used?: table, opts?: table) → string\|nil, string\|nil` | Turn a display name into a key that is safe to use as a table key, a database column |
+| `short` | `(prefix?: string, opts?: table) → string\|nil, string\|nil` | A short opaque id, optionally prefixed. |
+| `uuid` | `(rng?: table\|fun(): number) → string\|nil, string\|nil` | An RFC 4122 version 4 shaped string, from the same injected generator. |
+
+#### `interp` — `Cis.require('interp')`
+
+Source: `shared/algo/interp.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `angleDelta` | `(a: number, b: number) → number` | Shortest signed difference from angle a to angle b, in radians. |
+| `clamp` | `(v: number, lo: number, hi: number) → number\|nil, string\|nil` | Limit v to [lo, hi]. |
+| `clamp01` | `(v: number) → number` | Limit v to [0, 1]. |
+| `clampLength` | `(v: table\|vector2\|vector3\|vector4, maxLength: number, out?: table) → table` | Shorten a vector to at most maxLength. |
+| `damp` | `(current: number, target: number, smoothTime: number, dt: number) → number` | Frame-rate independent exponential approach to target. |
+| `dampAngle` | `(current: number, target: number, smoothTime: number, dt: number) → number` | damp() for an angle in radians, along the shortest arc. |
+| `dampVec3` | `(current: table\|vector2\|vector3\|vector4, target: table\|vector2\|vector3\|vector4, smoothTime: number, dt: number, out?: table) → table` | damp() per component. |
+| `dist2` | `(ax: number, ay: number, bx: number, by: number) → number` | Distance between two 2D points given as numbers. |
+| `dist3` | `(ax: number, ay: number, az: number\|nil, bx: number, by: number, bz: number\|nil) → number` | Distance between two 3D points given as numbers; a nil z is 0. |
+| `distance2D` | `(a: table\|vector2\|vector3\|vector4, b: table\|vector2\|vector3\|vector4) → number` | Planar distance between two points. |
+| `distance3D` | `(a: table\|vector2\|vector3\|vector4, b: table\|vector2\|vector3\|vector4) → number` | Distance between two points; a missing z is 0. |
+| `ease` | `(name: string, t: number) → number` | Apply the named easing curve to t in [0, 1]. |
+| `hasEase` | `(name: any) → boolean` | Is `name` one of the curves in EASINGS? |
+| `headingDelta` | `(a: number, b: number) → number` | Returns degrees in [-180, 180). |
+| `headingToVector` | `(headingDeg: number) → number, number` | Returns x. |
+| `inverseLerp` | `(a: number, b: number, v: number) → number` | Where v sits between a and b, as t. |
+| `lerp` | `(a: number, b: number, t: number) → number` | Linear interpolation; t is not clamped. |
+| `lerpClamped` | `(a: number, b: number, t: number) → number` | Linear interpolation with t clamped to [0, 1]. |
+| `lerpHeading` | `(a: number, b: number, t: number) → number` | Interpolate two headings along the shortest arc. |
+| `lerpVec3` | `(a: table\|vector2\|vector3\|vector4, b: table\|vector2\|vector3\|vector4, t: number, out?: table) → table` | Linear interpolation between two points. |
+| `moveTowards` | `(current: number, target: number, maxDelta: number) → number` | Step current toward target by at most maxDelta. |
+| `moveTowardsVec3` | `(current: table\|vector2\|vector3\|vector4, target: table\|vector2\|vector3\|vector4, maxDelta: number) → table` | Step a point toward a target by at most maxDelta metres. |
+| `normalize` | `(v: table\|vector2\|vector3\|vector4, out?: table) → table` | Unit vector in the direction of v. |
+| `remap` | `(v: number, inMin: number, inMax: number, outMin: number, outMax: number, clamped?: boolean) → number` | Map v from [inMin, inMax] to [outMin, outMax]. |
+| `sign` | `(v: number) → integer` | The sign of v. |
+| `smoothDamp` | `(current: number, target: number, velocity?: number, smoothTime: number, maxSpeed?: number, dt: number) → number, number` | Critically damped spring toward target (Unity-style SmoothDamp). |
+| `smootherstep` | `(edge0: number, edge1: number, x: number) → number` | Ken Perlin's smootherstep of x between two edges. |
+| `smoothstep` | `(edge0: number, edge1: number, x: number) → number` | Hermite smoothstep of x between two edges. |
+| `vectorToHeading` | `(x: number, y: number) → number` | Returns degrees in [0, 360). |
+| `wrap` | `(v: number, min: number, max: number) → number` | Wrap v into [min, max), correctly for negative input. |
+| `wrapAngle` | `(rad: number) → number` | Wrap an angle in radians to [-pi, pi). |
+| `wrapAnglePositive` | `(rad: number) → number` | Wrap an angle in radians to [0, 2pi). |
+| `wrapDegrees` | `(deg: number) → number` | Wrap degrees to [0, 360). |
+
+#### `json` — `Cis.require('json')`
+
+Source: `shared/util/json.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `bind` | `(codec: table) → table\|nil, string\|nil` | Bind the functions to one codec, so a hot path does not pass it every call. |
+| `check` | `(codec: table) → table\|nil, string\|nil` | Check that a value is shaped like a usable codec. |
+| `checkEncodable` | `(value: any, opts?: table) → boolean, string\|nil` |  |
+| `decode` | `(codec: table, text: string, opts?: table) → any, string\|nil` | Decode, refusing rather than raising. |
+| `encode` | `(codec: table, value: any, opts?: table) → string\|nil, string\|nil` | Encode, refusing rather than raising. |
+| `roundTrip` | `(codec: table, value: any, opts?: table) → any, string\|nil` | Encode and decode back, and return the value that survived. |
+| `scanDepth` | `(text: string) → integer\|nil, string\|nil` | Measure nesting depth in JSON TEXT without parsing it. |
+| `tryDecode` | `(codec: table, text: string, opts?: table) → boolean, any` | Decode, returning a boolean, for callers that cannot use the three-way form. |
+
+#### `lru` — `Cis.require('lru')`
+
+Source: `shared/algo/lru.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `clear` | `(lru: table) → nil` | Empty the cache. |
+| `count` | `(lru: table) → integer` | Number of live entries. |
+| `each` | `(lru: table, fn: fun(key: any, value: any)) → number` | Call `fn(key, value)` for every entry, most recently used first. |
+| `get` | `(lru: table, key: any) → any` | Look up a key and mark it as most recently used. |
+| `has` | `(lru: table, key: any) → boolean` | Is a key present, without changing its recency? |
+| `keys` | `(lru: table) → any[]` | Keys from most recently used to least. |
+| `new` | `(capacity?: number) → table` | Create an empty cache. |
+| `peek` | `(lru: table, key: any) → any` | Look up a key WITHOUT changing its recency. |
+| `popOldest` | `(lru: table) → any, any` | Remove the least recently used entry. |
+| `put` | `(lru: table, key: any, value: any) → any` | Store a value and mark it most recently used. |
+| `remove` | `(lru: table, key: any) → any` | Remove a key, whatever its position in the order. |
+| `removeWhere` | `(lru: table, predicate: fun(key: any, value: any): boolean) → integer` | Remove every entry for which `predicate(key, value)` is true. |
+
+#### `random` — `Cis.require('random')`
+
+Source: `shared/algo/random.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `float` | `(min: number, max: number, rng?: table\|fun(): number) → number\|nil, string\|nil` | Float in [min, max). |
+| `gaussian` | `(mean?: number, standardDeviation?: number, rng?: table\|fun(): number) → number` | Normally distributed value, mean 0 and standard deviation 1 unless told otherwise. |
+| `integer` | `(lo: number, hi: number, rng?: table\|fun(): number) → integer\|nil, string\|nil` | Integer in [lo, hi] INCLUSIVE, uniformly. |
+| `newGenerator` | `(seed?: number) → table` | A seeded, reproducible generator. |
+| `pick` | `(list: table, rng?: table\|fun(): number) → any` | One uniformly random element of a list. |
+| `sample` | `(list: table, k: number, rng?: table\|fun(): number) → table` | `k` distinct elements of a list, in random order, WITHOUT touching the input. |
+| `shuffle` | `(list: table, rng?: table\|fun(): number) → table\|nil` | Fisher-Yates shuffle, IN PLACE. |
+| `weighted` | `(entries: table, rng?: table\|fun(): number) → any` | Weighted choice. |
+| `weightedIndex` | `(weights: number[], rng?: table\|fun(): number) → integer\|nil` | Index of a weighted choice, for callers that keep weights and values in parallel |
+
+#### `rate` — `Cis.require('rate')`
+
+Source: `shared/algo/rate.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `allow` | `(r: table, key: any, now?: number, cost?: number) → boolean` | Try to spend `cost` from a key's budget. |
+| `clear` | `(r: table) → nil` | Forget every key. |
+| `count` | `(r: table) → integer` | How many keys the limiter is tracking, including fully restored ones that have not |
+| `newFixed` | `(opts?: table) → table` | A counter that resets on an aligned boundary. |
+| `newSliding` | `(opts?: table) → table` | A two-bucket sliding window estimate. |
+| `newTokenBucket` | `(opts?: table) → table` | A continuously refilling bucket. |
+| `peek` | `(r: table, key: any, now?: number) → table` | Inspect a key's budget WITHOUT spending from it. |
+| `prune` | `(r: table, now?: number, idleSec?: number) → integer` | Drop keys that have not been touched for `idleSec`. |
+| `reset` | `(r: table, key: any) → nil` | Forget one key entirely. |
+
+#### `semver` — `Cis.require('semver')`
+
+Source: `shared/util/semver.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `best` | `(candidates: table, range: string, opts?: table) → any\|nil, string\|nil` | The highest version in a list that satisfies `range`. |
+| `compare` | `(a: string\|table, b: string\|table, opts?: table) → integer\|nil, string\|nil` | Compare two versions by SemVer precedence. |
+| `eq` | `(a: string\|table, b: string\|table, opts?: table) → boolean\|nil, string\|nil` | Returns equal precedence (build metadata does not count), or nil and a reason. |
+| `gte` | `(a: string\|table, b: string\|table, opts?: table) → boolean\|nil, string\|nil` | Returns a >= b, or nil and a reason (see compare). |
+| `lt` | `(a: string\|table, b: string\|table, opts?: table) → boolean\|nil, string\|nil` | Returns a < b, or nil and a reason. |
+| `parse` | `(v: string\|table, opts?: table) → table\|nil, string\|nil` | Parse a version into its parts. |
+| `satisfies` | `(version: string\|table, range: string, opts?: table) → boolean\|nil, string\|nil` | Does `version` satisfy a range expression? |
+
+#### `sparse` — `Cis.require('sparse')`
+
+Source: `shared/algo/sparse.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `add` | `(set: table, value: any) → boolean` | Add a value. |
+| `at` | `(set: table, index: integer) → any` | The value at a dense index. |
+| `clear` | `(set: table, hard?: boolean) → integer` | Empty the set in O(1). |
+| `count` | `(set: table) → integer` | How many values are in the set. |
+| `each` | `(set: table, fn: fun(value: any, index: integer)) → integer` | Visit every value present when the walk started. |
+| `has` | `(set: table, value: any) → boolean` | Is the value in the set? |
+| `isEmpty` | `(set: table) → boolean` | Is the set empty? |
+| `new` | `() → table` | An empty sparse set: O(1) add, has, remove, and an O(1) clear. |
+| `remove` | `(set: table, value: any) → boolean` | Remove a value; the last element moves into its slot. |
+| `staleCount` | `(set: table) → integer` | Debug only: slots held, live or stale. |
+| `toArray` | `(set: table) → any[]` | The values, as a new array. |
+
+#### `string` — `Cis.require('string')`
+
+Source: `shared/util/string.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `camel` | `(s: string) → string` | 'give_money' -> 'giveMoney'. |
+| `collapse` | `(s: string) → string` | Collapse every run of whitespace to one space and trim both ends. |
+| `contains` | `(s: string, needle: string, ignoreCase?: boolean) → boolean` | Case-insensitive-ish containment test, matching the needle LITERALLY. |
+| `endsWith` | `(s: string, suffix: string, ignoreCase?: boolean) → boolean` | Returns false for a non-string, and true for an empty suffix. |
+| `hasUtf8` | `() → boolean` | Whether this runtime has the utf8 library. |
+| `kebab` | `(s: string) → string` | 'GiveMoney' -> 'give-money'. |
+| `levenshtein` | `(a: string, b: string, maxDistance?: integer) → integer\|nil, string\|nil` | Levenshtein edit distance between two strings. |
+| `padEnd` | `(s: any, width: integer, fill?: string) → string` | Pad on the right to `width`. |
+| `padStart` | `(s: any, width: integer, fill?: string) → string` | Pad on the left to `width`. |
+| `pascal` | `(s: string) → string` | 'give_money' -> 'GiveMoney'. |
+| `snake` | `(s: string) → string` | 'GiveMoney' -> 'give_money'. |
+| `split` | `(s: string, sep: string, opts?: table) → string[]\|nil, string\|nil` | Split on a separator. |
+| `startsWith` | `(s: string, prefix: string, ignoreCase?: boolean) → boolean` | Returns false for a non-string, and true for an empty prefix. |
+| `suggest` | `(word: string, candidates: string[], opts?: table) → string\|nil, integer\|string\|nil` | Pick the closest candidate to `word`. |
+| `truncate` | `(s: string, max: number, ellipsis?: string\|false) → string` | Cut to a maximum length, adding an ellipsis when it actually cut. |
+| `words` | `(s: string) → string[]` | Break a string into words, in the sense the case converters mean. |
+
+#### `table` — `Cis.require('table')`
+
+Source: `shared/util/table.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `compareKeys` | `(a: any, b: any) → integer` | Total order over keys of ANY type. |
+| `count` | `(t: any) → integer` | Number of direct keys. |
+| `deepCopy` | `(value: any, seen?: table) → any` | Deep copy with CYCLE PROTECTION. |
+| `deepCopyStrict` | `(value: any, opts?: table) → any, string\|nil` | Deep copy that REFUSES a cyclic or over-deep input. |
+| `deepMerge` | `(base: table\|nil, overlay: table\|nil, policy?: string, opts?: table) → table\|nil, string\|nil` | Deep merge into a NEW table. |
+| `deepMergeInto` | `(target: table, overlay: table\|nil, policy?: string, opts?: table) → table\|nil, string\|nil` | Deep merge that mutates `target` in place and returns it. |
+| `deepSize` | `(t: any, opts?: table) → integer` | Number of key/value pairs at EVERY level. |
+| `depth` | `(t: any, maxDepth?: integer) → integer` | How deeply nested a table is. |
+| `each` | `(t: table, comparator: fun(a: any, b: any): boolean\|number\|nil, fn: fun(value: any, key: any): boolean\|nil) → boolean\|nil, string\|nil` | Iterate in the same order as CisTable.keys without allocating the key array. |
+| `filter` | `(t: table, predicate: fun(value: any, key: any): any) → table\|nil, string\|nil` | Keep the entries whose `predicate(value, key)` is truthy. |
+| `find` | `(t: table, predicate: fun(value: any, key: any): any) → any` | First value whose `predicate(value, key)` is truthy. |
+| `findCycle` | `(t: any, maxDepth?: integer) → any[]\|nil` | Find the key path that closes a cycle. |
+| `isArray` | `(t: any) → boolean` | Returns true only for a table whose keys are all integers. |
+| `isEmpty` | `(t: any) → boolean` | Returns true for nil, a non-table, or a table with no entries. |
+| `isMap` | `(t: any) → boolean` | Inverse of isArray, with one deliberate exception: an EMPTY table is a map. |
+| `join` | `(list: table, sep?: string) → string` | Concatenate a list, skipping entries that are not strings or numbers. |
+| `keys` | `(t: table, comparator?: fun(a: any, b: any): boolean\|number) → any[]\|nil` | Keys in a DETERMINISTIC order: the contiguous integer prefix 1..n first, in |
+| `map` | `(t: table, fn: fun(value: any, key: any): any, opts?: table) → table\|nil, string\|nil` | Transform every value. |
+| `reduce` | `(t: table, fn: fun(acc: any, value: any, key: any): any, initial?: any) → any, string\|nil` | Fold a table into one value. |
+| `shallowCopy` | `(t: any) → any` | Shallow copy. |
+| `sortBy` | `(list: table, keyOf: fun(item: any, index: integer): any, comparator?: fun(a: any, b: any): boolean\|number) → table\|nil, string\|nil` | Sort a LIST by a derived key. |
+| `values` | `(t: table, comparator?: fun(a: any, b: any): boolean\|number) → any[]\|nil` | Values, index-aligned with CisTable.keys on the same table. |
+
+#### `time` — `Cis.require('time')`
+
+Source: `shared/util/time.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `elapsed` | `(now: number, since: number) → number` | Seconds elapsed between two instants: `now - since`. |
+| `formatDuration` | `(seconds: number, opts?: table) → string` | Format a duration as "2h 14m". |
+| `now` | `(clock: fun(): number) → number\|nil, string\|nil` | Read the clock from an INJECTED source. |
+| `parseDuration` | `(text: string\|number) → number\|nil, string\|nil` | Parse a human duration back into seconds. |
+| `parts` | `(seconds: number) → table` | Break a duration into { weeks, days, hours, minutes, seconds }. |
+| `relative` | `(timestamp: number, now: number, opts?: table) → string` | Relative time in words: '3 minutes ago', 'in 3 minutes', 'just now'. |
+| `roundTo` | `(seconds: number, unit?: number) → number` | Round a duration in SECONDS to a whole number of `unit`s, to the NEAREST, and return |
+
+#### `validate` — `Cis.require('validate')`
+
+Source: `shared/util/validate.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `boolean` | `(v: any, opts?: table) → boolean, string\|nil` | Check a boolean. |
+| `clamp` | `(v: number, min?: number, max?: number) → number\|nil, string\|nil` | Constrain a number to a range. |
+| `defaults` | `(value: table, schema: table) → table\|nil, string\|nil` | Fill a table's missing fields from a schema's `default` values. |
+| `field` | `(value: any, spec: table, path?: string) → boolean, string\|nil` | Validate one value against a field spec. |
+| `integer` | `(v: any, opts?: table) → boolean, string\|nil` | Check that a value has no fractional part. |
+| `isFinite` | `(v: any) → boolean` | Whether a number is finite. |
+| `isInteger` | `(v: any) → boolean` | Whether a number has no fractional part. |
+| `number` | `(v: any, opts?: table) → boolean, string\|nil` | Check a number. |
+| `schema` | `(value: table\|nil, schema: table, opts?: table) → boolean, string\|string[]\|nil` | Validate a whole table against a schema of field specs. |
+| `string` | `(v: any, opts?: table) → boolean, string\|nil` | Check a string. |
+| `tableValue` | `(v: any, opts?: table) → boolean, string\|nil` | Check a table, and optionally its SHAPE. |
+
+#### `window` — `Cis.require('window')`
+
+Source: `shared/algo/window.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `clear` | `(w: table) → nil` | Empty the ring, keeping its allocated capacity. |
+| `count` | `(stats: table, key: any, now: number) → integer` | Alias of `samples`. The number of live SAMPLES for `key` inside the window. |
+| `dedupeCount` | `(d: table) → integer` | How many keys are being tracked, including expired ones not yet pruned. |
+| `each` | `(w: table, fn: fun(value: any, time: number\|nil, index: integer)) → integer` | Walk from oldest to newest, calling `fn(value, time, index)`. |
+| `extreme` | `(stats: table, key: any, now: number, wantMax?: boolean) → number\|nil` | Largest or smallest live sample, without building the result table. |
+| `isSeen` | `(d: table, key: any, now: number) → boolean` | Is a key currently inside its window? |
+| `new` | `(capacity: number) → table` | A fixed-capacity ring of the last N pushes. |
+| `newDedupe` | `(windowSec: number) → table` | A per-key "seen recently" filter over a time window. |
+| `newStats` | `(windowSec: number, bucketSec?: number) → table` | Count / min / max / sum / mean over a trailing time window, per key. |
+| `newest` | `(w: table) → any, number\|nil` | The newest value without removing it. |
+| `oldest` | `(w: table) → any, number\|nil` | The oldest value without removing it. |
+| `pop` | `(w: table) → any, number\|nil` | Remove and return the OLDEST value. |
+| `prune` | `(d: table, now: number) → integer` | Drop every key whose window has expired. |
+| `pruneStats` | `(stats: table, now: number) → integer` | Drop keys with no live sample. |
+| `push` | `(w: table, value: any, time?: number) → any` | Append a value, overwriting the oldest one when the ring is full. |
+| `read` | `(stats: table, key: any, now: number) → table\|nil` | Read a key's window. |
+| `record` | `(stats: table, key: any, value: number, now: number) → boolean` | Add a value to a key's window. |
+| `reset` | `(d: table, key: any) → nil` | Forget a key entirely, so the next `seen` accepts it regardless of the window. |
+| `samples` | `(stats: table, key: any, now: number) → integer` | The number of live SAMPLES for `key` inside the window. |
+| `seen` | `(d: table, key: any, now: number) → boolean` | Would this key be ACCEPTED right now? |
+
+<!-- generated:modules:end -->
 
 ---
 
@@ -537,7 +879,7 @@ Generated from `api.lua`. Do not edit between the markers.
 The generated event table is in §6. Doorlock names belong to `cis_keys`.
 Framework event names belong to `cis_core`. `jobUpdated` and `playerLoaded` are
 fired here when a product calls `PublishJobUpdate` / `PublishPlayerLoaded`.
-`DoorData` was removed from the `getData` payload in 2.0.0.
+The `getData` payload carries no `DoorData`.
 
 ---
 

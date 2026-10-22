@@ -6,8 +6,8 @@ local M = {}
 
 -- `table.remove(t, 1)` on a Lua array is O(n): every remaining element shifts down one
 --- A fixed-capacity ring of the last N pushes.
---- @param capacity number  slots; below 1 becomes 1. A capacity-0 ring cannot
---- @return table  { kind, capacity, size, start, values, times }
+---@param capacity number  slots; below 1 becomes 1. A capacity-0 ring cannot
+---@return table  { kind, capacity, size, start, values, times }
 function M.new(capacity)
     local cap = 1
     if type(capacity) == 'number' and capacity == capacity and capacity >= 1 then
@@ -29,10 +29,10 @@ local function slotAt(w, offset)
 end
 
 --- Append a value, overwriting the oldest one when the ring is full.
---- @param value any
---- @param time number|nil  recorded alongside the value; `pop` and `each`
---- @param w
---- @return any  the value that was pushed, for chaining
+---@param w table
+---@param value any
+---@param time? number  recorded alongside the value; `pop` and `each`
+---@return any  the value pushed
 function M.push(w, value, time)
     local i = slotAt(w, w.size)
     w.values[i] = value
@@ -50,8 +50,9 @@ function M.push(w, value, time)
 end
 
 --- Remove and return the OLDEST value.
---- @param w
---- @return any, any  value, time -- nil, nil when the ring is empty
+---@param w table
+---@return any value
+---@return number|nil time
 function M.pop(w)
     if w.size < 1 then
         return nil, nil
@@ -69,8 +70,9 @@ function M.pop(w)
 end
 
 --- The newest value without removing it.
---- @param w
---- @return any, any  value, time; nil, nil when empty
+---@param w table
+---@return any value
+---@return number|nil time
 function M.newest(w)
     if w.size < 1 then
         return nil, nil
@@ -80,8 +82,9 @@ function M.newest(w)
 end
 
 --- The oldest value without removing it.
---- @param w
---- @return any, any  value, time; nil, nil when empty
+---@param w table
+---@return any value
+---@return number|nil time
 function M.oldest(w)
     if w.size < 1 then
         return nil, nil
@@ -90,9 +93,9 @@ function M.oldest(w)
 end
 
 --- Walk from oldest to newest, calling `fn(value, time, index)`.
---- @param w
---- @param fn
---- @return number  how many entries were visited
+---@param w table
+---@param fn fun(value: any, time: number|nil, index: integer)
+---@return integer  how many entries were visited
 function M.each(w, fn)
     if type(fn) ~= 'function' then
         return 0
@@ -106,8 +109,8 @@ function M.each(w, fn)
 end
 
 --- Empty the ring, keeping its allocated capacity.
---- @param w
---- @return nil  it empties the ring in place
+---@param w table
+---@return nil  it empties the ring in place
 function M.clear(w)
     for i = 1, w.capacity do
         w.values[i] = nil
@@ -119,11 +122,13 @@ end
 
 
 --- A per-key "seen recently" filter over a time window.
---- @param windowSec number  how long a key stays "seen" after a hit. Below 1
---- @return table  { windowSec, entries, size }
+---@param windowSec number  any positive window, sub-second included
+---@return table  { windowSec, entries, size }
 function M.newDedupe(windowSec)
+    -- Any positive window. A sub-second one is legitimate -- a 250 ms debounce
+    -- on a key press -- and used to be raised to a whole second.
     local w = windowSec
-    if type(w) ~= 'number' or w ~= w or w < 1 then
+    if type(w) ~= 'number' or w ~= w or w <= 0 then
         w = 1
     end
     return {
@@ -135,10 +140,10 @@ function M.newDedupe(windowSec)
 end
 
 --- Would this key be ACCEPTED right now?
---- @param d
---- @param key
---- @param now
---- @return boolean  true the first time a key is seen and again once its
+---@param d table
+---@param key any
+---@param now number
+---@return boolean  true when the key is let through (first time, or its window has passed)
 function M.seen(d, key, now)
     -- A non-numeric or NaN `now` is REFUSED, not coerced.
     if type(now) ~= 'number' or now ~= now then
@@ -156,10 +161,10 @@ function M.seen(d, key, now)
 end
 
 --- Is a key currently inside its window?
---- @param d
---- @param key
---- @param now
---- @return boolean
+---@param d table
+---@param key any
+---@param now number
+---@return boolean  true while the key is inside its window
 function M.isSeen(d, key, now)
     local last = d.entries[key]
     if last == nil then
@@ -172,9 +177,9 @@ function M.isSeen(d, key, now)
 end
 
 --- Forget a key entirely, so the next `seen` accepts it regardless of the window.
---- @param d
---- @param key
---- @return nil  it mutates the stats in place; a key that was not present is a no-op
+---@param d table
+---@param key any
+---@return nil  it mutates the stats in place; a key that was not present is a no-op
 function M.reset(d, key)
     if d.entries[key] ~= nil then
         d.entries[key] = nil
@@ -183,9 +188,9 @@ function M.reset(d, key)
 end
 
 --- Drop every key whose window has expired.
---- @param d
---- @param now
---- @return number  how many keys were reclaimed
+---@param d table
+---@param now number
+---@return integer  how many keys were reclaimed
 function M.prune(d, now)
     local removed = 0
     for key, last in pairs(d.entries) do
@@ -199,8 +204,8 @@ function M.prune(d, now)
 end
 
 --- How many keys are being tracked, including expired ones not yet pruned.
---- @param d
---- @return number
+---@param d table
+---@return integer
 function M.dedupeCount(d)
     return d.size
 end
@@ -208,9 +213,9 @@ end
 
 -- The exact answer needs every sample in the window, so the obvious structure is a
 --- Count / min / max / sum / mean over a trailing time window, per key.
---- @param windowSec number  length of the trailing window
---- @param bucketSec number|nil  slice width, default 1. Clamped to at most
---- @return table  the aggregator
+---@param windowSec number  length of the trailing window
+---@param bucketSec? number  slice width, default 1. Clamped to at most
+---@return table  the aggregator
 function M.newStats(windowSec, bucketSec)
     local window = windowSec
     if type(window) ~= 'number' or window ~= window or window <= 0 then
@@ -258,11 +263,11 @@ local function bucketLive(entry, i, stats, cutoffBucket)
 end
 
 --- Add a value to a key's window.
---- @param value number  non-numeric values and NaN are IGNORED rather than
---- @param stats
---- @param key
---- @param now
---- @return boolean  whether the sample was recorded
+---@param stats table
+---@param key any
+---@param value number  non-numeric values and NaN are IGNORED rather than
+---@param now number
+---@return boolean  whether the sample was recorded
 function M.record(stats, key, value, now)
     if type(value) ~= 'number' or value ~= value then
         return false
@@ -276,7 +281,10 @@ function M.record(stats, key, value, now)
     if not entry then
         entry = {
             idx = 0,        -- ring cursor: the position of the newest bucket
-            lastBucket = -1, -- absolute index of the newest bucket
+            -- Absolute index of the newest bucket; nil until the first sample.
+            -- NOT -1: a negative timestamp has a negative bucket index, and a
+            -- `< 0` sentinel re-initialised the key on every record.
+            lastBucket = nil,
             sums = {}, counts = {}, mins = {}, maxs = {}, lasts = {},
         }
         stats.entries[key] = entry
@@ -294,7 +302,7 @@ function M.record(stats, key, value, now)
         entry.lasts[i] = nil
     end
 
-    if entry.lastBucket < 0 then
+    if entry.lastBucket == nil then
         entry.lastBucket = bucketIndex
         entry.idx = 1
     elseif bucketIndex ~= entry.lastBucket then
@@ -325,10 +333,10 @@ function M.record(stats, key, value, now)
 end
 
 --- Read a key's window.
---- @param stats
---- @param key
---- @param now
---- @return table|nil  { count, sum, mean, min, max, last }, or nil when the key
+---@param stats table
+---@param key any
+---@param now number
+---@return table|nil  { count, sum, mean, min, max, last }, or nil with no live sample
 function M.read(stats, key, now)
     local entry = stats.entries[key]
     if not entry or type(now) ~= 'number' or now ~= now then
@@ -363,10 +371,10 @@ function M.read(stats, key, now)
 end
 
 --- The number of live SAMPLES for `key` inside the window.
---- @param stats
---- @param key
---- @param now
---- @return number
+---@param stats table
+---@param key any
+---@param now number
+---@return integer
 function M.samples(stats, key, now)
     local entry = stats.entries[key]
     if not entry or type(now) ~= 'number' or now ~= now then
@@ -387,11 +395,11 @@ end
 M.count = M.samples
 
 --- Largest or smallest live sample, without building the result table.
---- @param wantMax boolean|nil  true for the max, false or nil for the min
---- @param stats
---- @param key
---- @param now
---- @return number|nil  nil when there is no live sample
+---@param stats table
+---@param key any
+---@param now number
+---@param wantMax? boolean  true for the max, false or nil for the min
+---@return number|nil  nil when there is no live sample
 function M.extreme(stats, key, now, wantMax)
     local entry = stats.entries[key]
     if not entry or type(now) ~= 'number' or now ~= now then
@@ -412,9 +420,9 @@ function M.extreme(stats, key, now, wantMax)
 end
 
 --- Drop keys with no live sample.
---- @param stats
---- @param now
---- @return number  how many keys were reclaimed
+---@param stats table
+---@param now number
+---@return integer  how many keys were reclaimed
 function M.pruneStats(stats, now)
     if type(now) ~= 'number' or now ~= now then
         return 0

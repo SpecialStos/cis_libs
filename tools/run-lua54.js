@@ -7,10 +7,16 @@
 // exists on a real interpreter, which is the whole argument for keeping this.
 //
 // The interpreter is looked up rather than assumed: LUAC_LUA54 overrides it,
-// then the pinned local dev tools, then whatever is on PATH. If none is found
-// this SKIPS rather than fails, because a machine with no Lua installed is not
-// a machine whose Lua is broken -- but it says so loudly, because a gate that
-// silently stops running is a gate that stopped running a long time ago.
+// then the pinned local dev tools, then whatever is on PATH.
+//
+// NOT FOUND is two different answers. On a developer machine it SKIPS, loudly:
+// a machine with no Lua installed is not a machine whose Lua is broken. Under
+// CI (the `CI` environment variable, which GitHub Actions and every other CI
+// sets) it FAILS: the workflow installs lua5.4 for exactly this step, so a
+// missing interpreter there means the step that was supposed to run did not,
+// and an exit 0 would report the second interpreter as passing when it never
+// ran. A gate that silently stops running is a gate that stopped running a
+// long time ago.
 
 const fs = require('fs')
 const os = require('os')
@@ -34,9 +40,27 @@ function findLua() {
   return null
 }
 
+function ciIsSet() {
+  const v = process.env.CI
+  return v !== undefined && v !== '' && v !== '0' && v.toLowerCase() !== 'false'
+}
+
 const lua = findLua()
 if (!lua) {
-  console.log('SKIP no Lua 5.4 interpreter found (set LUAC_LUA54, or install lua5.4)')
+  const why = 'no Lua 5.4 interpreter found (set LUAC_LUA54, or install lua5.4)'
+  if (ciIsSet()) {
+    console.error(`FAIL ${why}. CI is set, so the Lua 5.4 suites are required, not optional.`)
+    process.exit(1)
+  }
+  const bar = '!'.repeat(72)
+  console.error([
+    bar,
+    `WARNING  SKIP ${why}.`,
+    'WARNING  The suites ran under fengari (Lua 5.3 semantics, 32-bit integers) ONLY.',
+    'WARNING  Integer division, %d formatting and math.floor differ on a real 5.4.',
+    'WARNING  Under CI this is a failure, not a skip.',
+    bar,
+  ].join('\n'))
   process.exit(0)
 }
 const v = spawnSync(lua, ['-v'], { encoding: 'utf8' })
