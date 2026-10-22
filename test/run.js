@@ -23,6 +23,7 @@ const SUITES = [
   ['test/binding.lua', 'exports self-binding'],
   ['test/contracts.lua', 'exports and init boundary'],
   ['test/modules.lua', 'algo and util modules'],
+  ['test/devx.lua', 'developer-experience modules'],
   ['test/client.lua', 'client modules'],
   ['test/interface.lua', 'NUI interface layer'],
   ['test/server.lua', 'server modules'],

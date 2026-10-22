@@ -120,6 +120,10 @@ const SUITES = {
   'test/binding.lua': SHARED,
   'test/contracts.lua': [...SHARED, ...ALGO_UTIL],
   'test/modules.lua': [...SHARED, ...ALGO_UTIL],
+  // The developer-experience modules load THEMSELVES, the way Cis.require
+  // does (with the 'cis_require' marker), so nothing is preloaded and no
+  // legacy global is in scope to be read by accident.
+  'test/devx.lua': [],
   'test/client.lua': [...SHARED, ...ALGO_UTIL],
   // The NUI layer needs the shared plumbing (diagnostics, CisOwned,
   // CisCallable) and nothing else; it loads its own files per test.

@@ -15,12 +15,68 @@ local cis_libs = {}
 
 -- ================================================================ classes
 
+---@class CisArray
+-- The table Cis.require('array') returns. Arrays that carry an explicit length `n`, so holes never shorten them, and map/filter/reduce/slice/splice/flat/sort (stable)/unique/groupBy/chunk/zip/sum/min/max over them. Nothing mutates its input except push and splice. An array's metatable __index is this table, so a:map(fn) works as well as array.map(a, fn).
+---@field isArrayLike fun(v: any): boolean # Whether a table should be SPREAD by concat and flat: an array made here, a table with a numeric `n`, or a table whose every key is a positive integer (an empty table counts).
+---@field new fun(...: any): table # An array of the arguments, holes and trailing nils included.
+---@field from fun(list: table, n?: integer): table # A copy of a table as an array.
+---@field isArray fun(v: any): boolean # Whether a value is an array made by this module.
+---@field len fun(a: table): integer # The length: `n` when the table has one, else #t.
+---@field push fun(a: table, ...: any): integer # Append values IN PLACE.
+---@field forEach fun(a: table, fn: fun(value: any, index: integer, array: table)) # Call fn for every element.
+---@field map fun(a: table, fn: fun(value: any, index: integer, array: table): any): table # A new array of fn's results.
+---@field filter fun(a: table, fn: fun(value: any, index: integer, array: table): any): table # The elements fn accepts, in order, with no holes.
+---@field reduce fun(a: table, fn: fun(acc: any, value: any, index: integer, array: table): any, initial?: any): any # Fold left.
+---@field find fun(a: table, fn: fun(value: any, index: integer, array: table): any): any, integer|nil # The first element fn accepts.
+---@field findIndex fun(a: table, fn: fun(value: any, index: integer, array: table): any): integer|nil # The index of the first element fn accepts.
+---@field some fun(a: table, fn: fun(value: any, index: integer, array: table): any): boolean # Whether fn accepts at least one element.
+---@field every fun(a: table, fn: fun(value: any, index: integer, array: table): any): boolean # Whether fn accepts every element (true for an empty array).
+---@field indexOf fun(a: table, v: any, from?: integer): integer|nil # The first index holding a value equal (==) to v.
+---@field includes fun(a: table, v: any): boolean # Whether the array holds v.
+---@field slice fun(a: table, i?: integer, j?: integer): table # Elements i..j inclusive.
+---@field splice fun(a: table, start: integer, deleteCount?: integer, ...: any): table # Remove deleteCount elements at start and insert the extra arguments there, IN PLACE.
+---@field concat fun(a: table, ...: any): table # The array followed by each argument; an array-like argument is spread one level, anything else is appended as one element.
+---@field flat fun(a: table, depth?: integer): table # Nested array-likes spread into one array, to a depth.
+---@field reverse fun(a: table): table # The elements in reverse order.
+---@field join fun(a: table, sep?: string): string # The elements joined into a string.
+---@field sort fun(a: table, less?: fun(x: any, y: any): boolean): table # A STABLE sort: elements the comparator calls equal keep their order.
+---@field unique fun(a: table, keyOf?: fun(value: any, index: integer): any): table # The first occurrence of each distinct element (or of each distinct key).
+---@field groupBy fun(a: table, keyOf: fun(value: any, index: integer): any): table<any, table> # Elements grouped by fn's answer.
+---@field chunk fun(a: table, size: integer): table # Consecutive pieces of at most size elements.
+---@field zip fun(...: table): table # Tuples of the i-th element of every argument; as long as the LONGEST, shorter ones padded with holes.
+---@field sum fun(a: table): number|nil, string|nil # The sum of the elements; holes are skipped.
+---@field min fun(a: table, keyOf?: fun(value: any, index: integer): any): any, integer|nil # The smallest element (the first one, on a tie).
+---@field max fun(a: table, keyOf?: fun(value: any, index: integer): any): any, integer|nil # The largest element (the first one, on a tie).
+local CisArray = {}
+
 ---@class CisAuditEntry
 -- One ring-buffer entry from GetAuditLog. RESOURCE AND SLOT NAMES ONLY -- never a player identifier, which is why this is in memory at all.
 ---@field event string what happened, such as "registered" or "unregistered"
 ---@field detail string the slot, and the owner where there is one
 ---@field line string the rendered line
 local CisAuditEntry = {}
+
+---@class CisClass
+-- The table Cis.require('class') returns. Single-inheritance classes: class.new(name, super) returns a class used as Class:new(...) or Class(...), with a constructor method, instanceof, a toString hook for tostring, and class.privates() for private fields in a weak-keyed table. Method calls are table lookups up the chain; no closure is made per call.
+---@field new fun(name: string, super?: table): table # A new class, optionally inheriting from another made by this module.
+---@field isClass fun(value: any): boolean # Whether a value is a class made by this module.
+---@field instanceof fun(obj: any, cls: table): boolean # Whether obj is an instance of cls or of any class derived from it.
+---@field classOf fun(obj: any): table|nil # The class of an instance.
+---@field nameOf fun(value: any): string|nil # The name of a class, or of an instance's class.
+---@field privates fun(): fun(obj: table): table # An accessor for private per-instance fields, backed by a weak-keyed table.
+local CisClass = {}
+
+---@class CisCron
+-- The table Cis.require('cron') returns. Five-field cron expressions and @macros with Vixie day-of-month/day-of-week OR semantics: parse, next, matches, and a scheduler with one thread per Lua state that sleeps until the earliest due job. Server local time by default; { utc = true } for UTC. Job handles have :stop(), :isActive() and :nextRun().
+---@field parse fun(expr: string): table|nil, string|nil # Parse a five-field expression or a macro.
+---@field next fun(expr: string|table, fromTime?: number, opts?: table): number|nil, string|nil # The first time strictly after fromTime that the expression matches.
+---@field matches fun(expr: string|table, time?: number, opts?: table): boolean|nil, string|nil # Whether a moment falls in a minute the expression matches.
+---@field schedule fun(expr: string|table, fn: fun(job: table, due: number), opts?: table): table|nil, string|nil # Run fn at every time the expression matches, until stopped.
+---@field stop fun(job: table): boolean # Stop a job.
+---@field isActive fun(job: table): boolean # Whether a job is still scheduled.
+---@field nextRun fun(job: table): number|nil # When a job runs next.
+---@field count fun(): integer # How many jobs are scheduled in this Lua state.
+local CisCron = {}
 
 ---@class CisCurve
 -- The table Cis.require('curve') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.
@@ -161,6 +217,29 @@ local CisKeybindOptions = {}
 ---@field each fun(lru: table, fn: fun(key: any, value: any)): number # Call `fn(key, value)` for every entry, most recently used first.
 local CisLRU = {}
 
+---@class CisLocale
+-- The table Cis.require('locale') returns. Translations from the CALLING resource's locales/<lang>.json, language from the replicated convar cis:locale else en, with en as the fallback file and the fallback per key. t(key, ...) fills ${name} from a table and %s positionally; a missing key answers the key and warns once.
+---@field load fun(lang?: string): string|nil, string|nil # Load a language from the calling resource's locales folder.
+---@field set fun(lang: string): string|nil, string|nil # Switch language; the same as load(lang).
+---@field getLanguage fun(): string|nil # The language in use.
+---@field has fun(key: string): boolean # Whether a key has a phrase.
+---@field t fun(key: string, ...: any): string # Translate a key.
+local CisLocale = {}
+
+---@class CisMathX
+-- The table Cis.require('mathx') returns. Number helpers: round to decimals, clamp, lerp (numbers or FiveM vectors), inverseLerp, remap, approx, toHex/fromHex exact to 2^53, groupDigits, and a weighted pick that is reproducible with a CisRandom generator.
+---@field round fun(n: number, decimals?: integer): number # Round half AWAY from zero, to a number of decimal places.
+---@field clamp fun(v: number, lo: number, hi: number): number # Clamp into [lo, hi].
+---@field lerp fun(a: number|vector2|vector3|vector4, b: number|vector2|vector3|vector4, t: number): number|vector2|vector3|vector4 # Linear interpolation; t is not clamped.
+---@field inverseLerp fun(a: number, b: number, v: number): number # Where v sits between a and b, as a fraction: the inverse of lerp.
+---@field remap fun(v: number, inMin: number, inMax: number, outMin: number, outMax: number, clamped?: boolean): number # Map v from [inMin, inMax] onto [outMin, outMax].
+---@field approx fun(a: number, b: number, epsilon?: number): boolean # Equal within a tolerance that scales with the magnitude: \|a - b\| <= epsilon * max(1, \|a\|, \|b\|).
+---@field toHex fun(n: number, opts?: table): string|nil, string|nil # A whole number as hexadecimal text, with no prefix.
+---@field fromHex fun(s: string): number|nil, string|nil # Hexadecimal text back to a number.
+---@field groupDigits fun(n: number|string, sep?: string, decimals?: integer): string|nil, string|nil # Thousands separators: 1234567.891 -> '1,234,567.891'.
+---@field weightedPick fun(entries: table, rng?: table|fun(): number): any, integer|nil # A weighted random choice.
+local CisMathX = {}
+
 ---@class CisModuleInfo
 -- A DESCRIPTION of a module, which is what a consumer can actually be told. A function cannot cross the exports boundary, so the module table cannot be handed over either -- and cis_libs's own Cis.require is in a different Lua state from a consumer's, so it cannot be reached at all.
 ---@field ok boolean false for an unknown name or a non-string, with the reason in .why
@@ -197,6 +276,19 @@ local CisPointOptions = {}
 ---@field insideIds? integer[] their ids, sorted. A COUNT alone cannot tell a point that was found from one that was never registered
 local CisPointsDebug = {}
 
+---@class CisPrint
+-- The table Cis.require('print') returns. Levelled console output (error, warn, info, verbose, debug) with colour prefixes. The level comes from convar cis:printlevel:<resource>, else cis:printlevel, else info; a filtered call costs one comparison and formats nothing.
+---@field refresh fun(): string, string # Re-read the level from the convars.
+---@field setLevel fun(level: string|integer): boolean|nil, string|nil # Override the level for this resource until the next refresh.
+---@field getLevel fun(): string, string # The level in force.
+---@field isEnabled fun(level: string|integer): boolean # Whether a message at this level would print.
+---@field error fun(...: any) # Print at level error.
+---@field warn fun(...: any) # Print at level warn.
+---@field info fun(...: any) # Print at level info.
+---@field verbose fun(...: any) # Print at level verbose.
+---@field debug fun(...: any) # Print at level debug.
+local CisPrint = {}
+
 ---@class CisRandom
 -- The table Cis.require('random') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.
 ---@field newGenerator fun(seed?: number): table # A seeded, reproducible generator.
@@ -223,6 +315,24 @@ local CisRandom = {}
 ---@field count fun(r: table): integer # How many keys the limiter is tracking, including fully restored ones that have not
 local CisRate = {}
 
+---@class CisRingBuffer
+-- The table Cis.require('ringbuffer') returns. A fixed-capacity ring buffer that overwrites its oldest entry once full; index 1 is the oldest. A buffer's metatable __index is this table, so rb:push(v) and ringbuffer.push(rb, v) are the same call.
+---@field new fun(capacity: integer): table # A new, empty buffer.
+---@field isRingBuffer fun(value: any): boolean # Whether a value is a buffer made by this module.
+---@field push fun(rb: table, v: any): any, boolean # Append at the newest end.
+---@field shift fun(rb: table): any # Remove and return the OLDEST entry.
+---@field pop fun(rb: table): any # Remove and return the NEWEST entry.
+---@field get fun(rb: table, i: integer): any # The entry at position i, 1 = oldest; a negative i counts from the newest (-1 = newest).
+---@field peek fun(rb: table): any # The oldest entry, without removing it.
+---@field peekLast fun(rb: table): any # The newest entry, without removing it.
+---@field size fun(rb: table): integer # Number of entries held.
+---@field capacity fun(rb: table): integer # The fixed capacity.
+---@field isFull fun(rb: table): boolean # Whether the next push will overwrite.
+---@field isEmpty fun(rb: table): boolean # Whether it holds nothing.
+---@field clear fun(rb: table): table # Drop every entry; the capacity is kept.
+---@field toArray fun(rb: table): table # The entries oldest-first as a new array.
+local CisRingBuffer = {}
+
 ---@class CisSelfCheck
 -- What GetSelfCheck answers. ok = true WITH checkedAt = nil means the scan has not run yet -- not that the install is clean, and the two look identical to a caller. Every problem carries the fix.
 ---@field ok boolean whether the install is clean
@@ -240,6 +350,23 @@ local CisSelfCheck = {}
 ---@field satisfies fun(version: string|table, range: string, opts?: table): boolean|nil, string|nil # Does `version` satisfy a range expression?
 ---@field best fun(candidates: table, range: string, opts?: table): any|nil, string|nil # The highest version in a list that satisfies `range`.
 local CisSemver = {}
+
+---@class CisSet
+-- The table Cis.require('set') returns. A Set with O(1) membership, insertion-ordered values() and union/intersect/difference returning new sets. A set's metatable __index is this table, so s:add(v) and set.add(s, v) are the same call. nil and NaN are refused as members.
+---@field new fun(list?: table): table # A new set, optionally filled from an array.
+---@field isSet fun(value: any): boolean # Whether a value is a set made by this module.
+---@field add fun(s: table, v: any): boolean|nil, string|nil # Add a member.
+---@field remove fun(s: table, v: any): boolean # Remove a member.
+---@field has fun(s: table, v: any): boolean # Membership test.
+---@field size fun(s: table): integer # Number of members.
+---@field values fun(s: table): table # The members as a new array, in insertion order.
+---@field clear fun(s: table): table # Remove every member.
+---@field union fun(a: table, b: table): table # Members of either set: a's in a's order, then b's new ones in b's order.
+---@field intersect fun(a: table, b: table): table # Members of both sets, in a's order.
+---@field difference fun(a: table, b: table): table # Members of a that are not in b, in a's order.
+---@field isSubset fun(a: table, b: table): boolean # Whether every member of a is in b.
+---@field equals fun(a: table, b: table): boolean # Same members, order ignored.
+local CisSet = {}
 
 ---@class CisSparse
 -- The table Cis.require('sparse') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.
@@ -274,6 +401,7 @@ local CisSparse = {}
 ---@field padEnd fun(s: any, width: integer, fill?: string): string # Pad on the right to `width`.
 ---@field levenshtein fun(a: string, b: string, maxDistance?: integer): integer|nil, string|nil # Levenshtein edit distance between two strings.
 ---@field suggest fun(word: string, candidates: string[], opts?: table): string|nil, integer|string|nil # Pick the closest candidate to `word`.
+---@field random fun(pattern: string, rng?: table|fun(): number): string|nil, string|nil # A random string shaped by a pattern, like ox_lib's string.random: '1' a digit, 'A' an upper-case letter, 'a' a lower-case letter, '.' a letter or digit, '^' makes the next character literal, anything else is itself.
 local CisString = {}
 
 ---@class CisSyncRecord
@@ -355,6 +483,22 @@ local CisTargetOptions = {}
 ---@field elapsed fun(now: number, since: number): number # Seconds elapsed between two instants: `now - since`.
 ---@field roundTo fun(seconds: number, unit?: number): number # Round a duration in SECONDS to a whole number of `unit`s, to the NEAREST, and return
 local CisTime = {}
+
+---@class CisTimer
+-- The table Cis.require('timer') returns. Pausable countdown timers on GetGameTimer (play, pause, restart, forceEnd, getTimeLeft) that sleep for exactly the time left, and setTimeout/setInterval/clearTimeout with the callback and delay in either order. A timer's metatable __index is this table, so t:pause() and timer.pause(t) are the same call.
+---@field new fun(ms: number, onEnd?: fun(timer: table), opts?: table): table # A countdown timer that calls onEnd when it runs out.
+---@field play fun(t: table): boolean # Start or resume.
+---@field pause fun(t: table): boolean # Pause, keeping the time left.
+---@field restart fun(t: table, autoStart?: boolean): boolean # Back to the full duration.
+---@field forceEnd fun(t: table, triggerOnEnd?: boolean): boolean # End now.
+---@field isPaused fun(t: table): boolean # Whether it is paused (a new timer with autoStart = false is paused).
+---@field hasEnded fun(t: table): boolean # Whether it has run out or been ended.
+---@field getTimeLeft fun(t: table, format?: string): number|table # The time left.
+---@field setTimeout fun(a: function|number, b: function|number, ...: any): integer # Call fn once after a delay, unless cleared first.
+---@field setInterval fun(a: function|number, b: function|number, ...: any): integer # Call fn every ms milliseconds until cleared.
+---@field clearTimeout fun(id: integer): boolean # Cancel a timeout or an interval.
+---@field clearInterval fun(id: integer): boolean # Cancel a timeout or an interval.
+local CisTimer = {}
 
 ---@class CisValidate
 -- The table Cis.require('validate') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.
@@ -2359,8 +2503,8 @@ function Cis.ready(cb, timeout) end
 ---@class Cis.require
 ---@field since string 1.0.0
 ---@field realm "both"
----@param name string #one of the fifteen built-in names, OR a module of your own: `folder.file` / `folder/file` / `./file` from the calling resource, `@resource/folder/file` from any resource. A bare name that is not built in RAISES, naming every valid one, because a silent nil is a nil index three frames deeper in the caller. A path that leaves the resource (.., absolute, backslash) raises too
----@return CisCurve|CisHeap|CisInterp|CisLRU|CisRandom|CisRate|CisSparse|CisWindow|CisId|CisJson|CisSemver|CisString|CisTable|CisTime|CisValidate|any #the module, cached per Lua state so two calls in one VM share one instance and its internal state. A file of your own is read once, loaded as TEXT ONLY into its own environment (reads fall through to your globals, writes stay private), called with (name, `@resource/path.lua`), and cached; a file that returns nothing is cached as true. A circular require raises and names the chain. The type is a union because the return is whichever module was named; one ---@overload per built-in narrows it 
+---@param name string #one of the twenty-four built-in names, OR a module of your own: `folder.file` / `folder/file` / `./file` from the calling resource, `@resource/folder/file` from any resource. A bare name that is not built in RAISES, naming every valid one, because a silent nil is a nil index three frames deeper in the caller. A path that leaves the resource (.., absolute, backslash) raises too
+---@return CisCurve|CisHeap|CisInterp|CisLRU|CisRandom|CisRate|CisRingBuffer|CisSet|CisSparse|CisWindow|CisArray|CisClass|CisCron|CisId|CisJson|CisLocale|CisMathX|CisPrint|CisSemver|CisString|CisTable|CisTime|CisTimer|CisValidate|any #the module, cached per Lua state so two calls in one VM share one instance and its internal state. A file of your own is read once, loaded as TEXT ONLY into its own environment (reads fall through to your globals, writes stay private), called with (name, `@resource/path.lua`), and cached; a file that returns nothing is cached as true. A circular require raises and names the chain. The type is a union because the return is whichever module was named; one ---@overload per built-in narrows it 
 -- Why `any`: a module of your own returns whatever its file returns
 function Cis.require(name) end
 
@@ -2775,19 +2919,28 @@ function Cis.zones.sphere(name, center, radius, options) end
 ---@return table
 function CisRequire(name) end
 
+---@overload fun(name: "array"): CisArray
+---@overload fun(name: "class"): CisClass
+---@overload fun(name: "cron"): CisCron
 ---@overload fun(name: "curve"): CisCurve
 ---@overload fun(name: "heap"): CisHeap
 ---@overload fun(name: "id"): CisId
 ---@overload fun(name: "interp"): CisInterp
 ---@overload fun(name: "json"): CisJson
+---@overload fun(name: "locale"): CisLocale
 ---@overload fun(name: "lru"): CisLRU
+---@overload fun(name: "mathx"): CisMathX
+---@overload fun(name: "print"): CisPrint
 ---@overload fun(name: "random"): CisRandom
 ---@overload fun(name: "rate"): CisRate
+---@overload fun(name: "ringbuffer"): CisRingBuffer
 ---@overload fun(name: "semver"): CisSemver
+---@overload fun(name: "set"): CisSet
 ---@overload fun(name: "sparse"): CisSparse
 ---@overload fun(name: "string"): CisString
 ---@overload fun(name: "table"): CisTable
 ---@overload fun(name: "time"): CisTime
+---@overload fun(name: "timer"): CisTimer
 ---@overload fun(name: "validate"): CisValidate
 ---@overload fun(name: "window"): CisWindow
 

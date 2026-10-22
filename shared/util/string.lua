@@ -475,6 +475,62 @@ function M.suggest(word, candidates, opts)
     return best, M.levenshtein(word, best, nil)
 end
 
+local RANDOM_CLASSES = {
+    ['1'] = '0123456789',
+    ['A'] = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+    ['a'] = 'abcdefghijklmnopqrstuvwxyz',
+    ['.'] = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz',
+}
+
+-- An index in [1, n] from math.random, a CisRandom generator or a function returning [0, 1).
+local function randomIndex(n, rng)
+    if rng == nil then
+        return math.random(n)
+    end
+    if type(rng) == 'table' and type(rng.int) == 'function' then
+        return rng:int(1, n)
+    end
+    local v = rng()
+    if type(v) ~= 'number' or v ~= v or v < 0 then v = 0 end
+    local i = math.floor(v * n) + 1
+    if i > n then i = n end
+    return i
+end
+
+--- A random string shaped by a pattern, like ox_lib's string.random: '1' a digit, 'A' an upper-case letter, 'a' a lower-case letter, '.' a letter or digit, '^' makes the next character literal, anything else is itself.
+---@param pattern string  e.g. '1AA111' for a plate, 'AAA-^1^1' for 'XQZ-11'
+---@param rng? table|fun(): number  a CisRandom generator, a function returning [0, 1), or nil for math.random
+---@return string|nil
+---@return string|nil  why, for a non-string pattern or an rng of the wrong type
+function M.random(pattern, rng)
+    if type(pattern) ~= 'string' then
+        return nil, ('pattern must be a string, got %s'):format(type(pattern))
+    end
+    if rng ~= nil and type(rng) ~= 'function'
+        and not (type(rng) == 'table' and type(rng.int) == 'function') then
+        return nil, ('rng must be a CisRandom generator, a function or nil, got %s'):format(type(rng))
+    end
+    local out, k = {}, 0
+    local i, n = 1, #pattern
+    while i <= n do
+        local c = pattern:sub(i, i)
+        if c == '^' and i < n then
+            i = i + 1
+            c = pattern:sub(i, i)
+        else
+            local class = RANDOM_CLASSES[c]
+            if class then
+                local j = randomIndex(#class, rng)
+                c = class:sub(j, j)
+            end
+        end
+        k = k + 1
+        out[k] = c
+        i = i + 1
+    end
+    return table.concat(out)
+end
+
 -- A MODULE, NOT A GLOBAL.
 if ... ~= 'cis_require' then
     CisString = M

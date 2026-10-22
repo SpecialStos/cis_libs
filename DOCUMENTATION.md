@@ -239,6 +239,71 @@ module function is untyped.
 
 <!-- generated:modules:begin -->
 
+#### `array` — `Cis.require('array')`
+
+Source: `shared/util/array.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `chunk` | `(a: table, size: integer) → table` | Consecutive pieces of at most size elements. |
+| `concat` | `(a: table, ...: any) → table` | The array followed by each argument; an array-like argument is spread one level, anything else is appended as one element. |
+| `every` | `(a: table, fn: fun(value: any, index: integer, array: table): any) → boolean` | Whether fn accepts every element (true for an empty array). |
+| `filter` | `(a: table, fn: fun(value: any, index: integer, array: table): any) → table` | The elements fn accepts, in order, with no holes. |
+| `find` | `(a: table, fn: fun(value: any, index: integer, array: table): any) → any, integer\|nil` | The first element fn accepts. |
+| `findIndex` | `(a: table, fn: fun(value: any, index: integer, array: table): any) → integer\|nil` | The index of the first element fn accepts. |
+| `flat` | `(a: table, depth?: integer) → table` | Nested array-likes spread into one array, to a depth. |
+| `forEach` | `(a: table, fn: fun(value: any, index: integer, array: table)) → nil` | Call fn for every element. |
+| `from` | `(list: table, n?: integer) → table` | A copy of a table as an array. |
+| `groupBy` | `(a: table, keyOf: fun(value: any, index: integer): any) → table<any, table>` | Elements grouped by fn's answer. |
+| `includes` | `(a: table, v: any) → boolean` | Whether the array holds v. |
+| `indexOf` | `(a: table, v: any, from?: integer) → integer\|nil` | The first index holding a value equal (==) to v. |
+| `isArray` | `(v: any) → boolean` | Whether a value is an array made by this module. |
+| `isArrayLike` | `(v: any) → boolean` | Whether a table should be SPREAD by concat and flat: an array made here, a table with a numeric `n`, or a table whose every key is a positive integer (an empty table counts). |
+| `join` | `(a: table, sep?: string) → string` | The elements joined into a string. |
+| `len` | `(a: table) → integer` | The length: `n` when the table has one, else #t. |
+| `map` | `(a: table, fn: fun(value: any, index: integer, array: table): any) → table` | A new array of fn's results. |
+| `max` | `(a: table, keyOf?: fun(value: any, index: integer): any) → any, integer\|nil` | The largest element (the first one, on a tie). |
+| `min` | `(a: table, keyOf?: fun(value: any, index: integer): any) → any, integer\|nil` | The smallest element (the first one, on a tie). |
+| `new` | `(...: any) → table` | An array of the arguments, holes and trailing nils included. |
+| `push` | `(a: table, ...: any) → integer` | Append values IN PLACE. |
+| `reduce` | `(a: table, fn: fun(acc: any, value: any, index: integer, array: table): any, initial?: any) → any` | Fold left. |
+| `reverse` | `(a: table) → table` | The elements in reverse order. |
+| `slice` | `(a: table, i?: integer, j?: integer) → table` | Elements i..j inclusive. |
+| `some` | `(a: table, fn: fun(value: any, index: integer, array: table): any) → boolean` | Whether fn accepts at least one element. |
+| `sort` | `(a: table, less?: fun(x: any, y: any): boolean) → table` | A STABLE sort: elements the comparator calls equal keep their order. |
+| `splice` | `(a: table, start: integer, deleteCount?: integer, ...: any) → table` | Remove deleteCount elements at start and insert the extra arguments there, IN PLACE. |
+| `sum` | `(a: table) → number\|nil, string\|nil` | The sum of the elements; holes are skipped. |
+| `unique` | `(a: table, keyOf?: fun(value: any, index: integer): any) → table` | The first occurrence of each distinct element (or of each distinct key). |
+| `zip` | `(...: table) → table` | Tuples of the i-th element of every argument; as long as the LONGEST, shorter ones padded with holes. |
+
+#### `class` — `Cis.require('class')`
+
+Source: `shared/util/class.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `classOf` | `(obj: any) → table\|nil` | The class of an instance. |
+| `instanceof` | `(obj: any, cls: table) → boolean` | Whether obj is an instance of cls or of any class derived from it. |
+| `isClass` | `(value: any) → boolean` | Whether a value is a class made by this module. |
+| `nameOf` | `(value: any) → string\|nil` | The name of a class, or of an instance's class. |
+| `new` | `(name: string, super?: table) → table` | A new class, optionally inheriting from another made by this module. |
+| `privates` | `() → fun(obj: table): table` | An accessor for private per-instance fields, backed by a weak-keyed table. |
+
+#### `cron` — `Cis.require('cron')`
+
+Source: `shared/util/cron.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `count` | `() → integer` | How many jobs are scheduled in this Lua state. |
+| `isActive` | `(job: table) → boolean` | Whether a job is still scheduled. |
+| `matches` | `(expr: string\|table, time?: number, opts?: table) → boolean\|nil, string\|nil` | Whether a moment falls in a minute the expression matches. |
+| `next` | `(expr: string\|table, fromTime?: number, opts?: table) → number\|nil, string\|nil` | The first time strictly after fromTime that the expression matches. |
+| `nextRun` | `(job: table) → number\|nil` | When a job runs next. |
+| `parse` | `(expr: string) → table\|nil, string\|nil` | Parse a five-field expression or a macro. |
+| `schedule` | `(expr: string\|table, fn: fun(job: table, due: number), opts?: table) → table\|nil, string\|nil` | Run fn at every time the expression matches, until stopped. |
+| `stop` | `(job: table) → boolean` | Stop a job. |
+
 #### `curve` — `Cis.require('curve')`
 
 Source: `shared/algo/curve.lua`.
@@ -347,6 +412,18 @@ Source: `shared/util/json.lua`.
 | `scanDepth` | `(text: string) → integer\|nil, string\|nil` | Measure nesting depth in JSON TEXT without parsing it. |
 | `tryDecode` | `(codec: table, text: string, opts?: table) → boolean, any` | Decode, returning a boolean, for callers that cannot use the three-way form. |
 
+#### `locale` — `Cis.require('locale')`
+
+Source: `shared/util/locale.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `getLanguage` | `() → string\|nil` | The language in use. |
+| `has` | `(key: string) → boolean` | Whether a key has a phrase. |
+| `load` | `(lang?: string) → string\|nil, string\|nil` | Load a language from the calling resource's locales folder. |
+| `set` | `(lang: string) → string\|nil, string\|nil` | Switch language; the same as load(lang). |
+| `t` | `(key: string, ...: any) → string` | Translate a key. |
+
 #### `lru` — `Cis.require('lru')`
 
 Source: `shared/algo/lru.lua`.
@@ -365,6 +442,39 @@ Source: `shared/algo/lru.lua`.
 | `put` | `(lru: table, key: any, value: any) → any` | Store a value and mark it most recently used. |
 | `remove` | `(lru: table, key: any) → any` | Remove a key, whatever its position in the order. |
 | `removeWhere` | `(lru: table, predicate: fun(key: any, value: any): boolean) → integer` | Remove every entry for which `predicate(key, value)` is true. |
+
+#### `mathx` — `Cis.require('mathx')`
+
+Source: `shared/util/mathx.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `approx` | `(a: number, b: number, epsilon?: number) → boolean` | Equal within a tolerance that scales with the magnitude: \|a - b\| <= epsilon * max(1, \|a\|, \|b\|). |
+| `clamp` | `(v: number, lo: number, hi: number) → number` | Clamp into [lo, hi]. |
+| `fromHex` | `(s: string) → number\|nil, string\|nil` | Hexadecimal text back to a number. |
+| `groupDigits` | `(n: number\|string, sep?: string, decimals?: integer) → string\|nil, string\|nil` | Thousands separators: 1234567.891 -> '1,234,567.891'. |
+| `inverseLerp` | `(a: number, b: number, v: number) → number` | Where v sits between a and b, as a fraction: the inverse of lerp. |
+| `lerp` | `(a: number\|vector2\|vector3\|vector4, b: number\|vector2\|vector3\|vector4, t: number) → number\|vector2\|vector3\|vector4` | Linear interpolation; t is not clamped. |
+| `remap` | `(v: number, inMin: number, inMax: number, outMin: number, outMax: number, clamped?: boolean) → number` | Map v from [inMin, inMax] onto [outMin, outMax]. |
+| `round` | `(n: number, decimals?: integer) → number` | Round half AWAY from zero, to a number of decimal places. |
+| `toHex` | `(n: number, opts?: table) → string\|nil, string\|nil` | A whole number as hexadecimal text, with no prefix. |
+| `weightedPick` | `(entries: table, rng?: table\|fun(): number) → any, integer\|nil` | A weighted random choice. |
+
+#### `print` — `Cis.require('print')`
+
+Source: `shared/util/print.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `debug` | `(...: any) → nil` | Print at level debug. |
+| `error` | `(...: any) → nil` | Print at level error. |
+| `getLevel` | `() → string, string` | The level in force. |
+| `info` | `(...: any) → nil` | Print at level info. |
+| `isEnabled` | `(level: string\|integer) → boolean` | Whether a message at this level would print. |
+| `refresh` | `() → string, string` | Re-read the level from the convars. |
+| `setLevel` | `(level: string\|integer) → boolean\|nil, string\|nil` | Override the level for this resource until the next refresh. |
+| `verbose` | `(...: any) → nil` | Print at level verbose. |
+| `warn` | `(...: any) → nil` | Print at level warn. |
 
 #### `random` — `Cis.require('random')`
 
@@ -398,6 +508,27 @@ Source: `shared/algo/rate.lua`.
 | `prune` | `(r: table, now?: number, idleSec?: number) → integer` | Drop keys that have not been touched for `idleSec`. |
 | `reset` | `(r: table, key: any) → nil` | Forget one key entirely. |
 
+#### `ringbuffer` — `Cis.require('ringbuffer')`
+
+Source: `shared/algo/ringbuffer.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `capacity` | `(rb: table) → integer` | The fixed capacity. |
+| `clear` | `(rb: table) → table` | Drop every entry; the capacity is kept. |
+| `get` | `(rb: table, i: integer) → any` | The entry at position i, 1 = oldest; a negative i counts from the newest (-1 = newest). |
+| `isEmpty` | `(rb: table) → boolean` | Whether it holds nothing. |
+| `isFull` | `(rb: table) → boolean` | Whether the next push will overwrite. |
+| `isRingBuffer` | `(value: any) → boolean` | Whether a value is a buffer made by this module. |
+| `new` | `(capacity: integer) → table` | A new, empty buffer. |
+| `peek` | `(rb: table) → any` | The oldest entry, without removing it. |
+| `peekLast` | `(rb: table) → any` | The newest entry, without removing it. |
+| `pop` | `(rb: table) → any` | Remove and return the NEWEST entry. |
+| `push` | `(rb: table, v: any) → any, boolean` | Append at the newest end. |
+| `shift` | `(rb: table) → any` | Remove and return the OLDEST entry. |
+| `size` | `(rb: table) → integer` | Number of entries held. |
+| `toArray` | `(rb: table) → table` | The entries oldest-first as a new array. |
+
 #### `semver` — `Cis.require('semver')`
 
 Source: `shared/util/semver.lua`.
@@ -411,6 +542,26 @@ Source: `shared/util/semver.lua`.
 | `lt` | `(a: string\|table, b: string\|table, opts?: table) → boolean\|nil, string\|nil` | Returns a < b, or nil and a reason. |
 | `parse` | `(v: string\|table, opts?: table) → table\|nil, string\|nil` | Parse a version into its parts. |
 | `satisfies` | `(version: string\|table, range: string, opts?: table) → boolean\|nil, string\|nil` | Does `version` satisfy a range expression? |
+
+#### `set` — `Cis.require('set')`
+
+Source: `shared/algo/set.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `add` | `(s: table, v: any) → boolean\|nil, string\|nil` | Add a member. |
+| `clear` | `(s: table) → table` | Remove every member. |
+| `difference` | `(a: table, b: table) → table` | Members of a that are not in b, in a's order. |
+| `equals` | `(a: table, b: table) → boolean` | Same members, order ignored. |
+| `has` | `(s: table, v: any) → boolean` | Membership test. |
+| `intersect` | `(a: table, b: table) → table` | Members of both sets, in a's order. |
+| `isSet` | `(value: any) → boolean` | Whether a value is a set made by this module. |
+| `isSubset` | `(a: table, b: table) → boolean` | Whether every member of a is in b. |
+| `new` | `(list?: table) → table` | A new set, optionally filled from an array. |
+| `remove` | `(s: table, v: any) → boolean` | Remove a member. |
+| `size` | `(s: table) → integer` | Number of members. |
+| `union` | `(a: table, b: table) → table` | Members of either set: a's in a's order, then b's new ones in b's order. |
+| `values` | `(s: table) → table` | The members as a new array, in insertion order. |
 
 #### `sparse` — `Cis.require('sparse')`
 
@@ -446,6 +597,7 @@ Source: `shared/util/string.lua`.
 | `padEnd` | `(s: any, width: integer, fill?: string) → string` | Pad on the right to `width`. |
 | `padStart` | `(s: any, width: integer, fill?: string) → string` | Pad on the left to `width`. |
 | `pascal` | `(s: string) → string` | 'give_money' -> 'GiveMoney'. |
+| `random` | `(pattern: string, rng?: table\|fun(): number) → string\|nil, string\|nil` | A random string shaped by a pattern, like ox_lib's string.random: '1' a digit, 'A' an upper-case letter, 'a' a lower-case letter, '.' a letter or digit, '^' makes the next character literal, anything else is itself. |
 | `snake` | `(s: string) → string` | 'GiveMoney' -> 'give_money'. |
 | `split` | `(s: string, sep: string, opts?: table) → string[]\|nil, string\|nil` | Split on a separator. |
 | `startsWith` | `(s: string, prefix: string, ignoreCase?: boolean) → boolean` | Returns false for a non-string, and true for an empty prefix. |
@@ -495,6 +647,25 @@ Source: `shared/util/time.lua`.
 | `parts` | `(seconds: number) → table` | Break a duration into { weeks, days, hours, minutes, seconds }. |
 | `relative` | `(timestamp: number, now: number, opts?: table) → string` | Relative time in words: '3 minutes ago', 'in 3 minutes', 'just now'. |
 | `roundTo` | `(seconds: number, unit?: number) → number` | Round a duration in SECONDS to a whole number of `unit`s, to the NEAREST, and return |
+
+#### `timer` — `Cis.require('timer')`
+
+Source: `shared/util/timer.lua`.
+
+| Function | Signature | Summary |
+|---|---|---|
+| `clearInterval` | `(id: integer) → boolean` | Alias of `clearTimeout`. Cancel a timeout or an interval. |
+| `clearTimeout` | `(id: integer) → boolean` | Cancel a timeout or an interval. |
+| `forceEnd` | `(t: table, triggerOnEnd?: boolean) → boolean` | End now. |
+| `getTimeLeft` | `(t: table, format?: string) → number\|table` | The time left. |
+| `hasEnded` | `(t: table) → boolean` | Whether it has run out or been ended. |
+| `isPaused` | `(t: table) → boolean` | Whether it is paused (a new timer with autoStart = false is paused). |
+| `new` | `(ms: number, onEnd?: fun(timer: table), opts?: table) → table` | A countdown timer that calls onEnd when it runs out. |
+| `pause` | `(t: table) → boolean` | Pause, keeping the time left. |
+| `play` | `(t: table) → boolean` | Start or resume. |
+| `restart` | `(t: table, autoStart?: boolean) → boolean` | Back to the full duration. |
+| `setInterval` | `(a: function\|number, b: function\|number, ...: any) → integer` | Call fn every ms milliseconds until cleared. |
+| `setTimeout` | `(a: function\|number, b: function\|number, ...: any) → integer` | Call fn once after a delay, unless cleared first. |
 
 #### `validate` — `Cis.require('validate')`
 

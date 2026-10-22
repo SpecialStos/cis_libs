@@ -42,7 +42,7 @@ return {
 
     -- ================================================================ modules
     --
-    -- The fifteen loadable modules, and the ONE place a consumer can name one.
+    -- The twenty-four loadable modules, and the ONE place a consumer can name one.
     -- `Cis.require(name)` reads a file from inside this resource and runs it, so
     -- the set of names that means anything is a security boundary: a name that
     -- were not here, and not in REQUIRE_MODULES in init.lua, and not in the
@@ -66,14 +66,23 @@ return {
         lru = { path = 'shared/algo/lru.lua', since = '1.0.0' },
         random = { path = 'shared/algo/random.lua', since = '1.0.0' },
         rate = { path = 'shared/algo/rate.lua', since = '1.0.0' },
+        ringbuffer = { path = 'shared/algo/ringbuffer.lua', since = '1.1.0' },
+        set = { path = 'shared/algo/set.lua', since = '1.1.0' },
         sparse = { path = 'shared/algo/sparse.lua', since = '1.0.0' },
         window = { path = 'shared/algo/window.lua', since = '1.0.0' },
+        array = { path = 'shared/util/array.lua', since = '1.1.0' },
+        class = { path = 'shared/util/class.lua', since = '1.1.0' },
+        cron = { path = 'shared/util/cron.lua', since = '1.1.0' },
         id = { path = 'shared/util/id.lua', since = '1.0.0' },
         json = { path = 'shared/util/json.lua', since = '1.0.0' },
+        locale = { path = 'shared/util/locale.lua', since = '1.1.0' },
+        mathx = { path = 'shared/util/mathx.lua', since = '1.1.0' },
+        print = { path = 'shared/util/print.lua', since = '1.1.0' },
         semver = { path = 'shared/util/semver.lua', since = '1.0.0' },
         string = { path = 'shared/util/string.lua', since = '1.0.0' },
         table = { path = 'shared/util/table.lua', since = '1.0.0' },
         time = { path = 'shared/util/time.lua', since = '1.0.0' },
+        timer = { path = 'shared/util/timer.lua', since = '1.1.0' },
         validate = { path = 'shared/util/validate.lua', since = '1.0.0' },
     },
 
@@ -1854,8 +1863,8 @@ return {
     ['Cis.require'] = {
         since = '1.0.0',
         realm = 'both',
-        params = { { name = 'name', type = 'string', doc = 'one of the fifteen built-in names, OR a module of your own: `folder.file` / `folder/file` / `./file` from the calling resource, `@resource/folder/file` from any resource. A bare name that is not built in RAISES, naming every valid one, because a silent nil is a nil index three frames deeper in the caller. A path that leaves the resource (.., absolute, backslash) raises too' } },
-        returns = { { type = 'CisCurve|CisHeap|CisInterp|CisLRU|CisRandom|CisRate|CisSparse|CisWindow|CisId|CisJson|CisSemver|CisString|CisTable|CisTime|CisValidate|any', why = 'a module of your own returns whatever its file returns', doc = 'the module, cached per Lua state so two calls in one VM share one instance and its internal state. A file of your own is read once, loaded as TEXT ONLY into its own environment (reads fall through to your globals, writes stay private), called with (name, `@resource/path.lua`), and cached; a file that returns nothing is cached as true. A circular require raises and names the chain. The type is a union because the return is whichever module was named; one ---@overload per built-in narrows it' } },
+        params = { { name = 'name', type = 'string', doc = 'one of the twenty-four built-in names, OR a module of your own: `folder.file` / `folder/file` / `./file` from the calling resource, `@resource/folder/file` from any resource. A bare name that is not built in RAISES, naming every valid one, because a silent nil is a nil index three frames deeper in the caller. A path that leaves the resource (.., absolute, backslash) raises too' } },
+        returns = { { type = 'CisCurve|CisHeap|CisInterp|CisLRU|CisRandom|CisRate|CisRingBuffer|CisSet|CisSparse|CisWindow|CisArray|CisClass|CisCron|CisId|CisJson|CisLocale|CisMathX|CisPrint|CisSemver|CisString|CisTable|CisTime|CisTimer|CisValidate|any', why = 'a module of your own returns whatever its file returns', doc = 'the module, cached per Lua state so two calls in one VM share one instance and its internal state. A file of your own is read once, loaded as TEXT ONLY into its own environment (reads fall through to your globals, writes stay private), called with (name, `@resource/path.lua`), and cached; a file that returns nothing is cached as true. A circular require raises and names the chain. The type is a union because the return is whichever module was named; one ---@overload per built-in narrows it' } },
     },
     ['Cis.requireList'] = {
         since = '1.0.0',
@@ -2261,9 +2270,45 @@ return {
     -- the result. `optional` marks the ones a caller may genuinely leave out.
 
     classes = {
+    CisArray = {
+        doc = "The table Cis.require('array') returns. Arrays that carry an explicit length `n`, so holes never shorten them, and map/filter/reduce/slice/splice/flat/sort (stable)/unique/groupBy/chunk/zip/sum/min/max over them. Nothing mutates its input except push and splice. An array's metatable __index is this table, so a:map(fn) works as well as array.map(a, fn).",
+        fields = { { name = 'isArrayLike', type = 'function' }, { name = 'new', type = 'function' }, { name = 'from', type = 'function' }, { name = 'isArray', type = 'function' }, { name = 'len', type = 'function' }, { name = 'push', type = 'function' }, { name = 'forEach', type = 'function' }, { name = 'map', type = 'function' }, { name = 'filter', type = 'function' }, { name = 'reduce', type = 'function' }, { name = 'find', type = 'function' }, { name = 'findIndex', type = 'function' }, { name = 'some', type = 'function' }, { name = 'every', type = 'function' }, { name = 'indexOf', type = 'function' }, { name = 'includes', type = 'function' }, { name = 'slice', type = 'function' }, { name = 'splice', type = 'function' }, { name = 'concat', type = 'function' }, { name = 'flat', type = 'function' }, { name = 'reverse', type = 'function' }, { name = 'join', type = 'function' }, { name = 'sort', type = 'function' }, { name = 'unique', type = 'function' }, { name = 'groupBy', type = 'function' }, { name = 'chunk', type = 'function' }, { name = 'zip', type = 'function' }, { name = 'sum', type = 'function' }, { name = 'min', type = 'function' }, { name = 'max', type = 'function' } },
+    },
+    CisClass = {
+        doc = "The table Cis.require('class') returns. Single-inheritance classes: class.new(name, super) returns a class used as Class:new(...) or Class(...), with a constructor method, instanceof, a toString hook for tostring, and class.privates() for private fields in a weak-keyed table. Method calls are table lookups up the chain; no closure is made per call.",
+        fields = { { name = 'new', type = 'function' }, { name = 'isClass', type = 'function' }, { name = 'instanceof', type = 'function' }, { name = 'classOf', type = 'function' }, { name = 'nameOf', type = 'function' }, { name = 'privates', type = 'function' } },
+    },
+    CisCron = {
+        doc = "The table Cis.require('cron') returns. Five-field cron expressions and @macros with Vixie day-of-month/day-of-week OR semantics: parse, next, matches, and a scheduler with one thread per Lua state that sleeps until the earliest due job. Server local time by default; { utc = true } for UTC. Job handles have :stop(), :isActive() and :nextRun().",
+        fields = { { name = 'parse', type = 'function' }, { name = 'next', type = 'function' }, { name = 'matches', type = 'function' }, { name = 'schedule', type = 'function' }, { name = 'stop', type = 'function' }, { name = 'isActive', type = 'function' }, { name = 'nextRun', type = 'function' }, { name = 'count', type = 'function' } },
+    },
     CisKeybindOptions = {
         doc = 'The table Cis.keybind.add takes. The NAME IS REQUIRED and is validated against letters, digits, underscore and hyphen, because RegisterKeyMapping writes it into the player settings and builds a command from it -- and a malformed one produces a mapping that appears in the menu and does nothing.',
         fields = { { name = 'name', type = 'string', optional = false, doc = 'the command name, and the +name / -name pair behind it' }, { name = 'description', type = 'string', optional = true, doc = 'what shows in the settings menu; defaults to the name' }, { name = 'defaultKey', type = 'string', optional = true, doc = 'a key NAME like F7 or X, not a control index. An empty string means unbound. This is RegisterKeyMapping defaultParameter, the FOURTH argument' }, { name = 'defaultMapper', type = 'string', optional = true, doc = 'RegisterKeyMapping defaultMapper, the THIRD argument, default keyboard. Not a boolean' }, { name = 'onPress', type = 'fun()', optional = true, doc = 'on the +name command, under pcall: a raise cannot end the handler and leave the binding stuck pressed' }, { name = 'onRelease', type = 'fun()', optional = true, doc = 'on the -name command, under pcall' } },
+    },
+    CisLocale = {
+        doc = "The table Cis.require('locale') returns. Translations from the CALLING resource's locales/<lang>.json, language from the replicated convar cis:locale else en, with en as the fallback file and the fallback per key. t(key, ...) fills ${name} from a table and %s positionally; a missing key answers the key and warns once.",
+        fields = { { name = 'load', type = 'function' }, { name = 'set', type = 'function' }, { name = 'getLanguage', type = 'function' }, { name = 'has', type = 'function' }, { name = 't', type = 'function' } },
+    },
+    CisMathX = {
+        doc = "The table Cis.require('mathx') returns. Number helpers: round to decimals, clamp, lerp (numbers or FiveM vectors), inverseLerp, remap, approx, toHex/fromHex exact to 2^53, groupDigits, and a weighted pick that is reproducible with a CisRandom generator.",
+        fields = { { name = 'round', type = 'function' }, { name = 'clamp', type = 'function' }, { name = 'lerp', type = 'function' }, { name = 'inverseLerp', type = 'function' }, { name = 'remap', type = 'function' }, { name = 'approx', type = 'function' }, { name = 'toHex', type = 'function' }, { name = 'fromHex', type = 'function' }, { name = 'groupDigits', type = 'function' }, { name = 'weightedPick', type = 'function' } },
+    },
+    CisPrint = {
+        doc = "The table Cis.require('print') returns. Levelled console output (error, warn, info, verbose, debug) with colour prefixes. The level comes from convar cis:printlevel:<resource>, else cis:printlevel, else info; a filtered call costs one comparison and formats nothing.",
+        fields = { { name = 'refresh', type = 'function' }, { name = 'setLevel', type = 'function' }, { name = 'getLevel', type = 'function' }, { name = 'isEnabled', type = 'function' }, { name = 'error', type = 'function' }, { name = 'warn', type = 'function' }, { name = 'info', type = 'function' }, { name = 'verbose', type = 'function' }, { name = 'debug', type = 'function' } },
+    },
+    CisRingBuffer = {
+        doc = "The table Cis.require('ringbuffer') returns. A fixed-capacity ring buffer that overwrites its oldest entry once full; index 1 is the oldest. A buffer's metatable __index is this table, so rb:push(v) and ringbuffer.push(rb, v) are the same call.",
+        fields = { { name = 'new', type = 'function' }, { name = 'isRingBuffer', type = 'function' }, { name = 'push', type = 'function' }, { name = 'shift', type = 'function' }, { name = 'pop', type = 'function' }, { name = 'get', type = 'function' }, { name = 'peek', type = 'function' }, { name = 'peekLast', type = 'function' }, { name = 'size', type = 'function' }, { name = 'capacity', type = 'function' }, { name = 'isFull', type = 'function' }, { name = 'isEmpty', type = 'function' }, { name = 'clear', type = 'function' }, { name = 'toArray', type = 'function' } },
+    },
+    CisSet = {
+        doc = "The table Cis.require('set') returns. A Set with O(1) membership, insertion-ordered values() and union/intersect/difference returning new sets. A set's metatable __index is this table, so s:add(v) and set.add(s, v) are the same call. nil and NaN are refused as members.",
+        fields = { { name = 'new', type = 'function' }, { name = 'isSet', type = 'function' }, { name = 'add', type = 'function' }, { name = 'remove', type = 'function' }, { name = 'has', type = 'function' }, { name = 'size', type = 'function' }, { name = 'values', type = 'function' }, { name = 'clear', type = 'function' }, { name = 'union', type = 'function' }, { name = 'intersect', type = 'function' }, { name = 'difference', type = 'function' }, { name = 'isSubset', type = 'function' }, { name = 'equals', type = 'function' } },
+    },
+    CisTimer = {
+        doc = "The table Cis.require('timer') returns. Pausable countdown timers on GetGameTimer (play, pause, restart, forceEnd, getTimeLeft) that sleep for exactly the time left, and setTimeout/setInterval/clearTimeout with the callback and delay in either order. A timer's metatable __index is this table, so t:pause() and timer.pause(t) are the same call.",
+        fields = { { name = 'new', type = 'function' }, { name = 'play', type = 'function' }, { name = 'pause', type = 'function' }, { name = 'restart', type = 'function' }, { name = 'forceEnd', type = 'function' }, { name = 'isPaused', type = 'function' }, { name = 'hasEnded', type = 'function' }, { name = 'getTimeLeft', type = 'function' }, { name = 'setTimeout', type = 'function' }, { name = 'setInterval', type = 'function' }, { name = 'clearTimeout', type = 'function' }, { name = 'clearInterval', type = 'function' } },
     },
     CisWorldEntry = {
         doc = 'One row of a Cis.world.nearby* list, sorted by distance so element 1 is the closest. The player key is present only on the player lists and is nil everywhere else -- the key is always there so a caller can read it without testing the kind first.',
@@ -2339,7 +2384,7 @@ return {
     },
     CisString = {
         doc = "The table Cis.require('string') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.",
-        fields = { { name = 'words', type = 'function' }, { name = 'camel', type = 'function' }, { name = 'pascal', type = 'function' }, { name = 'snake', type = 'function' }, { name = 'kebab', type = 'function' }, { name = 'split', type = 'function' }, { name = 'truncate', type = 'function' }, { name = 'hasUtf8', type = 'function' }, { name = 'collapse', type = 'function' }, { name = 'contains', type = 'function' }, { name = 'startsWith', type = 'function' }, { name = 'endsWith', type = 'function' }, { name = 'padStart', type = 'function' }, { name = 'padEnd', type = 'function' }, { name = 'levenshtein', type = 'function' }, { name = 'suggest', type = 'function' } },
+        fields = { { name = 'words', type = 'function' }, { name = 'camel', type = 'function' }, { name = 'pascal', type = 'function' }, { name = 'snake', type = 'function' }, { name = 'kebab', type = 'function' }, { name = 'split', type = 'function' }, { name = 'truncate', type = 'function' }, { name = 'hasUtf8', type = 'function' }, { name = 'collapse', type = 'function' }, { name = 'contains', type = 'function' }, { name = 'startsWith', type = 'function' }, { name = 'endsWith', type = 'function' }, { name = 'padStart', type = 'function' }, { name = 'padEnd', type = 'function' }, { name = 'levenshtein', type = 'function' }, { name = 'suggest', type = 'function' }, { name = 'random', type = 'function' } },
     },
     CisSyncRecord = {
         doc = 'The record Cis.sync.ped / prop / vehicle accept. `kind` leads and is the discriminator, so the three collapse into one export with no ambiguity. Calling again with the same id MOVES the entity rather than respawning it, as long as the model and kind are unchanged.',
