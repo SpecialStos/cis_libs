@@ -8,6 +8,10 @@ name: tests
 # the tree and runs the suite once per mutation: minutes rather than seconds,
 # which is too slow to sit in front of every push but too important to leave to
 # a nightly nobody reads.
+#
+# The live server tier is the other exception: it boots a real FXServer, so it
+# needs the FIVEM_LICENSE_KEY secret, and a run without one (a fork's pull
+# request) skips it with a notice rather than failing.
 
 on:
   # Pushes to main only. A branch with a pull request is tested by the
@@ -104,3 +108,97 @@ jobs:
         # written for does not exist. A row whose find no longer matches is
         # STALE and means it stopped testing anything. Both fail the build.
         run: npm run test:mutate
+
+  live-server:
+    name: live server tier (real headless FXServer, no game client)
+    # The suites above run under fengari and Lua 5.4 against hand-written native
+    # stubs. This job runs the live harness (test/live/) on a REAL FXServer: the
+    # server and lifecycle tiers, which need no player. It is the only check in
+    # this file whose natives are FiveM's own. See test/live/RUNBOOK.md, "CI".
+    runs-on: ubuntu-24.04
+    # Download (cached), boot, two tiers, shutdown: a few minutes. ci-live.js
+    # has its own 13-minute ceiling inside this one, so a hang is reported by
+    # the tool, with the console log, rather than by the runner killing it.
+    timeout-minutes: 15
+    steps:
+      # SECRETS ARE NOT AVAILABLE to pull requests from forks (or to Dependabot),
+      # and a job-level `if` cannot read the secrets context. So the first step
+      # looks, and every later step is gated on its answer. No key is a SKIP
+      # with a notice, never a failure: a contributor cannot fix it.
+      - name: Is the FiveM licence key available?
+        id: key
+        env:
+          FIVEM_LICENSE_KEY: ${{ secrets.FIVEM_LICENSE_KEY }}
+        run: |
+          if [ -n "$FIVEM_LICENSE_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            msg="FIVEM_LICENSE_KEY is not available to this run (a fork PR, Dependabot, or the secret is not set), so the live server tier was SKIPPED. That is not a pass. To enable it see test/live/RUNBOOK.md, section CI."
+            echo "::notice title=live server tier skipped::$msg"
+            printf '### Live server tier: SKIPPED\n\n%s\n' "$msg" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/checkout@v7
+        if: steps.key.outputs.present == 'true'
+
+      - uses: actions/setup-node@v7
+        if: steps.key.outputs.present == 'true'
+        with:
+          node-version: '24'
+
+      # Restore and save are separate on purpose: the combined action saves only
+      # when the whole job succeeds, so a red run would download 70 MB again on
+      # every retry. The key is the pinned build in tools/ci-fxserver.sh, so a
+      # moved pin is a new cache entry and an old one is never reused.
+      - name: Read the pinned FXServer build
+        if: steps.key.outputs.present == 'true'
+        id: pin
+        run: |
+          build="$(sed -n 's/^FXSERVER_BUILD="\${FXSERVER_BUILD:-\([0-9]*\)}"$/\1/p' tools/ci-fxserver.sh)"
+          sha="$(sed -n 's/^FXSERVER_SHA256="\${FXSERVER_SHA256:-\([0-9a-f]*\)}"$/\1/p' tools/ci-fxserver.sh)"
+          test -n "$build" && test -n "$sha"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "key=fxserver-linux-$build-$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the FXServer artifact
+        if: steps.key.outputs.present == 'true'
+        id: fxcache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.cache/cis-fxserver/${{ steps.pin.outputs.build }}
+          key: ${{ steps.pin.outputs.key }}
+
+      - name: Download and verify FXServer ${{ steps.pin.outputs.build }}
+        if: steps.key.outputs.present == 'true'
+        # A cache hit is still checked for the stamp the script writes after the
+        # sha256 comparison; a miss downloads, verifies and unpacks.
+        run: bash tools/ci-fxserver.sh fetch
+
+      - name: Save the FXServer artifact
+        if: steps.key.outputs.present == 'true' && steps.fxcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cache/cis-fxserver/${{ steps.pin.outputs.build }}
+          key: ${{ steps.pin.outputs.key }}
+
+      - name: Boot FXServer and run the server and lifecycle tiers
+        if: steps.key.outputs.present == 'true'
+        # The key is in this step's environment and nowhere else. ci-live.js
+        # writes it to a mode-0600 secrets.cfg outside the uploaded folder,
+        # deletes it at shutdown, and redacts it from the console log.
+        env:
+          FIVEM_LICENSE_KEY: ${{ secrets.FIVEM_LICENSE_KEY }}
+          CIS_CI_WORK: ${{ runner.temp }}/cis-ci-live
+        run: bash tools/ci-fxserver.sh run --tiers server,lifecycle --timeout 780
+
+      - name: Upload the console log and results
+        if: always() && steps.key.outputs.present == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: live-server-${{ github.run_id }}-${{ github.run_attempt }}
+          # out/ only: console.log (ANSI stripped, key redacted), one results
+          # file per tier, the generated server.cfg (no key in it), summary.json.
+          path: ${{ runner.temp }}/cis-ci-live/out/
+          if-no-files-found: warn
+          retention-days: 14
