@@ -414,21 +414,21 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.zones.server.box(center, size, opts)',
             realm = 'server',
-            params = { { name = 'center', type = 'vector3|table', doc = 'the centre' }, { name = 'size', type = 'number|vector3|table', doc = 'full size; stored as half-extents, same as client zones' }, { name = 'opts', type = 'table', optional = true, doc = 'heading, onEnterEvent, onExitEvent' } },
+            params = { { name = 'center', type = 'vector3|table', doc = 'the centre' }, { name = 'size', type = 'number|vector3|table', doc = 'full size; stored as half-extents, same as client zones' }, { name = 'opts', type = 'table', optional = true, doc = 'heading, bucket (the routing bucket, default 0; a player in another bucket is never inside), onEnterEvent, onExitEvent. Exits also fire when a player drops and when the zone is removed or its owner stops' } },
             returns = { { type = 'integer|false, string|nil', doc = 'a numeric id, never reused' } }
         },
         ServerZoneSphere = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.zones.server.sphere(center, radius, opts)',
             realm = 'server',
-            params = { { name = 'center', type = 'vector3|table', doc = 'the centre' }, { name = 'radius', type = 'number', doc = 'metres' }, { name = 'opts', type = 'table', optional = true, doc = 'onEnterEvent, onExitEvent' } },
+            params = { { name = 'center', type = 'vector3|table', doc = 'the centre' }, { name = 'radius', type = 'number', doc = 'metres' }, { name = 'opts', type = 'table', optional = true, doc = 'bucket (the routing bucket, default 0; a player in another bucket is never inside), onEnterEvent, onExitEvent. Exits also fire when a player drops and when the zone is removed or its owner stops' } },
             returns = { { type = 'integer|false, string|nil', doc = 'a numeric id, never reused' } }
         },
         ServerZonePoly = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.zones.server.poly(points, opts)',
             realm = 'server',
-            params = { { name = 'points', type = 'table', doc = 'at least 3 points' }, { name = 'opts', type = 'table', optional = true, doc = 'minZ, maxZ, onEnterEvent, onExitEvent' } },
+            params = { { name = 'points', type = 'table', doc = 'at least 3 points' }, { name = 'opts', type = 'table', optional = true, doc = 'minZ, maxZ, bucket (the routing bucket, default 0; a player in another bucket is never inside), onEnterEvent, onExitEvent. Exits also fire when a player drops and when the zone is removed or its owner stops' } },
             returns = { { type = 'integer|false, string|nil', doc = 'a numeric id, never reused' } }
         },
         ServerZoneContains = {
@@ -1886,14 +1886,14 @@ return {
         since = '1.0.0',
         realm = 'server',
         forwardsTo = 'ServerZoneBox',
-        params = { { name = 'center', type = 'vector3|table', doc = 'the centre' }, { name = 'size', type = 'number|vector3|table', doc = 'full size' }, { name = 'opts', type = 'table', optional = true, doc = 'heading, onEnterEvent, onExitEvent' } },
+        params = { { name = 'center', type = 'vector3|table', doc = 'the centre' }, { name = 'size', type = 'number|vector3|table', doc = 'full size; every axis must be positive and finite' }, { name = 'opts', type = 'table', optional = true, doc = 'heading, bucket (default 0), onEnterEvent, onExitEvent' } },
         returns = { { type = 'integer|false, string|nil', doc = 'numeric id. Containment uses SERVER ped coords' } },
     },
     ['Cis.zones.server.sphere'] = {
         since = '1.0.0',
         realm = 'server',
         forwardsTo = 'ServerZoneSphere',
-        params = { { name = 'center', type = 'vector3|table', doc = 'the centre' }, { name = 'radius', type = 'number', doc = 'metres' }, { name = 'opts', type = 'table', optional = true, doc = 'onEnterEvent, onExitEvent' } },
+        params = { { name = 'center', type = 'vector3|table', doc = 'the centre' }, { name = 'radius', type = 'number', doc = 'metres' }, { name = 'opts', type = 'table', optional = true, doc = 'bucket (default 0), onEnterEvent, onExitEvent' } },
         returns = { { type = 'integer|false, string|nil', doc = 'numeric id' } },
     },
     ['Cis.zones.server.poly'] = {

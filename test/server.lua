@@ -3962,6 +3962,133 @@ do
     env.reset()
 end
 
+-- ===================================================== 7.5 server zones
+--
+-- FOUR DEFECTS, all invisible with one player and one zone:
+--   * every player was tested against every zone every pass, with no index;
+--   * routing buckets were ignored, so a zone fired for a player in another world;
+--   * a player who dropped, and everyone inside a removed zone, never got the exit;
+--   * a box checked only its x size, and a NaN centre was accepted.
+local function zonesEnv(players)
+    local env = newEnv({ players = players })
+    env.saved[#env.saved + 1] = { name = 'CisServerZoneBox', value = rawget(_G, 'CisServerZoneBox') }
+    env.events = {}
+    function TriggerEvent(name, ...)
+        env.events[#env.events + 1] = { name = name, args = table.pack(...) }
+    end
+    loadModule('server/zones.lua')
+    env.EXPORTS = exports
+    function env.count(name, src, id)
+        local n = 0
+        for _, e in ipairs(env.events) do
+            if e.name == name and (src == nil or e.args[2] == src) and (id == nil or e.args[1] == id) then
+                n = n + 1
+            end
+        end
+        return n
+    end
+    return env
+end
+
+do
+    local env = zonesEnv({
+        [1] = { coords = { x = 1.0, y = 1.0, z = 0.0 } },
+        [2] = { coords = { x = 1.0, y = 1.0, z = 0.0 }, bucket = 3 },
+    })
+    local opts = { onEnterEvent = 'z:in', onExitEvent = 'z:out' }
+    local main = env.EXPORTS.ServerZoneBox({ x = 0.0, y = 0.0, z = 0.0 }, 10.0, opts)
+    local inst = env.EXPORTS.ServerZoneSphere({ x = 0.0, y = 0.0, z = 0.0 }, 10.0,
+        { onEnterEvent = 'z:in', onExitEvent = 'z:out', bucket = 3 })
+    check(type(main) == 'number' and type(inst) == 'number', '7.5: zones are created')
+    env.tick()
+    check(env.count('z:in', 1, main) == 1, '7.5: a player inside gets the enter')
+    check(env.count('z:in', 2, main) == 0,
+        '7.5: a player in ANOTHER routing bucket is not inside a bucket-0 zone')
+    check(env.count('z:in', 2, inst) == 1 and env.count('z:in', 1, inst) == 0,
+        '7.5: a bucket-3 zone fires for the bucket-3 player and nobody else')
+    local inside = env.EXPORTS.ServerZonePlayers(main)
+    check(#inside == 1 and inside[1] == 1, '7.5: players() reports who is inside, from server coords')
+
+    -- Moving buckets is leaving the zone, without walking a metre.
+    env.players[1].bucket = 3
+    env.tick()
+    check(env.count('z:out', 1, main) == 1 and env.count('z:in', 1, inst) == 1,
+        '7.5: a bucket change exits the old world\'s zone and enters the new one')
+
+    -- REMOVAL owes the exit to everyone inside.
+    env.EXPORTS.ServerZoneRemove(inst)
+    check(env.count('z:out', 1, inst) == 1 and env.count('z:out', 2, inst) == 1,
+        ('7.5: removing a zone fires the exit for every player inside (%d, %d)')
+            :format(env.count('z:out', 1, inst), env.count('z:out', 2, inst)))
+
+    -- A DROP owes it too.
+    env.players[1].bucket = 0
+    env.tick()
+    check(env.count('z:in', 1, main) == 2, '7.5: back in bucket 0, back in the zone')
+    local saved = rawget(_G, 'source')
+    source = 1
+    env.fire('playerDropped', 'quit')
+    _G.source = saved
+    check(env.count('z:out', 1, main) == 2,
+        '7.5: a player who drops gets the exit for the zone they were in')
+    env.players[1] = nil
+    env.tick()
+    check(env.count('z:out', 1, main) == 2, '7.5: and only once')
+    env.reset()
+end
+
+-- The OWNER stopping takes its zones, and their occupants are told.
+do
+    local env = zonesEnv({ [1] = { coords = { x = 0.0, y = 0.0, z = 0.0 } } })
+    env.invoking = 'res_a'
+    local id = env.EXPORTS.ServerZonePoly({ { x = -5, y = -5 }, { x = 5, y = -5 }, { x = 5, y = 5 }, { x = -5, y = 5 } },
+        { onExitEvent = 'z:out', onEnterEvent = 'z:in' })
+    env.invoking = nil
+    env.tick()
+    check(env.count('z:in', 1, id) == 1, '7.5: a poly zone is entered')
+    env.fire('onResourceStop', 'res_a')
+    check(env.count('z:out', 1, id) == 1, '7.5: its owner stopping fires the exit')
+    check(env.EXPORTS.ServerZonePlayers(id) == false, '7.5: and the zone is gone')
+    env.reset()
+end
+
+-- THE INDEX. One player and 500 zones on the far side of the map: the old pass
+-- ran 500 containment tests every 500 ms for a player near none of them.
+do
+    local env = zonesEnv({ [1] = { coords = { x = 0.0, y = 0.0, z = 0.0 } } })
+    for i = 1, 500 do
+        env.EXPORTS.ServerZoneSphere({ x = 3000.0 + (i % 25) * 40, y = 3000.0 + math.floor(i / 25) * 40, z = 0.0 }, 5.0)
+    end
+    local near = env.EXPORTS.ServerZoneBox({ x = 2.0, y = 2.0, z = 0.0 }, { 10.0, 10.0, 10.0 }, { onEnterEvent = 'z:in' })
+    local realContains = CisZoneGeom.contains
+    local tests = 0
+    CisZoneGeom.contains = function(zone, c) tests = tests + 1; return realContains(zone, c) end
+    env.tick()
+    CisZoneGeom.contains = realContains
+    check(tests <= 2,
+        ('7.5: a pass tests only the zones near the player, not all 501 (%d containment tests)'):format(tests))
+    check(env.count('z:in', 1, near) == 1, '7.5: and still finds the one it is in')
+    env.reset()
+end
+
+-- VALIDATION. Every axis, and a finite centre.
+do
+    local env = zonesEnv({})
+    local okBox = env.EXPORTS.ServerZoneBox({ x = 0, y = 0, z = 0 }, { 4.0, 2.0, 3.0 })
+    check(type(okBox) == 'number', '7.5: a well-formed box is accepted')
+    local negY, whyY = env.EXPORTS.ServerZoneBox({ x = 0, y = 0, z = 0 }, { 4.0, -1.0, 3.0 })
+    check(negY == false and type(whyY) == 'string', '7.5: a negative y size is refused')
+    local nanZ = env.EXPORTS.ServerZoneBox({ x = 0, y = 0, z = 0 }, { 4.0, 4.0, 0 / 0 })
+    check(nanZ == false, '7.5: a NaN z size is refused')
+    local nanC = env.EXPORTS.ServerZoneBox({ x = 0 / 0, y = 0, z = 0 }, 4.0)
+    check(nanC == false, '7.5: a NaN centre is refused')
+    local infS = env.EXPORTS.ServerZoneSphere({ x = 0, y = math.huge, z = 0 }, 4.0)
+    check(infS == false, '7.5: an infinite centre is refused')
+    local badBucket = env.EXPORTS.ServerZoneSphere({ x = 0, y = 0, z = 0 }, 4.0, { bucket = -1 })
+    check(badBucket == false, '7.5: a negative bucket is refused')
+    env.reset()
+end
+
 -- ===================================================== 7.6 Cis.command
 do
     local env = newEnv({})

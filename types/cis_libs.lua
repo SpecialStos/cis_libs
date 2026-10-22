@@ -1402,7 +1402,7 @@ function SendDiscordLog(webhookURL, title, message, color, ping) end
 --- Cis.zones.server.box(center, size, opts)
 ---@param center vector3|table #the centre
 ---@param size number|vector3|table #full size; stored as half-extents, same as client zones
----@param opts? table #heading, onEnterEvent, onExitEvent
+---@param opts? table #heading, bucket (the routing bucket, default 0; a player in another bucket is never inside), onEnterEvent, onExitEvent. Exits also fire when a player drops and when the zone is removed or its owner stops
 ---@return integer|false, string|nil #a numeric id, never reused
 --- realm: server
 function ServerZoneBox(center, size, opts) end
@@ -1422,7 +1422,7 @@ function ServerZonePlayers(id) end
 
 --- Cis.zones.server.poly(points, opts)
 ---@param points table #at least 3 points
----@param opts? table #minZ, maxZ, onEnterEvent, onExitEvent
+---@param opts? table #minZ, maxZ, bucket (the routing bucket, default 0; a player in another bucket is never inside), onEnterEvent, onExitEvent. Exits also fire when a player drops and when the zone is removed or its owner stops
 ---@return integer|false, string|nil #a numeric id, never reused
 --- realm: server
 function ServerZonePoly(points, opts) end
@@ -1436,7 +1436,7 @@ function ServerZoneRemove(id) end
 --- Cis.zones.server.sphere(center, radius, opts)
 ---@param center vector3|table #the centre
 ---@param radius number #metres
----@param opts? table #onEnterEvent, onExitEvent
+---@param opts? table #bucket (the routing bucket, default 0; a player in another bucket is never inside), onEnterEvent, onExitEvent. Exits also fire when a player drops and when the zone is removed or its owner stops
 ---@return integer|false, string|nil #a numeric id, never reused
 --- realm: server
 function ServerZoneSphere(center, radius, opts) end
@@ -2461,8 +2461,8 @@ function Cis.zones.remove(name) end
 ---@field realm "server"
 ---@field forwardsTo string ServerZoneBox
 ---@param center vector3|table #the centre
----@param size number|vector3|table #full size
----@param opts? table #heading, onEnterEvent, onExitEvent
+---@param size number|vector3|table #full size; every axis must be positive and finite
+---@param opts? table #heading, bucket (default 0), onEnterEvent, onExitEvent
 ---@return integer|false, string|nil #numeric id. Containment uses SERVER ped coords
 function Cis.zones.server.box(center, size, opts) end
 
@@ -2506,7 +2506,7 @@ function Cis.zones.server.remove(id) end
 ---@field forwardsTo string ServerZoneSphere
 ---@param center vector3|table #the centre
 ---@param radius number #metres
----@param opts? table #onEnterEvent, onExitEvent
+---@param opts? table #bucket (default 0), onEnterEvent, onExitEvent
 ---@return integer|false, string|nil #numeric id
 function Cis.zones.server.sphere(center, radius, opts) end
 

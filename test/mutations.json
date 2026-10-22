@@ -631,6 +631,13 @@
       "find": "            if key == 'isReady' then\n                return gate().ready\n",
       "replace": "            if key == 'isReady' then\n                return false\n",
       "why": "A consumer's Cis.isReady stops reading through to the gate. That is the shipped defect: only cis_libs' own VM ever wrote the field, so every consumer read false forever while api.lua told it to poll this."
+    },
+    {
+      "id": "M96",
+      "file": "server/zones.lua",
+      "find": "    if not zone or zone.bucket ~= passBucket then\n",
+      "replace": "    if not zone then\n",
+      "why": "Ignore the routing bucket in the zone pass. A zone at the bank then fires for a player standing in an instanced copy of the bank in another bucket -- the server-side zone leaks across worlds exactly the way sync records did before C3."
     }
   ]
 }
