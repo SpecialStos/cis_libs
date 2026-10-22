@@ -3480,54 +3480,247 @@ do
 end
 
 -- ===================================================== 7.7 Cis.statebag
-do
-    local env = newEnv({})
-    env.handlers = env.handlers or {}
+--
+-- THE DEFECT. The watcher parsed `entity:<netId>` and handed the NUMBER to the
+-- handler as an entity. A netId is not a handle: on a client DoesEntityExist(netId)
+-- names some unrelated script handle or nothing, so the wait timed out and the
+-- handler never fired; when it did "exist", the consumer was handed the wrong
+-- entity. The bag is resolved with GetEntityFromStateBagName, which is the native
+-- for exactly that, and a delete is value == nil -- `reserved` is documented as
+-- unused, and reading it as "deleted" reported every ordinary set as a delete or
+-- none at all.
+--
+-- The stubs map bag -> entity with numbers that DIFFER from the netId, and make
+-- the netId itself "exist", so a parse-and-hand-over regression is a wrong value
+-- rather than a coincidentally right one.
+local function statebagEnv(opts)
+    opts = opts or {}
+    local env = newEnv({ invoking = opts.invoking })
+    for _, name in ipairs({
+        'IsDuplicityVersion', 'AddStateBagChangeHandler', 'RemoveStateBagChangeHandler',
+        'GetEntityFromStateBagName', 'GetPlayerFromStateBagName', 'GetPlayerServerId',
+        'GetPlayerPed', 'CisStatebagOnEntity', 'CisStatebagOnPlayer',
+    }) do
+        env.save(name)
+    end
     env.cookies = 0
+    env.bagHandlers = {}
+    env.removedCookies = {}
+    env.bagEntities = {}
     env.exists = {}
-    function IsDuplicityVersion() return false end
+    env.playerHandles = {}
+    env.serverIds = {}
+    env.peds = {}
+    function IsDuplicityVersion() return opts.server == true end
     function DoesEntityExist(id) return env.exists[id] == true end
     function AddStateBagChangeHandler(key, bagFilter, fn)
         env.cookies = env.cookies + 1
         env.bagKey = key
         env.bagFilter = bagFilter
-        env.bagFn = fn
+        env.bagHandlers[env.cookies] = fn
         return env.cookies
     end
     function RemoveStateBagChangeHandler(cookie)
-        env.removed = cookie
+        env.removedCookies[#env.removedCookies + 1] = cookie
+        env.bagHandlers[cookie] = nil
     end
-    function Wait(ms) env.clock = env.clock + math.max(tonumber(ms) or 0, 50) end
+    function GetEntityFromStateBagName(bag) return env.bagEntities[bag] or 0 end
+    function GetPlayerFromStateBagName(bag) return env.playerHandles[bag] or -1 end
+    function GetPlayerServerId(handle) return env.serverIds[handle] or 0 end
+    function GetPlayerPed(handle) return env.peds[handle] or 0 end
+    -- Every registered change handler sees every change, the way the runtime
+    -- dispatches them; the key filter is the handler's own business.
+    function env.change(bag, key, value, reserved, replicated)
+        for _, fn in pairs(env.bagHandlers) do
+            fn(bag, key, value, reserved or 0, replicated ~= false)
+        end
+    end
+    -- The drain thread, stepped one Wait at a time.
+    function env.stepPump(steps)
+        local fn = env.threads and env.threads[#env.threads]
+        if not fn then return false end
+        -- A drained queue ends its thread; the next change starts a new one.
+        if not env.pumpCo or coroutine.status(env.pumpCo) == 'dead'
+            or env.pumpThreads ~= #env.threads then
+            env.pumpCo = coroutine.create(fn)
+            env.pumpThreads = #env.threads
+        end
+        local realWait = Wait
+        Wait = function(ms)
+            env.clock = env.clock + (tonumber(ms) or 0)
+            coroutine.yield()
+        end
+        for _ = 1, steps or 1 do
+            if coroutine.status(env.pumpCo) == 'dead' then break end
+            local ok, err = coroutine.resume(env.pumpCo)
+            if not ok then Wait = realWait; error(err, 0) end
+        end
+        Wait = realWait
+        return coroutine.status(env.pumpCo) ~= 'dead'
+    end
     loadModule('shared/statebag.lua')
+    return env
+end
 
+local function statebagProbe()
+    return CisDiagnostics.Collect('client').probes.statebag or {}
+end
+
+do
+    local env = statebagEnv({})
     local seen = {}
     local cookie = exports.StatebagOnEntity('locked', function(entity, value, replicated, deleted)
         seen[#seen + 1] = { entity = entity, value = value, replicated = replicated, deleted = deleted }
     end, 200)
     check(cookie == 1, ('7.7: onEntity returns a cookie (got %s)'):format(tostring(cookie)))
 
-    env.bagFn('player:1', 'locked', true, false, true)
-    check(#seen == 0, '7.7: a player bag on an entity watcher is ignored, not guessed')
-
-    env.exists[50] = nil
-    env.bagFn('entity:50', 'locked', 1, false, true)
-    check(#seen == 0, '7.7: a client waits for the entity; a missing one does not fire the handler')
-
+    -- netId 99 also "exists" as a handle, which is what made the old parse look right.
     env.exists[99] = true
-    env.bagFn('entity:99', 'locked', 'yes', false, true)
-    check(#seen == 1 and seen[1].entity == 99 and seen[1].value == 'yes',
-        '7.7: an entity bag fires with the ENTITY, not the bag name')
-    check(seen[1].deleted == false, '7.7: reserved=false is forwarded as deleted=false')
+    env.bagEntities['entity:99'] = 7001
+    env.exists[7001] = true
+    env.change('entity:99', 'locked', 'yes', 0, true)
+    check(#seen == 1 and seen[1].entity == 7001,
+        ('7.7: an entity bag resolves through GetEntityFromStateBagName, not the netId '
+            .. 'in its name (got %s)'):format(tostring(seen[1] and seen[1].entity)))
+    check(seen[1] ~= nil and seen[1].value == 'yes' and seen[1].deleted == false,
+        '7.7: a set is not a delete')
 
-    env.bagFn('entity:99', 'locked', nil, true, true)
-    check(#seen == 2 and seen[2].deleted == true,
-        '7.7: reserved=true is a delete, which value==nil cannot distinguish')
+    -- `reserved` is unused by the runtime; a 1 there is not a delete.
+    env.change('entity:99', 'locked', false, 1, true)
+    check(#seen == 2 and seen[2].deleted == false and seen[2].value == false,
+        '7.7: a non-zero reserved is NOT read as a delete; false is a value')
+    env.change('entity:99', 'locked', nil, 0, true)
+    check(#seen == 3 and seen[3].deleted == true,
+        '7.7: a change to nil is the delete')
 
     local ok = exports.RemoveStatebagHandler(cookie)
-    check(ok == true and env.removed == cookie, '7.7: remove takes the cookie')
+    check(ok == true and env.removedCookies[1] == cookie, '7.7: remove takes the cookie')
+    local again = exports.RemoveStatebagHandler(cookie)
+    check(again == false, '7.7: a cookie that was already removed answers false')
 
     local bad = exports.StatebagOnEntity('', function() end)
     check(bad == nil, '7.7: an empty key is refused')
+    local notFn = exports.StatebagOnEntity('locked', 'nope')
+    check(notFn == nil, '7.7: a handler that is not callable is refused')
+    env.reset()
+end
+
+-- THE PENDING QUEUE. A client hears about a bag before its entity exists. That
+-- change waits -- in ONE queue, with ONE drain thread, newest value winning -- and
+-- fires once the entity is there. The old shape started a polling coroutine per
+-- change, so 100 changes on an entity this client never streams were 100 threads.
+do
+    local env = statebagEnv({})
+    local seen = {}
+    exports.StatebagOnEntity('door', function(entity, value)
+        seen[#seen + 1] = { entity = entity, value = value }
+    end, 500)
+
+    for i = 1, 100 do
+        env.change('entity:40', 'door', i, 0, true)
+    end
+    check(#seen == 0, '7.7: a change for an entity that is not here yet does not fire')
+    check(#(env.threads or {}) == 1,
+        ('7.7: 100 changes on one missing entity start ONE drain thread (got %d)')
+            :format(#(env.threads or {})))
+    check(statebagProbe().pending == 1,
+        ('7.7: and coalesce into ONE pending entry (got %s)'):format(tostring(statebagProbe().pending)))
+
+    env.stepPump(2)
+    check(#seen == 0, '7.7: still nothing while the entity is missing')
+    env.bagEntities['entity:40'] = 8040
+    env.stepPump(1)
+    check(#seen == 1 and seen[1].entity == 8040 and seen[1].value == 100,
+        ('7.7: the entity arrives and the NEWEST value fires once (got %d, value %s)')
+            :format(#seen, tostring(seen[1] and seen[1].value)))
+    env.stepPump(3)
+    check(#seen == 1, '7.7: and only once')
+
+    -- An entity that never arrives expires at the watcher's deadline, and the
+    -- queue is BOUNDED: distinct bags past the cap drop the oldest.
+    for i = 1, 300 do
+        env.change('entity:' .. (1000 + i), 'door', true, 0, true)
+    end
+    local probe = statebagProbe()
+    check((probe.pending or 999) <= 256 and (probe.dropped or 0) >= 44,
+        ('7.7: the queue is bounded (pending %s, dropped %s)')
+            :format(tostring(probe.pending), tostring(probe.dropped)))
+    env.stepPump(20)
+    probe = statebagProbe()
+    check(probe.pending == 0 and (probe.expired or 0) >= 1,
+        ('7.7: entities that never arrive expire at the deadline (pending %s, expired %s)')
+            :format(tostring(probe.pending), tostring(probe.expired)))
+    check(#seen == 1, '7.7: and an expired change never fires')
+    env.reset()
+end
+
+-- PLAYERS, AND WHO OWNS A WATCHER.
+do
+    local env = statebagEnv({ invoking = 'res_a' })
+    local players, peds, fromFuncref = {}, {}, {}
+    exports.StatebagOnPlayer('dead', function(src, value)
+        players[#players + 1] = { src = src, value = value }
+    end)
+    -- A function from another resource arrives as a callable funcref table.
+    local funcref = setmetatable({ __cfx_functionReference = 'res_a:1' }, {
+        __call = function(_, entity, value) fromFuncref[#fromFuncref + 1] = { entity, value } end,
+    })
+    local refCookie = exports.StatebagOnEntity('dead', funcref)
+    check(type(refCookie) == 'number',
+        '7.7: a funcref from another resource is accepted as a handler')
+    exports.StatebagOnEntity('dead', function(entity, value)
+        peds[#peds + 1] = { entity = entity, value = value }
+    end)
+
+    -- On a client the native answers a player HANDLE; the handler gets the server id.
+    env.playerHandles['player:12'] = 5
+    env.serverIds[5] = 12
+    env.peds[5] = 9005
+    env.change('player:12', 'dead', true, 0, true)
+    check(#players == 1 and players[1].src == 12,
+        ('7.7: a player watcher is handed the server id (got %s)')
+            :format(tostring(players[1] and players[1].src)))
+    check(#peds == 1 and peds[1].entity == 9005,
+        ('7.7: an entity watcher on a player bag is handed that player\'s ped (got %s)')
+            :format(tostring(peds[1] and peds[1].entity)))
+    check(#fromFuncref == 1 and fromFuncref[1][1] == 9005,
+        '7.7: and the funcref handler is called like a function')
+
+    -- Out of scope: no handle, but the id is in the bag name and nothing waits.
+    env.change('player:31', 'dead', false, 0, true)
+    check(#players == 2 and players[2].src == 31,
+        '7.7: a player this client cannot see still reports its server id')
+
+    -- Another resource cannot remove res_a's watcher.
+    env.invoking = 'res_b'
+    local took, why = exports.RemoveStatebagHandler(refCookie)
+    check(took == false and tostring(why):find('owner', 1, true) ~= nil,
+        ('7.7: another resource cannot remove a watcher it does not own (%s)'):format(tostring(why)))
+
+    -- The owner stops: every watcher it registered is removed from the runtime.
+    env.fire('onResourceStop', 'res_a')
+    check(#env.removedCookies == 3,
+        ('7.7: a stopping owner takes all three of its watchers with it (removed %d)')
+            :format(#env.removedCookies))
+    env.change('player:12', 'dead', false, 0, true)
+    check(#players == 2 and #fromFuncref == 1,
+        '7.7: and a handler into a stopped resource is never called again')
+    env.reset()
+end
+
+-- THE SERVER: no queue, and the wildcard is the native's absent filter.
+do
+    local env = statebagEnv({ server = true })
+    local seen = {}
+    exports.StatebagOnEntity('*', function(entity) seen[#seen + 1] = entity end)
+    check(env.bagKey == nil,
+        ('7.7: the "*" wildcard is passed as an absent key filter (got %s)'):format(tostring(env.bagKey)))
+    env.change('entity:5', 'any', 1, 0, true)
+    check(#seen == 0 and #(env.threads or {}) == 0,
+        '7.7: on the server a bag that does not resolve is gone, not late: nothing waits')
+    env.bagEntities['entity:5'] = 66
+    env.change('entity:5', 'any', 1, 0, true)
+    check(#seen == 1 and seen[1] == 66, '7.7: and one that resolves fires at once')
     env.reset()
 end
 

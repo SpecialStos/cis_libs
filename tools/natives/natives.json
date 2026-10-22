@@ -5,14 +5,14 @@
     "gta": "https://runtime.fivem.net/doc/natives.json"
   },
   "counts": {
-    "shippedFiles": 43,
-    "nativesUsed": 188,
+    "shippedFiles": 45,
+    "nativesUsed": 191,
     "byRealm": {
       "client": 117,
-      "server": 4,
-      "shared": 67
+      "server": 5,
+      "shared": 69
     },
-    "unresolvedPascalCaseGlobals": 64
+    "unresolvedPascalCaseGlobals": 65
   },
   "natives": {
     "AddDoorToSystem": {
@@ -337,14 +337,12 @@
       ],
       "usedIn": [
         "client",
-        "server",
-        "shared"
+        "server"
       ],
       "files": [
         "client/sync.lua",
         "client/vehicle.lua",
-        "server/sync.lua",
-        "shared/statebag.lua"
+        "server/sync.lua"
       ]
     },
     "DoesExtraExist": {
@@ -662,6 +660,22 @@
         "server/zones.lua"
       ]
     },
+    "GetEntityFromStateBagName": {
+      "realm": "shared",
+      "evidence": [
+        "shared"
+      ],
+      "sources": [
+        "cfx"
+      ],
+      "namespaces": [],
+      "usedIn": [
+        "shared"
+      ],
+      "files": [
+        "shared/statebag.lua"
+      ]
+    },
     "GetEntityHeading": {
       "realm": "shared",
       "evidence": [
@@ -809,7 +823,8 @@
         "shared/loopguard.lua",
         "shared/ready.lua",
         "shared/registry.lua",
-        "shared/statebag.lua"
+        "shared/statebag.lua",
+        "shared/timing.lua"
       ]
     },
     "GetGameplayCamCoord": {
@@ -878,7 +893,8 @@
       "namespaces": [],
       "usedIn": [
         "client",
-        "server"
+        "server",
+        "shared"
       ],
       "files": [
         "client/cache.lua",
@@ -893,7 +909,8 @@
         "server/proxy.lua",
         "server/security.lua",
         "server/sync.lua",
-        "server/zones.lua"
+        "server/zones.lua",
+        "shared/statebag.lua"
       ]
     },
     "GetIsVehiclePrimaryColourCustom": {
@@ -1046,6 +1063,22 @@
         "client/vehicle.lua"
       ]
     },
+    "GetPlayerFromStateBagName": {
+      "realm": "shared",
+      "evidence": [
+        "shared"
+      ],
+      "sources": [
+        "cfx"
+      ],
+      "namespaces": [],
+      "usedIn": [
+        "shared"
+      ],
+      "files": [
+        "shared/statebag.lua"
+      ]
+    },
     "GetPlayerName": {
       "realm": "shared",
       "evidence": [
@@ -1083,12 +1116,14 @@
       ],
       "usedIn": [
         "client",
-        "server"
+        "server",
+        "shared"
       ],
       "files": [
         "client/world.lua",
         "server/sync.lua",
-        "server/zones.lua"
+        "server/zones.lua",
+        "shared/statebag.lua"
       ]
     },
     "GetPlayerServerId": {
@@ -1106,7 +1141,8 @@
       ],
       "files": [
         "client/cache.lua",
-        "init.lua"
+        "init.lua",
+        "shared/statebag.lua"
       ]
     },
     "GetResourceByFindIndex": {
@@ -3522,6 +3558,22 @@
         "client/vehicle.lua"
       ]
     },
+    "StopResource": {
+      "realm": "server",
+      "evidence": [
+        "server"
+      ],
+      "sources": [
+        "cfx"
+      ],
+      "namespaces": [],
+      "usedIn": [
+        "server"
+      ],
+      "files": [
+        "server/initialize.lua"
+      ]
+    },
     "TaskStartScenarioInPlace": {
       "realm": "client",
       "evidence": [
@@ -3595,6 +3647,7 @@
   },
   "unresolvedGlobals": [
     "AddEventHandler",
+    "CisCallable",
     "CisCommandAdd",
     "CisCommandList",
     "CisCommandNames",

@@ -1311,7 +1311,7 @@ function RemovePoint(id) end
 
 --- Cis.statebag.remove(cookie)
 ---@param cookie integer #the number the watcher returned
----@return boolean, string|nil #true once removed, or false plus a reason when the cookie is not a number
+---@return boolean, string|nil #true once removed, or false plus a reason: not a number, no such watcher, or a watcher another resource owns
 --- realm: both
 function RemoveStatebagHandler(cookie) end
 
@@ -1460,16 +1460,16 @@ function SetVehicleProperties(vehicle, props, fixVehicle) end
 
 --- Cis.statebag.onEntity(key, handler, timeoutMs)
 ---@param key string #the state key, or the * wildcard. NOT empty
----@param handler fun(entity: integer, value: any, replicated: boolean, deleted: boolean) #the last two are not reconstructible from value: a delete leaves the key ABSENT rather than nil, so value == nil is true for both a delete and a key that was never set
----@param timeoutMs? number #how long the CLIENT waits for the entity to exist, default 2000
----@return integer|nil, string|nil #a COOKIE, not a boolean. RemoveStateBagChangeHandler needs one, and a watcher that cannot be removed is a leak whose symptom is a handler still firing for a resource that stopped
+---@param handler fun(entity: integer, value: any, replicated: boolean, deleted: boolean) #a function, or one passed from another resource (it arrives as a callable reference). The entity is RESOLVED from the bag with GetEntityFromStateBagName -- never the netId in its name -- and a PLAYER bag resolves to that player's ped. deleted is value == nil, which is the only shape a delete has
+---@param timeoutMs? number #how long the CLIENT keeps a change whose entity does not exist yet, default 2000. Waiting changes share one bounded queue and the newest value per bag wins; the server never waits
+---@return integer|nil, string|nil #a COOKIE, not a boolean. The watcher belongs to the resource that registered it and is removed when that resource stops
 --- realm: both
 function StatebagOnEntity(key, handler, timeoutMs) end
 
 --- Cis.statebag.onPlayer(key, handler, timeoutMs)
 ---@param key string #the state key or *
----@param handler fun(player: integer, value: any, replicated: boolean, deleted: boolean) #as on the entity watcher, with the player server id
----@param timeoutMs? number #client-only; a server has no streaming problem so it does not wait
+---@param handler fun(player: integer, value: any, replicated: boolean, deleted: boolean) #as on the entity watcher, with the player SERVER id on both sides (resolved with GetPlayerFromStateBagName; a client turns the handle it answers back into the server id)
+---@param timeoutMs? number #accepted for symmetry and unused: a server id is known from the bag, so nothing waits
 ---@return integer|nil, string|nil #a cookie, or nil plus a reason
 --- realm: both
 function StatebagOnPlayer(key, handler, timeoutMs) end
@@ -2134,8 +2134,8 @@ function Cis.security.report(src, reason) end
 ---@field realm "both"
 ---@field forwardsTo string StatebagOnEntity
 ---@param key string #the key or *
----@param handler function #a FUNCTION, and a function passed from a consumer is dropped by the boundary
----@param timeoutMs? number #how long the client waits for the entity, default 2000. The server does not wait
+---@param handler function #called (entity, value, replicated, deleted); crosses the boundary as a callable reference and is released when the calling resource stops
+---@param timeoutMs? number #how long the client keeps a change whose entity has not streamed in, default 2000. The server does not wait
 ---@return integer|nil, string|nil #a cookie, or nil plus a reason
 function Cis.statebag.onEntity(key, handler, timeoutMs) end
 
@@ -2144,8 +2144,8 @@ function Cis.statebag.onEntity(key, handler, timeoutMs) end
 ---@field realm "both"
 ---@field forwardsTo string StatebagOnPlayer
 ---@param key string #the key or *
----@param handler function #dropped across the boundary from a consumer
----@param timeoutMs? number #client-only wait; a server has no streaming problem
+---@param handler function #called (serverId, value, replicated, deleted); released when the calling resource stops
+---@param timeoutMs? number #unused: a player watcher never waits
 ---@return integer|nil, string|nil #a cookie, or nil plus a reason
 function Cis.statebag.onPlayer(key, handler, timeoutMs) end
 

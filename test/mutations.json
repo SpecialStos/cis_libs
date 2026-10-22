@@ -530,9 +530,9 @@
     {
       "id": "M81",
       "file": "shared/statebag.lua",
-      "find": "    if IsDuplicityVersion() then\n        return id\n    end\n",
-      "replace": "    if not IsDuplicityVersion() then\n        return id\n    end\n",
-      "why": "Wait for the entity on the SERVER and skip the wait on the client. That is the inverted realm: the client is the one whose entity may not have streamed in, and a handler that then calls GetEntityCoords raises."
+      "find": "    return watch(key, handler, entityFromBag, timeoutMs, not IS_SERVER)",
+      "replace": "    return watch(key, handler, entityFromBag, timeoutMs, IS_SERVER)",
+      "why": "Wait for the entity on the SERVER and skip the wait on the client. That is the inverted realm: the client is the one whose entity may not have streamed in yet, so a change that arrives first is dropped and the handler never fires for it."
     },
     {
       "id": "M82",
@@ -610,6 +610,13 @@
       "find": "    if ok and type(name) == 'string' and name ~= 'cis_libs' then\n",
       "replace": "    if ok and type(name) == 'string' and name ~= 'cis_libs' and false then\n",
       "why": "Disable the folder-name check. A rebranded copy then boots, which is the thing the license and the check exist to stop."
+    },
+    {
+      "id": "M93",
+      "file": "shared/statebag.lua",
+      "find": "    local entity = GetEntityFromStateBagName(bagName)\n",
+      "replace": "    local entity = tonumber(bagName:match('^entity:(%d+)$')) or 0\n",
+      "why": "Parse the bag name instead of resolving it. `entity:<n>` carries a NETWORK id, not a handle: the handler is handed a number that names some other script entity or nothing, which is the defect the watcher shipped with."
     }
   ]
 }

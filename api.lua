@@ -477,14 +477,14 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.statebag.onEntity(key, handler, timeoutMs)',
             realm = 'both',
-            params = { { name = 'key', type = 'string', doc = 'the state key, or the * wildcard. NOT empty' }, { name = 'handler', type = 'fun(entity: integer, value: any, replicated: boolean, deleted: boolean)', doc = 'the last two are not reconstructible from value: a delete leaves the key ABSENT rather than nil, so value == nil is true for both a delete and a key that was never set' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'how long the CLIENT waits for the entity to exist, default 2000' } },
-            returns = { { type = 'integer|nil, string|nil', doc = 'a COOKIE, not a boolean. RemoveStateBagChangeHandler needs one, and a watcher that cannot be removed is a leak whose symptom is a handler still firing for a resource that stopped' } }
+            params = { { name = 'key', type = 'string', doc = 'the state key, or the * wildcard. NOT empty' }, { name = 'handler', type = 'fun(entity: integer, value: any, replicated: boolean, deleted: boolean)', doc = 'a function, or one passed from another resource (it arrives as a callable reference). The entity is RESOLVED from the bag with GetEntityFromStateBagName -- never the netId in its name -- and a PLAYER bag resolves to that player\'s ped. deleted is value == nil, which is the only shape a delete has' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'how long the CLIENT keeps a change whose entity does not exist yet, default 2000. Waiting changes share one bounded queue and the newest value per bag wins; the server never waits' } },
+            returns = { { type = 'integer|nil, string|nil', doc = 'a COOKIE, not a boolean. The watcher belongs to the resource that registered it and is removed when that resource stops' } }
         },
         StatebagOnPlayer = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.statebag.onPlayer(key, handler, timeoutMs)',
             realm = 'both',
-            params = { { name = 'key', type = 'string', doc = 'the state key or *' }, { name = 'handler', type = 'fun(player: integer, value: any, replicated: boolean, deleted: boolean)', doc = 'as on the entity watcher, with the player server id' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'client-only; a server has no streaming problem so it does not wait' } },
+            params = { { name = 'key', type = 'string', doc = 'the state key or *' }, { name = 'handler', type = 'fun(player: integer, value: any, replicated: boolean, deleted: boolean)', doc = 'as on the entity watcher, with the player SERVER id on both sides (resolved with GetPlayerFromStateBagName; a client turns the handle it answers back into the server id)' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'accepted for symmetry and unused: a server id is known from the bag, so nothing waits' } },
             returns = { { type = 'integer|nil, string|nil', doc = 'a cookie, or nil plus a reason' } }
         },
         RemoveStatebagHandler = {
@@ -492,7 +492,7 @@ return {
             use = 'Cis.statebag.remove(cookie)',
             realm = 'both',
             params = { { name = 'cookie', type = 'integer', doc = 'the number the watcher returned' } },
-            returns = { { type = 'boolean, string|nil', doc = 'true once removed, or false plus a reason when the cookie is not a number' } }
+            returns = { { type = 'boolean, string|nil', doc = 'true once removed, or false plus a reason: not a number, no such watcher, or a watcher another resource owns' } }
         },
         CommandAdd = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -1829,14 +1829,14 @@ return {
         since = '1.0.0',
         realm = 'both',
         forwardsTo = 'StatebagOnEntity',
-        params = { { name = 'key', type = 'string', doc = 'the key or *' }, { name = 'handler', type = 'function', doc = 'a FUNCTION, and a function passed from a consumer is dropped by the boundary' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'how long the client waits for the entity, default 2000. The server does not wait' } },
+        params = { { name = 'key', type = 'string', doc = 'the key or *' }, { name = 'handler', type = 'function', doc = 'called (entity, value, replicated, deleted); crosses the boundary as a callable reference and is released when the calling resource stops' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'how long the client keeps a change whose entity has not streamed in, default 2000. The server does not wait' } },
         returns = { { type = 'integer|nil, string|nil', doc = 'a cookie, or nil plus a reason' } },
     },
     ['Cis.statebag.onPlayer'] = {
         since = '1.0.0',
         realm = 'both',
         forwardsTo = 'StatebagOnPlayer',
-        params = { { name = 'key', type = 'string', doc = 'the key or *' }, { name = 'handler', type = 'function', doc = 'dropped across the boundary from a consumer' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'client-only wait; a server has no streaming problem' } },
+        params = { { name = 'key', type = 'string', doc = 'the key or *' }, { name = 'handler', type = 'function', doc = 'called (serverId, value, replicated, deleted); released when the calling resource stops' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'unused: a player watcher never waits' } },
         returns = { { type = 'integer|nil, string|nil', doc = 'a cookie, or nil plus a reason' } },
     },
     ['Cis.statebag.remove'] = {
