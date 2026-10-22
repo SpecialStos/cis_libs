@@ -427,7 +427,32 @@ end
 -- `load` rather than `loadstring`: this suite runs on fengari, which is Lua
 -- 5.3, where `loadstring` was removed. `load` takes the same arguments and is
 -- the form the file is actually compiled by in game.
+-- A client file that wraps an ENGINE (client/core/<same name>.lua) needs the
+-- engine loaded first, exactly as the manifest orders them: the engines are
+-- client_scripts listed before the wrappers. Loaded here rather than by every
+-- test, so a test cannot exercise a wrapper against an engine it forgot.
+local function hasSource(rel)
+    if CIS_TEST_FILES and CIS_TEST_FILES[rel] then
+        return true
+    end
+    local f = io.open and io.open('./' .. rel, 'r')
+    if f then
+        f:close()
+        return true
+    end
+    return false
+end
+
 local function loadModule(rel)
+    local core = rel:match('^client/([%w_]+)%.lua$')
+    if core and hasSource('client/core/' .. core .. '.lua') then
+        local src = readSource('client/core/' .. core .. '.lua'):gsub(BACKTICK_PATTERN, '0x11111111')
+        local engine, engineErr = load(src, '@client/core/' .. core .. '.lua')
+        if not engine then
+            error(('client/core/%s.lua: %s'):format(core, tostring(engineErr)), 0)
+        end
+        engine()
+    end
     local body = readSource(rel):gsub(BACKTICK_PATTERN, '0x11111111')
     local chunk, err = load(body, '@' .. rel)
     if not chunk then
