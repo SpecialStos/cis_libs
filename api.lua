@@ -456,7 +456,7 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.hooks.on(name, fn, opts)',
             realm = 'both',
-            params = { { name = 'name', type = 'string', doc = 'the hook name' }, { name = 'fn', type = 'function|string', doc = 'a function in this VM, or resource:Export. A function SENT from a consumer is dropped' }, { name = 'opts', type = 'table', optional = true, doc = 'priority, higher runs first' } },
+            params = { { name = 'name', type = 'string', doc = 'the hook name' }, { name = 'fn', type = 'function|string', doc = 'a function -- including one passed from another resource, which arrives as a callable reference table -- or resource:Export. Owned by the registering resource and removed when it stops' }, { name = 'opts', type = 'table', optional = true, doc = 'priority, higher runs first' } },
             returns = { { type = 'integer|false, string|nil', doc = 'a cookie, or false plus a reason' } }
         },
         HookRun = {

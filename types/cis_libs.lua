@@ -1001,7 +1001,7 @@ function GetZoneDebug() end
 
 --- Cis.hooks.on(name, fn, opts)
 ---@param name string #the hook name
----@param fn function|string #a function in this VM, or resource:Export. A function SENT from a consumer is dropped
+---@param fn function|string #a function -- including one passed from another resource, which arrives as a callable reference table -- or resource:Export. Owned by the registering resource and removed when it stops
 ---@param opts? table #priority, higher runs first
 ---@return integer|false, string|nil #a cookie, or false plus a reason
 --- realm: both

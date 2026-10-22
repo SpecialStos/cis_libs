@@ -141,7 +141,9 @@ function CisDetect.database(configured, isStarted, version)
 
     if configured ~= 'AUTO' then
         for _, known in ipairs(CisDetect.DATABASES) do
-            if known.name == configured then
+            -- `configured` was uppercased above and the list names are lowercase
+            -- resource names, so the comparison is made in ONE case.
+            if known.name:upper() == configured then
                 local up = isStarted(known.resource) and true or false
                 return {
                     name = known.name, resource = up and known.resource or nil,

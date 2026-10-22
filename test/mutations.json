@@ -820,6 +820,62 @@
       "find": "    if type(restricted) == 'string' and not restricted:match('^[%w_%-%.:]+$') then\n",
       "replace": "    if false then\n",
       "why": "Accept any restricted string. It is written into an add_ace console line, so 'group.admin; quit' becomes a second console command."
+    },
+    {
+      "id": "M123",
+      "file": "shared/detect.lua",
+      "find": "            if known.name:upper() == configured then\n",
+      "replace": "            if known.name == configured then\n",
+      "why": "Compare the uppercased configured driver with the lowercase list name again. Every explicit Database.Type is then 'not a supported driver' and the install runs with no database."
+    },
+    {
+      "id": "M124",
+      "file": "server/version.lua",
+      "find": "    while convarSwitch() == nil and Config and Config.__owner == 'cis_libs'\n",
+      "replace": "    while false\n",
+      "why": "Read Config.CheckVersion on the boot thread's first tick. cis_libs starts before every consumer, so the read always sees the built-in false and an operator who turned the check on never gets one."
+    },
+    {
+      "id": "M125",
+      "file": "server/version.lua",
+      "find": "            elseif order >= 0 then\n",
+      "replace": "            elseif currentVersion == versionInfo.latestVersion then\n",
+      "why": "Compare versions by string equality. A build ahead of the published line, or one spelled v1.2.0, is announced as outdated on every boot."
+    },
+    {
+      "id": "M126",
+      "file": "server/selfcheck.lua",
+      "find": "        local ok, total = pcall(GetNumResourceMetadata, name, key)\n",
+      "replace": "        local ok, total = pcall(GetNumResourceMetadata, name)\n",
+      "why": "Ask for the metadata count without the key. The native counts per key and answers 0 without one, so every manifest check built on it never fires on a real server."
+    },
+    {
+      "id": "M127",
+      "file": "server/selfcheck.lua",
+      "find": "                            problem('missing_provider',\n",
+      "replace": "                            (function() end)('missing_provider',\n",
+      "why": "Print the missing-provider line without recording it. GetSelfCheck and cis_doctor then report ok with the problem on the console."
+    },
+    {
+      "id": "M128",
+      "file": "server/selfcheck.lua",
+      "find": "        if name and GetResourceState(name) == 'started' then\n            startedBeforeUs[name] = true\n",
+      "replace": "        if name then\n            startedBeforeUs[name] = true\n",
+      "why": "Snapshot every resource the server knows instead of the running ones. Every installed but stopped consumer is then reported as having started before cis_libs."
+    },
+    {
+      "id": "M129",
+      "file": "shared/registry.lua",
+      "find": "                held.nilProbeAt = nowMs()\n",
+      "replace": "",
+      "why": "Forget that a provider answered the no-method probe with nil. A dispatcher provider's export is then invoked twice on every call, forever."
+    },
+    {
+      "id": "M130",
+      "file": "shared/hooks.lua",
+      "find": "    if not CisCallable(fn) then\n        return nil, ('hook fn must be a function",
+      "replace": "    if type(fn) ~= 'function' then\n        return nil, ('hook fn must be a function",
+      "why": "Refuse a funcref hook. A function passed by another resource arrives as a callable reference table, so no consumer can register a veto."
     }
   ]
 }

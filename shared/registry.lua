@@ -137,12 +137,15 @@ end
 local slots = {}
 
 -- A callable that arrived as a return value across the boundary reports type() ==
+-- 'table'. CisCallable (shared/owned.lua) answers for both; it is looked up at
+-- CALL time, so this file loading before owned.lua does not matter.
 local function isCallable(v)
-    if type(v) == 'function' then
-        return true
-    end
-    return type(v) == 'table' and v.__cfx_functionReference ~= nil
+    return CisCallable(v)
 end
+
+-- How long a provider that answered the no-method probe with NIL is taken at its
+-- word before being asked again. See the nil branch in CisRegistry.call.
+local NIL_PROBE_MS = 5000
 
 --- Check a provider's DECLARED CONTRACT, if it declared one.
 --- @param slot string      one of CisRegistry.SLOTS
@@ -350,6 +353,7 @@ function CisRegistry.invalidate(slot)
         -- The method table belongs to the provider that handed it back.
         held.methods = nil
         held.lookups = nil
+        held.nilProbeAt = nil
     end
 end
 
@@ -475,6 +479,11 @@ function CisRegistry.call(slot, ...)
 
     if held and held.crossBoundary then
         local methods = held.methods
+        if methods == nil and held.nilProbeAt and nowMs() - held.nilProbeAt < NIL_PROBE_MS
+            and nowMs() >= held.nilProbeAt then
+            -- Probed recently and it answered nil: dispatch without asking again.
+            methods = false
+        end
         if methods == nil then
             -- First call for this provider: take the table it hands back.
             local ok, value = pcall(provider)
@@ -490,8 +499,14 @@ function CisRegistry.call(slot, ...)
                 methods = value
                 held.methods = value
             else
-                -- NIL. AMBIGUOUS, AND DELIBERATELY NOT CACHED.
+                -- NIL. AMBIGUOUS, AND NOT CACHED FOR GOOD: a dispatcher asked for no
+                -- action answers nil, and so does a method-table provider that has
+                -- not finished booting. But it is not re-asked on EVERY call either
+                -- -- that invoked the provider's export twice per call, forever, for
+                -- every dispatcher. Taken at its word for NIL_PROBE_MS, then asked
+                -- again, so a late table is still found.
                 methods = false
+                held.nilProbeAt = nowMs()
             end
         end
         if methods then

@@ -2330,12 +2330,15 @@ do
         table.sort(names)
         return names[i + 1]
     end
-    function GetNumResourceMetadata(name)
+    -- GET_NUM_RESOURCE_METADATA is (resourceName, metadataKey): a count PER KEY.
+    -- This stub used to take the name alone and answer the total across every
+    -- key, which is the shape the code was then written against -- and on a real
+    -- server that call answers 0, so every check fed by it was dead. A call
+    -- without the key now gets the real answer.
+    function GetNumResourceMetadata(name, key)
         local m = manifests[name]
-        if not m then return 0 end
-        local n = 0
-        for _, values in pairs(m) do n = n + #values end
-        return n
+        if not m or type(key) ~= 'string' then return 0 end
+        return #(m[key] or {})
     end
     function GetResourceMetadata(name, key, index)
         local values = manifests[name] and manifests[name][key]
@@ -4780,6 +4783,122 @@ do
     check(inj == false and #env.executed == 2,
         ('K5: a group that is not a principal is refused before it reaches a console line (%s)')
             :format(tostring(injWhy)))
+    env.reset()
+end
+
+-- ============================ V1. the version check: lazily, and by order
+--
+-- The boot thread read Config.CheckVersion on its first tick. cis_libs starts
+-- before every consumer, so that read always saw the built-in default (false)
+-- and an operator who turned the check on in cis_core never got one. When it did
+-- run, the comparison was string equality: a build AHEAD of the published line
+-- was "outdated".
+local function versionRun(current, latest, supplier)
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Config.__owner = 'cis_libs'
+    Security = CisDefaults.security()
+    env.http = {}
+    env.saved[#env.saved + 1] = { name = 'PerformHttpRequest', value = rawget(_G, 'PerformHttpRequest') }
+    function PerformHttpRequest(url, cb)
+        env.http[#env.http + 1] = url
+        cb(200, latest .. '\nnotes')
+    end
+    env.saved[#env.saved + 1] = { name = 'GetResourceMetadata', value = rawget(_G, 'GetResourceMetadata') }
+    function GetResourceMetadata(_, key) return key == 'version' and current or nil end
+    loadModule('server/version.lua')
+    -- The thread starts BEFORE the supplier: the supplier's SetConfig lands on
+    -- the thread's first yield, which is the order a real boot has.
+    local thread = env.threads[#env.threads]
+    local realWait = Wait
+    local supplied = false
+    Wait = function(ms)
+        if not supplied and supplier then
+            supplied = true
+            supplier()
+        end
+        env.clock = env.clock + (tonumber(ms) or 0)
+    end
+    -- With no supplier the thread must still finish, on its own wait budget.
+    thread()
+    Wait = realWait
+    local outdated, upToDate = false, false
+    for _, l in ipairs(env.lines) do
+        if l:find('outdated', 1, true) then outdated = true end
+        if l:find('up to date', 1, true) then upToDate = true end
+    end
+    env.reset()
+    return #env.http, outdated, upToDate
+end
+
+do
+    local function turnOn()
+        Config.CheckVersion = true
+        Config.__owner = 'cis_core'
+    end
+    local requests, outdated, upToDate = versionRun('1.2.0', '1.1.9', turnOn)
+    check(requests == 1,
+        ('V1: Config.CheckVersion supplied AFTER boot is honoured (requests=%d)'):format(requests))
+    check(upToDate and not outdated, 'V1: a build AHEAD of the published version is not outdated')
+
+    local _, outdated2 = versionRun('1.9.0', '1.10.0', turnOn)
+    check(outdated2, 'V1: 1.9.0 is older than 1.10.0 (numeric, not string, order)')
+    local _, outdated3 = versionRun('1.2.0-beta', '1.2.0', turnOn)
+    check(outdated3, 'V1: a pre-release is older than its release')
+    local _, outdated4, upToDate4 = versionRun('v1.2.0', '1.2.0', turnOn)
+    check(upToDate4 and not outdated4, 'V1: a leading v is the same version')
+
+    local none = versionRun('1.2.0', '1.3.0', nil)
+    check(none == 0, 'V1: with nobody turning it on, nothing goes out')
+end
+
+-- ============================ SC1. the self-check sees what is running
+--
+-- Three dead or wrong paths: the "started before cis_libs" snapshot recorded
+-- every resource the server KNOWS, started or not; `cis_requires` was read with
+-- no index; and a declared requirement with no provider printed a line but never
+-- reached GetSelfCheck, so cis_doctor said "ok" with the problem on screen.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    local manifests = {
+        cis_needy = { dependency = { 'cis_libs' }, cis_requires = { 'doors', 'dataProbe' } },
+        cis_installed_only = { dependency = { 'cis_libs' } },
+    }
+    local state = { cis_needy = 'started', cis_installed_only = 'stopped' }
+    function GetResourceState(name) return state[name] or 'missing' end
+    function GetNumResources() return 2 end
+    function GetResourceByFindIndex(i) return ({ 'cis_installed_only', 'cis_needy' })[i + 1] end
+    function GetNumResourceMetadata(name, key)
+        local m = manifests[name]
+        if not m or type(key) ~= 'string' then return 0 end
+        return #(m[key] or {})
+    end
+    function GetResourceMetadata(name, key, index)
+        local values = manifests[name] and manifests[name][key]
+        if type(index) ~= 'number' then return nil end
+        return values and values[index + 1] or nil
+    end
+    local scheduled
+    SetTimeout = function(_, fn) scheduled = fn end
+    loadModule('server/selfcheck.lua')
+    scheduled()
+
+    local result = exports.GetSelfCheck()
+    local codes, messages = {}, {}
+    for _, p in ipairs(result.problems) do
+        codes[p.code] = (codes[p.code] or 0) + 1
+        messages[#messages + 1] = p.code .. ': ' .. tostring(p.message)
+    end
+    local all = table.concat(messages, ' | ')
+    check(codes.missing_provider == 2,
+        ('SC1: each requirement with no provider is a structured problem (%s)'):format(all))
+    check(all:find('cis_installed_only', 1, true) == nil,
+        ('SC1: a resource that is installed but not started did not "start before" us (%s)'):format(all))
+    check(codes.started_before_dependency == 1,
+        ('SC1: the one that was running is still reported (%s)'):format(all))
     env.reset()
 end
 
