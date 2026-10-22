@@ -394,7 +394,7 @@ return {
             use = 'Cis.ui.notify(message, kind). NOT Cis.framework.notify: that one is player-targeted, rate-limited, and the one a server uses. This is the local toast',
             realm = 'client',
             params = { { name = 'message', type = 'string|table', doc = 'a string, or a table with description, message, or title. Empty is refused by name' }, { name = 'kind', type = 'string', optional = true, doc = 'forwarded to a ui provider as type; the native GTA feed has no type and ignores it' } },
-            returns = { { type = 'boolean, string|nil', doc = 'true once shown. Without a ui provider this is the GTA feed (BeginTextCommandThefeedPost), the same three natives Notify uses, with the 99-character component limit chunked rather than truncated' } }
+            returns = { { type = 'boolean, string|nil', doc = 'true once shown. Order: a registered ui provider, else the built-in NUI toast (Toast), else the GTA feed' } }
         },
         UiTextUIShow = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -419,24 +419,24 @@ return {
         },
         UiProgress = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Cis.ui.progress(opts). Forward only -- cis_libs draws no bar',
+            use = 'Cis.ui.progress(opts). A ui provider if registered, else the built-in ProgressBar/ProgressCircle (opts.type = \'circle\')',
             realm = 'client',
-            params = { { name = 'opts', type = 'table', doc = 'handed to the ui provider unexamined. A function inside it is dropped across the boundary. Without a provider this is false, \'no ui provider\' and does not wait' } },
-            returns = { { type = 'boolean|nil, string|nil', doc = 'whatever the provider answered, or false plus \'no ui provider\'. YIELDS if the provider yields' } }
+            params = { { name = 'opts', type = 'table', doc = 'ProgressBar options (duration, label, canCancel, anim, prop, disable, type)' } },
+            returns = { { type = 'boolean|nil, string|nil', doc = 'true on completion, false on cancel, or false plus a reason. YIELDS until done' } }
         },
         UiConfirm = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Cis.ui.confirm(opts). Forward only -- no native dialog. RETURNS, does not take a callback',
+            use = 'Cis.ui.confirm(opts). A ui provider if registered, else the built-in AlertDialog. RETURNS, does not take a callback',
             realm = 'client',
-            params = { { name = 'opts', type = 'table', doc = 'handed to the ui provider unexamined (header, content, cancel, labels)' } },
-            returns = { { type = 'any, string|nil', why = 'the provider chooses the value and this library has no native dialog to invent a shape for', doc = 'whatever the provider answered, or false plus \'no ui provider\'' } }
+            params = { { name = 'opts', type = 'table', doc = 'header (or title), content (or message), cancel, labels, size, centered' } },
+            returns = { { type = 'any, string|nil', why = 'a registered provider chooses its own value', doc = 'built-in: true plus \'confirm\', or false plus \'cancel\'; a provider answers its own value' } }
         },
         UiInput = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Cis.ui.input(opts). Forward only -- no native dialog. RETURNS, does not take a callback',
+            use = 'Cis.ui.input(opts). A ui provider if registered, else the built-in InputDialog. RETURNS, does not take a callback',
             realm = 'client',
-            params = { { name = 'opts', type = 'table', doc = 'handed to the ui provider unexamined (heading, rows, options)' } },
-            returns = { { type = 'any, string|nil', why = 'the provider chooses the value and this library has no native dialog to invent a shape for', doc = 'whatever the provider answered, or false plus \'no ui provider\'' } }
+            params = { { name = 'opts', type = 'table', doc = 'heading (or title), rows, options -- the InputDialog shape' } },
+            returns = { { type = 'any, string|nil', why = 'a registered provider chooses its own value', doc = 'built-in: the list of values, or nil on cancel; a provider answers its own value' } }
         },
         -- ------------------------------------------------- interface (NUI)
         Toast = {
@@ -2048,7 +2048,7 @@ return {
         realm = 'client',
         forwardsTo = 'UiNotify',
         params = { { name = 'message', type = 'string|table', doc = 'a string, or a table with description/message/title. NOT Cis.framework.notify: that one is player-targeted and the one a server uses' }, { name = 'kind', type = 'string', optional = true, doc = 'forwarded to a ui provider; the native feed ignores it' } },
-        returns = { { type = 'boolean, string|nil', doc = 'true once shown, or false plus a reason. Without a ui provider this is the GTA feed' } },
+        returns = { { type = 'boolean, string|nil', doc = 'true once shown, or false plus a reason. A ui provider, else the built-in toast, else the GTA feed' } },
     },
     ['Cis.ui.textUI.show'] = {
         since = '1.0.0',
@@ -2075,22 +2075,22 @@ return {
         since = '1.0.0',
         realm = 'client',
         forwardsTo = 'UiProgress',
-        params = { { name = 'opts', type = 'table', doc = 'handed to the ui provider unexamined. Without a provider: false, \'no ui provider\'' } },
-        returns = { { type = 'boolean|nil, string|nil', doc = 'whatever the provider answered, or false plus \'no ui provider\'. YIELDS if the provider yields. cis_libs draws no bar' } },
+        params = { { name = 'opts', type = 'table', doc = 'ProgressBar options; type = \'circle\' for the circle' } },
+        returns = { { type = 'boolean|nil, string|nil', doc = 'true on completion, false on cancel. YIELDS until done' } },
     },
     ['Cis.ui.confirm'] = {
         since = '1.0.0',
         realm = 'client',
         forwardsTo = 'UiConfirm',
-        params = { { name = 'opts', type = 'table', doc = 'handed to the ui provider unexamined. RETURNS, does not take a callback -- a function cannot cross the boundary' } },
-        returns = { { type = 'any, string|nil', why = 'the provider chooses the value', doc = 'whatever the provider answered, or false plus \'no ui provider\'' } },
+        params = { { name = 'opts', type = 'table', doc = 'header, content, cancel, labels. RETURNS, does not take a callback' } },
+        returns = { { type = 'any, string|nil', why = 'a registered provider chooses its own value', doc = 'built-in: true/false plus the raw result' } },
     },
     ['Cis.ui.input'] = {
         since = '1.0.0',
         realm = 'client',
         forwardsTo = 'UiInput',
-        params = { { name = 'opts', type = 'table', doc = 'handed to the ui provider unexamined. RETURNS, does not take a callback' } },
-        returns = { { type = 'any, string|nil', why = 'the provider chooses the value', doc = 'whatever the provider answered, or false plus \'no ui provider\'' } },
+        params = { { name = 'opts', type = 'table', doc = 'heading, rows, options. RETURNS, does not take a callback' } },
+        returns = { { type = 'any, string|nil', why = 'a registered provider chooses its own value', doc = 'built-in: the list of values, or nil on cancel' } },
     },
     ['Cis.statebag.onEntity'] = {
         since = '1.0.0',

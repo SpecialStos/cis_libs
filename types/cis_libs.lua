@@ -1772,30 +1772,30 @@ function TriggerLibCallback(name, cb, ...) end
 function TryAwaitCallback.server(name, ...) end
 function TryAwaitCallback.client(name, ...) end
 
---- Cis.ui.confirm(opts). Forward only -- no native dialog. RETURNS, does not take a callback
----@param opts table #handed to the ui provider unexamined (header, content, cancel, labels)
----@return any, string|nil #whatever the provider answered, or false plus 'no ui provider' 
--- Why `any`: the provider chooses the value and this library has no native dialog to invent a shape for
+--- Cis.ui.confirm(opts). A ui provider if registered, else the built-in AlertDialog. RETURNS, does not take a callback
+---@param opts table #header (or title), content (or message), cancel, labels, size, centered
+---@return any, string|nil #built-in: true plus 'confirm', or false plus 'cancel'; a provider answers its own value 
+-- Why `any`: a registered provider chooses its own value
 --- realm: client
 function UiConfirm(opts) end
 
---- Cis.ui.input(opts). Forward only -- no native dialog. RETURNS, does not take a callback
----@param opts table #handed to the ui provider unexamined (heading, rows, options)
----@return any, string|nil #whatever the provider answered, or false plus 'no ui provider' 
--- Why `any`: the provider chooses the value and this library has no native dialog to invent a shape for
+--- Cis.ui.input(opts). A ui provider if registered, else the built-in InputDialog. RETURNS, does not take a callback
+---@param opts table #heading (or title), rows, options -- the InputDialog shape
+---@return any, string|nil #built-in: the list of values, or nil on cancel; a provider answers its own value 
+-- Why `any`: a registered provider chooses its own value
 --- realm: client
 function UiInput(opts) end
 
 --- Cis.ui.notify(message, kind). NOT Cis.framework.notify: that one is player-targeted, rate-limited, and the one a server uses. This is the local toast
 ---@param message string|table #a string, or a table with description, message, or title. Empty is refused by name
 ---@param kind? string #forwarded to a ui provider as type; the native GTA feed has no type and ignores it
----@return boolean, string|nil #true once shown. Without a ui provider this is the GTA feed (BeginTextCommandThefeedPost), the same three natives Notify uses, with the 99-character component limit chunked rather than truncated
+---@return boolean, string|nil #true once shown. Order: a registered ui provider, else the built-in NUI toast (Toast), else the GTA feed
 --- realm: client
 function UiNotify(message, kind) end
 
---- Cis.ui.progress(opts). Forward only -- cis_libs draws no bar
----@param opts table #handed to the ui provider unexamined. A function inside it is dropped across the boundary. Without a provider this is false, 'no ui provider' and does not wait
----@return boolean|nil, string|nil #whatever the provider answered, or false plus 'no ui provider'. YIELDS if the provider yields
+--- Cis.ui.progress(opts). A ui provider if registered, else the built-in ProgressBar/ProgressCircle (opts.type = 'circle')
+---@param opts table #ProgressBar options (duration, label, canCancel, anim, prop, disable, type)
+---@return boolean|nil, string|nil #true on completion, false on cancel, or false plus a reason. YIELDS until done
 --- realm: client
 function UiProgress(opts) end
 
@@ -2576,18 +2576,18 @@ function Cis.target.update(name, options) end
 ---@field since string 1.0.0
 ---@field realm "client"
 ---@field forwardsTo string UiConfirm
----@param opts table #handed to the ui provider unexamined. RETURNS, does not take a callback -- a function cannot cross the boundary
----@return any, string|nil #whatever the provider answered, or false plus 'no ui provider' 
--- Why `any`: the provider chooses the value
+---@param opts table #header, content, cancel, labels. RETURNS, does not take a callback
+---@return any, string|nil #built-in: true/false plus the raw result 
+-- Why `any`: a registered provider chooses its own value
 function Cis.ui.confirm(opts) end
 
 ---@class Cis.ui.input
 ---@field since string 1.0.0
 ---@field realm "client"
 ---@field forwardsTo string UiInput
----@param opts table #handed to the ui provider unexamined. RETURNS, does not take a callback
----@return any, string|nil #whatever the provider answered, or false plus 'no ui provider' 
--- Why `any`: the provider chooses the value
+---@param opts table #heading, rows, options. RETURNS, does not take a callback
+---@return any, string|nil #built-in: the list of values, or nil on cancel 
+-- Why `any`: a registered provider chooses its own value
 function Cis.ui.input(opts) end
 
 ---@class Cis.ui.notify
@@ -2596,15 +2596,15 @@ function Cis.ui.input(opts) end
 ---@field forwardsTo string UiNotify
 ---@param message string|table #a string, or a table with description/message/title. NOT Cis.framework.notify: that one is player-targeted and the one a server uses
 ---@param kind? string #forwarded to a ui provider; the native feed ignores it
----@return boolean, string|nil #true once shown, or false plus a reason. Without a ui provider this is the GTA feed
+---@return boolean, string|nil #true once shown, or false plus a reason. A ui provider, else the built-in toast, else the GTA feed
 function Cis.ui.notify(message, kind) end
 
 ---@class Cis.ui.progress
 ---@field since string 1.0.0
 ---@field realm "client"
 ---@field forwardsTo string UiProgress
----@param opts table #handed to the ui provider unexamined. Without a provider: false, 'no ui provider'
----@return boolean|nil, string|nil #whatever the provider answered, or false plus 'no ui provider'. YIELDS if the provider yields. cis_libs draws no bar
+---@param opts table #ProgressBar options; type = 'circle' for the circle
+---@return boolean|nil, string|nil #true on completion, false on cancel. YIELDS until done
 function Cis.ui.progress(opts) end
 
 ---@class Cis.ui.textUI.hide

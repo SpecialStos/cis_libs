@@ -4781,6 +4781,76 @@ do
     env.reset()
 end
 
+-- 7.9b: with the built-in NUI loaded (CisInterface), every Cis.ui call that no
+-- provider answers goes to it, never to the GTA feed or to 'no ui provider'.
+local function builtinUi(env)
+    env.save('CisInterface')
+    env.builtin = {}
+    local log = env.builtin
+    CisInterface = {
+        notify = function(data) log[#log + 1] = { 'notify', data }; return true end,
+        textUI = {
+            show = function(text, opts) log[#log + 1] = { 'show', text, opts }; env.tuiOpen = true; return true end,
+            hide = function() log[#log + 1] = { 'hide' }; env.tuiOpen = false; return true end,
+            isOpen = function() return env.tuiOpen == true, 'x' end,
+        },
+        progress = {
+            bar = function(o) log[#log + 1] = { 'bar', o }; return true end,
+            circle = function(o) log[#log + 1] = { 'circle', o }; return false end,
+        },
+        alert = { open = function(o) log[#log + 1] = { 'alert', o }; return env.alertAnswer end },
+        input = { open = function(h, rows, o) log[#log + 1] = { 'input', h, rows, o }; return { 'v1' } end },
+    }
+end
+
+do
+    local env = uiEnv()
+    builtinUi(env)
+    check(exports.UiNotify('hello', 'success') == true, '7.9b: notify answers through the built-in UI')
+    local call = env.builtin[1]
+    check(call and call[1] == 'notify' and call[2].description == 'hello' and call[2].type == 'success',
+        '7.9b: a string notify becomes { description, type } for the built-in toast')
+    check(#env.feed == 0, '7.9b: the built-in UI means the GTA feed is not touched')
+    exports.UiNotify({ title = 'T', description = 'D', type = 'error', icon = 'bell' })
+    call = env.builtin[2]
+    check(call and call[2].title == 'T' and call[2].description == 'D' and call[2].icon == 'bell'
+        and call[2].type == 'error', '7.9b: a table notify keeps title, icon and type')
+    env.reset()
+end
+
+do
+    local env = uiEnv()
+    builtinUi(env)
+    exports.UiTextUIShow('press E', { position = 'left' })
+    check(env.builtin[1][1] == 'show' and env.builtin[1][2] == 'press E', '7.9b: textUI.show uses the built-in UI')
+    check(#env.help == 0, '7.9b: built-in textUI never draws native help')
+    check(exports.UiTextUIIsOpen() == true, '7.9b: isOpen reads the built-in state')
+    exports.UiTextUIHide()
+    check(exports.UiTextUIIsOpen() == false, '7.9b: hide closes the built-in text UI')
+    env.reset()
+end
+
+do
+    local env = uiEnv()
+    builtinUi(env)
+    check(exports.UiProgress({ duration = 10 }) == true, '7.9b: progress runs a bar by default')
+    check(env.builtin[1][1] == 'bar', '7.9b: default progress is the bar')
+    check(exports.UiProgress({ duration = 10, type = 'circle' }) == false, '7.9b: circle answers its own result')
+    check(env.builtin[2][1] == 'circle', '7.9b: type = circle selects the circle')
+    env.alertAnswer = 'confirm'
+    local ok, raw = exports.UiConfirm({ title = 'Sure?', message = 'Really' })
+    check(ok == true and raw == 'confirm', '7.9b: confirm maps the alert result to true')
+    check(env.builtin[3][2].header == 'Sure?' and env.builtin[3][2].content == 'Really',
+        '7.9b: confirm title/message become alert header/content')
+    env.alertAnswer = 'cancel'
+    ok = exports.UiConfirm({ header = 'x' })
+    check(ok == false, '7.9b: a cancelled alert is false')
+    local values = exports.UiInput({ heading = 'Name', rows = { { type = 'input', label = 'n' } } })
+    check(type(values) == 'table' and values[1] == 'v1', '7.9b: input returns the built-in dialog values')
+    check(env.builtin[5][2] == 'Name', '7.9b: input heading is forwarded')
+    env.reset()
+end
+
 -- ==================================================================== report
 for i = 1, #failures do
     io.stderr:write('FAIL(client): ' .. failures[i] .. '\n')

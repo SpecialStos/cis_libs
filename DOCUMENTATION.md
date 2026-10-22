@@ -340,10 +340,10 @@ Generated from `api.lua`. Do not edit between the markers.
 | `Toast` | client | `(data)` | 1.1.0 | exports.cis_libs:Toast(data). The library's own NUI notification; Cis.ui.notify routes here once wired. Not Notify: that export is the framework notify, a different signature |
 | `TriggerLibCallback` | client | `(name, cb?, ...)` | 1.0.0 | the client-to-server round trip whose callback receives only the results |
 | `TryAwaitCallback` | both | `()` | 1.0.0 | Cis.callback.tryAwait(name, ...) -> ok, ... on success; false, reason on a refusal |
-| `UiConfirm` | client | `(opts)` | 1.0.0 | Cis.ui.confirm(opts). Forward only -- no native dialog. RETURNS, does not take a callback |
-| `UiInput` | client | `(opts)` | 1.0.0 | Cis.ui.input(opts). Forward only -- no native dialog. RETURNS, does not take a callback |
+| `UiConfirm` | client | `(opts)` | 1.0.0 | Cis.ui.confirm(opts). A ui provider if registered, else the built-in AlertDialog. RETURNS, does not take a callback |
+| `UiInput` | client | `(opts)` | 1.0.0 | Cis.ui.input(opts). A ui provider if registered, else the built-in InputDialog. RETURNS, does not take a callback |
 | `UiNotify` | client | `(message, kind?)` | 1.0.0 | Cis.ui.notify(message, kind). NOT Cis.framework.notify: that one is player-targeted, rate-limited, and the one a server uses. This is the local toast |
-| `UiProgress` | client | `(opts)` | 1.0.0 | Cis.ui.progress(opts). Forward only -- cis_libs draws no bar |
+| `UiProgress` | client | `(opts)` | 1.0.0 | Cis.ui.progress(opts). A ui provider if registered, else the built-in ProgressBar/ProgressCircle (opts.type = 'circle') |
 | `UiTextUIHide` | client | `()` | 1.0.0 | Cis.ui.textUI.hide() |
 | `UiTextUIIsOpen` | client | `()` | 1.0.0 | Cis.ui.textUI.isOpen() |
 | `UiTextUIShow` | client | `(text, opts?)` | 1.0.0 | Cis.ui.textUI.show(text, opts) |

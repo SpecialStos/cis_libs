@@ -75,6 +75,13 @@ local function noProvider()
     return false, 'no ui provider'
 end
 
+-- The built-in NUI (client/interface/*). Loaded after this file in the same VM,
+-- so it is looked up at call time, never captured at load.
+local function builtin(part)
+    local ui = CisInterface
+    return type(ui) == 'table' and ui[part] or nil
+end
+
 -- A provider answered (including a provider false). Dispatch failure and
 -- an empty slot are the same from here: the caller falls through to the
 -- native, or to noProvider, depending on the method.
@@ -124,6 +131,17 @@ function CisUiNotify(message, kind)
     if handled then
         return a, b
     end
+    local toast = builtin('notify')
+    if toast then
+        if type(message) == 'table' then
+            local data = {}
+            for k, v in pairs(message) do data[k] = v end
+            data.description = data.description or data.message or (not data.title and text) or nil
+            data.type = typeName
+            return toast(data)
+        end
+        return toast({ description = text, type = typeName })
+    end
     nativeNotify(text)
     return true
 end
@@ -137,6 +155,11 @@ function CisUiTextUIShow(text, opts)
         closeNative()
         return a, b
     end
+    local textUI = builtin('textUI')
+    if textUI then
+        closeNative()
+        return textUI.show(text, opts)
+    end
     nativeHelpShow(text)
     nativeOpen = true
     nativeOwner = GetInvokingResource() or GetCurrentResourceName() or 'cis_libs'
@@ -149,6 +172,10 @@ function CisUiTextUIHide()
     if handled then
         return a, b
     end
+    local textUI = builtin('textUI')
+    if textUI then
+        return textUI.hide()
+    end
     return true
 end
 
@@ -156,6 +183,10 @@ function CisUiTextUIIsOpen()
     local handled, a = callProvider('TextUIIsOpen')
     if handled then
         return a == true
+    end
+    local textUI = builtin('textUI')
+    if textUI then
+        return (textUI.isOpen()) == true
     end
     return nativeOpen == true
 end
@@ -168,6 +199,13 @@ function CisUiProgress(opts)
     if handled then
         return a, b
     end
+    local progress = builtin('progress')
+    if progress then
+        if opts.type == 'circle' then
+            return progress.circle(opts)
+        end
+        return progress.bar(opts)
+    end
     return noProvider()
 end
 
@@ -179,6 +217,21 @@ function CisUiConfirm(opts)
     if handled then
         return a, b
     end
+    local alert = builtin('alert')
+    if alert then
+        local result, why = alert.open({
+            header = opts.header or opts.title,
+            content = opts.content or opts.message,
+            cancel = opts.cancel ~= false,
+            labels = opts.labels,
+            size = opts.size,
+            centered = opts.centered,
+        })
+        if result == nil then
+            return false, why
+        end
+        return result == 'confirm', result
+    end
     return noProvider()
 end
 
@@ -189,6 +242,10 @@ function CisUiInput(opts)
     local handled, a, b = callProvider('Input', opts)
     if handled then
         return a, b
+    end
+    local input = builtin('input')
+    if input then
+        return input.open(opts.heading or opts.title, opts.rows, opts.options)
     end
     return noProvider()
 end
