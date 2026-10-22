@@ -841,6 +841,69 @@
       "find": "    if type(n) == 'number' and n % 1 == 0 and n > -1e15 and n < 1e15 then\n        return ('%.0f'):format(n)\n    end\n    return tostring(n)",
       "replace": "    return ('%d'):format(n)",
       "why": "A fractional min/max bound reaches %d, and the validator raises on the caller's config instead of reporting it."
+    },
+    {
+      "id": "M126",
+      "file": "shared/util/semver.lua",
+      "find": "        if piece == '' then\n            return nil, ('%s %q has an empty identifier'):format(what, text)\n        end\n",
+      "replace": "",
+      "why": "Accept empty prerelease/build identifiers: '1.2.3-a..b' and '1.2.3+' parse, which SemVer 2.0.0 forbids."
+    },
+    {
+      "id": "M127",
+      "file": "shared/util/semver.lua",
+      "find": "    if #core < 3 and not loose then",
+      "replace": "    if false then",
+      "why": "Strict parse accepts '1' and '1.2' again -- the module said Strict and was not."
+    },
+    {
+      "id": "M128",
+      "file": "shared/util/semver.lua",
+      "find": "        if x.M == 0 then\n            return { cmp('>=', 0, x.m, 0, z), cmp('<', 0, x.m + 1, 0, '0') }\n        end\n",
+      "replace": "",
+      "why": "^0.0 and ^0.1 widen to <1.0.0, unlike npm, so a 0.x dependency range admits breaking minors."
+    },
+    {
+      "id": "M129",
+      "file": "shared/util/semver.lua",
+      "find": "    if #target.prereleaseIds > 0 and not incPre then",
+      "replace": "    if false then",
+      "why": "Drop npm's prerelease rule: ^1.2.3 admits 1.3.0-beta, so a range written against releases installs a prerelease."
+    },
+    {
+      "id": "M130",
+      "file": "shared/util/semver.lua",
+      "find": "        local xn, yn = x:match('^%d+$') ~= nil, y:match('^%d+$') ~= nil",
+      "replace": "        local xn, yn = tonumber(x) ~= nil, tonumber(y) ~= nil",
+      "why": "Classify prerelease identifiers with tonumber, which reads '0x1' and '1e3' as numeric, so they sort below plain numbers."
+    },
+    {
+      "id": "M131",
+      "file": "shared/util/semver.lua",
+      "find": "        if to.xm then\n            out[#out + 1] = cmp('<', to.M + 1, 0, 0, '0')",
+      "replace": "        if to.xm then\n            out[#out + 1] = cmp('<=', to.M, 0, 0)",
+      "why": "Read the partial upper end of a hyphen range as an exact bound: '1 - 2' stops at 2.0.0 instead of covering every 2.x."
+    },
+    {
+      "id": "M132",
+      "file": "shared/util/semver.lua",
+      "find": "    return { cmp('>=', x.M, x.m, x.p, x.pre), cmp('<', x.M, x.m + 1, 0, '0') }",
+      "replace": "    return { cmp('>=', x.M, x.m, x.p, x.pre), cmp('<', x.M + 1, 0, 0, '0') }",
+      "why": "~1.2.3 behaves like ^1.2.3 and admits the next minor."
+    },
+    {
+      "id": "M133",
+      "file": "shared/util/semver.lua",
+      "find": "    if not loose and #text > 1 and text:sub(1, 1) == '0' then",
+      "replace": "    if false then",
+      "why": "Strict parse accepts '01.2.3', a leading zero SemVer 2.0.0 forbids."
+    },
+    {
+      "id": "M134",
+      "file": "shared/util/semver.lua",
+      "find": "        if not (isWhole(v.major) and isWhole(v.minor) and isWhole(v.patch)) then",
+      "replace": "        if false then",
+      "why": "Trust a version table: parse({}) no longer refuses, and compare reaches nil components."
     }
   ]
 }

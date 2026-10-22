@@ -920,13 +920,15 @@ do
         expect(ok2 and res2 == nil and type(why2) == 'string',
             'the same refusal applies to an over-wide major')
 
-        -- 15 digits is the last width a double holds exactly. 16 does not
-        -- round-trip -- it becomes a different number, silently -- which is why
-        -- it is refused rather than accepted.
+        -- 2^53 - 1 is the largest integer a double holds exactly, and the
+        -- limit node-semver applies. Anything above it would silently become a
+        -- different number, so it is refused rather than rounded.
         expect(S.parse('1.2.123456789012345').normalized == '1.2.123456789012345',
             'a 15-digit component parses and normalizes exactly')
-        local ok3, res3 = parseOf('1.2.1234567890123456')
-        expect(ok3 and res3 == nil, 'a 16-digit component is refused rather than rounded')
+        expect((S.parse('1.2.9007199254740991') or {}).normalized == '1.2.9007199254740991',
+            'a component of exactly 2^53 - 1 parses and normalizes exactly')
+        local ok3, res3 = parseOf('1.2.9007199254740992')
+        expect(ok3 and res3 == nil, 'a component of 2^53 is refused rather than rounded')
 
         -- The refusal has to survive the whole chain, or it just moves the
         -- raise one function up.
@@ -966,12 +968,12 @@ do
         expect(S.satisfies('1.2.5-rc1', '<=1.2') == false,
             "a prerelease of 1.2.5 is still refused by '<=1.2'")
 
-        -- The component count that drives both rewrites must ignore the digits
-        -- inside a prerelease: '~1-rc1' counted the '1' in 'rc1' as a second
-        -- component and became '>=1.0.0 <1.1.0'.
-        expect(S.satisfies('1.5.0', '~1') == true, "'~1' still means >=1.0.0 <2.0.0")
-        expect(S.satisfies('1.5.0', '~1-rc1') == true,
-            "'~1-rc1' does not count the prerelease digits as a component")
+        -- A prerelease only follows a full MAJOR.MINOR.PATCH, in a version and
+        -- in a range. '~1-rc1' used to be read as '~1' with the tag ignored;
+        -- npm refuses it, and so does this.
+        expect(S.satisfies('1.5.0', '~1') == true, "'~1' still means >=1.0.0 <2.0.0-0")
+        expect(S.satisfies('1.5.0', '~1-rc1') == nil,
+            "'~1-rc1' is not a range: a prerelease needs a full version")
     end
 end
 
@@ -2741,6 +2743,328 @@ do
     local _, intWhy = V.string('abc', { max = 2 })
     expect(type(intWhy) == 'string' and intWhy:find('at most 2 characters', 1, true) ~= nil,
         'validate: a whole bound still reads as a whole number: ' .. tostring(intWhy))
+end
+
+-- ------------------------------------------- semver: against node-semver
+--
+-- The expected answers below were PRODUCED, not written: node-semver 7.6.3
+-- evaluated every range against every version (plain, and with
+-- includePrerelease), and the semver.org 2.0.0 regex judged every parse case.
+-- npm's own behaviour is the contract for ranges; the spec is the contract for
+-- versions. Two node-semver quirks are deliberately left out of the table:
+-- numeric prerelease identifiers above 2^53 compare EQUAL there (it converts
+-- them to doubles), and a hyphen range whose lower end carries build metadata
+-- loses its '-0' under includePrerelease (string concatenation). Both are
+-- pinned separately below with the spec-correct answer.
+do
+    -- GENERATED from node-semver 7.6.3 (ranges, compare) and the semver.org
+    -- 2.0.0 regex (parse validity) by a one-off script;
+    -- see the comment above.
+    local SEMVER_PARSE = {
+        { "1.2.3", true },
+        { "0.0.0", true },
+        { "10.20.30", true },
+        { "1.1.2-prerelease+meta", true },
+        { "1.0.0-alpha", true },
+        { "1.0.0-alpha.beta", true },
+        { "1.0.0-alpha.1", true },
+        { "1.0.0-alpha0.valid", true },
+        { "1.0.0-alpha.0valid", true },
+        { "1.0.0-rc.1+build.1", true },
+        { "2.0.0-rc.1+build.123", true },
+        { "1.2.3-beta", true },
+        { "10.2.3-DEV-SNAPSHOT", true },
+        { "1.2.3-SNAPSHOT-123", true },
+        { "2.0.0+build.1848", true },
+        { "2.0.1-alpha.1227", true },
+        { "1.0.0-alpha+beta", true },
+        { "1.2.3----RC-SNAPSHOT.12.9.1--.12+788", true },
+        { "1.2.3----R-S.12.9.1--.12+meta", true },
+        { "1.0.0+0.build.1-rc.10000aaa-kk-0.1", true },
+        { "1.0.0-0A.is.legal", true },
+        { "1.2.3+001", true },
+        { "1.2.3-0x1", true },
+        { "1.2.3-1e3", true },
+        { "9007199254740991.0.0", true },
+        { "9007199254740992.0.0", false },
+        { "1", false },
+        { "1.2", false },
+        { "1.2.3-0123", false },
+        { "1.2.3-0123.0123", false },
+        { "1.1.2+.123", false },
+        { "+invalid", false },
+        { "-invalid", false },
+        { "-invalid+invalid", false },
+        { "-invalid.01", false },
+        { "alpha", false },
+        { "alpha.beta", false },
+        { "alpha.beta.1", false },
+        { "alpha.1", false },
+        { "alpha+beta", false },
+        { "alpha_beta", false },
+        { "alpha.", false },
+        { "alpha..", false },
+        { "beta", false },
+        { "1.0.0-alpha_beta", false },
+        { "-alpha.", false },
+        { "1.0.0-alpha..", false },
+        { "1.0.0-alpha..1", false },
+        { "1.0.0-alpha...1", false },
+        { "01.1.1", false },
+        { "1.01.1", false },
+        { "1.1.01", false },
+        { "1.2.3.DEV", false },
+        { "1.2-SNAPSHOT", false },
+        { "1.2.31.2.3----RC-SNAPSHOT.12.09.1--..12+788", false },
+        { "1.2-RC-SNAPSHOT", false },
+        { "-1.0.3-gamma+b7718", false },
+        { "+justmeta", false },
+        { "9.8.7+meta+meta", false },
+        { "9.8.7-whatever+meta+meta", false },
+        { "1..2", false },
+        { ".1.2.", false },
+        { "1.2.", false },
+        { ".1.2", false },
+        { "1.2.3-", false },
+        { "1.2.3+", false },
+        { "1.2.3-a..b", false },
+        { "v1.2.3", false },
+        { " 1.2.3", false },
+        { "1.2.3 ", false },
+        { "=1.2.3", false },
+        { "1.2.3.4", false },
+        { "", false },
+        { "1.2.3-a_b", false },
+        { "1.2.3-x.7.z.92", true },
+        { "1.2.3-é", false },
+    }
+    local SEMVER_VERSIONS = {
+        "0.0.0", "0.0.1", "0.0.2", "0.1.0", "0.1.5", "0.2.0",
+        "0.2.3", "1.0.0-0", "1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-beta", "1.0.0",
+        "1.0.1", "1.2.0", "1.2.3-beta.2", "1.2.3-beta.10", "1.2.3", "1.2.3+build.5",
+        "1.2.4-rc.1", "1.2.4", "1.2.99", "1.3.0-0", "1.3.0", "1.9.9",
+        "2.0.0-0", "2.0.0-alpha", "2.0.0", "2.3.4", "2.3.5", "3.0.0-rc.1",
+        "3.0.0", "10.0.0",
+    }
+    -- { range, plain row, includePrerelease row }: one character per version
+    -- above, '1' satisfies and '0' does not; 'E' is a range node-semver rejects.
+    local SEMVER_RANGES = {
+        { "", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "*", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "x", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "X", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "1", '00000000000111001101101100000000', '00000001111111111111111100000000' },
+        { "1.x", '00000000000111001101101100000000', '00000001111111111111111100000000' },
+        { "1.X", '00000000000111001101101100000000', '00000001111111111111111100000000' },
+        { "1.*", '00000000000111001101101100000000', '00000001111111111111111100000000' },
+        { "1.2", '00000000000001001101100000000000', '00000000000001111111100000000000' },
+        { "1.2.x", '00000000000001001101100000000000', '00000000000001111111100000000000' },
+        { "1.2.*", '00000000000001001101100000000000', '00000000000001111111100000000000' },
+        { "1.2.3", '00000000000000001100000000000000', '00000000000000001100000000000000' },
+        { "=1.2.3", '00000000000000001100000000000000', '00000000000000001100000000000000' },
+        { "v1.2.3", '00000000000000001100000000000000', '00000000000000001100000000000000' },
+        { "=v1.2.3", '00000000000000001100000000000000', '00000000000000001100000000000000' },
+        { "1.2.3-beta.2", '00000000000000100000000000000000', '00000000000000100000000000000000' },
+        { ">1.2.3", '00000000000000000001101100111011', '00000000000000000011111111111111' },
+        { ">=1.2.3", '00000000000000001101101100111011', '00000000000000001111111111111111' },
+        { "<1.2.3", '11111110000111000000000000000000', '11111111111111110000000000000000' },
+        { "<=1.2.3", '11111110000111001100000000000000', '11111111111111111100000000000000' },
+        { "> 1.2.3", '00000000000000000001101100111011', '00000000000000000011111111111111' },
+        { ">= 1.2.3", '00000000000000001101101100111011', '00000000000000001111111111111111' },
+        { "< 2", '11111110000111001101101100000000', '11111111111111111111111100000000' },
+        { ">1", '00000000000000000000000000111011', '00000000000000000000000011111111' },
+        { ">=1", '00000000000111001101101100111011', '00000001111111111111111111111111' },
+        { "<1", '11111110000000000000000000000000', '11111110000000000000000000000000' },
+        { "<=1", '11111110000111001101101100000000', '11111111111111111111111100000000' },
+        { ">1.2", '00000000000000000000001100111011', '00000000000000000000011111111111' },
+        { ">=1.2", '00000000000001001101101100111011', '00000000000001111111111111111111' },
+        { "<1.2", '11111110000110000000000000000000', '11111111111110000000000000000000' },
+        { "<=1.2", '11111110000111001101100000000000', '11111111111111111111100000000000' },
+        { "<1.x", '11111110000000000000000000000000', '11111110000000000000000000000000' },
+        { ">1.x", '00000000000000000000000000111011', '00000000000000000000000011111111' },
+        { "<=1.x", '11111110000111001101101100000000', '11111111111111111111111100000000' },
+        { ">=1.x", '00000000000111001101101100111011', '00000001111111111111111111111111' },
+        { ">*", '00000000000000000000000000000000', '00000000000000000000000000000000' },
+        { "<*", '00000000000000000000000000000000', '00000000000000000000000000000000' },
+        { ">=*", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { ">=x", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "~1", '00000000000111001101101100000000', '00000000000111111111111100000000' },
+        { "~1.2", '00000000000001001101100000000000', '00000000000001111111100000000000' },
+        { "~1.2.3", '00000000000000001101100000000000', '00000000000000001111100000000000' },
+        { "~0.2.3", '00000010000000000000000000000000', '00000010000000000000000000000000' },
+        { "~1.2.3-beta.2", '00000000000000111101100000000000', '00000000000000111111100000000000' },
+        { "~>1.2", '00000000000001001101100000000000', '00000000000001111111100000000000' },
+        { "~> 1.2.3", '00000000000000001101100000000000', '00000000000000001111100000000000' },
+        { "~ 1", '00000000000111001101101100000000', '00000000000111111111111100000000' },
+        { "~x", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "~*", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "~", 'E', 'E' },
+        { "^1", '00000000000111001101101100000000', '00000001111111111111111100000000' },
+        { "^1.x", '00000000000111001101101100000000', '00000001111111111111111100000000' },
+        { "^1.2", '00000000000001001101101100000000', '00000000000001111111111100000000' },
+        { "^1.2.x", '00000000000001001101101100000000', '00000000000001111111111100000000' },
+        { "^1.2.3", '00000000000000001101101100000000', '00000000000000001111111100000000' },
+        { "^0", '11111110000000000000000000000000', '11111110000000000000000000000000' },
+        { "^0.x", '11111110000000000000000000000000', '11111110000000000000000000000000' },
+        { "^0.0", '11100000000000000000000000000000', '11100000000000000000000000000000' },
+        { "^0.0.x", '11100000000000000000000000000000', '11100000000000000000000000000000' },
+        { "^0.0.1", '01000000000000000000000000000000', '01000000000000000000000000000000' },
+        { "^0.1", '00011000000000000000000000000000', '00011000000000000000000000000000' },
+        { "^0.1.x", '00011000000000000000000000000000', '00011000000000000000000000000000' },
+        { "^0.1.5", '00001000000000000000000000000000', '00001000000000000000000000000000' },
+        { "^0.0.1-beta", '01000000000000000000000000000000', '01000000000000000000000000000000' },
+        { "^1.2.3-beta.2", '00000000000000111101101100000000', '00000000000000111111111100000000' },
+        { "^0.2.3-beta", '00000010000000000000000000000000', '00000010000000000000000000000000' },
+        { "^ 1.2", '00000000000001001101101100000000', '00000000000001111111111100000000' },
+        { "^x", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "^*", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "^", 'E', 'E' },
+        { "1.2.3 - 2.3.4", '00000000000000001101101100110000', '00000000000000111111111111110000' },
+        { "1.2 - 2.3.4", '00000000000001001101101100110000', '00000000000001111111111111110000' },
+        { "1.2.3 - 2.3", '00000000000000001101101100111000', '00000000000000111111111111111000' },
+        { "1.2.3 - 2", '00000000000000001101101100111000', '00000000000000111111111111111000' },
+        { "1 - 2", '00000000000111001101101100111000', '00000001111111111111111111111000' },
+        { "* - 2", '11111110000111001101101100111000', '11111111111111111111111111111000' },
+        { "1.2.3 - *", '00000000000000001101101100111011', '00000000000000111111111111111111' },
+        { "1.2.3-beta.2 - 2.3.4", '00000000000000111101101100110000', '00000000000000111111111111110000' },
+        { "1.2.3 - 2.0.0-alpha", '00000000000000001101101111000000', '00000000000000111111111111000000' },
+        { "0.0.1 - 0.1.5", '01111000000000000000000000000000', '01111000000000000000000000000000' },
+        { ">=1.2.3 <2", '00000000000000001101101100000000', '00000000000000001111111100000000' },
+        { ">=1.2.3 <2.0.0", '00000000000000001101101100000000', '00000000000000001111111111000000' },
+        { ">1.2.3 <=2.3.4", '00000000000000000001101100110000', '00000000000000000011111111110000' },
+        { ">=1.0.0-alpha <1.0.0", '00000000111000000000000000000000', '00000000111000000000000000000000' },
+        { "<1.0.0-beta >=1.0.0-alpha", '00000000110000000000000000000000', '00000000110000000000000000000000' },
+        { "1.x || >=2.5.0 || 5.0.0 - 7.2.3", '00000000000111001101101100000011', '00000001111111111111111100000111' },
+        { "^1.2 || ^2", '00000000000001001101101100111000', '00000000000001111111111111111000' },
+        { "^2 ||", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "|| ^2", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "^1.0.0 || || ^3.0.0", '11111110000111001101101100111011', '11111111111111111111111111111111' },
+        { "<0.1 || >3", '11100000000000000000000000000001', '11100000000000000000000000000001' },
+        { "1.2.3 1.2.4", '00000000000000000000000000000000', '00000000000000000000000000000000' },
+        { ">=1.2.3-beta.2 <1.2.4", '00000000000000111100000000000000', '00000000000000111110000000000000' },
+        { "1..2", 'E', 'E' },
+        { ">=1.2.3-", 'E', 'E' },
+        { "^1.2.3.4", 'E', 'E' },
+        { "abc", 'E', 'E' },
+        { "~1-rc1", 'E', 'E' },
+        { ">=01.2.3", 'E', 'E' },
+        { ">>1", 'E', 'E' },
+        { "1.2.3 - ", 'E', 'E' },
+        { "x.1.2.3", 'E', 'E' },
+        { "^1.2.3-a..b", 'E', 'E' },
+        { ">=1.2.3 foo", 'E', 'E' },
+        { "1.2.3-01", 'E', 'E' },
+        { ">=", 'E', 'E' },
+        { "<", 'E', 'E' },
+        { "=", 'E', 'E' },
+        { "v", 'E', 'E' },
+        { "1.2.3 -2", 'E', 'E' },
+        { "1.2.3- 2", 'E', 'E' },
+        { ">=1.2.3+build", '00000000000000001101101100111011', '00000000000000001111111111111111' },
+        { ">=1.2.3-rc.1+b <2", '00000000000000001101101100000000', '00000000000000001111111100000000' },
+    }
+    -- In ascending precedence order where node-semver orders them; ties share a rank.
+    local SEMVER_ORDER = {
+        { "0.0.0", 0 },
+        { "1.0.0-1", 1 },
+        { "1.0.0-999", 2 },
+        { "1.0.0-1000", 3 },
+        { "1.0.0-0x1", 4 },
+        { "1.0.0-1e3", 5 },
+        { "1.0.0-a", 6 },
+        { "1.0.0-a-b", 7 },
+        { "1.0.0-alpha", 8 },
+        { "1.0.0-alpha.1", 9 },
+        { "1.0.0-alpha.beta", 10 },
+        { "1.0.0-beta", 11 },
+        { "1.0.0-beta.2", 12 },
+        { "1.0.0-beta.11", 13 },
+        { "1.0.0-rc.1", 14 },
+        { "1.0.0", 15 },
+        { "1.0.0+build", 15 },
+        { "1.9.0", 16 },
+        { "1.10.0", 17 },
+        { "2.0.0", 18 },
+    }
+
+    local S = CisSemver
+    local wrongParse = {}
+    for _, c in ipairs(SEMVER_PARSE) do
+        local parsed = S.parse(c[1])
+        if (parsed ~= nil) ~= c[2] then wrongParse[#wrongParse + 1] = ('%q'):format(c[1]) end
+    end
+    expect(#wrongParse == 0, ('semver: strict parse agrees with the SemVer 2.0.0 grammar on %d inputs: %s')
+        :format(#SEMVER_PARSE, table.concat(wrongParse, ' ')))
+
+    local wrongRange = {}
+    for _, r in ipairs(SEMVER_RANGES) do
+        for mode = 2, 3 do
+            local row, problem = {}, nil
+            for i, v in ipairs(SEMVER_VERSIONS) do
+                local res, why = S.satisfies(v, r[1], { includePrerelease = mode == 3 })
+                if res == nil then row, problem = 'E', why break end
+                row[i] = res and '1' or '0'
+            end
+            if type(row) == 'table' then row = table.concat(row) end
+            if row ~= r[mode] then
+                wrongRange[#wrongRange + 1] = ('%q%s want %s got %s (%s)'):format(r[1],
+                    mode == 3 and ' +pre' or '', r[mode], row, tostring(problem))
+            end
+        end
+    end
+    expect(#wrongRange == 0, ('semver: %d ranges x %d versions agree with node-semver, plain and with'
+        .. ' includePrerelease: %s'):format(#SEMVER_RANGES, #SEMVER_VERSIONS,
+        table.concat(wrongRange, '; ', 1, math.min(#wrongRange, 4))))
+
+    local wrongOrder = {}
+    for i = 1, #SEMVER_ORDER do
+        for j = 1, #SEMVER_ORDER do
+            local a, b = SEMVER_ORDER[i], SEMVER_ORDER[j]
+            local want = a[2] < b[2] and -1 or (a[2] > b[2] and 1 or 0)
+            if S.compare(a[1], b[1]) ~= want then
+                wrongOrder[#wrongOrder + 1] = a[1] .. ' vs ' .. b[1]
+            end
+        end
+    end
+    expect(#wrongOrder == 0, 'semver: compare orders every pair as node-semver does: '
+        .. table.concat(wrongOrder, '; ', 1, math.min(#wrongOrder, 4)))
+
+    -- Numeric identifiers are compared as NUMBERS of any size: tonumber
+    -- would call '0x1' and '1e3' numeric, and a double cannot tell the last
+    -- digit of a 20-digit id apart.
+    expect(S.compare('1.0.0-0x1', '1.0.0-2') == 1, "semver: '0x1' is alphanumeric, so it sorts above 2")
+    expect(S.compare('1.0.0-1e3', '1.0.0-999') == 1, "semver: '1e3' is alphanumeric too")
+    expect(S.compare('1.0.0-12345678901234567890', '1.0.0-12345678901234567891') == -1,
+        'semver: 20-digit numeric identifiers compare exactly')
+
+    -- loose is explicit, and is the only way the old lenient inputs get in.
+    local lv = S.parse(' v1.2 ', { loose = true })
+    expect(lv ~= nil and lv.normalized == '1.2.0', "semver: loose reads ' v1.2 ' as 1.2.0")
+    expect(S.parse('v1.2.3') == nil and S.parse('1') == nil, 'semver: strict does not')
+    expect(S.parse('1..2', { loose = true }) == nil and S.parse('.1.2.', { loose = true }) == nil,
+        "semver: '1..2' and '.1.2.' are not versions in any mode")
+    expect((S.parse('01.2.3', { loose = true }) or {}).major == 1, 'semver: loose allows a leading zero')
+    expect(S.satisfies(' v1.2.3', '^1', { loose = true }) == true and S.satisfies(' v1.2.3', '^1') == nil,
+        'semver: satisfies honours loose for the version, and is strict without it')
+
+    -- A table is validated, not trusted.
+    local fromTable = S.parse({ major = 1, minor = 2, patch = 3, prerelease = 'rc.1' })
+    expect(fromTable ~= nil and fromTable.normalized == '1.2.3-rc.1', 'semver: a version table normalises')
+    local badTables = {
+        {}, { major = 1, minor = 2 }, { major = -1, minor = 0, patch = 0 },
+        { major = 1.5, minor = 0, patch = 0 }, { major = 1, minor = 0, patch = 0, prerelease = 'a..b' },
+        { major = 1, minor = 0, patch = 0, prerelease = 7 }, { major = 0 / 0, minor = 0, patch = 0 },
+    }
+    local accepted = 0
+    for _, t in ipairs(badTables) do
+        if S.parse(t) ~= nil then accepted = accepted + 1 end
+    end
+    expect(accepted == 0, ('semver: malformed version tables are refused (%d accepted)'):format(accepted))
+    expect(S.compare({}, '1.0.0') == nil, 'semver: compare refuses a malformed table instead of comparing nil')
+
+    expect(S.best({ '1.2.3', '1.4.0', '2.0.0', '1.4.0-rc.1' }, '^1.2') == '1.4.0',
+        'semver: best picks the highest match and skips the prerelease')
+    expect(S.best({ '1.0.0', 'garbage' }, '*') == nil, 'semver: best refuses a malformed candidate')
 end
 
 io.write(('module tests: passed=%d failed=%d\n'):format(passed, failed))
