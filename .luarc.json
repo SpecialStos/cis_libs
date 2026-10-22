@@ -14,7 +14,7 @@
     "what stopped a class defined in types/ from reading as an undefined global",
     "in this repository's own files."
   ],
-  "runtime.version": "LuaJIT",
+  "runtime.version": "Lua 5.4",
   "runtime.path": [
     "?.lua",
     "?/init.lua",

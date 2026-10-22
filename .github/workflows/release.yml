@@ -1,7 +1,6 @@
-# Prepared, not triggered. Do not push a tag from an agent session.
-#
 # A tag matching v* runs the full gate and the mutation gate, builds
 # dist/cis_libs-<version>.zip, and attaches it to a *draft* GitHub release.
+# Publishing the draft is a manual step.
 
 name: release
 
@@ -9,22 +8,38 @@ on:
   push:
     tags: ['v*']
 
+# Read-only by default; the one job that creates the release asks for write.
+permissions:
+  contents: read
+
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 env:
-  RUNNER: ubuntu-24.04
   LUACHECK_VERSION: 1.2.0
 
 jobs:
   release:
     name: draft release
-    runs-on: ${{ env.RUNNER }}
+    # A literal: `runs-on` cannot read the `env` context.
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
+
+      - name: Tag must match package.json
+        # A v1.0.1 tag on a tree whose package.json still says 1.0.0 would
+        # build cis_libs-1.0.0.zip and attach it to a release called v1.0.1.
+        # docs-check (inside the full gate) already ties package.json to
+        # fxmanifest.lua and the docs; this ties the TAG to all of them.
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [ "${GITHUB_REF_NAME}" != "v${VERSION}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version v${VERSION}"
+            exit 1
+          fi
 
       - uses: actions/setup-node@v7
         with:
@@ -55,6 +70,7 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           ZIP="dist/cis_libs-${VERSION}.zip"
           test -f "$ZIP"
+          sha256sum "$ZIP"
           gh release create "${GITHUB_REF_NAME}" "$ZIP" \
             --draft \
             --title "cis_libs ${VERSION}" \
