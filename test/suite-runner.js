@@ -121,6 +121,9 @@ const SUITES = {
   'test/contracts.lua': [...SHARED, ...ALGO_UTIL],
   'test/modules.lua': [...SHARED, ...ALGO_UTIL],
   'test/client.lua': [...SHARED, ...ALGO_UTIL],
+  // The NUI layer needs the shared plumbing (diagnostics, CisOwned,
+  // CisCallable) and nothing else; it loads its own files per test.
+  'test/interface.lua': SHARED,
   // server/logging.lua is NOT preloaded here. It was, and that is an isolation
   // finding rather than a convenience: in the shared lua_State this suite never
   // loaded it at all -- `Logging` was a global left behind by an earlier suite,

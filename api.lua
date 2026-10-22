@@ -410,6 +410,238 @@ return {
             params = { { name = 'opts', type = 'table', doc = 'handed to the ui provider unexamined (heading, rows, options)' } },
             returns = { { type = 'any, string|nil', why = 'the provider chooses the value and this library has no native dialog to invent a shape for', doc = 'whatever the provider answered, or false plus \'no ui provider\'' } }
         },
+        -- ------------------------------------------------- interface (NUI)
+        Toast = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:Toast(data). The library\'s own NUI notification; Cis.ui.notify routes here once wired. Not Notify: that export is the framework notify, a different signature',
+            realm = 'client',
+            params = { { name = 'data', type = 'table|string', doc = '{ id, title, description, type = inform|success|warning|error, icon, iconColor, duration, position, showDuration, sound = { name, set } }. A string is the description. description renders a safe markdown subset' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true once queued for the page (buffered until it loads); false plus a reason when there is no title and no description' } }
+        },
+        ProgressBar = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:ProgressBar(data)',
+            realm = 'client',
+            params = { { name = 'data', type = 'table', doc = '{ duration, label, position = bottom|middle, useWhileDead, allowRagdoll, allowCuffed, allowFalling, allowSwimming, canCancel, anim = { dict, clip, flag, blendIn, blendOut, duration, playbackRate, lockX, lockY, lockZ } or { scenario }, prop = one or a list of { model, bone, pos, rot, rotOrder }, disable = { move, car, combat, mouse, sprint } }' } },
+            returns = { { type = 'boolean, string|nil', doc = 'YIELDS. true when it ran to completion, false when cancelled (X, CancelProgress), interrupted, refused (one already running) or the caller stopped. Props and the animation are cleaned up on every exit' } }
+        },
+        ProgressCircle = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:ProgressCircle(data)',
+            realm = 'client',
+            params = { { name = 'data', type = 'table', doc = 'the ProgressBar options, drawn as a circle with a percentage' } },
+            returns = { { type = 'boolean, string|nil', doc = 'YIELDS. true on completion, false otherwise' } }
+        },
+        ProgressActive = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:ProgressActive()',
+            realm = 'client',
+            params = {},
+            returns = { { type = 'boolean', doc = 'whether a progress bar or circle is running' } }
+        },
+        CancelProgress = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:CancelProgress()',
+            realm = 'client',
+            params = {},
+            returns = { { type = 'boolean', doc = 'true when one was running and is now cancelled (its caller gets false)' } }
+        },
+        ShowTextUI = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:ShowTextUI(text, options)',
+            realm = 'client',
+            params = { { name = 'text', type = 'string', doc = 'non-empty; a safe markdown subset' }, { name = 'options', type = 'table', optional = true, doc = '{ position = right-center|left-center|top-center|bottom-center, icon, iconColor, style = default|minimal|accent|key, key }' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true once shown. One text UI at a time; last show wins; hidden when the resource that showed it stops' } }
+        },
+        HideTextUI = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:HideTextUI()',
+            realm = 'client',
+            params = {},
+            returns = { { type = 'boolean', doc = 'always true; hiding nothing is not an error' } }
+        },
+        IsTextUIOpen = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:IsTextUIOpen()',
+            realm = 'client',
+            params = {},
+            returns = { { type = 'boolean, string|nil', doc = 'whether it is shown, and its text' } }
+        },
+        AlertDialog = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:AlertDialog(data)',
+            realm = 'client',
+            params = { { name = 'data', type = 'table', doc = '{ header, content (safe markdown subset: bold, italic, code, line breaks, http(s) links), centered, cancel, size = xs|sm|md|lg|xl, labels = { confirm, cancel } }' } },
+            returns = { { type = 'string|nil, string|nil', doc = 'YIELDS. \'confirm\' or \'cancel\' (Escape is cancel). nil plus a reason when one is already open or the page has not loaded' } }
+        },
+        CloseAlertDialog = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:CloseAlertDialog()',
+            realm = 'client',
+            params = {},
+            returns = { { type = 'boolean', doc = 'true when one was open; its caller gets \'cancel\'' } }
+        },
+        InputDialog = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:InputDialog(heading, rows, options)',
+            realm = 'client',
+            params = { { name = 'heading', type = 'string', doc = 'the dialog title' }, { name = 'rows', type = 'table', doc = 'a list of rows: { type = input|number|checkbox|select|multi-select|slider|color|date|date-range|time|textarea, label, description, placeholder, icon, required, disabled, default, min, max, step, precision, options, maxSelectedValues, password, autosize }, or a plain string for a text input' }, { name = 'options', type = 'table', optional = true, doc = '{ allowCancel = true, size, labels = { confirm, cancel } }' } },
+            returns = { { type = 'table|nil, string|nil', doc = 'YIELDS. One value per row (nil for an empty optional field; date is YYYY-MM-DD, date-range a two-string list, time HH:MM, color #rrggbb), or nil on cancel. Values are checked against the rows before they are returned' } }
+        },
+        CloseInputDialog = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:CloseInputDialog()',
+            realm = 'client',
+            params = {},
+            returns = { { type = 'boolean', doc = 'true when one was open; its caller gets nil' } }
+        },
+        RegisterContext = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:RegisterContext(context)',
+            realm = 'client',
+            params = { { name = 'context', type = 'table', doc = 'one context or a list: { id, title, menu (parent id), canClose, onExit, onBack, options = { { title, description, icon, iconColor, arrow, disabled, readOnly, progress, colorScheme, metadata, image, menu, onSelect, event, serverEvent, args } } }. serverEvent is fired by THIS CLIENT with TriggerServerEvent(name, args): the server handler must validate it like any client event' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true once registered. Owned by the calling resource and removed when it stops' } }
+        },
+        ShowContext = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:ShowContext(id)',
+            realm = 'client',
+            params = { { name = 'id', type = 'string', doc = 'a registered context id' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true once shown; false plus a reason for an unknown id or before the page has loaded' } }
+        },
+        HideContext = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:HideContext(onExit)',
+            realm = 'client',
+            params = { { name = 'onExit', type = 'boolean', optional = true, doc = 'true runs the menu onExit' } },
+            returns = { { type = 'boolean', doc = 'true when one was open' } }
+        },
+        GetOpenContextMenu = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:GetOpenContextMenu()',
+            realm = 'client',
+            params = {},
+            returns = { { type = 'string|nil', doc = 'the id of the open context menu' } }
+        },
+        RegisterMenu = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:RegisterMenu(data, cb)',
+            realm = 'client',
+            params = { { name = 'data', type = 'table', doc = '{ id, title, position = top-left|top-right|bottom-left|bottom-right, options = { { label, description, icon, iconColor, values, defaultIndex, checked, progress, colorScheme, args, close } }, onSelected, onSideScroll, onCheck, onClose, disableInput, canClose }' }, { name = 'cb', type = 'function', optional = true, doc = 'called (selected, scrollIndex, args) when an option is confirmed with Enter' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true once registered. Owned by the calling resource and removed when it stops' } }
+        },
+        ShowMenu = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:ShowMenu(id, startIndex)',
+            realm = 'client',
+            params = { { name = 'id', type = 'string', doc = 'a registered menu id' }, { name = 'startIndex', type = 'integer', optional = true, doc = 'the option selected first' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true once shown. Keyboard-driven (arrows, Enter, Backspace/Escape); the player keeps control unless disableInput' } }
+        },
+        HideMenu = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:HideMenu(onExit)',
+            realm = 'client',
+            params = { { name = 'onExit', type = 'boolean', optional = true, doc = 'true runs the menu onClose' } },
+            returns = { { type = 'boolean', doc = 'true when one was open' } }
+        },
+        GetOpenMenu = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:GetOpenMenu()',
+            realm = 'client',
+            params = {},
+            returns = { { type = 'string|nil', doc = 'the id of the open list menu' } }
+        },
+        SetMenuOptions = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:SetMenuOptions(id, options, index)',
+            realm = 'client',
+            params = { { name = 'id', type = 'string', doc = 'a registered menu id' }, { name = 'options', type = 'table', doc = 'the full option list, or one option when index is given' }, { name = 'index', type = 'integer', optional = true, doc = 'replace (or append, one past the end) this option only' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true once replaced; an open menu is redrawn' } }
+        },
+        AddRadialItem = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:AddRadialItem(data)',
+            realm = 'client',
+            params = { { name = 'data', type = 'table', doc = 'one item or a list: { id, label, icon, iconColor, menu (a RegisterRadial id), onSelect, keepOpen }. onSelect is called (menuId, index)' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true once added. The radial key (default Z) is registered with the first item' } }
+        },
+        RemoveRadialItem = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:RemoveRadialItem(id)',
+            realm = 'client',
+            params = { { name = 'id', type = 'string', doc = 'the item id' } },
+            returns = { { type = 'boolean', doc = 'true when it existed' } }
+        },
+        ClearRadialItems = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:ClearRadialItems()',
+            realm = 'client',
+            params = {},
+            returns = { { type = 'boolean', doc = 'always true; removes every global item' } }
+        },
+        RegisterRadial = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:RegisterRadial(radial)',
+            realm = 'client',
+            params = { { name = 'radial', type = 'table', doc = '{ id, items } -- a submenu opened by an item whose menu is this id' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true once registered' } }
+        },
+        HideRadial = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:HideRadial()',
+            realm = 'client',
+            params = {},
+            returns = { { type = 'boolean', doc = 'true when it was open' } }
+        },
+        DisableRadial = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:DisableRadial(state)',
+            realm = 'client',
+            params = { { name = 'state', type = 'boolean', doc = 'true (default) stops the key opening the menu and closes it; false allows it again' } },
+            returns = { { type = 'boolean', doc = 'always true' } }
+        },
+        SkillCheck = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:SkillCheck(difficulty, inputs)',
+            realm = 'client',
+            params = { { name = 'difficulty', type = 'string|table', doc = '\'easy\' | \'medium\' | \'hard\', { areaSize, speedMultiplier }, or a list of those (one round each)' }, { name = 'inputs', type = 'table', optional = true, doc = 'key names to pick from per round (e, q, r, f, g, w, a, s, d, 1-4); default { e }' } },
+            returns = { { type = 'boolean, string|nil', doc = 'YIELDS. true when every round was hit; false on a miss, a wrong key, CancelSkillCheck, the caller stopping, or a refusal' } }
+        },
+        SkillCheckActive = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:SkillCheckActive()',
+            realm = 'client',
+            params = {},
+            returns = { { type = 'boolean', doc = 'whether a skill check is running' } }
+        },
+        CancelSkillCheck = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:CancelSkillCheck()',
+            realm = 'client',
+            params = {},
+            returns = { { type = 'boolean', doc = 'true when one was running; its caller gets false' } }
+        },
+        SetUiTheme = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:SetUiTheme(data)',
+            realm = 'client',
+            params = { { name = 'data', type = 'table', doc = '{ accent, radius (px), fontScale (0.75-1.5), mode = dark|light|auto, reducedMotion, colors = { token = colour }, notifyPosition, textUIPosition, progressPosition, menuPosition, notifyMax }. Merged into the current theme' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true once applied; false plus a reason for a value that is not a colour, a number in range or a known position' } }
+        },
+        SetUiLocale = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:SetUiLocale(strings)',
+            realm = 'client',
+            params = { { name = 'strings', type = 'table', doc = 'built-in labels by key (confirm, cancel, close, back, required, min, max, ...); unknown keys are ignored. English by default' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true once sent' } }
+        },
+        NotifyPlayer = {
+            since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
+            use = 'exports.cis_libs:NotifyPlayer(src, data)',
+            realm = 'server',
+            params = { { name = 'src', type = 'integer', doc = 'a player server id, or -1 for everyone' }, { name = 'data', type = 'table|string', doc = 'the Notify fields (no sound). A string is the description' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true once sent; false plus a reason for an unknown player or an empty notification' } }
+        },
         ServerZoneBox = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.zones.server.box(center, size, opts)',
@@ -2176,6 +2408,10 @@ return {
         ['cis_libs:playerLoaded'] = {
             since = '1.0.0',
             payload = 'server to client: (job), fired by PublishPlayerLoaded',
+        },
+        ['cis_libs:client:uiNotify'] = {
+            since = '1.1.0',
+            payload = 'server to client: (data) a Notify table, sent by NotifyPlayer. Accepted only from the network: a local TriggerEvent of it is ignored',
         },
         ['chat:addSuggestion'] = {
             since = '1.0.0',

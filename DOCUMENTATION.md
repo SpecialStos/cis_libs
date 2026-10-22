@@ -164,8 +164,10 @@ Generated from `api.lua`. Do not edit between the markers.
 |---|---|---|---|---|
 | `AddDoorGroup` | both | `()` | 1.0.0 | no proxy equivalent; exports["cis_libs"]:AddDoorGroup(groupData) |
 | `AddDoorToSystem` | both | `()` | 1.0.0 | Cis.doors.add(doorData) |
+| `AddRadialItem` | client | `(data)` | 1.1.0 | exports.cis_libs:AddRadialItem(data) |
 | `AddSyncDespawnHandler` | client | `(fn)` | 1.0.0 | Cis.sync.onDespawn(fn) unstable |
 | `AddSyncSpawnHandler` | client | `(fn)` | 1.0.0 | Cis.sync.onSpawn(fn) unstable |
+| `AlertDialog` | client | `(data)` | 1.1.0 | exports.cis_libs:AlertDialog(data) |
 | `AnimDict` | client | `(name, timeout?)` | 1.0.0 | Cis.streaming.animDict(name, timeout) |
 | `AnimSet` | client | `(name, timeout?)` | 1.0.0 | Cis.streaming.animSet(name, timeout) |
 | `AudioBank` | client | `(name, timeout?)` | 1.0.0 | Cis.streaming.audioBank(name, timeout) |
@@ -175,6 +177,11 @@ Generated from `api.lua`. Do not edit between the markers.
 | `BreakDoor` | server | `(identifier)` | 1.0.0 | no proxy equivalent; exports["cis_libs"]:BreakDoor(identifier) |
 | `CallCallback` | both | `()` | 1.0.0 | Cis.callback.call(name, cb, ...) |
 | `CallCallbackClient` | server | `(name, target, cb?, ...)` | 1.0.0 | Cis.callback.callClient(src, name, cb, ...) |
+| `CancelProgress` | client | `()` | 1.1.0 | exports.cis_libs:CancelProgress() |
+| `CancelSkillCheck` | client | `()` | 1.1.0 | exports.cis_libs:CancelSkillCheck() |
+| `ClearRadialItems` | client | `()` | 1.1.0 | exports.cis_libs:ClearRadialItems() |
+| `CloseAlertDialog` | client | `()` | 1.1.0 | exports.cis_libs:CloseAlertDialog() |
+| `CloseInputDialog` | client | `()` | 1.1.0 | exports.cis_libs:CloseInputDialog() |
 | `ClosestObject` | client | `(coords, maxDistance, filter)` | 1.0.0 | Cis.world.closestObject(coords, maxDistance, filter) |
 | `ClosestPed` | client | `(coords, maxDistance, filter)` | 1.0.0 | Cis.world.closestPed(coords, maxDistance, filter) |
 | `ClosestPlayer` | client | `(coords, maxDistance, filter)` | 1.0.0 | Cis.world.closestPlayer(coords, maxDistance, filter) |
@@ -196,6 +203,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `DebugLog` | client | `(message)` | 1.0.0 | Cis.log.debug(message) |
 | `DetectDatabase` | both | `(configured?)` | 1.0.0 | Asks the server which driver is running. Returns { name, resource, version, how, reason } |
 | `DetectFramework` | both | `()` | 1.0.0 | Asks the server what framework it is actually running. Returns { name, resource, version, how, reason } |
+| `DisableRadial` | client | `(state)` | 1.1.0 | exports.cis_libs:DisableRadial(state) |
 | `DrawText3D` | client | `(x, y, z, text, settings?)` | 1.0.0 | no proxy equivalent |
 | `FixDoor` | server | `(identifier)` | 1.0.0 | no proxy equivalent; exports["cis_libs"]:FixDoor(identifier) |
 | `GetAllDoorData` | server | `()` | 1.0.0 | no proxy equivalent; the full door and group tables |
@@ -226,6 +234,8 @@ Generated from `api.lua`. Do not edit between the markers.
 | `GetLogging` | server | `()` | 1.0.0 | Cis.log.debug / info / warn / error |
 | `GetNormalizedPlayer` | server | `(src)` | 1.0.0 | Cis.framework.player(src) |
 | `GetOnlineJobCount` | server | `(jobs)` | 1.0.0 | no proxy equivalent; the callback cis_libs:getOnlineJobCount |
+| `GetOpenContextMenu` | client | `()` | 1.1.0 | exports.cis_libs:GetOpenContextMenu() |
+| `GetOpenMenu` | client | `()` | 1.1.0 | exports.cis_libs:GetOpenMenu() |
 | `GetPlayerVehicleSeat` | client | `()` | 1.0.0 | Cis.player.vehicle(), second return value |
 | `GetPointsDebug` | client | `()` | 1.0.0 | no proxy equivalent; the live debug record for the point pass |
 | `GetSelfCheck` | server | `()` | 1.0.0 | The boot self-check as data: { ok, problems = { { code, message, fix } } }. Each problem names the change that resolves it |
@@ -234,15 +244,21 @@ Generated from `api.lua`. Do not edit between the markers.
 | `GetTableSize` | client | `(t)` | 1.0.0 | no proxy equivalent |
 | `GetVehicleProperties` | client | `(vehicle)` | 1.0.0 | no proxy equivalent; the full property snapshot used by sync |
 | `GetZoneDebug` | client | `()` | 1.0.0 | no proxy equivalent; the last grid pass cost in milliseconds |
+| `HideContext` | client | `(onExit?)` | 1.1.0 | exports.cis_libs:HideContext(onExit) |
+| `HideMenu` | client | `(onExit?)` | 1.1.0 | exports.cis_libs:HideMenu(onExit) |
+| `HideRadial` | client | `()` | 1.1.0 | exports.cis_libs:HideRadial() |
+| `HideTextUI` | client | `()` | 1.1.0 | exports.cis_libs:HideTextUI() |
 | `HookOn` | both | `(name, fn, opts?)` | 1.0.0 | Cis.hooks.on(name, fn, opts) |
 | `HookRemove` | both | `(id)` | 1.0.0 | Cis.hooks.remove(id) |
 | `HookRun` | both | `(name, payload?)` | 1.0.0 | Cis.hooks.run(name, payload) |
+| `InputDialog` | client | `(heading, rows, options?)` | 1.1.0 | exports.cis_libs:InputDialog(heading, rows, options) |
 | `InventoryAdd` | server | `(src, item, amount, metadata?)` | 1.0.0 | Cis.inventory.add(src, item, amount, metadata) |
 | `InventoryCount` | both | `()` | 1.0.0 | Cis.inventory.count(item) on the client, Cis.inventory.count(src, item) on the server |
 | `InventoryHas` | both | `()` | 1.0.0 | Cis.inventory.has(...) |
 | `InventoryRemove` | server | `(src, item, amount)` | 1.0.0 | Cis.inventory.remove(src, item, amount) |
 | `InvokingAllowed` | server | `()` | 1.0.0 | no proxy equivalent; ask before mutating. This is the supported way to avoid a refusal |
 | `IsReady` | client | `()` | 1.0.0 | Cis.isReady, or Cis.ready(cb) |
+| `IsTextUIOpen` | client | `()` | 1.1.0 | exports.cis_libs:IsTextUIOpen() |
 | `KeybindAdd` | client | `(options)` | 1.0.0 | Cis.keybind.add({ name, description, defaultKey, onPress, onRelease }) |
 | `Keybinds` | client | `()` | 1.0.0 | no proxy equivalent; every binding this library registered |
 | `LockDoors` | server | `(identifier)` | 1.0.0 | Cis.doors.setState(identifier, true) |
@@ -257,7 +273,11 @@ Generated from `api.lua`. Do not edit between the markers.
 | `NearbyVehicles` | client | `(coords, maxDistance, filter)` | 1.0.0 | Cis.world.nearbyVehicles(coords, maxDistance, filter) |
 | `Notify` | both | `()` | 1.0.0 | Cis.framework.notify(...). With a framework provider registered the call passes through to it untouched; with none, cis_libs delivers it itself through the same guards NotifyClient uses, so a server with no framework does not go mute and does not become the unbounded path. The two-argument client form sends `kind` in the message slot; this is pinned as a known defect in test/contracts.lua and is a MAJOR change to correct |
 | `NotifyClient` | server | `(src, message, kind?)` | 1.0.0 | Called by a product to show a notification to one client, without hardcoding the event name owned by this library. Answers `false, reason` for a src that is not a connected player, truncates a message past 512 characters, and allows 10 a second per (src, calling resource) |
+| `NotifyPlayer` | server | `(src, data)` | 1.1.0 | exports.cis_libs:NotifyPlayer(src, data) |
 | `OnPlayerCache` | client | `(key, cb)` | 1.0.0 | Cis.player.on(key, cb). The cb cannot cross the boundary; use a net event |
+| `ProgressActive` | client | `()` | 1.1.0 | exports.cis_libs:ProgressActive() |
+| `ProgressBar` | client | `(data)` | 1.1.0 | exports.cis_libs:ProgressBar(data) |
+| `ProgressCircle` | client | `(data)` | 1.1.0 | exports.cis_libs:ProgressCircle(data) |
 | `Ptfx` | client | `(name, timeout?)` | 1.0.0 | Cis.streaming.ptfx(name, timeout) |
 | `PublishInventory` | server | `(src)` | 1.0.0 | Called by the inventory service. Pushes cis_libs:client:inventory to one player |
 | `PublishJobUpdate` | server | `(job, src?)` | 1.0.0 | Called by cis_core when a player changes job. Fires cis_libs:jobUpdated, so the event name stays owned by this library |
@@ -268,8 +288,12 @@ Generated from `api.lua`. Do not edit between the markers.
 | `RaycastFromCoords` | client | `(origin, target, flags?, ignore?, timeoutMs?)` | 1.0.0 | Cis.raycast.fromCoords(origin, target, flags, ignore, timeoutMs) |
 | `RegisterCallback` | both | `()` | 1.0.0 | Cis.callback.register(name, handler) |
 | `RegisterCapability` | both | `()` | 1.0.0 | Called by cis_core, cis_bridge and cis_keys with (slot, "resource:Export"). First registration wins |
+| `RegisterContext` | client | `(context)` | 1.1.0 | exports.cis_libs:RegisterContext(context) |
+| `RegisterMenu` | client | `(data, cb?)` | 1.1.0 | exports.cis_libs:RegisterMenu(data, cb) |
+| `RegisterRadial` | client | `(radial)` | 1.1.0 | exports.cis_libs:RegisterRadial(radial) |
 | `RemoveNearWatcher` | client | `(id)` | 1.0.0 | Cis.player.nearStop(id); the id WatchNear returns as its second value |
 | `RemovePoint` | client | `(id)` | 1.0.0 | Cis.points.remove(id) |
+| `RemoveRadialItem` | client | `(id)` | 1.1.0 | exports.cis_libs:RemoveRadialItem(id) |
 | `RemoveStatebagHandler` | both | `(cookie)` | 1.0.0 | Cis.statebag.remove(cookie) |
 | `RemoveTarget` | client | `(name, isPed?)` | 1.0.0 | Cis.target.remove(name, isPed) |
 | `RemoveZone` | client | `(name)` | 1.0.0 | Cis.zones.remove(name) |
@@ -290,7 +314,15 @@ Generated from `api.lua`. Do not edit between the markers.
 | `ServerZoneSphere` | server | `(center, radius, opts?)` | 1.0.0 | Cis.zones.server.sphere(center, radius, opts) |
 | `SetConfig` | server | `(config?, security?, discord?)` | 1.0.0 | Called by cis_core at boot with (config, security, discord). First registration wins; a second is refused and named. `security.AllowAnyResource` is the 1.0.0 opt-in escape hatch: with it true an EMPTY AuthorizedResources stops meaning restrictive, and the console warns on every boot |
 | `SetDropPlayerHandler` | server | `(provider)` | 1.0.0 | Called by whoever ships the config, with "resource:Export". A FUNCTION cannot be sent across the boundary, which is why this exists |
+| `SetMenuOptions` | client | `(id, options, index?)` | 1.1.0 | exports.cis_libs:SetMenuOptions(id, options, index) |
+| `SetUiLocale` | client | `(strings)` | 1.1.0 | exports.cis_libs:SetUiLocale(strings) |
+| `SetUiTheme` | client | `(data)` | 1.1.0 | exports.cis_libs:SetUiTheme(data) |
 | `SetVehicleProperties` | client | `(vehicle, props, fixVehicle?)` | 1.0.0 | no proxy equivalent; diffs against the last applied snapshot |
+| `ShowContext` | client | `(id)` | 1.1.0 | exports.cis_libs:ShowContext(id) |
+| `ShowMenu` | client | `(id, startIndex?)` | 1.1.0 | exports.cis_libs:ShowMenu(id, startIndex) |
+| `ShowTextUI` | client | `(text, options?)` | 1.1.0 | exports.cis_libs:ShowTextUI(text, options) |
+| `SkillCheck` | client | `(difficulty, inputs?)` | 1.1.0 | exports.cis_libs:SkillCheck(difficulty, inputs) |
+| `SkillCheckActive` | client | `()` | 1.1.0 | exports.cis_libs:SkillCheckActive() |
 | `StatebagOnEntity` | both | `(key, handler, timeoutMs?)` | 1.0.0 | Cis.statebag.onEntity(key, handler, timeoutMs) |
 | `StatebagOnPlayer` | both | `(key, handler, timeoutMs?)` | 1.0.0 | Cis.statebag.onPlayer(key, handler, timeoutMs) |
 | `SyncClear` | server | `()` | 1.0.0 | Cis.sync.clear() |
@@ -300,6 +332,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `TargetAvailable` | client | `()` | 1.0.0 | no proxy equivalent; true when a configured target provider is started |
 | `TargetExists` | client | `(name)` | 1.0.0 | Cis.target.exists(name) |
 | `TextureDict` | client | `(name, timeout?)` | 1.0.0 | Cis.streaming.textureDict(name, timeout) |
+| `Toast` | client | `(data)` | 1.1.0 | exports.cis_libs:Toast(data). The library's own NUI notification; Cis.ui.notify routes here once wired. Not Notify: that export is the framework notify, a different signature |
 | `TriggerLibCallback` | client | `(name, cb?, ...)` | 1.0.0 | the client-to-server round trip whose callback receives only the results |
 | `TryAwaitCallback` | both | `()` | 1.0.0 | Cis.callback.tryAwait(name, ...) -> ok, ... on success; false, reason on a refusal |
 | `UiConfirm` | client | `(opts)` | 1.0.0 | Cis.ui.confirm(opts). Forward only -- no native dialog. RETURNS, does not take a callback |
@@ -330,6 +363,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `cis_libs:client:showNotification` | 1.0.0 | server to client: (message, kind) |
 | `cis_libs:client:syncRemove` | 1.0.0 | server to client: (key) despawn a synced entity. The same namespaced key the upsert carried. |
 | `cis_libs:client:syncUpsert` | 1.0.0 | server to client: (record) for a nearby synced entity. The record's identity is `record.key` -- the caller's id namespaced by the owning resource -- and that is what a client keys its entity on. `record.id` is the caller's own id, carried for reference. |
+| `cis_libs:client:uiNotify` | 1.1.0 | server to client: (data) a Notify table, sent by NotifyPlayer. Accepted only from the network: a local TriggerEvent of it is ignored |
 | `cis_libs:jobUpdated` | 1.0.0 | server to client: ({ name, grade }), fired by PublishJobUpdate |
 | `cis_libs:playerLoaded` | 1.0.0 | server to client: (job), fired by PublishPlayerLoaded |
 | `cis_libs:server:getData` | 1.0.0 | client to server: no arguments, requests the config payload |

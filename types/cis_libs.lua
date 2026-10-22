@@ -481,7 +481,7 @@ local CisZoneDebug = {}
 ---@field rotation? number an alias for the box heading
 local CisZoneOptions = {}
 
--- ================================================= RAW EXPORTS (155)
+-- ================================================= RAW EXPORTS (188)
 
 ---@overload fun(...)
   ---@param groupData table #the group record handed to the provider's addGroup
@@ -505,6 +505,12 @@ function AddDoorGroup.client(data) end
 function AddDoorToSystem.server(newDoorData, internal) end
 function AddDoorToSystem.client(data) end
 
+--- exports.cis_libs:AddRadialItem(data)
+---@param data table #one item or a list: { id, label, icon, iconColor, menu (a RegisterRadial id), onSelect, keepOpen }. onSelect is called (menuId, index)
+---@return boolean, string|nil #true once added. The radial key (default Z) is registered with the first item
+--- realm: client
+function AddRadialItem(data) end
+
 --- Cis.sync.onDespawn(fn)
 ---@param fn function #a non-function is refused rather than stored
 ---@return boolean, string #true alone on success. The handler is called pcall'd as (key) and only when this client actually held something
@@ -516,6 +522,12 @@ function AddSyncDespawnHandler(fn) end
 ---@return boolean, string #true alone on success. Never a handle: there is no deregister. The handler is called pcall'd as (key, record, entity), and fires only after the generation check, so an entity created and immediately deleted never announces itself
 --- realm: client
 function AddSyncSpawnHandler(fn) end
+
+--- exports.cis_libs:AlertDialog(data)
+---@param data table #{ header, content (safe markdown subset: bold, italic, code, line breaks, http(s) links), centered, cancel, size = xs|sm|md|lg|xl, labels = { confirm, cancel } }
+---@return string|nil, string|nil #YIELDS. 'confirm' or 'cancel' (Escape is cancel). nil plus a reason when one is already open or the page has not loaded
+--- realm: client
+function AlertDialog(data) end
 
 --- Cis.streaming.animDict(name, timeout)
 ---@param name string #the dictionary NAME, not a hash -- RequestAnimDict takes a char*, and a hash is a type error the game answers by never loading
@@ -604,6 +616,31 @@ function CallCallback.client(name, cb, ...) end
 ---@return integer #the pending key. A bad target returns NOTHING and instead calls cb(false, reason)
 --- realm: server
 function CallCallbackClient(name, target, cb, ...) end
+
+--- exports.cis_libs:CancelProgress()
+---@return boolean #true when one was running and is now cancelled (its caller gets false)
+--- realm: client
+function CancelProgress() end
+
+--- exports.cis_libs:CancelSkillCheck()
+---@return boolean #true when one was running; its caller gets false
+--- realm: client
+function CancelSkillCheck() end
+
+--- exports.cis_libs:ClearRadialItems()
+---@return boolean #always true; removes every global item
+--- realm: client
+function ClearRadialItems() end
+
+--- exports.cis_libs:CloseAlertDialog()
+---@return boolean #true when one was open; its caller gets 'cancel'
+--- realm: client
+function CloseAlertDialog() end
+
+--- exports.cis_libs:CloseInputDialog()
+---@return boolean #true when one was open; its caller gets nil
+--- realm: client
+function CloseInputDialog() end
 
 --- Cis.world.closestObject(coords, maxDistance, filter)
 ---@param coords vector3|table #the point to measure from. Refused by name when absent, never defaulted -- the origin is a real place and a zone that is really at (0,0) is a bug report about the wrong zone
@@ -772,6 +809,12 @@ function DetectDatabase.client(configured) end
 ---@overload
 function DetectFramework.server(configured, custom) end
 function DetectFramework.client(configured, custom) end
+
+--- exports.cis_libs:DisableRadial(state)
+---@param state boolean #true (default) stops the key opening the menu and closes it; false allows it again
+---@return boolean #always true
+--- realm: client
+function DisableRadial(state) end
 
 --- no proxy equivalent
 ---@param x number #world X
@@ -956,6 +999,16 @@ function GetNormalizedPlayer(src) end
 --- realm: server
 function GetOnlineJobCount(jobs) end
 
+--- exports.cis_libs:GetOpenContextMenu()
+---@return string|nil #the id of the open context menu
+--- realm: client
+function GetOpenContextMenu() end
+
+--- exports.cis_libs:GetOpenMenu()
+---@return string|nil #the id of the open list menu
+--- realm: client
+function GetOpenMenu() end
+
 --- Cis.player.vehicle(), second return value
 ---@return integer|nil #the seat, -1 for the driver; nil when on foot or the seat cannot be resolved
 --- realm: client
@@ -999,6 +1052,28 @@ function GetVehicleProperties(vehicle) end
 --- realm: client
 function GetZoneDebug() end
 
+--- exports.cis_libs:HideContext(onExit)
+---@param onExit? boolean #true runs the menu onExit
+---@return boolean #true when one was open
+--- realm: client
+function HideContext(onExit) end
+
+--- exports.cis_libs:HideMenu(onExit)
+---@param onExit? boolean #true runs the menu onClose
+---@return boolean #true when one was open
+--- realm: client
+function HideMenu(onExit) end
+
+--- exports.cis_libs:HideRadial()
+---@return boolean #true when it was open
+--- realm: client
+function HideRadial() end
+
+--- exports.cis_libs:HideTextUI()
+---@return boolean #always true; hiding nothing is not an error
+--- realm: client
+function HideTextUI() end
+
 --- Cis.hooks.on(name, fn, opts)
 ---@param name string #the hook name
 ---@param fn function|string #a function in this VM, or resource:Export. A function SENT from a consumer is dropped
@@ -1020,6 +1095,14 @@ function HookRemove(id) end
 ---@return boolean, string|nil, string|nil #true, or false plus reason plus the resource that vetoed. An error is a veto
 --- realm: both
 function HookRun(name, payload) end
+
+--- exports.cis_libs:InputDialog(heading, rows, options)
+---@param heading string #the dialog title
+---@param rows table #a list of rows: { type = input|number|checkbox|select|multi-select|slider|color|date|date-range|time|textarea, label, description, placeholder, icon, required, disabled, default, min, max, step, precision, options, maxSelectedValues, password, autosize }, or a plain string for a text input
+---@param options? table #{ allowCancel = true, size, labels = { confirm, cancel } }
+---@return table|nil, string|nil #YIELDS. One value per row (nil for an empty optional field; date is YYYY-MM-DD, date-range a two-string list, time HH:MM, color #rrggbb), or nil on cancel. Values are checked against the rows before they are returned
+--- realm: client
+function InputDialog(heading, rows, options) end
 
 --- Cis.inventory.add(src, item, amount, metadata)
 ---@param src integer #the player id
@@ -1072,6 +1155,11 @@ function InvokingAllowed() end
 ---@return boolean #strictly boolean and never blocking. FAILED and NOT-YET both read false, so it is not a failure test
 --- realm: client
 function IsReady() end
+
+--- exports.cis_libs:IsTextUIOpen()
+---@return boolean, string|nil #whether it is shown, and its text
+--- realm: client
+function IsTextUIOpen() end
 
 --- Cis.keybind.add({ name, description, defaultKey, onPress, onRelease })
 ---@param options CisKeybindOptions #name is REQUIRED and validated; onPress and onRelease are FUNCTIONS and are dropped across the exports boundary, so a consumer binding does nothing until that is understood
@@ -1202,12 +1290,36 @@ function Notify.client(message, kind) end
 --- realm: server
 function NotifyClient(src, message, kind) end
 
+--- exports.cis_libs:NotifyPlayer(src, data)
+---@param src integer #a player server id, or -1 for everyone
+---@param data table|string #the Notify fields (no sound). A string is the description
+---@return boolean, string|nil #true once sent; false plus a reason for an unknown player or an empty notification
+--- realm: server
+function NotifyPlayer(src, data) end
+
 --- Cis.player.on(key, cb). The cb cannot cross the boundary; use a net event
 ---@param key string #a listener key: ped, vehicle, seat, weapon, armed or aiming. NEVER type-checked here, and the same file lists the keys
 ---@param cb function #a non-function returns immediately with no subscription at all
 ---@return function|nil #the unsubscribe closure, in-realm only. A LISTENER ARGUMENT IS DROPPED across the boundary -- the teardown arrives and the listener never fires -- so gate on your own flag and drop it in onResourceStop
 --- realm: client
 function OnPlayerCache(key, cb) end
+
+--- exports.cis_libs:ProgressActive()
+---@return boolean #whether a progress bar or circle is running
+--- realm: client
+function ProgressActive() end
+
+--- exports.cis_libs:ProgressBar(data)
+---@param data table #{ duration, label, position = bottom|middle, useWhileDead, allowRagdoll, allowCuffed, allowFalling, allowSwimming, canCancel, anim = { dict, clip, flag, blendIn, blendOut, duration, playbackRate, lockX, lockY, lockZ } or { scenario }, prop = one or a list of { model, bone, pos, rot, rotOrder }, disable = { move, car, combat, mouse, sprint } }
+---@return boolean, string|nil #YIELDS. true when it ran to completion, false when cancelled (X, CancelProgress), interrupted, refused (one already running) or the caller stopped. Props and the animation are cleaned up on every exit
+--- realm: client
+function ProgressBar(data) end
+
+--- exports.cis_libs:ProgressCircle(data)
+---@param data table #the ProgressBar options, drawn as a circle with a percentage
+---@return boolean, string|nil #YIELDS. true on completion, false otherwise
+--- realm: client
+function ProgressCircle(data) end
 
 --- Cis.streaming.ptfx(name, timeout)
 ---@param name string #the effect name
@@ -1297,6 +1409,25 @@ function RegisterCallback.client(name, fn) end
 function RegisterCapability.server(slot, provider, contract) end
 function RegisterCapability.client(slot, provider, contract) end
 
+--- exports.cis_libs:RegisterContext(context)
+---@param context table #one context or a list: { id, title, menu (parent id), canClose, onExit, onBack, options = { { title, description, icon, iconColor, arrow, disabled, readOnly, progress, colorScheme, metadata, image, menu, onSelect, event, serverEvent, args } } }. serverEvent is fired by THIS CLIENT with TriggerServerEvent(name, args): the server handler must validate it like any client event
+---@return boolean, string|nil #true once registered. Owned by the calling resource and removed when it stops
+--- realm: client
+function RegisterContext(context) end
+
+--- exports.cis_libs:RegisterMenu(data, cb)
+---@param data table #{ id, title, position = top-left|top-right|bottom-left|bottom-right, options = { { label, description, icon, iconColor, values, defaultIndex, checked, progress, colorScheme, args, close } }, onSelected, onSideScroll, onCheck, onClose, disableInput, canClose }
+---@param cb? function #called (selected, scrollIndex, args) when an option is confirmed with Enter
+---@return boolean, string|nil #true once registered. Owned by the calling resource and removed when it stops
+--- realm: client
+function RegisterMenu(data, cb) end
+
+--- exports.cis_libs:RegisterRadial(radial)
+---@param radial table #{ id, items } -- a submenu opened by an item whose menu is this id
+---@return boolean, string|nil #true once registered
+--- realm: client
+function RegisterRadial(radial) end
+
 --- Cis.player.nearStop(id); the id WatchNear returns as its second value
 ---@param id integer #the id WatchNear returned as its second slot
 ---@return boolean, string #true on success; false plus a reason for a non-number id or an unknown one
@@ -1308,6 +1439,12 @@ function RemoveNearWatcher(id) end
 ---@return boolean #false when no point holds that id, which is a no-op and not an error. A point the player was inside fires onExit first, with the PLAYER coordinates and not the point coordinates
 --- realm: client
 function RemovePoint(id) end
+
+--- exports.cis_libs:RemoveRadialItem(id)
+---@param id string #the item id
+---@return boolean #true when it existed
+--- realm: client
+function RemoveRadialItem(id) end
 
 --- Cis.statebag.remove(cookie)
 ---@param cookie integer #the number the watcher returned
@@ -1450,6 +1587,26 @@ function SetConfig(config, security, discord) end
 --- realm: server
 function SetDropPlayerHandler(provider) end
 
+--- exports.cis_libs:SetMenuOptions(id, options, index)
+---@param id string #a registered menu id
+---@param options table #the full option list, or one option when index is given
+---@param index? integer #replace (or append, one past the end) this option only
+---@return boolean, string|nil #true once replaced; an open menu is redrawn
+--- realm: client
+function SetMenuOptions(id, options, index) end
+
+--- exports.cis_libs:SetUiLocale(strings)
+---@param strings table #built-in labels by key (confirm, cancel, close, back, required, min, max, ...); unknown keys are ignored. English by default
+---@return boolean, string|nil #true once sent
+--- realm: client
+function SetUiLocale(strings) end
+
+--- exports.cis_libs:SetUiTheme(data)
+---@param data table #{ accent, radius (px), fontScale (0.75-1.5), mode = dark|light|auto, reducedMotion, colors = { token = colour }, notifyPosition, textUIPosition, progressPosition, menuPosition, notifyMax }. Merged into the current theme
+---@return boolean, string|nil #true once applied; false plus a reason for a value that is not a colour, a number in range or a known position
+--- realm: client
+function SetUiTheme(data) end
+
 --- no proxy equivalent; diffs against the last applied snapshot
 ---@param vehicle integer #the entity handle; a non-existent entity refuses
 ---@param props table #a PARTIAL table is safe -- absent keys are left alone rather than zeroed, which is the opposite of most setters and worth knowing
@@ -1457,6 +1614,38 @@ function SetDropPlayerHandler(provider) end
 ---@return boolean #false on a dead entity or a non-table props; otherwise whether this client is allowed to modify the vehicle at all -- non-networked or locally owned
 --- realm: client
 function SetVehicleProperties(vehicle, props, fixVehicle) end
+
+--- exports.cis_libs:ShowContext(id)
+---@param id string #a registered context id
+---@return boolean, string|nil #true once shown; false plus a reason for an unknown id or before the page has loaded
+--- realm: client
+function ShowContext(id) end
+
+--- exports.cis_libs:ShowMenu(id, startIndex)
+---@param id string #a registered menu id
+---@param startIndex? integer #the option selected first
+---@return boolean, string|nil #true once shown. Keyboard-driven (arrows, Enter, Backspace/Escape); the player keeps control unless disableInput
+--- realm: client
+function ShowMenu(id, startIndex) end
+
+--- exports.cis_libs:ShowTextUI(text, options)
+---@param text string #non-empty; a safe markdown subset
+---@param options? table #{ position = right-center|left-center|top-center|bottom-center, icon, iconColor, style = default|minimal|accent|key, key }
+---@return boolean, string|nil #true once shown. One text UI at a time; last show wins; hidden when the resource that showed it stops
+--- realm: client
+function ShowTextUI(text, options) end
+
+--- exports.cis_libs:SkillCheck(difficulty, inputs)
+---@param difficulty string|table #'easy' | 'medium' | 'hard', { areaSize, speedMultiplier }, or a list of those (one round each)
+---@param inputs? table #key names to pick from per round (e, q, r, f, g, w, a, s, d, 1-4); default { e }
+---@return boolean, string|nil #YIELDS. true when every round was hit; false on a miss, a wrong key, CancelSkillCheck, the caller stopping, or a refusal
+--- realm: client
+function SkillCheck(difficulty, inputs) end
+
+--- exports.cis_libs:SkillCheckActive()
+---@return boolean #whether a skill check is running
+--- realm: client
+function SkillCheckActive() end
 
 --- Cis.statebag.onEntity(key, handler, timeoutMs)
 ---@param key string #the state key, or the * wildcard. NOT empty
@@ -1514,6 +1703,12 @@ function TargetExists(name) end
 ---@return string|nil, string|nil #the name, or nil plus a reason. The request native takes a streamed flag as its second argument and it is always true here
 --- realm: client
 function TextureDict(name, timeout) end
+
+--- exports.cis_libs:Toast(data). The library's own NUI notification; Cis.ui.notify routes here once wired. Not Notify: that export is the framework notify, a different signature
+---@param data table|string #{ id, title, description, type = inform|success|warning|error, icon, iconColor, duration, position, showDuration, sound = { name, set } }. A string is the description. description renders a safe markdown subset
+---@return boolean, string|nil #true once queued for the page (buffered until it loads); false plus a reason when there is no title and no description
+--- realm: client
+function Toast(data) end
 
 --- the client-to-server round trip whose callback receives only the results
 ---@param name string #the handler name
