@@ -1599,7 +1599,7 @@ do
     -- and its endpoint is configuration rather than a constant. Everything else
     -- reaching the network would be cis_libs phoning home.
     for _, file in ipairs(shipped) do
-        if bodies[file]:find('performHttpRequest') and file ~= 'server/version.lua' then
+        if bodies[file]:find('performhttprequest', 1, true) and file ~= 'server/version.lua' then
             fail(file, 'PerformHttpRequest outside server/version.lua')
         end
     end
