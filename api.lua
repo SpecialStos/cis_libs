@@ -1010,7 +1010,7 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.net.on(name, fn, opts) -> true when the event was bound',
             realm = 'server',
-            params = { { name = 'name', type = 'string', doc = 'the net event name, used verbatim with no prefix added' }, { name = 'fn', type = 'function|string', doc = 'a local function (cis_libs itself only) or a "resource:Export" string; anything else registers nothing' }, { name = 'opts', type = 'table', optional = true, doc = 'windowMs and maxHits default to 1000 and 8. schema, if present, is a map of field -> { type, min, max, maxLen, optional } checked against the FIRST payload table before the handler runs. Without schema nothing changes' } },
+            params = { { name = 'name', type = 'string', doc = 'the net event name, used verbatim with no prefix added' }, { name = 'fn', type = 'function|string|table', doc = 'a function -- including one passed from another resource, which arrives as a callable reference table and is released when that resource stops -- or a "resource:Export" string; anything else registers nothing' }, { name = 'opts', type = 'table', optional = true, doc = 'windowMs and maxHits default to 1000 and 8. schema, if present, is a map of field -> { type, min, max, maxLen, optional } checked against the FIRST payload table before the handler runs. Without schema nothing changes' } },
             returns = { { type = 'boolean', doc = 'true once bound -- and true says nothing about rate limiting, which happens at dispatch. false when the handler cannot be resolved, with a reason naming the resource and export' } },
         },
         SecurityReport = {

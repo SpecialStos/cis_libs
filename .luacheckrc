@@ -123,17 +123,18 @@ read_globals = {
 -- reach its neighbour through a global. That is the design, not a leak,
 -- and it is the reason these names are declared at all.
 --
--- 101 names, read out of the source by build-libglobals.js.
+-- 104 names, read out of the source by build-libglobals.js.
 globals = {
-    "CIS_DUMP_TARGET", "Cis", "CisCache", "CisCallable", "CisCommandAdd", "CisCommandList",
-    "CisCommandNames", "CisCommandParse", "CisConfigUtil", "CisCurve", "CisDefaults",
-    "CisDetect", "CisDiagnostics", "CisForgetPlayer", "CisGrid", "CisHeap", "CisHistogram",
-    "CisHooks", "CisId", "CisInterp", "CisInvokingAllowed", "CisJobCount", "CisJson",
-    "CisKeybindAdd", "CisLRU", "CisLibFailed", "CisLibReady", "CisLog", "CisLoopGuard",
-    "CisNetOn", "CisOwned", "CisPending", "CisPointsCreate", "CisPointsGetClosest",
-    "CisPointsGetDebug", "CisPointsRemove", "CisRandom", "CisRate", "CisRateBucketCount",
-    "CisRateOk", "CisRaycastCamera", "CisRaycastFromCoords", "CisReadyState",
-    "CisRegisterCallback", "CisRegistry", "CisRememberJob", "CisSecurityRebuild",
+    "CIS_DUMP_TARGET", "Cis", "CisCache", "CisCallable", "CisCallbackLimits",
+    "CisCheckNetSchema", "CisCommandAdd", "CisCommandList", "CisCommandNames",
+    "CisCommandParse", "CisConfigUtil", "CisCurve", "CisDefaults", "CisDetect",
+    "CisDiagnostics", "CisForgetPlayer", "CisGrid", "CisHeap", "CisHistogram", "CisHooks",
+    "CisId", "CisInterp", "CisInvokingAllowed", "CisJobCount", "CisJson", "CisKeybindAdd",
+    "CisLRU", "CisLibFailed", "CisLibReady", "CisLog", "CisLoopGuard", "CisNetOn",
+    "CisOwned", "CisPending", "CisPointsCreate", "CisPointsGetClosest", "CisPointsGetDebug",
+    "CisPointsRemove", "CisRandom", "CisRate", "CisRateBucketCount", "CisRateOk",
+    "CisRaycastCamera", "CisRaycastFromCoords", "CisReadyState", "CisRegisterCallback",
+    "CisRegistry", "CisRememberJob", "CisSecurityPinned", "CisSecurityRebuild",
     "CisSecurityReport", "CisSemver", "CisServerZoneBox", "CisServerZoneContains",
     "CisServerZonePlayers", "CisServerZonePoly", "CisServerZoneRemove",
     "CisServerZoneSphere", "CisSparse", "CisStatebagOnEntity", "CisStatebagOnPlayer",

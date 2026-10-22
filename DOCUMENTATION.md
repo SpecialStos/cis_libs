@@ -115,8 +115,48 @@ database probe. Mutating exports (`SyncCreate`, door writes, …) refuse every
 foreign resource until the list names it, or until `AllowAnyResource = true`
 (loud on every boot; do not ship with it on).
 
+**Server convars outrank `SetConfig`.** `SetConfig` is honoured from whichever
+resource calls it first; a convar is set in `server.cfg` before any resource
+runs. So the security posture and the limits read a convar first, and only fall
+back to what `SetConfig` supplied when that convar is unset or blank:
+
+| Convar | Overrides | Default |
+|---|---|---|
+| `cis_authorized_resources` | `Security.AuthorizedResources` (comma or space separated) | unset |
+| `cis_allow_any_resource` | `Security.AllowAnyResource` (`true` / `false`) | unset |
+| `cis_config_supplier` | who may call `SetConfig` at all | unset: first caller |
+| `cis_cb_rate_per_name` | `Config.CallbackLimits.PerName` | 20 |
+| `cis_cb_rate_per_player` | `Config.CallbackLimits.PerPlayer` | 60 |
+| `cis_cb_window_ms` | `Config.CallbackLimits.WindowMs` | 1000 |
+| `cis_cb_max_inflight` | `Config.CallbackLimits.MaxInFlight` | 8 |
+| `cis_cb_max_string_len` | `Config.CallbackLimits.MaxStringLen` | 4096 |
+| `cis_check_version` | `Config.CheckVersion` (`true` / `false`) | unset |
+
+Precedence for the posture, in order:
+
+1. If **either** `cis_authorized_resources` or `cis_allow_any_resource` is set,
+   the convars decide and `Security.AuthorizedResources` /
+   `Security.AllowAnyResource` are **ignored whole** — `SetConfig` can neither
+   narrow nor extend them. A named list still wins over allow-any.
+2. Otherwise `Security` from `SetConfig` decides, exactly as in 1.0.0.
+3. Otherwise the built-in default: restrictive.
+
+```cfg
+set cis_authorized_resources "cis_core,cis_keys,my_resource"
+set cis_config_supplier "cis_core"
+```
+
+Use `set`, never `setr`: none of these may reach a client. The manifest
+declares them under a `convar_category`, so txAdmin lists them. Limits are
+re-read at most once a second, so a console `set` lands without a restart.
+
 The client payload is a whitelist. Webhook URLs, drop handlers, and
 `AuthorizedResources` do not leave the server.
+
+`Security.EventPrefix` is **not** a prefix on every net event: every
+`cis_libs:*` event is a literal. It prefixes only the legacy
+`<EventPrefix>:doorlock:requestState` a client sends when no `doorsClient`
+provider is registered, and `GetLibsPrefix()` reports it.
 
 ---
 

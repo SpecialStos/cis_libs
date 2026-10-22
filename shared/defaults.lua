@@ -12,6 +12,25 @@ function CisDefaults.config()
         -- How long a server->client callback waits before giving up.
         CallbackTimeout = 10000,
 
+        -- What one client may ask of `cis_libs:cb`. Each one is overridden by its
+        -- server convar when that is set, because a limit a resource can raise by
+        -- calling SetConfig first is not a limit. Per window of WindowMs.
+        CallbackLimits = {
+            -- Requests per callback name (convar cis_cb_rate_per_name).
+            PerName = 20,
+            -- Requests across every name, checked before the name is looked up
+            -- (cis_cb_rate_per_player).
+            PerPlayer = 60,
+            -- The window both counts reset on (cis_cb_window_ms).
+            WindowMs = 1000,
+            -- Handler coroutines one player may have running at once
+            -- (cis_cb_max_inflight).
+            MaxInFlight = 8,
+            -- The longest string, key or value, a client may send in one
+            -- request or reply (cis_cb_max_string_len).
+            MaxStringLen = 4096,
+        },
+
         -- Fallback poll interval for the client cache.
         UpdateInterval = {
             Player = 1000,
@@ -64,7 +83,11 @@ end
 --- A fresh Security table. Separate from config() because the two are redacted
 function CisDefaults.security()
     return {
-        -- The prefix on every net event this library uses, on both sides.
+        -- NOT a prefix on every net event. Every `cis_libs:*` event is a literal
+        -- and stays one. This value prefixes ONLY the legacy doorlock request a
+        -- client sends when no doorsClient provider is registered
+        -- (`<EventPrefix>:doorlock:requestState`), and is reported by
+        -- GetLibsPrefix() for a door product that wants to match it.
         EventPrefix = 'cis_libs',
 
         -- RESERVED. Nothing reads it; Config.Printing.Debug is the flag that is
@@ -161,6 +184,11 @@ end
 local CONFIG_RULES = {
     { path = 'CallbackTimeout', ok = between(1000, 60000) },
     { path = 'AuditLines', ok = between(1, 10000) },
+    { path = 'CallbackLimits.PerName', ok = between(1, 10000) },
+    { path = 'CallbackLimits.PerPlayer', ok = between(1, 100000) },
+    { path = 'CallbackLimits.WindowMs', ok = between(100, 60000) },
+    { path = 'CallbackLimits.MaxInFlight', ok = between(1, 1000) },
+    { path = 'CallbackLimits.MaxStringLen', ok = between(16, 1048576) },
     { path = 'UpdateInterval.Player', ok = between(100, 10000) },
     { path = 'UpdateInterval.Weapon', ok = between(100, 10000) },
     { path = 'UpdateInterval.Vehicle', ok = between(100, 10000) },

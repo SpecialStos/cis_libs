@@ -4,8 +4,8 @@
     {
       "id": "M01",
       "file": "server/security.lua",
-      "find": "        local src = source\n        if type(src) ~= 'number' or src <= 0 then\n            return\n        end\n",
-      "replace": "        local src = source\n        if type(src) ~= 'number' then\n            return\n        end\n",
+      "find": "    local src = source\n    if type(src) ~= 'number' or src <= 0 then\n        return\n    end\n    local live = netBindings[name]\n",
+      "replace": "    local src = source\n    if type(src) ~= 'number' then\n        return\n    end\n    local live = netBindings[name]\n",
       "why": "Drop the `src <= 0` half of the guard. `source` is 0 for a server-side trigger and -1 for a scheduled one, so a net handler that accepts them can be invoked by anything that can raise the event locally, with no player behind it."
     },
     {
@@ -67,7 +67,7 @@
     {
       "id": "M14",
       "file": "server/security.lua",
-      "find": "    if allowAnyResource() then\n        applyPosture('permissive', 'Security.AllowAnyResource is set')\n        return\n    end\n",
+      "find": "    if allowAnyResource() then\n        applyPosture('permissive', 'AllowAnyResource is set')\n        return\n    end\n",
       "replace": "",
       "why": "Make an empty AuthorizedResources permissive again -- the exact behaviour 2.2 removes. Every resource on the server regains the right to add, break and rewrite every door and every synced entity, on a server whose operator was told the gate was closed. The refusal itself is unchanged, so nothing about the shape of the answer gives it away."
     },
@@ -445,15 +445,15 @@
     {
       "id": "M69",
       "file": "server/security.lua",
-      "find": "    if not bucket or now - bucket.started >= windowMs then",
-      "replace": "    if not bucket or now - bucket.started >= (windowMs / 1000) then",
+      "find": "    if now - bucket.started >= windowMs then\n",
+      "replace": "    if now - bucket.started >= (windowMs / 1000) then\n",
       "why": "Treat the window as SECONDS while the clock is still GetGameTimer MILLISECONDS, which is the exact mistake 5.2 warns about in a comment: every rate limit on the server becomes a thousand times looser, silently, and nothing logs. The plan says the security limiter and CisRate differ, and rate.lua itself says they differ \"in ONE thing that matters -- what happens at the window boundary\". They differ in three, and the unit is one of them. A reader who believed that header would write exactly this row, which is why the comparison against CisRate is pinned in contracts."
     },
     {
       "id": "M70",
       "file": "server/security.lua",
-      "find": "        if not bucket and (rateCounts[src] or 0) >= RATE_BUCKET_CAP then",
-      "replace": "        if not bucket and (rateCounts[src] or 0) >= 100000000 then",
+      "find": "        if (rateCounts[src] or 0) >= RATE_BUCKET_CAP then\n",
+      "replace": "        if (rateCounts[src] or 0) >= 100000000 then\n",
       "why": "Raise the per-source bucket cap out of reach. Event names arrive off the wire, so an unbounded map is a memory growth rate a client controls: one source sending a few hundred thousand distinct event names would grow the table without limit, and the resource that reads it -- a server under attack -- is the one paying."
     },
     {
@@ -593,8 +593,8 @@
     {
       "id": "M90",
       "file": "server/security.lua",
-      "find": "        if live.opts.schema ~= nil then\n",
-      "replace": "        if live.opts.schema ~= nil and false then\n",
+      "find": "    if live.opts.schema ~= nil then\n",
+      "replace": "    if live.opts.schema ~= nil and false then\n",
       "why": "Skip the schema check. A client can then send count=999999 or a string where a table belongs and the handler still runs. 7.11 exists so a typed payload is a boundary, not a comment."
     },
     {
@@ -610,6 +610,55 @@
       "find": "    if ok and type(name) == 'string' and name ~= 'cis_libs' then\n",
       "replace": "    if ok and type(name) == 'string' and name ~= 'cis_libs' and false then\n",
       "why": "Disable the folder-name check. A rebranded copy then boots, which is the thing the license and the check exist to stop."
+    },
+    {
+      "id": "M93",
+      "file": "server/security.lua",
+      "find": "        bucket.started = now\n        bucket.hits = 1\n        return true\n",
+      "replace": "        bucket.started = now\n        bucket.hits = 1\n        rateCounts[src] = (rateCounts[src] or 0) + 1\n        return true\n",
+      "why": "Count a bucket on every window ROLL again. The per-src count then measures windows seen rather than buckets held, and a player who has been on the server for five minutes is refused every new event name for the rest of the session."
+    },
+    {
+      "id": "M94",
+      "file": "server/security.lua",
+      "find": "    if not netRegistered[name] then\n",
+      "replace": "    if true then\n",
+      "why": "Register the net event on every bind again. FiveM keeps the old handler after a consumer stops, so each restart adds one more and a single client event runs the handler N+1 times -- a payout paid N+1 times."
+    },
+    {
+      "id": "M95",
+      "file": "server/security.lua",
+      "find": "        if not state.announced then\n",
+      "replace": "        if true then\n",
+      "why": "Log the rate-limit line on every window roll again. A flood that lasts a minute is sixty lines on the cheating channel, sixty Discord posts, and the one line that matters is lost in them."
+    },
+    {
+      "id": "M96",
+      "file": "server/logging.lua",
+      "find": "    if seen and now - seen.at < DISCORD_DEDUPE_MS then\n",
+      "replace": "    if false then\n",
+      "why": "Forward every identical Discord line. A repeating error posts once per occurrence until the webhook answers 429 and drops the posts that mattered with the rest."
+    },
+    {
+      "id": "M97",
+      "file": "server/security.lua",
+      "find": "    local trap = Logging.Trap or debug.traceback\n    local ok, err\n",
+      "replace": "    local trap = function(e) return e end\n    local ok, err\n",
+      "why": "Trap nothing at the raise. The error is then located after the stack unwound, and every consumer handler's failure is filed under the dispatcher's own line in server/security.lua."
+    },
+    {
+      "id": "M98",
+      "file": "server/security.lua",
+      "find": "    if postureFromConvars() then\n        list = convarList('cis_authorized_resources')\n",
+      "replace": "    if false then\n        list = convarList('cis_authorized_resources')\n",
+      "why": "Ignore the operator's cis_authorized_resources convar. The allow-list then comes from whichever resource called SetConfig first, and that resource can hand itself every door and sync record."
+    },
+    {
+      "id": "M99",
+      "file": "server/security.lua",
+      "find": "    elseif CisCallable(fn) then\n",
+      "replace": "    elseif type(fn) == 'function' then\n",
+      "why": "Refuse a funcref handler. A function passed by another resource arrives as a callable reference table, so every consumer that hands SecureNetOn a function registers nothing."
     }
   ]
 }

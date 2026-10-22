@@ -1370,7 +1370,7 @@ function Scaleform(name, timeout) end
 
 --- Cis.net.on(name, fn, opts) -> true when the event was bound
 ---@param name string #the net event name, used verbatim with no prefix added
----@param fn function|string #a local function (cis_libs itself only) or a "resource:Export" string; anything else registers nothing
+---@param fn function|string|table #a function -- including one passed from another resource, which arrives as a callable reference table and is released when that resource stops -- or a "resource:Export" string; anything else registers nothing
 ---@param opts? table #windowMs and maxHits default to 1000 and 8. schema, if present, is a map of field -> { type, min, max, maxLen, optional } checked against the FIRST payload table before the handler runs. Without schema nothing changes
 ---@return boolean #true once bound -- and true says nothing about rate limiting, which happens at dispatch. false when the handler cannot be resolved, with a reason naming the resource and export
 --- realm: server

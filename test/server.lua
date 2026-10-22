@@ -1697,6 +1697,13 @@ do
     -- passes. The cap in security.lua is what bounds this case, and it is a
     -- separate defence from the ordering above: without it a client that named
     -- real callbacks could still grow the map.
+    --
+    -- The per-PLAYER budget would otherwise stop this flood after its first 60
+    -- requests, long before the cap is reached -- which is the budget working,
+    -- and not what this block measures. Raised here so the cap is the only
+    -- thing in the way.
+    Config.CallbackLimits.PerPlayer = 100000
+    CisSecurityRebuild()
     for i = 1, 10000 do
         env.EXPORTS.RegisterCallback(('real:%d'):format(i), function() return 1 end)
     end
@@ -4020,6 +4027,245 @@ do
     exports.CommandAdd('cis_chat_cmd', { help = 'hello', params = { 'who' } }, function() end)
     check(#env.chat == 1 and env.chat[1].name == 'chat:addSuggestion' and env.chat[1].target == -1,
         '7.6: a started chat resource gets a suggestion ')
+    env.reset()
+end
+
+-- ============================ S1. a rolling window is not a new bucket
+--
+-- `rateOk` counted a bucket every time a window ROLLED, not only when a name was
+-- new, so the per-src count was "windows seen" rather than "buckets held". A
+-- player who triggered one event a second for five minutes passed the 256 cap
+-- and from then on every NEW event name was refused for the rest of the session
+-- -- logged on the cheating channel, which can escalate to a kick.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+
+    for i = 1, 300 do
+        env.clock = i * 1001
+        CisRateOk(21, 'cis_roll:probe', 1000, 8)
+    end
+    check(CisRateBucketCount(21) == 1,
+        ('S1: 300 window rolls on ONE name hold one bucket, not 300 (count=%d)')
+            :format(CisRateBucketCount(21)))
+    check(CisRateOk(21, 'cis_roll:fresh', 1000, 8) == true,
+        'S1: and a NEW name after a long session is still allowed')
+    env.reset()
+end
+
+-- ============================ S2. a consumer restart does not double a handler
+--
+-- onResourceStop freed the BINDING but FiveM keeps the RegisterNetEvent handler,
+-- and CisNetOn registered a second one when the consumer came back. Both read
+-- the live binding, so after N restarts one client event ran the handler N+1
+-- times -- a payout handler paid N+1 times.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    local calls = 0
+    exports.cis_pay = { OnPay = function() calls = calls + 1 end }
+    loadModule('server/security.lua')
+
+    env.invoking = 'cis_pay'
+    check(CisNetOn('cis_pay:collect', 'cis_pay:OnPay') == true, 'S2: the payout event binds')
+    for _ = 1, 3 do
+        env.fire('onResourceStop', 'cis_pay')
+        CisNetOn('cis_pay:collect', 'cis_pay:OnPay')
+    end
+    env.emit('cis_pay:collect', 5)
+    check(calls == 1,
+        ('S2: after three restarts one client event runs the handler ONCE (calls=%d)'):format(calls))
+    check(#(env.netEvents['cis_pay:collect'] or {}) == 1,
+        ('S2: and the net event was registered once (handlers=%d)')
+            :format(#(env.netEvents['cis_pay:collect'] or {})))
+
+    -- A FUNCTION from another resource arrives as a callable reference TABLE, and
+    -- the function branch used to refuse anything that was not type 'function'.
+    local got
+    local ref = setmetatable({ __cfx_functionReference = 'cis_pay:1:1' }, {
+        __call = function(_, src, amount) got = { src = src, amount = amount } end,
+    })
+    check(CisNetOn('cis_pay:tip', ref) == true,
+        'S2: a funcref handed over by another resource binds')
+    env.emit('cis_pay:tip', 6, 50)
+    check(got and got.src == 6 and got.amount == 50,
+        'S2: and runs with (src, ...) like a local function')
+    env.fire('onResourceStop', 'cis_pay')
+    got = nil
+    env.emit('cis_pay:tip', 6, 50)
+    check(got == nil, "S2: and is released with its owner's stop")
+    env.reset()
+end
+
+-- ============================ S3. a long flood is a few lines, not one a second
+--
+-- The warning was one line per (src, event) per second for as long as a flood
+-- lasted, each on the cheating channel, and a flood under 100 a second never
+-- escalated at all. A client firing at 20Hz for half a minute was 30 lines and
+-- 30 Discord posts and not one report.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    local logged = {}
+    env.saved[#env.saved + 1] = { name = 'CisLog', value = rawget(_G, 'CisLog') }
+    CisLog = function(level, message, channel)
+        logged[#logged + 1] = { level = level, message = message, channel = channel }
+    end
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_G, 'CisSecurityReport') }
+    exports.cis_shop = { OnBuy = function() end }
+    loadModule('server/security.lua')
+    local reported = {}
+    function CisSecurityReport(src, reason)
+        reported[#reported + 1] = { src = src, reason = reason }
+        return true
+    end
+
+    CisNetOn('cis_flood:x', 'cis_shop:OnBuy', { maxHits = 4, windowMs = 1000 })
+    for second = 0, 29 do
+        env.clock = 10000 + second * 1000
+        for _ = 1, 20 do env.emit('cis_flood:x', 5, 1) end
+    end
+    local lines = 0
+    for _, l in ipairs(logged) do
+        if tostring(l.message):find('cis_flood:x', 1, true) then lines = lines + 1 end
+    end
+    check(lines >= 1 and lines <= 2,
+        ('S3: a 30 second flood is announced once, not once a second (lines=%d)'):format(lines))
+    check(#reported == 1,
+        ('S3: and a SUSTAINED flood escalates once, even under 100 a second (reports=%d)')
+            :format(#reported))
+
+    -- It ends, and a later burst says how big the last one was.
+    env.clock = env.clock + 10000
+    for _ = 1, 6 do env.emit('cis_flood:x', 5, 1) end
+    env.clock = env.clock + 1000
+    env.emit('cis_flood:x', 5, 1)
+    local ended = false
+    for _, l in ipairs(logged) do
+        if tostring(l.message):find('ended', 1, true) and tostring(l.message):find('cis_flood:x', 1, true) then
+            ended = true
+        end
+    end
+    check(ended, 'S3: and when it is over, one line carries the whole total')
+    env.reset()
+end
+
+-- ============================ S4. Discord gets the news once, not every copy
+--
+-- Every log line with Discord on became a webhook post. A repeating line -- a
+-- handler raising on every event, a flood report -- posted until Discord
+-- answered 429 and the posts that mattered were dropped with the rest.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Config.Printing.UseDiscordLogs = true
+    Security = CisDefaults.security()
+    env.saved[#env.saved + 1] = { name = 'DiscordConfig', value = rawget(_G, 'DiscordConfig') }
+    DiscordConfig = { DiscordLogsLinks = { MasterLogs = 'm', CheatingLogs = 'c', ErrorLogs = 'e' } }
+    local posts = {}
+    CisRegistry.register('discord', function(method, _, _, message)
+        if method == 'log' then posts[#posts + 1] = message end
+    end)
+
+    for _ = 1, 50 do Logging.Warn('same flood line', 'cheating') end
+    check(#posts == 1, ('S4: fifty identical lines are ONE post (posts=%d)'):format(#posts))
+
+    for i = 1, 50 do Logging.Warn(('distinct line %d'):format(i), 'cheating') end
+    check(#posts <= 10, ('S4: and a channel is capped per window (posts=%d)'):format(#posts))
+
+    env.clock = env.clock + 61000
+    Logging.Warn('same flood line', 'cheating')
+    local last = posts[#posts]
+    check(last and last:find('same flood line', 1, true) and last:find('repeated', 1, true),
+        ('S4: after the dedupe window the next copy goes out WITH the repeat count (%s)')
+            :format(tostring(last)))
+    CisRegistry.unregister('discord')
+    env.reset()
+end
+
+-- ============================ S5. the logged location is the handler's
+--
+-- The dispatcher ran handlers under pcall and AutoLogError read debug.getinfo
+-- AFTERWARDS, when the stack had unwound: every consumer error was filed under
+-- the line in server/security.lua that called pcall.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    local handler = load("return function()\n\n    error('boom from the consumer')\nend",
+        '=consumer_handler.lua')()
+    exports.cis_err = { OnErr = handler }
+    loadModule('server/security.lua')
+    CisNetOn('cis_err:go', 'cis_err:OnErr')
+
+    local captured
+    local realError = Logging.Error
+    Logging.Error = function(_, _, info) captured = info end
+    env.emit('cis_err:go', 5)
+    Logging.Error = realError
+    check(captured and captured.file == 'consumer_handler.lua' and captured.line == 3,
+        ('S5: the error is filed at the raise, consumer_handler.lua:3 (got %s:%s)')
+            :format(tostring(captured and captured.file), tostring(captured and captured.line)))
+    check(captured and tostring(captured.stackTrace):find('consumer_handler.lua:3', 1, true) ~= nil,
+        'S5: and the trace starts there too')
+    env.reset()
+end
+
+-- ============================ S6. the operator's convars outrank SetConfig
+--
+-- The allow-list came from whichever resource called SetConfig first. A
+-- resource that started early could hand itself every door and every sync
+-- record. Server convars are set before any resource runs, so when one is set
+-- it decides and the Security table is ignored.
+do
+    local env = newEnv({})
+    env.convars = { cis_authorized_resources = 'cis_core, cis_keys' }
+    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_G, 'GetConvar') }
+    function GetConvar(name, default) return env.convars[name] or default end
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    Security.AllowAnyResource = true
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+
+    env.invoking = 'cis_keys'
+    check(CisInvokingAllowed() == true, 'S6: a resource the convar names is allowed')
+    env.invoking = 'cis_evil'
+    check(CisInvokingAllowed() == false,
+        'S6: Security.AllowAnyResource is ignored while the convar pins the list')
+
+    -- The first SetConfig caller tries to widen it.
+    env.EXPORTS.SetConfig(nil, { AuthorizedResources = { 'cis_evil' }, AllowAnyResource = true })
+    check(CisInvokingAllowed() == false,
+        'S6: and SetConfig cannot widen a convar-pinned list')
+
+    -- With no convar the Security table decides, exactly as before.
+    env.convars = {}
+    CisSecurityRebuild()
+    check(CisInvokingAllowed() == true, 'S6: with no convar set, SetConfig security still applies')
+
+    -- cis_allow_any_resource false pins restrictive on its own.
+    env.convars = { cis_allow_any_resource = 'false' }
+    CisSecurityRebuild()
+    check(CisInvokingAllowed() == false,
+        'S6: cis_allow_any_resource false refuses even a resource Security names')
+
+    -- Limits: the convar beats Config.
+    env.convars = { cis_cb_rate_per_name = '3' }
+    Config.CallbackLimits.PerName = 50
+    CisSecurityRebuild()
+    local function perName()
+        return CisCallbackLimits and CisCallbackLimits().perName
+    end
+    check(perName() == 3,
+        ('S6: a rate-limit convar beats Config.CallbackLimits (got %s)'):format(tostring(perName())))
+    env.convars = {}
+    CisSecurityRebuild()
+    check(perName() == 50, 'S6: and Config applies when the convar is unset')
     env.reset()
 end
 
