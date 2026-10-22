@@ -13,14 +13,22 @@ local nextId = 0
 local HYSTERESIS = 0.15
 local HYSTERESIS_FLOOR = 0.5
 
--- Cadence for re-testing points we are already inside, so `nearby` has a rate and
+-- Cadence for discovery: a one-cell grid query plus a sweep of what we are inside.
+-- Both are bounded by the points near the player, not by how many are registered,
+-- so running it every RECHECK_MS for a standing player is cheap -- and it is the
+-- only way a player who stands still, or walks a few metres, is ever found.
 local RECHECK_MS = 200
 -- Nothing registered: do not walk the grid at all.
 local IDLE_MS = 500
+-- THE FLOOR FOR A `nearbyEvent`. A server event per frame per point is a flood
+-- aimed at the server's rate limiter; zones clamp `insideEvent` to the same value.
+local MIN_EVENT_INTERVAL_MS = 250
 
 -- Set by any mutation of the point set.
 local passDirty = true
 
+-- Scalars only. The inside list is built on demand by CisPointsGetDebug, so a
+-- pass never allocates or sorts for a debug view nobody is reading.
 local debugStats = {
     lastPassMs = 0,
     lastPassAt = 0,
@@ -50,7 +58,9 @@ end
 -- A CONSUMER CALLBACK, and the boundary it sits on.
 local function callHook(point, key, ...)
     local fn = point[key]
-    if type(fn) ~= 'function' then
+    -- CisCallable, not `type(fn) == 'function'`: a handler from another resource
+    -- arrives as a funcref table, and the type check dropped every one of them.
+    if not CisCallable(fn) then
         return
     end
     local ok, err = pcall(fn, ...)
@@ -144,8 +154,13 @@ function CisPointsCreate(data)
         -- The cadence `nearby` runs at.
         nearbyInterval = data.nearbyInterval,
     }
-    if type(point.nearbyInterval) ~= 'number' or point.nearbyInterval < 0 then
+    if type(point.nearbyInterval) ~= 'number' or point.nearbyInterval ~= point.nearbyInterval
+        or point.nearbyInterval < 0 then
         point.nearbyInterval = 200
+    end
+    if type(point.nearbyEvent) == 'string' and point.nearbyEvent ~= ''
+        and point.nearbyInterval < MIN_EVENT_INTERVAL_MS then
+        point.nearbyInterval = MIN_EVENT_INTERVAL_MS
     end
 
     nextId = nextId + 1
@@ -172,6 +187,12 @@ function CisPointsRemove(id)
     local point = points[id]
     if not point then
         return false
+    end
+    -- ONLY THE OWNER, or cis_libs itself. Ids are small monotonic integers, so any
+    -- resource could otherwise remove every other resource's points by counting.
+    local caller = GetInvokingResource() or 'cis_libs'
+    if caller ~= 'cis_libs' and caller ~= point.owner then
+        return false, ('point %s belongs to %s, not %s'):format(tostring(id), tostring(point.owner), caller)
     end
     if inside[id] then
         local p = GetEntityCoords(PlayerPedId())
@@ -211,6 +232,14 @@ function CisPointsGetClosest()
 end
 
 function CisPointsGetDebug()
+    -- Built here, on request, rather than on every pass.
+    local ids = {}
+    for id in pairs(inside) do
+        ids[#ids + 1] = id
+    end
+    table.sort(ids)
+    debugStats.insideCount = #ids
+    debugStats.insideIds = ids
     return debugStats
 end
 
@@ -246,19 +275,17 @@ local function refresh(coords)
     sweepExits(coords)
 end
 
-local function recheck(coords)
-    -- The cheap path: everything registered is already accounted for, so the only thing
-    sweepExits(coords)
-end
-
 local function serveInside(coords, now)
     waitMs = IDLE_MS
     for id, state in pairs(inside) do
         local point = points[id]
-        if point and point.nearby then
+        if point and (point.nearby ~= nil or point.nearbyEvent ~= nil) then
             if now - state.lastNearby >= point.nearbyInterval then
                 state.lastNearby = now
                 callHook(point, 'nearby', coords)
+                -- The event twin, exactly as enter and exit have one: the only form a
+                -- server-side consumer can observe.
+                fireEvent(point, 'nearbyEvent', coords)
             end
             local remain = point.nearbyInterval - (now - state.lastNearby)
             if remain < waitMs then
@@ -268,17 +295,15 @@ local function serveInside(coords, now)
     end
 end
 
-local lastPos
-local lastCellX, lastCellY
-local lastRecheck = 0
+local lastRefresh = 0
 
--- GUARDED, for the reason zones are: one raise in here used to end the loop for good,
-CreateThread(function()
-    local tick = CisLoopGuard.Body('client.points.pass', function()
+-- One pass. Discovery (a one-cell grid query, then a sweep of what we are inside)
+-- runs on any mutation and every RECHECK_MS; between those, a pass only serves
+-- `nearby`. There is no movement gate: the old one refreshed whenever fewer points
+-- were inside than were registered, which is always, after counting every
+-- registered point twice to find that out.
+local function pass()
     if next(points) == nil then
-        -- The snapshot must not go stale.
-        debugStats.insideCount = 0
-        debugStats.insideIds = {}
         return IDLE_MS
     end
     local started = GetGameTimer()
@@ -286,70 +311,61 @@ CreateThread(function()
     if not coords then
         return IDLE_MS
     end
-    local cx, cy = CisGrid.cell(coords.x, coords.y)
-    local moved = passDirty
-        or lastPos == nil
-        or #(coords - lastPos) >= CisGrid.CELL * 0.5
-        or cx ~= lastCellX or cy ~= lastCellY
-    if moved then
-        lastPos = coords
-        lastCellX, lastCellY = cx, cy
+    if passDirty or started - lastRefresh >= RECHECK_MS then
         passDirty = false
+        lastRefresh = started
         refresh(coords)
-        lastRecheck = GetGameTimer()
-    elseif GetGameTimer() - lastRecheck >= RECHECK_MS then
-        lastRecheck = GetGameTimer()
-        -- The rule, verbatim and for the same reason: `recheck` can only find an
-        local insideCount = 0
-        for _ in pairs(inside) do insideCount = insideCount + 1 end
-        local pointCount = 0
-        for _ in pairs(points) do pointCount = pointCount + 1 end
-        if insideCount < pointCount then
-            refresh(coords)
-        else
-            recheck(coords)
-        end
     end
 
     serveInside(coords, GetGameTimer())
 
-    debugStats.insideCount = 0
-    debugStats.insideIds = {}
-    for id in pairs(inside) do
-        debugStats.insideCount = debugStats.insideCount + 1
-        debugStats.insideIds[#debugStats.insideIds + 1] = id
-    end
-    table.sort(debugStats.insideIds)
     debugStats.lastPassMs = GetGameTimer() - started
     debugStats.lastPassAt = GetGameTimer()
     return math.max(0, math.min(waitMs, RECHECK_MS))
-    end)
-    -- The interval is returned by the body and waited on HERE, so a slow pass does not
-    Wait(tick() or IDLE_MS)
+end
+
+-- GUARDED, for the reason zones are: one raise in here used to end the loop for good.
+-- AND A LOOP. This thread used to call `Wait(tick())` once and fall off the end, so
+-- the first pass was the only pass and no point ever fired after it.
+CreateThread(function()
+    local tick = CisLoopGuard.Body('client.points.pass', pass)
+    while true do
+        -- The interval is returned by the body and waited on HERE, so a yield is never
+        -- swallowed by the guard's pcall.
+        Wait(tick() or IDLE_MS)
+    end
 end)
 
 
 -- A point that outlives the resource that made it is invisible from the server and
 AddEventHandler('onResourceStop', function(resource)
     local freed = CisOwned.release(owned, resource)
-    -- `release` hands the ids back; each one goes through the ordinary remove so the
-    for id in ipairs(freed) do
-        if points[id] then
+    -- `release` hands back { kind, id } ENTRIES. Iterating it with `for id in ipairs`
+    -- walked the positions 1..n instead, which deleted whichever points happened to
+    -- hold those ids -- other resources' points -- and left this one's in place.
+    local released = 0
+    for i = 1, #freed do
+        local id = freed[i].id
+        local point = freed[i].kind == 'point' and points[id] or nil
+        if point then
             if inside[id] then
                 local p = GetEntityCoords(PlayerPedId())
                 local coords = (p and p.x ~= nil)
                     and { x = p.x, y = p.y, z = p.z }
-                    or { x = points[id].x, y = points[id].y, z = points[id].z }
-                fireEvent(points[id], 'onExitEvent', coords)
+                    or { x = point.x, y = point.y, z = point.z }
+                -- The event only: the stopping resource's Lua callbacks are dead.
+                fireEvent(point, 'onExitEvent', coords)
             end
             CisGrid.remove(grid, id)
             points[id] = nil
             inside[id] = nil
+            released = released + 1
         end
+        CisOwned.forget(owned, freed[i].kind, id)
     end
     passDirty = true
-    if #freed > 0 then
-        CisLog('info', ('cis_libs: released %d point(s) owned by %s'):format(#freed, tostring(resource)))
+    if released > 0 then
+        CisLog('info', ('cis_libs: released %d point(s) owned by %s'):format(released, tostring(resource)))
     end
 end)
 

@@ -610,6 +610,41 @@
       "find": "    if ok and type(name) == 'string' and name ~= 'cis_libs' then\n",
       "replace": "    if ok and type(name) == 'string' and name ~= 'cis_libs' and false then\n",
       "why": "Disable the folder-name check. A rebranded copy then boots, which is the thing the license and the check exist to stop."
+    },
+    {
+      "id": "M93",
+      "file": "client/points.lua",
+      "find": "    while true do\n        -- The interval is returned by the body and waited on HERE, so a yield is never\n        -- swallowed by the guard's pcall.\n        Wait(tick() or IDLE_MS)\n    end\n",
+      "replace": "    Wait(tick() or IDLE_MS)\n",
+      "why": "Restore the one-shot points thread: Wait once and fall off the end. The first pass is then the only pass, so a point the player reaches later never fires. The 7.1 test that drives one thread for six wakeups is what sees it."
+    },
+    {
+      "id": "M94",
+      "file": "client/points.lua",
+      "find": "    for i = 1, #freed do\n        local id = freed[i].id\n",
+      "replace": "    for id in ipairs(freed) do\n        freed[id] = freed[id] or {}\n",
+      "why": "Iterate the released list by POSITION instead of by entry id. Stopping a resource that holds one point then deletes point #1 -- whoever owns it -- and leaves the stopping resource's point alive. The 7.1 stop-sweep test with a cis_libs point at id 1 sees it."
+    },
+    {
+      "id": "M95",
+      "file": "client/points.lua",
+      "find": "    if not CisCallable(fn) then\n        return\n    end\n",
+      "replace": "    if type(fn) ~= 'function' then\n        return\n    end\n",
+      "why": "Accept only plain Lua functions as point handlers. A handler from another resource arrives as a funcref table, so every consumer's onEnter/nearby/onExit silently never fires."
+    },
+    {
+      "id": "M96",
+      "file": "client/points.lua",
+      "find": "                fireEvent(point, 'nearbyEvent', coords)\n",
+      "replace": "",
+      "why": "Accept `nearbyEvent` and never fire it, the original defect. A server-side consumer has no other way to observe a point it is standing in."
+    },
+    {
+      "id": "M97",
+      "file": "client/points.lua",
+      "find": "    if caller ~= 'cis_libs' and caller ~= point.owner then\n",
+      "replace": "    if false and caller ~= point.owner then\n",
+      "why": "Drop the owner check on RemovePoint. Ids are 1, 2, 3..., so any resource can remove every other resource's points by counting."
     }
   ]
 }

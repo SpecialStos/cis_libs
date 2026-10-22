@@ -25,6 +25,16 @@ local function check(cond, msg)
     TEST_CASES[#TEST_CASES + 1] = { name = msg, status = cond and 'passed' or 'failed' }
 end
 
+-- A handler as it arrives from ANOTHER resource: not a Lua function but a table
+-- carrying `__cfx_functionReference`, callable through its metatable. Every API
+-- that takes a handler has to accept this shape, and `type(fn) == 'function'`
+-- refuses it.
+local function funcref(fn)
+    return setmetatable({ __cfx_functionReference = 'test:' .. tostring(fn) }, {
+        __call = function(_, ...) return fn(...) end,
+    })
+end
+
 -- ============================================================ the stub harness
 --
 -- `natives` is the recorder table. A test writes into it, calls the file under
@@ -2635,20 +2645,26 @@ end
 -- point the player steps away from is never re-tested. The failures looked like
 -- a broken exit path; the exit path was fine and the harness was standing still
 -- in a way the player is not.
+local POINT_PASS_DONE = {}
 local function pointPass(env, advanceMs)
     local tick = env.threads[1]
     if not tick then
         return nil, 'client/points.lua started no thread'
     end
+    -- ONE PASS, then out through a private sentinel at the pass's Wait. The thread
+    -- is a `while true` loop; this harness used to rely on it returning after one
+    -- Wait, which is exactly the defect (the loop ran once and died) it hid.
+    -- The clock moves at least RECHECK_MS (200) so the next pass is a later pass.
     local realWait = Wait
     local waited = 0
     Wait = function(ms)
         waited = waited + 1
-        env.clock = env.clock + (tonumber(ms) or 0)
+        env.clock = env.clock + math.max(tonumber(ms) or 0, advanceMs or 200)
+        error(POINT_PASS_DONE, 0)
     end
     local ok, err = pcall(tick)
     Wait = realWait
-    if not ok then
+    if not ok and err ~= POINT_PASS_DONE then
         return nil, tostring(err)
     end
     return waited
@@ -2857,6 +2873,142 @@ do
     check(type(dbg) == 'table' and dbg.insideCount == 0,
         ('7.1: the debug record reports nothing inside after the only point was removed (got %s)')
             :format(tostring(dbg and dbg.insideCount)))
+    env.reset()
+end
+
+-- THE PASS IS A LOOP. The thread called `Wait(tick())` once and fell off the
+-- end, so the first pass was the only pass: a point the player walked into on
+-- the second pass or later never fired. Driven here for several wakeups of ONE
+-- thread, with the player arriving only after the first.
+do
+    local env = pointEnv()
+    local entered = 0
+    exports.CreatePoint({
+        coords = { x = 50.0, y = 0.0, z = 0.0 }, distance = 3.0,
+        onEnter = function() entered = entered + 1 end,
+    })
+    env.coords = { x = 0.0, y = 0.0, z = 0.0 }
+    local SENT = {}
+    local waits = 0
+    local realWait = Wait
+    Wait = function(ms)
+        waits = waits + 1
+        env.clock = env.clock + math.max(tonumber(ms) or 0, 1)
+        if waits == 2 then env.coords = { x = 50.0, y = 0.0, z = 0.0 } end
+        if waits >= 6 then error(SENT, 0) end
+    end
+    local ok, err = pcall(env.threads[1])
+    Wait = realWait
+    check((ok or err == SENT) and waits >= 6,
+        ('7.1: the points thread keeps looping after its first pass (waits=%d, err=%s)')
+            :format(waits, tostring(not ok and err ~= SENT and err or nil)))
+    check(entered == 1,
+        ('7.1: a player who arrives AFTER the first pass is found (onEnter=%d)'):format(entered))
+    env.reset()
+end
+
+-- A HANDLER FROM ANOTHER RESOURCE IS A FUNCREF TABLE, and it must fire.
+do
+    local env = pointEnv()
+    local fired = { enter = 0, nearby = 0, exit = 0 }
+    exports.CreatePoint({
+        coords = { x = 0.0, y = 0.0, z = 0.0 }, distance = 5.0,
+        onEnter = funcref(function() fired.enter = fired.enter + 1 end),
+        nearby = funcref(function() fired.nearby = fired.nearby + 1 end),
+        onExit = funcref(function() fired.exit = fired.exit + 1 end),
+    })
+    pointPass(env)
+    env.coords = { x = 100.0, y = 0.0, z = 0.0 }
+    pointPass(env)
+    check(fired.enter == 1 and fired.nearby >= 1 and fired.exit == 1,
+        ('7.1: funcref onEnter/nearby/onExit all fire (enter=%d nearby=%d exit=%d)')
+            :format(fired.enter, fired.nearby, fired.exit))
+    env.reset()
+end
+
+-- `nearbyEvent` WAS ACCEPTED AND NEVER FIRED. It is the only way a server-side
+-- consumer can observe a point it is standing in, and it is clamped to 250 ms
+-- for the reason zone `insideEvent` is: it is a server event.
+do
+    local env = pointEnv()
+    exports.CreatePoint({
+        coords = { x = 0.0, y = 0.0, z = 0.0 }, distance = 5.0,
+        nearbyEvent = 'my_res:nearPoint', nearbyInterval = 0,
+    })
+    -- One second of the real loop.
+    local SENT = {}
+    local realWait = Wait
+    Wait = function(ms)
+        env.clock = env.clock + math.max(tonumber(ms) or 0, 1)
+        if env.clock >= 1000 then error(SENT, 0) end
+    end
+    local ok, err = pcall(env.threads[1])
+    Wait = realWait
+    if not ok and err ~= SENT then error(err, 0) end
+    local fired = #env.serverEventsOf('my_res:nearPoint')
+    check(fired >= 1, ('7.1: nearbyEvent fires as a server event while inside (fired=%d)'):format(fired))
+    check(fired <= 5, ('7.1: nearbyEvent is clamped to 250 ms, not per frame (fired=%d in 1s)'):format(fired))
+    local ev = env.serverEventsOf('my_res:nearPoint')[1]
+    check(ev and type(ev.args[1]) == 'number',
+        '7.1: nearbyEvent carries the point id first, like the enter/exit events')
+    env.reset()
+end
+
+-- THE STOP SWEEP RELEASES THE STOPPING RESOURCE'S POINTS -- AND ONLY THOSE.
+-- `for id in ipairs(freed)` walked positions 1..n: stopping a resource that held
+-- one point deleted point #1, whoever owned it, and left its own point alive.
+do
+    local env = pointEnv()
+    env.save('GetInvokingResource')
+    GetInvokingResource = function() return nil end
+    local mine = exports.CreatePoint({ coords = { x = 0, y = 0, z = 0 }, distance = 5 })
+    GetInvokingResource = function() return 'res_b' end
+    local theirs = exports.CreatePoint({ coords = { x = 9, y = 0, z = 0 }, distance = 5 })
+    GetInvokingResource = function() return nil end
+    check(mine == 1 and theirs == 2, '7.1: ids 1 (cis_libs) and 2 (res_b) -- the case the bug needs')
+    env.fire('onResourceStop', 'res_b')
+    env.coords = { x = 0.0, y = 0.0, z = 0.0 }
+    local closest = exports.GetClosestPoint()
+    check(closest == mine,
+        ('7.1: stopping res_b leaves cis_libs point %s alive (closest=%s)'):format(tostring(mine), tostring(closest)))
+    check(exports.RemovePoint(theirs) == false,
+        '7.1: and res_b point is gone after its owner stopped')
+    check(exports.RemovePoint(mine) == true, '7.1: the survivor is still removable')
+    env.reset()
+end
+
+-- ONLY THE OWNER MAY REMOVE A POINT. Ids are 1, 2, 3...: without the check any
+-- resource removes every other resource's points by counting.
+do
+    local env = pointEnv()
+    env.save('GetInvokingResource')
+    GetInvokingResource = function() return 'res_a' end
+    local id = exports.CreatePoint({ coords = { x = 0, y = 0, z = 0 }, distance = 5 })
+    GetInvokingResource = function() return 'res_b' end
+    local ok, why = exports.RemovePoint(id)
+    check(ok == false and type(why) == 'string' and why:find('res_a', 1, true),
+        ('7.1: another resource cannot remove a point it does not own (got %s, %s)'):format(tostring(ok), tostring(why)))
+    GetInvokingResource = function() return 'res_a' end
+    check(exports.RemovePoint(id) == true, '7.1: the owner can')
+    env.reset()
+end
+
+-- A PASS DOES NOT BUILD DEBUG STATE. The inside list was rebuilt AND SORTED on
+-- every pass for a debug view nobody was reading; it is now built on request.
+do
+    local env = pointEnv()
+    exports.CreatePoint({ coords = { x = 0, y = 0, z = 0 }, distance = 5 })
+    exports.CreatePoint({ coords = { x = 1, y = 0, z = 0 }, distance = 5 })
+    local realSort = table.sort
+    local sorts = 0
+    table.sort = function(...) sorts = sorts + 1; return realSort(...) end
+    pointPass(env)
+    pointPass(env)
+    table.sort = realSort
+    check(sorts == 0, ('7.1: a pass performs no sort (sorts=%d)'):format(sorts))
+    local dbg = exports.GetPointsDebug()
+    check(dbg.insideCount == 2 and dbg.insideIds[1] == 1 and dbg.insideIds[2] == 2,
+        ('7.1: the debug view is still right when asked (count=%s)'):format(tostring(dbg.insideCount)))
     env.reset()
 end
 

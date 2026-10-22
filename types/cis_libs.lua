@@ -186,7 +186,7 @@ local CisModuleInfo = {}
 ---@field nearbyInterval? integer ms between nearby calls, default 200. Zero is allowed: a local function asking for every pass is legitimate
 ---@field onEnterEvent? string the net event fired on arrival, with (id, x, y, z). The id lets one handler watch several points
 ---@field onExitEvent? string the net event fired on departure, with (id, x, y, z)
----@field nearbyEvent? string the net event fired inside, with (id, x, y, z). Aimed at the server this is a rate-limited budget, and there is no floor on it the way a zone insideEvent has
+---@field nearbyEvent? string the net event fired inside every nearbyInterval, with (id, x, y, z). Aimed at the server, so nearbyInterval is clamped to at least 250 ms when it is set -- the same floor a zone insideEvent has
 local CisPointOptions = {}
 
 ---@class CisPointsDebug
@@ -1305,7 +1305,7 @@ function RemoveNearWatcher(id) end
 
 --- Cis.points.remove(id)
 ---@param id integer #the id CreatePoint returned
----@return boolean #false when no point holds that id, which is a no-op and not an error. A point the player was inside fires onExit first, with the PLAYER coordinates and not the point coordinates
+---@return boolean, string|nil #false when no point holds that id, which is a no-op and not an error; false plus a reason when the point belongs to another resource (only the owner, or cis_libs, may remove it). A point the player was inside fires onExit first, with the PLAYER coordinates and not the point coordinates
 --- realm: client
 function RemovePoint(id) end
 
