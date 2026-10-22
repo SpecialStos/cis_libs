@@ -24,10 +24,15 @@ local function intBounds(lo, hi, who)
     if lo == math.huge or lo == -math.huge or hi == math.huge or hi == -math.huge then
         return nil, 'a bound is infinite, so there is no finite range to draw from'
     end
-    lo = math.floor(lo)
-    hi = math.ceil(hi)
     if lo > hi then
         lo, hi = hi, lo
+    end
+    -- INWARD, not outward: the integers inside [1.5, 3.5] are 2 and 3. Rounding
+    -- lo down and hi up drew 1 and 4 as well, outside the range asked for.
+    lo = math.ceil(lo)
+    hi = math.floor(hi)
+    if lo > hi then
+        return nil, 'there is no integer between the bounds'
     end
     return lo, hi
 end
@@ -322,6 +327,10 @@ function M.sample(list, k, rng)
     if type(k) ~= 'number' or k ~= k or k < 0 then
         return out
     end
+    -- Whole elements only. A fractional k drew floor(k) and then cleared the
+    -- tail from k + 1, which for k = 2.5 cleared 3.5, 4.5, ... -- keys that do
+    -- not exist -- and handed back the whole list.
+    k = math.floor(k)
     if k > n then k = n end
     for i = 1, n do
         out[i] = list[i]

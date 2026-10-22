@@ -5,24 +5,99 @@ local M = {}
 local DEFAULT_ALPHA = 0.5
 local DEFAULT_SAMPLES = 8
 
--- Accepts {x=,y=,z=} or {1,2,3}, matching shared/grid.lua.
+-- The FiveM vector types. `type(vector3(1, 2, 3))` is 'vector3', not 'table',
+-- so a reader that only accepts tables drops every native coordinate.
+local VECTOR_DIMS = { vector2 = 2, vector3 = 3, vector4 = 3 }
+
+-- Accepts {x=,y=,z=} or {1,2,3}, matching shared/grid.lua, plus a FiveM
+-- vector2/3/4 and any userdata exposing .x/.y/.z.
 local function px(p)
-    if type(p) ~= 'table' then
+    local kind = type(p)
+    local x, y, z
+    if kind == 'table' then
+        x, y, z = p.x, p.y, p.z
+        if x == nil then
+            x, y, z = p[1], p[2], p[3]
+        end
+    elseif VECTOR_DIMS[kind] then
+        x, y = p.x, p.y
+        if VECTOR_DIMS[kind] >= 3 then
+            z = p.z
+        end
+    elseif kind == 'userdata' then
+        local ok, a, b = pcall(function() return p.x, p.y end)
+        if not ok then
+            return nil
+        end
+        x, y = a, b
+        local okZ, c = pcall(function() return p.z end)
+        if okZ then z = c end
+    else
         return nil
-    end
-    local x, y, z = p.x, p.y, p.z
-    if x == nil then
-        x, y, z = p[1], p[2], p[3]
     end
     if type(x) ~= 'number' or type(y) ~= 'number' then
         return nil
     end
-    return x, y, z or 0
+    if type(z) ~= 'number' then
+        z = 0
+    end
+    return x, y, z
 end
 
 local function dist(a, b)
     local dx, dy, dz = b.x - a.x, b.y - a.y, b.z - a.z
     return math.sqrt(dx * dx + dy * dy + dz * dz)
+end
+
+-- The two Hermite tangents of the Catmull-Rom segment p1 -> p2, scaled to the
+-- segment's own [0, 1] parameter.
+--
+-- Non-uniform Catmull-Rom with knot spacing dt = |chord| ^ alpha. The tangent
+-- at p1, in the knot parameter, is
+--
+--     (p1 - p0) / dt0  -  (p2 - p0) / (dt0 + dt1)  +  (p2 - p1) / dt1
+--
+-- and multiplying by dt1 moves it onto the unit segment. That product is what
+-- the Barry-Goldman pyramid evaluates, for every alpha. The weighted chord
+-- average ((p1 - p0) * dt1 + (p2 - p1) * dt0) / (dt0 + dt1) is the same thing
+-- ONLY when dt0 == dt1 -- at alpha 0, or on evenly spaced points -- and it is
+-- what this file used to compute, so "centripetal" was uniform with a bias.
+--
+-- A zero knot spacing (alpha > 0 and a neighbour that coincides with the
+-- endpoint: the cloned end of an open path, or a repeated point) has nothing
+-- to divide by; that tangent falls back to the segment chord, which is what
+-- the ends of an open path always did. A zero-spacing SEGMENT is a point, and
+-- both tangents are zero. At alpha 0 every spacing is 1 (0 ^ 0 == 1) and the
+-- formula needs no fallback.
+local function tangents(p0, p1, p2, p3, alpha)
+    local dt1 = dist(p1, p2) ^ alpha
+    if dt1 <= 0 then
+        return 0, 0, 0, 0, 0, 0
+    end
+    local dt0 = dist(p0, p1) ^ alpha
+    local dt2 = dist(p2, p3) ^ alpha
+    local cx, cy, cz = p2.x - p1.x, p2.y - p1.y, p2.z - p1.z
+
+    local m1x, m1y, m1z
+    if dt0 <= 0 then
+        m1x, m1y, m1z = cx, cy, cz
+    else
+        local a, b = dt1 / dt0, dt1 / (dt0 + dt1)
+        m1x = (p1.x - p0.x) * a - (p2.x - p0.x) * b + cx
+        m1y = (p1.y - p0.y) * a - (p2.y - p0.y) * b + cy
+        m1z = (p1.z - p0.z) * a - (p2.z - p0.z) * b + cz
+    end
+
+    local m2x, m2y, m2z
+    if dt2 <= 0 then
+        m2x, m2y, m2z = cx, cy, cz
+    else
+        local b, c = dt1 / (dt1 + dt2), dt1 / dt2
+        m2x = cx - (p3.x - p1.x) * b + (p3.x - p2.x) * c
+        m2y = cy - (p3.y - p1.y) * b + (p3.y - p2.y) * c
+        m2z = cz - (p3.z - p1.z) * b + (p3.z - p2.z) * c
+    end
+    return m1x, m1y, m1z, m2x, m2y, m2z
 end
 
 --- Chord length of a polyline, summed.
@@ -97,27 +172,7 @@ function M.catmullRom(p0, p1, p2, p3, t, alpha)
         if rx then nxt = { x = rx, y = ry, z = rz } end
     end
 
-    local d0 = (dist(prev, p1)) ^ (alpha)
-    local d1 = (dist(p1, p2)) ^ (alpha)
-    local d2 = (dist(p2, nxt)) ^ (alpha)
-
-    -- m1: the tangent leaving p1. Reduces to (p2 - p0) / 2 when the knot spacing is
-    local m1x, m1y, m1z
-    if d0 <= 0 or (d0 + d1) <= 0 then
-        m1x, m1y, m1z = p2.x - p1.x, p2.y - p1.y, p2.z - p1.z
-    else
-        m1x = ((p1.x - prev.x) * d1 + (p2.x - p1.x) * d0) / (d0 + d1)
-        m1y = ((p1.y - prev.y) * d1 + (p2.y - p1.y) * d0) / (d0 + d1)
-        m1z = ((p1.z - prev.z) * d1 + (p2.z - p1.z) * d0) / (d0 + d1)
-    end
-    local m2x, m2y, m2z
-    if d2 <= 0 or (d1 + d2) <= 0 then
-        m2x, m2y, m2z = p2.x - p1.x, p2.y - p1.y, p2.z - p1.z
-    else
-        m2x = ((p2.x - p1.x) * d2 + (nxt.x - p2.x) * d1) / (d1 + d2)
-        m2y = ((p2.y - p1.y) * d2 + (nxt.y - p2.y) * d1) / (d1 + d2)
-        m2z = ((p2.z - p1.z) * d2 + (nxt.z - p2.z) * d1) / (d1 + d2)
-    end
+    local m1x, m1y, m1z, m2x, m2y, m2z = tangents(prev, p1, p2, nxt, alpha)
 
     return M.hermite(p1, p2, { x = m1x, y = m1y, z = m1z },
         { x = m2x, y = m2y, z = m2z }, t)
@@ -189,26 +244,7 @@ function M.newPath(points, opts)
         local p2 = control(s + 1)
         local p3 = control(s + 2)
 
-        local d0 = (dist(p0, p1)) ^ (alpha)
-        local d1 = (dist(p1, p2)) ^ (alpha)
-        local d2 = (dist(p2, p3)) ^ (alpha)
-
-        local m1x, m1y, m1z
-        if d0 <= 0 or (d0 + d1) <= 0 then
-            m1x, m1y, m1z = p2.x - p1.x, p2.y - p1.y, p2.z - p1.z
-        else
-            m1x = ((p1.x - p0.x) * d1 + (p2.x - p1.x) * d0) / (d0 + d1)
-            m1y = ((p1.y - p0.y) * d1 + (p2.y - p1.y) * d0) / (d0 + d1)
-            m1z = ((p1.z - p0.z) * d1 + (p2.z - p1.z) * d0) / (d0 + d1)
-        end
-        local m2x, m2y, m2z
-        if d2 <= 0 or (d1 + d2) <= 0 then
-            m2x, m2y, m2z = p2.x - p1.x, p2.y - p1.y, p2.z - p1.z
-        else
-            m2x = ((p2.x - p1.x) * d2 + (p3.x - p2.x) * d1) / (d1 + d2)
-            m2y = ((p2.y - p1.y) * d2 + (p3.y - p2.y) * d1) / (d1 + d2)
-            m2z = ((p2.z - p1.z) * d2 + (p3.z - p2.z) * d1) / (d1 + d2)
-        end
+        local m1x, m1y, m1z, m2x, m2y, m2z = tangents(p0, p1, p2, p3, alpha)
 
         path.m1x[s], path.m1y[s], path.m1z[s] = m1x, m1y, m1z
         path.m2x[s], path.m2y[s], path.m2z[s] = m2x, m2y, m2z

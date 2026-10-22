@@ -203,19 +203,37 @@ function M.keys(lru)
 end
 
 --- Call `fn(key, value)` for every entry, most recently used first.
---- @param lru
---- @param fn
+---
+--- The order is a SNAPSHOT taken before the first call, so `fn` may call get,
+--- put, remove or clear on the same cache. Walking the live list could not
+--- survive that: a `get` relinks the node being visited to the front, so its
+--- `next` is the old head and the walk revisits it forever, and a `remove` of
+--- the successor leaves the cursor on an unlinked node with no `next` at all.
+--- An entry removed before its turn is skipped; its current value is passed.
+--- @param lru table
+--- @param fn fun(key: any, value: any)
 --- @return number  how many entries were visited; 0 when fn is not a function. Most recently used first.
 function M.each(lru, fn)
     if type(fn) ~= 'function' then
         return 0
     end
+    local nodes = {}
+    local n = 0
     local node = lru.head.next
-    local seen = 0
     while node ~= lru.tail do
-        fn(node.key, node.value)
-        seen = seen + 1
+        n = n + 1
+        nodes[n] = node
         node = node.next
+    end
+    local seen = 0
+    for i = 1, n do
+        node = nodes[i]
+        -- Still live, and still THIS node: a remove-then-put of the same key
+        -- makes a new node, and the old one must not be visited for it.
+        if lru.map[node.key] == node then
+            fn(node.key, node.value)
+            seen = seen + 1
+        end
     end
     return seen
 end

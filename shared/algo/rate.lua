@@ -10,9 +10,23 @@ local function positive(n, fallback)
 end
 
 -- Validate `now`. A limiter that is fed a string or nil would otherwise compare it
+--
+-- nil reads the default clock, in SECONDS like every window here: GetGameTimer
+-- (milliseconds since the game started) divided by 1000 where FiveM provides
+-- it, os.time() elsewhere. Anything else that is not a number -- a string, a
+-- table, NaN -- RAISES. It used to be coerced to 0, which pinned a fixed window
+-- at index 0 forever: it never rolled, so a key that filled it once was refused
+-- for the life of the process.
 local function clock(now)
+    if now == nil then
+        if type(GetGameTimer) == 'function' then
+            return GetGameTimer() / 1000
+        end
+        return os.time()
+    end
     if type(now) ~= 'number' or now ~= now then
-        return 0
+        error(('CisRate: now must be a number of seconds or nil, got %s')
+            :format(now ~= now and 'NaN' or type(now)), 3)
     end
     return now
 end
@@ -107,6 +121,10 @@ local function slidingCount(r, entry, now)
     if entry.startedAt == nil then
         entry.counts = {}
         entry.startedAt = now
+        -- Set HERE, not in slidingSpend. A key whose first call is refused never
+        -- spends, so the cursor stayed nil and the next roll forward did
+        -- arithmetic on it and raised.
+        entry.idx = 0
     end
     local counts = entry.counts
     local sliceSec = r.sliceSec

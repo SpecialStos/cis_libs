@@ -287,8 +287,21 @@ function M.smoothDamp(current, target, velocity, smoothTime, maxSpeed, dt)
 
     local originalTarget = target
     local change = current - target
-    local maxChange = (maxSpeed or math.huge) * smoothTime
-    change = M.clamp(change, -maxChange, maxChange)
+    -- A negative maxSpeed is "may not move", the same reading moveTowards gives a
+    -- negative maxDelta; a nil or NaN one is "no limit". Clamped inline because
+    -- M.clamp answers nil for an inverted range, and nil here is a crash below.
+    local speed = maxSpeed
+    if type(speed) ~= 'number' or speed ~= speed then
+        speed = math.huge
+    elseif speed < 0 then
+        speed = 0
+    end
+    local maxChange = speed * smoothTime
+    if change > maxChange then
+        change = maxChange
+    elseif change < -maxChange then
+        change = -maxChange
+    end
     target = current - change
 
     local temp = (velocity + omega * change) * dt
@@ -321,38 +334,71 @@ function M.angleDelta(a, b)
     return M.wrapAngle(b - a)
 end
 
+-- Shortest signed difference from heading `a` to heading `b`, in [-180, 180).
+-- Signed, not wrapped to [0, 360): lerping 10 -> 350 has to go the 20 degrees
+-- through north, not the 340 degrees the long way round.
 function M.headingDelta(a, b)
-    return M.wrapDegrees(b - a)
+    return M.wrap(b - a, -180, 180)
 end
 
 function M.lerpHeading(a, b, t)
     return M.wrapDegrees(a + M.headingDelta(a, b) * t)
 end
 
+-- GTA's convention: heading 0 faces +Y (north) and heading grows anticlockwise,
+-- so heading 90 faces -X (west). This is the vector GetEntityForwardVector
+-- answers for an entity at that heading: (-sin h, cos h).
 function M.headingToVector(headingDeg)
     local rad = headingDeg * RAD
-    return math.sin(rad), -math.cos(rad)
+    return -math.sin(rad), math.cos(rad)
 end
 
+-- The inverse of headingToVector, wrapped to [0, 360). A zero vector has no
+-- direction and answers 0.
 function M.vectorToHeading(x, y)
     if x == 0 and y == 0 then
         return 0
     end
-    return M.wrapDegrees(math.atan(x, -y) * DEG)
+    return M.wrapDegrees(math.atan(-x, y) * DEG)
 end
 
 
--- Read a point that may be keyed or positional.
+-- The FiveM vector types. `type(vector3(1, 2, 3))` is 'vector3', not 'table',
+-- so a reader that only accepts tables turns every native coordinate into a
+-- silent zero. The number is how many components carry a position.
+local VECTOR_DIMS = { vector2 = 2, vector3 = 3, vector4 = 3 }
+
+-- Read a point that may be keyed ({x=,y=,z=}), positional ({1,2,3}), a FiveM
+-- vector2/3/4, or any other userdata exposing .x/.y/.z.
 local function xyz(p)
-    if type(p) ~= 'table' then
+    local kind = type(p)
+    local x, y, z
+    if kind == 'table' then
+        x, y, z = p.x, p.y, p.z
+        if x == nil then
+            x, y, z = p[1], p[2], p[3]
+        end
+    elseif VECTOR_DIMS[kind] then
+        x, y = p.x, p.y
+        if VECTOR_DIMS[kind] >= 3 then
+            z = p.z
+        end
+    elseif kind == 'userdata' then
+        local ok, a, b = pcall(function() return p.x, p.y end)
+        if not ok then
+            return nil, nil, nil
+        end
+        x, y = a, b
+        local okZ, c = pcall(function() return p.z end)
+        if okZ then z = c end
+    else
         return nil, nil, nil
-    end
-    local x, y, z = p.x, p.y, p.z
-    if x == nil then
-        x, y, z = p[1], p[2], p[3]
     end
     if type(x) ~= 'number' or type(y) ~= 'number' then
         return nil, nil, nil
+    end
+    if type(z) ~= 'number' then
+        z = nil
     end
     return x, y, z
 end
@@ -387,9 +433,14 @@ function M.moveTowardsVec3(current, target, maxDelta)
     local cx, cy, cz = xyz(current)
     local tx, ty, tz = xyz(target)
     if not cx then return { x = 0, y = 0, z = 0 } end
-    if not tx or cz == nil then return { x = cx, y = cy, z = cz or 0 } end
+    if not tx then return { x = cx, y = cy, z = cz or 0 } end
+    -- A point with no z takes the other end's z, the same rule as lerpVec3, so a
+    -- 2D point moves in the plane rather than not at all.
+    if cz == nil then cz = tz end
     if tz == nil then tz = cz end
-    if maxDelta < 0 then
+    if cz == nil then cz = 0 end
+    if tz == nil then tz = 0 end
+    if type(maxDelta) ~= 'number' or maxDelta ~= maxDelta or maxDelta < 0 then
         maxDelta = 0
     end
     local dx, dy, dz = tx - cx, ty - cy, tz - cz

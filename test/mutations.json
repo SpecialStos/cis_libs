@@ -610,6 +610,132 @@
       "find": "    if ok and type(name) == 'string' and name ~= 'cis_libs' then\n",
       "replace": "    if ok and type(name) == 'string' and name ~= 'cis_libs' and false then\n",
       "why": "Disable the folder-name check. A rebranded copy then boots, which is the thing the license and the check exist to stop."
+    },
+    {
+      "id": "M93",
+      "file": "shared/algo/interp.lua",
+      "find": "local VECTOR_DIMS = { vector2 = 2, vector3 = 3, vector4 = 3 }",
+      "replace": "local VECTOR_DIMS = {}",
+      "why": "Stop interp reading FiveM vectors. `type(vector3(...))` is 'vector3', so every distance, lerp and normalize of a native coordinate silently answers zeros -- the defect this module shipped with."
+    },
+    {
+      "id": "M94",
+      "file": "shared/algo/curve.lua",
+      "find": "local VECTOR_DIMS = { vector2 = 2, vector3 = 3, vector4 = 3 }",
+      "replace": "local VECTOR_DIMS = {}",
+      "why": "Stop curve reading FiveM vectors: a path built from vector3 control points silently drops every point and has length 0."
+    },
+    {
+      "id": "M95",
+      "file": "shared/algo/interp.lua",
+      "find": "    return M.wrap(b - a, -180, 180)",
+      "replace": "    return M.wrapDegrees(b - a)",
+      "why": "headingDelta wrapped to [0, 360) instead of the shortest signed arc, so lerpHeading(10, 350, .5) answered 180 -- a turn the long way round."
+    },
+    {
+      "id": "M96",
+      "file": "shared/algo/interp.lua",
+      "find": "    return -math.sin(rad), math.cos(rad)",
+      "replace": "    return math.sin(rad), -math.cos(rad)",
+      "why": "headingToVector 180 degrees off GTA's forward vector (-sin h, cos h): everything placed 'in front of' an entity lands behind it."
+    },
+    {
+      "id": "M97",
+      "file": "shared/algo/interp.lua",
+      "find": "    if not tx then return { x = cx, y = cy, z = cz or 0 } end",
+      "replace": "    if not tx or cz == nil then return { x = cx, y = cy, z = cz or 0 } end",
+      "why": "moveTowardsVec3 returned a 2D current point unchanged, so anything driven in the plane never moved."
+    },
+    {
+      "id": "M98",
+      "file": "shared/algo/interp.lua",
+      "find": "    elseif speed < 0 then\n        speed = 0\n",
+      "replace": "    elseif speed < 0 then\n        speed = speed\n",
+      "why": "Let a negative maxSpeed through to the clamp. The range inverts; the original code then did arithmetic on M.clamp's nil and raised in a per-frame smoother."
+    },
+    {
+      "id": "M99",
+      "file": "shared/algo/curve.lua",
+      "find": "        local a, b = dt1 / dt0, dt1 / (dt0 + dt1)",
+      "replace": "        local a, b = dt0 / dt0, dt1 / (dt0 + dt1)",
+      "why": "Drop the dt1/dt0 knot scaling from the centripetal tangent. The curve is then exact only at alpha 0 or on evenly spaced points -- the shape the module shipped with."
+    },
+    {
+      "id": "M100",
+      "file": "shared/algo/lru.lua",
+      "find": "        if lru.map[node.key] == node then",
+      "replace": "        if true then",
+      "why": "CisLRU.each visits entries the callback already removed, handing out keys that are no longer in the cache."
+    },
+    {
+      "id": "M101",
+      "file": "shared/algo/rate.lua",
+      "find": "        entry.idx = 0\n    end\n",
+      "replace": "    end\n",
+      "why": "A sliding key whose first call is refused never gets a ring cursor, and the next roll forward does arithmetic on nil and raises out of the limiter."
+    },
+    {
+      "id": "M102",
+      "file": "shared/algo/rate.lua",
+      "find": "        error(('CisRate: now must be a number of seconds or nil, got %s')\n            :format(now ~= now and 'NaN' or type(now)), 3)",
+      "replace": "        return 0",
+      "why": "Coerce a NaN or non-number clock to 0 again. A fixed window is then pinned at index 0 and never rolls, so a key that filled it once is refused forever."
+    },
+    {
+      "id": "M103",
+      "file": "shared/algo/rate.lua",
+      "find": "    if now == nil then\n",
+      "replace": "    if now == false then\n",
+      "why": "Drop the default clock: an omitted `now` is no longer read from GetGameTimer, so the documented call shape without a timestamp raises."
+    },
+    {
+      "id": "M104",
+      "file": "shared/algo/random.lua",
+      "find": "    lo = math.ceil(lo)\n    hi = math.floor(hi)",
+      "replace": "    lo = math.floor(lo)\n    hi = math.ceil(hi)",
+      "why": "Round a fractional integer range OUTWARD: integer(1.5, 3.5) draws 1 and 4, outside the range asked for."
+    },
+    {
+      "id": "M105",
+      "file": "shared/algo/random.lua",
+      "find": "    k = math.floor(k)\n",
+      "replace": "",
+      "why": "sample(list, 2.5) clears the tail from key 3.5, which does not exist, and returns the whole list."
+    },
+    {
+      "id": "M106",
+      "file": "shared/algo/heap.lua",
+      "find": "    if value == nil then\n        return nil, 'cannot push nil into a heap'\n    end\n",
+      "replace": "",
+      "why": "push(nil) counts a slot that holds nothing, and the next sift compares nil and raises."
+    },
+    {
+      "id": "M107",
+      "file": "shared/algo/window.lua",
+      "find": "    if type(w) ~= 'number' or w ~= w or w <= 0 then\n        w = 1",
+      "replace": "    if type(w) ~= 'number' or w ~= w or w < 1 then\n        w = 1",
+      "why": "Raise every sub-second dedupe window to a whole second, so a 250 ms debounce swallows four times what it should."
+    },
+    {
+      "id": "M108",
+      "file": "shared/algo/window.lua",
+      "find": "    if entry.lastBucket == nil then",
+      "replace": "    if entry.lastBucket == nil or entry.lastBucket < 0 then",
+      "why": "Treat a negative bucket index as 'no data yet'. With negative timestamps every record re-initialises the key without clearing it, so expired samples are never dropped."
+    },
+    {
+      "id": "M109",
+      "file": "shared/algo/sparse.lua",
+      "find": "    set.dense = {}\n    set.size = 0\n",
+      "replace": "    set.size = 0\n",
+      "why": "A soft clear keeps the old dense array, so a cleared set still references every value it ever held."
+    },
+    {
+      "id": "M110",
+      "file": "shared/util/id.lua",
+      "find": "    rng = normaliseRng(rng)\n    if not rng then",
+      "replace": "    rng = rng or math.random\n    if not rng then",
+      "why": "uuid calls a CisRandom generator object as if it were a function and raises, unlike every other CisId function."
     }
   ]
 }

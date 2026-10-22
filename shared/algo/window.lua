@@ -122,8 +122,10 @@ end
 --- @param windowSec number  how long a key stays "seen" after a hit. Below 1
 --- @return table  { windowSec, entries, size }
 function M.newDedupe(windowSec)
+    -- Any positive window. A sub-second one is legitimate -- a 250 ms debounce
+    -- on a key press -- and used to be raised to a whole second.
     local w = windowSec
-    if type(w) ~= 'number' or w ~= w or w < 1 then
+    if type(w) ~= 'number' or w ~= w or w <= 0 then
         w = 1
     end
     return {
@@ -276,7 +278,10 @@ function M.record(stats, key, value, now)
     if not entry then
         entry = {
             idx = 0,        -- ring cursor: the position of the newest bucket
-            lastBucket = -1, -- absolute index of the newest bucket
+            -- Absolute index of the newest bucket; nil until the first sample.
+            -- NOT -1: a negative timestamp has a negative bucket index, and a
+            -- `< 0` sentinel re-initialised the key on every record.
+            lastBucket = nil,
             sums = {}, counts = {}, mins = {}, maxs = {}, lasts = {},
         }
         stats.entries[key] = entry
@@ -294,7 +299,7 @@ function M.record(stats, key, value, now)
         entry.lasts[i] = nil
     end
 
-    if entry.lastBucket < 0 then
+    if entry.lastBucket == nil then
         entry.lastBucket = bucketIndex
         entry.idx = 1
     elseif bucketIndex ~= entry.lastBucket then

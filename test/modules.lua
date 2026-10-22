@@ -1671,6 +1671,498 @@ do
     end
 end
 
+-- ============================================ Phase 6 · properties, not examples
+--
+-- Every block below pins a defect that the example tests above let through.
+-- Most compare the module against a REFERENCE written here, over many
+-- generated cases, because a single hand-picked example is exactly what the
+-- original tests were and exactly what the defects slipped past.
+
+-- A deterministic generator owned by the TEST, so the cases do not depend on
+-- the module under test (CisRandom) being right. Park-Miller in doubles, which
+-- is exact on fengari's 32-bit integers and on Lua 5.4 alike.
+local function testRng(seed)
+    local state = math.floor(seed) % 2147483647
+    if state <= 0 then state = state + 2147483646 end
+    return function()
+        state = (state * 16807.0) % 2147483647
+        return state / 2147483647
+    end
+end
+
+-- Load a shipped module FRESH into its own environment, so a test can give it
+-- a `type` that knows about FiveM vectors. Both runners inject the source of
+-- every manifest file as CIS_TEST_FILES.
+local function freshModule(rel, overrides)
+    local src = assert(CIS_TEST_FILES and CIS_TEST_FILES[rel], 'no injected source for ' .. rel)
+    local env = setmetatable(overrides or {}, { __index = _G })
+    local chunk = assert(load(src, '@' .. rel, 't', env))
+    return chunk('cis_require')
+end
+
+-- Stand-ins for CfxLua's vector2/3/4. `type()` on a real one answers
+-- 'vector3', not 'table', and reading a field the vector does not have
+-- RAISES -- so a reader that touches .z on a vector2, or [1] on any vector,
+-- fails here the way it would in FiveM.
+local VECTOR_FIELDS = {
+    vector2 = { x = true, y = true },
+    vector3 = { x = true, y = true, z = true },
+    vector4 = { x = true, y = true, z = true, w = true },
+}
+local function fakeVector(kind, x, y, z, w)
+    local data = { x = x, y = y, z = z, w = w }
+    local allowed = VECTOR_FIELDS[kind]
+    return setmetatable({}, {
+        __vectype = kind,
+        __index = function(_, k)
+            if allowed[k] then return data[k] end
+            error(('invalid %s field %s'):format(kind, tostring(k)), 2)
+        end,
+        __newindex = function() error('vectors are read-only here', 2) end,
+    })
+end
+local realType = type
+local function vectorAwareType(v)
+    local mt = getmetatable(v)
+    if realType(mt) == 'table' and rawget(mt, '__vectype') then
+        return rawget(mt, '__vectype')
+    end
+    return realType(v)
+end
+
+local function angleClose(a, b, tol)
+    local d = math.abs((a - b) % 360)
+    return d <= tol or 360 - d <= tol
+end
+
+-- ---------------------------------------------------- interp: FiveM vectors
+do
+    local I = freshModule('shared/algo/interp.lua', { type = vectorAwareType })
+    local a3, b3 = fakeVector('vector3', 1, 2, 3), fakeVector('vector3', 4, 6, 3)
+    near(I.distance3D(a3, b3), 5, 1e-12, 'interp: distance3D reads two vector3s (was 0)')
+    near(I.distance2D(fakeVector('vector2', 0, 0), fakeVector('vector2', 3, 4)), 5, 1e-12,
+        'interp: distance2D reads two vector2s without touching .z')
+    local mid = I.lerpVec3(a3, b3, 0.5)
+    expect(mid.x == 2.5 and mid.y == 4 and mid.z == 3, 'interp: lerpVec3 blends vector3s')
+    local v4 = I.normalize(fakeVector('vector4', 0, 3, 4, 99))
+    near(v4.y, 0.6, 1e-12, 'interp: normalize reads x/y/z of a vector4 and ignores w')
+    local moved = I.moveTowardsVec3(fakeVector('vector3', 0, 0, 0), fakeVector('vector3', 10, 0, 0), 2)
+    expect(moved.x == 2 and moved.y == 0 and moved.z == 0, 'interp: moveTowardsVec3 moves a vector3')
+    local okUd = pcall(I.distance3D, io.stdout, a3)
+    expect(okUd, 'interp: a userdata with no .x is a refusal, not a raise')
+end
+
+-- ---------------------------------------------- interp: 2D moveTowardsVec3
+do
+    local I = CisInterp
+    local p = I.moveTowardsVec3({ x = 0, y = 0 }, { x = 3, y = 4 }, 1)
+    near(p.x, 0.6, 1e-12, 'interp: a 2D point moves toward a 2D target (it used to stay put)')
+    near(p.y, 0.8, 1e-12, 'interp: and along the right direction')
+    local q = I.moveTowardsVec3({ 0, 0 }, { x = 3, y = 4, z = 12 }, 100)
+    expect(q.x == 3 and q.y == 4 and q.z == 12, 'interp: a 2D point takes the 3D target\'s z')
+end
+
+-- -------------------------------------------- interp: smoothDamp maxSpeed
+do
+    local I = CisInterp
+    local ok, out, vel = pcall(I.smoothDamp, 0, 10, 0, 0.3, -5, 1 / 60)
+    expect(ok and out == 0 and vel == 0,
+        ('interp: smoothDamp with a negative maxSpeed holds still rather than raising (%s %s)')
+            :format(tostring(out), tostring(vel)))
+    local okNan, outNan = pcall(I.smoothDamp, 0, 10, 0, 0.3, 0 / 0, 1 / 60)
+    expect(okNan and outNan > 0 and outNan < 10, 'interp: a NaN maxSpeed is "no limit"')
+    -- The limit must still bite: a step cannot cover more than maxSpeed * smoothTime.
+    local capped = I.smoothDamp(0, 1000, 0, 0.5, 4, 0.1)
+    local free = I.smoothDamp(0, 1000, 0, 0.5, nil, 0.1)
+    expect(capped < free and capped > 0, 'interp: a positive maxSpeed still limits the step')
+end
+
+-- ------------------------------------------------- interp: GTA headings
+do
+    local I = CisInterp
+    near(I.lerpHeading(10, 350, 0.5), 0, 1e-9, 'interp: lerpHeading(10, 350, .5) goes through north')
+    near(I.lerpHeading(350, 10, 0.5), 0, 1e-9, 'interp: and the other way round')
+    local rng = testRng(9001)
+    local bad = {}
+    for _ = 1, 400 do
+        local a, b, t = rng() * 720 - 360, rng() * 720 - 360, rng()
+        local d = I.headingDelta(a, b)
+        -- Reference: the shortest signed arc, in [-180, 180).
+        local ref = ((b - a) % 360 + 540) % 360 - 180
+        if not (d >= -180 and d < 180 and math.abs(d - ref) < 1e-9) then
+            bad[#bad + 1] = ('delta(%g,%g)=%g want %g'):format(a, b, d, ref)
+        end
+        local h = I.lerpHeading(a, b, t)
+        if not (h >= 0 and h < 360 and angleClose(h, a + ref * t, 1e-7)) then
+            bad[#bad + 1] = ('lerp(%g,%g,%g)=%g'):format(a, b, t, h)
+        end
+    end
+    expect(#bad == 0, 'interp: headingDelta/lerpHeading take the shortest arc for 400 random pairs: '
+        .. table.concat(bad, '; ', 1, math.min(#bad, 3)))
+
+    -- GetEntityForwardVector at heading h is (-sin h, cos h): 0 faces +Y, 90 faces -X.
+    local fx, fy = I.headingToVector(0)
+    expect(math.abs(fx) < 1e-12 and math.abs(fy - 1) < 1e-12, 'interp: heading 0 faces +Y')
+    fx, fy = I.headingToVector(90)
+    expect(math.abs(fx + 1) < 1e-12 and math.abs(fy) < 1e-12, 'interp: heading 90 faces -X, as in GTA')
+    fx, fy = I.headingToVector(270)
+    expect(math.abs(fx - 1) < 1e-12 and math.abs(fy) < 1e-12, 'interp: heading 270 faces +X')
+    near(I.vectorToHeading(-1, 0), 90, 1e-9, 'interp: vectorToHeading(-1, 0) is 90')
+    near(I.vectorToHeading(0, -1), 180, 1e-9, 'interp: vectorToHeading(0, -1) is 180')
+    local trip = {}
+    for _ = 1, 400 do
+        local h = rng() * 1080 - 360
+        local x, y = I.headingToVector(h)
+        local back = I.vectorToHeading(x * 7, y * 7)
+        if not (angleClose(back, h, 1e-7) and back >= 0 and back < 360) then
+            trip[#trip + 1] = ('%g -> %g'):format(h, back)
+        end
+        if math.abs(x + math.sin(math.rad(h))) > 1e-12 or math.abs(y - math.cos(math.rad(h))) > 1e-12 then
+            trip[#trip + 1] = ('forward(%g)'):format(h)
+        end
+    end
+    expect(#trip == 0, 'interp: heading -> vector -> heading round-trips for 400 headings: '
+        .. table.concat(trip, '; ', 1, math.min(#trip, 3)))
+end
+
+-- -------------------------------- curve: centripetal against Barry-Goldman
+do
+    -- The reference: Barry and Goldman's pyramid, which IS the definition of a
+    -- non-uniform Catmull-Rom segment, evaluated at the knot that matches u.
+    local function dist3(a, b)
+        return math.sqrt((b[1] - a[1]) ^ 2 + (b[2] - a[2]) ^ 2 + (b[3] - a[3]) ^ 2)
+    end
+    local function barryGoldman(P0, P1, P2, P3, alpha, u)
+        local t0 = 0
+        local t1 = t0 + dist3(P0, P1) ^ alpha
+        local t2 = t1 + dist3(P1, P2) ^ alpha
+        local t3 = t2 + dist3(P2, P3) ^ alpha
+        local t = t1 + (t2 - t1) * u
+        local function L(A, B, ta, tb)
+            local o = {}
+            for i = 1, 3 do o[i] = (tb - t) / (tb - ta) * A[i] + (t - ta) / (tb - ta) * B[i] end
+            return o
+        end
+        local A1, A2, A3 = L(P0, P1, t0, t1), L(P1, P2, t1, t2), L(P2, P3, t2, t3)
+        local B1, B2 = L(A1, A2, t0, t2), L(A2, A3, t1, t3)
+        return L(B1, B2, t1, t2)
+    end
+    local function asPoint(P) return { x = P[1], y = P[2], z = P[3] } end
+
+    local C = CisCurve
+    local rng = testRng(4242)
+    local worst = { 0, 0, 0, 0 }
+    local alphas = { 0, 0.25, 0.5, 1 }
+    for _ = 1, 150 do
+        local P = {}
+        for i = 1, 4 do
+            P[i] = { rng() * 100 - 50, rng() * 100 - 50, rng() * 20 - 10 }
+        end
+        for ai, alpha in ipairs(alphas) do
+            local u = rng()
+            local ref = barryGoldman(P[1], P[2], P[3], P[4], alpha, u)
+            local x, y, z = C.catmullRom(asPoint(P[1]), asPoint(P[2]), asPoint(P[3]), asPoint(P[4]), u, alpha)
+            local err = math.max(math.abs(x - ref[1]), math.abs(y - ref[2]), math.abs(z - ref[3]))
+            if err > worst[ai] then worst[ai] = err end
+        end
+    end
+    for ai, alpha in ipairs(alphas) do
+        expect(worst[ai] < 1e-7, ('curve: catmullRom matches Barry-Goldman at alpha=%g over 150 random'
+            .. ' segments (worst error %g)'):format(alpha, worst[ai]))
+    end
+
+    -- The path stores its own tangents; the same reference checks them, on the
+    -- interior segments of an open path and on every segment of a closed one.
+    local pts = {}
+    for i = 1, 7 do pts[i] = { rng() * 80, rng() * 80, rng() * 8 } end
+    local tablePts = {}
+    for i = 1, #pts do tablePts[i] = asPoint(pts[i]) end
+    local pathWorst = 0
+    for _, closed in ipairs({ false, true }) do
+        local path = C.newPath(tablePts, { alpha = 0.5, closed = closed })
+        local n = #pts
+        local first, last = 2, n - 2
+        if closed then first, last = 1, n end
+        for s = first, last do
+            local function at(i) return pts[((i - 1) % n) + 1] end
+            for _, u in ipairs({ 0.1, 0.37, 0.5, 0.81 }) do
+                local ref = barryGoldman(at(s - 1), at(s), at(s + 1), at(s + 2), 0.5, u)
+                local x, y, z = C.hermite(asPoint(at(s)), asPoint(at(s + 1)),
+                    { x = path.m1x[s], y = path.m1y[s], z = path.m1z[s] },
+                    { x = path.m2x[s], y = path.m2y[s], z = path.m2z[s] }, u)
+                pathWorst = math.max(pathWorst, math.abs(x - ref[1]), math.abs(y - ref[2]), math.abs(z - ref[3]))
+            end
+        end
+    end
+    expect(pathWorst < 1e-7, ('curve: newPath tangents match Barry-Goldman, open and closed (worst %g)')
+        :format(pathWorst))
+end
+
+-- --------------------------------------------------- curve: FiveM vectors
+do
+    local C = freshModule('shared/algo/curve.lua', { type = vectorAwareType })
+    local asTables = { { x = 0, y = 0, z = 1 }, { x = 10, y = 0, z = 1 }, { x = 10, y = 10, z = 2 } }
+    local asVectors = {}
+    for i, p in ipairs(asTables) do asVectors[i] = fakeVector('vector3', p.x, p.y, p.z) end
+    local pt = C.newPath(asTables)
+    local pv = C.newPath(asVectors)
+    expect(C.count(pv) == 3, 'curve: newPath keeps vector3 control points (it dropped every one)')
+    near(C.length(pv), C.length(pt), 1e-9, 'curve: a vector3 path has the same length as the table path')
+    near(C.lengthOf({ fakeVector('vector2', 0, 0), fakeVector('vector2', 3, 4) }), 5, 1e-12,
+        'curve: lengthOf reads vector2s')
+    local x = C.catmullRom(asVectors[1], asVectors[1], asVectors[2], asVectors[3], 0.5)
+    expect(x > 0 and x < 10, 'curve: catmullRom reads vector3 control points (it answered 0)')
+end
+
+-- --------------------------------------------------- lru: each is re-entrant
+do
+    local L = CisLRU
+    local function build(n)
+        local c = L.new(100)
+        for i = 1, n do L.put(c, 'k' .. i, i) end
+        return c
+    end
+    local c = build(5)
+    local visits, seen, runaway = 0, {}, false
+    local ok, err = pcall(L.each, c, function(k)
+        visits = visits + 1
+        if visits > 50 then runaway = true error('runaway') end
+        seen[k] = (seen[k] or 0) + 1
+        L.get(c, k)                       -- relinks k to the front
+    end)
+    local once = true
+    for i = 1, 5 do if seen['k' .. i] ~= 1 then once = false end end
+    expect(ok and not runaway and once and visits == 5,
+        ('lru: each visits every key once when the callback calls get (%s, %d visits)')
+            :format(tostring(err), visits))
+
+    c = build(5)
+    local order = L.keys(c)
+    local got = {}
+    ok, err = pcall(L.each, c, function(k)
+        got[#got + 1] = k
+        -- Remove the entry being visited AND whatever comes next in the
+        -- original order. Removing the current node unlinks it, so a walk that
+        -- reads node.next afterwards reads nil.
+        L.remove(c, k)
+        for i = 1, #order - 1 do
+            if order[i] == k then L.remove(c, order[i + 1]) end
+        end
+    end)
+    expect(ok and #got == 3 and got[1] == order[1] and got[2] == order[3] and got[3] == order[5]
+        and L.count(c) == 0,
+        ('lru: each survives the callback removing the current and next entries (%s)'):format(tostring(err)))
+
+    c = build(4)
+    local n = 0
+    ok = pcall(L.each, c, function() n = n + 1 L.clear(c) end)
+    expect(ok and n == 1, 'lru: each stops visiting once the callback clears the cache')
+
+    c = build(3)
+    ok = pcall(L.each, c, function(k) L.put(c, k .. '_new', 0) end)
+    expect(ok and L.count(c) == 6, 'lru: an entry added during each is not visited, and nothing breaks')
+end
+
+-- --------------------------------------------------- rate: sliding and clock
+do
+    local R = CisRate
+    local r = R.newSliding({ limit = 3, windowSec = 1, subdivisions = 4 })
+    expect(R.allow(r, 'k', 0, 10) == false, 'rate: a first call over the limit is refused')
+    -- One slice later (a slice is 0.25 s), so the cursor steps by one rather
+    -- than wiping the ring -- the path that did arithmetic on the nil cursor.
+    local ok, res = pcall(R.allow, r, 'k', 0.3)
+    expect(ok and res == true,
+        ('rate: a sliding key whose first call was refused rolls forward without raising (%s)')
+            :format(tostring(res)))
+
+    -- nil `now` reads the game timer, in seconds, and the fixed window ROLLS.
+    local savedTimer = GetGameTimer
+    local ms = 100000
+    GetGameTimer = function() return ms end
+    local f = R.newFixed({ limit = 2, windowSec = 1 })
+    local a, b, c = R.allow(f, 'p'), R.allow(f, 'p'), R.allow(f, 'p')
+    ms = ms + 1000
+    local d = R.allow(f, 'p')
+    GetGameTimer = savedTimer
+    expect(a and b and not c and d,
+        'rate: with now omitted the default clock is used and the window rolls (it was pinned at 0)')
+
+    local okNaN = pcall(R.allow, f, 'p', 0 / 0)
+    expect(not okNaN, 'rate: a NaN clock raises rather than pinning the window at 0')
+    local okStr = pcall(R.allow, f, 'p', '5')
+    expect(not okStr, 'rate: a string clock raises')
+    local okPeek = pcall(R.peek, f, 'p', {})
+    expect(not okPeek, 'rate: peek validates the clock the same way')
+end
+
+-- -------------------------------------------- random: inward integer bounds
+do
+    local Rn = CisRandom
+    local sources = {
+        { 'math.random', nil },
+        { 'a function', testRng(77) },
+        { 'a generator', Rn.newGenerator(77) },
+    }
+    for _, src in ipairs(sources) do
+        local outside, hit2, hit3 = 0, false, false
+        for _ = 1, 400 do
+            local v = Rn.integer(1.5, 3.5, src[2])
+            if v == 2 then hit2 = true elseif v == 3 then hit3 = true else outside = outside + 1 end
+        end
+        expect(outside == 0 and hit2 and hit3,
+            ('random: integer(1.5, 3.5) draws only 2 and 3 from %s (%d outside)'):format(src[1], outside))
+    end
+    local none, why = Rn.integer(1.2, 1.8)
+    expect(none == nil and type(why) == 'string', 'random: a range holding no integer is a refusal')
+    local g = Rn.newGenerator(5)
+    local outside = 0
+    for _ = 1, 200 do
+        local v = g:int(-2.5, 0.5)
+        if v ~= -2 and v ~= -1 and v ~= 0 then outside = outside + 1 end
+    end
+    expect(outside == 0, 'random: generator:int rounds a fractional range inward too')
+
+    local list = { 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h' }
+    local wrong = {}
+    for _, k in ipairs({ 0, 0.5, 1, 1.9, 2.5, 7.2, 8, 9.5 }) do
+        local want = math.min(math.floor(k), #list)
+        local s = Rn.sample(list, k, testRng(k * 100 + 1))
+        local count, distinct, valid = 0, {}, true
+        for key, v in pairs(s) do
+            count = count + 1
+            if type(key) ~= 'number' or key % 1 ~= 0 or key < 1 or key > want then valid = false end
+            if distinct[v] then valid = false end
+            distinct[v] = true
+        end
+        if count ~= want or #s ~= want or not valid then
+            wrong[#wrong + 1] = ('k=%g gave %d'):format(k, count)
+        end
+    end
+    expect(#wrong == 0, 'random: sample returns floor(k) distinct elements: ' .. table.concat(wrong, ', '))
+end
+
+-- ----------------------------------------------- heap: refusals and a model
+do
+    local H = CisHeap
+    local h = H.new()
+    H.push(h, 3)
+    local okNil, size, why = pcall(H.push, h, nil)
+    local okNext = pcall(H.push, h, 1)
+    expect(okNil and size == nil and type(why) == 'string' and okNext and H.size(h) == 2,
+        'heap: push(nil) is refused, the size is unchanged, and the heap still works')
+    local okNan, nanSize = pcall(H.push, h, 0 / 0)
+    expect(okNan and nanSize == nil and H.size(h) == 2, 'heap: NaN is refused under the default ordering')
+
+    -- Model check: random pushes and pops against a sorted reference list.
+    local rng = testRng(31337)
+    local ref, mismatch = {}, nil
+    h = H.new()
+    for step = 1, 600 do
+        if rng() < 0.6 or #ref == 0 then
+            local v = math.floor(rng() * 50)
+            H.push(h, v)
+            ref[#ref + 1] = v
+            table.sort(ref)
+        else
+            local got = H.pop(h)
+            local want = table.remove(ref, 1)
+            if got ~= want then
+                mismatch = ('step %d popped %s, want %s'):format(step, tostring(got), tostring(want))
+                break
+            end
+        end
+    end
+    expect(mismatch == nil and H.size(h) == #ref,
+        'heap: 600 random push/pop steps agree with a sorted reference: ' .. tostring(mismatch))
+end
+
+-- --------------------------------------------- window: sub-second, negatives
+do
+    local W = CisWindow
+    local d = W.newDedupe(0.25)
+    expect(d.windowSec == 0.25, 'window: a sub-second dedupe window is kept (it was raised to 1s)')
+    expect(W.seen(d, 'k', 10.0) == true and W.seen(d, 'k', 10.1) == false and W.seen(d, 'k', 10.3) == true,
+        'window: and it behaves as a 250 ms window')
+
+    -- Shifting every timestamp by a whole number of buckets cannot change any
+    -- answer. Negative timestamps used to collide with the -1 "no data yet"
+    -- sentinel and re-initialise the key on every record without clearing it.
+    local function run(offset)
+        local rng = testRng(2718)
+        local st = W.newStats(10, 1)
+        local t = 0
+        local answers = {}
+        for i = 1, 120 do
+            t = t + rng() * 3
+            W.record(st, 'k', i, t + offset)
+            local r = W.read(st, 'k', t + offset)
+            answers[#answers + 1] = r and (r.count .. ':' .. r.sum .. ':' .. r.min .. ':' .. r.max) or 'nil'
+        end
+        return table.concat(answers, ' ')
+    end
+    expect(run(0) == run(-100000), 'window: stats answer identically for timestamps shifted below zero')
+    local st = W.newStats(10, 1)
+    W.record(st, 'k', 1, -30)
+    W.record(st, 'k', 1, -5)
+    expect(W.samples(st, 'k', -5) == 1, 'window: a sample 25 s older than a negative now has expired')
+end
+
+-- -------------------------------------- sparse: a soft clear lets go of values
+do
+    local Sp = CisSparse
+    local set = Sp.new()
+    local held = {}
+    Sp.add(set, held)
+    Sp.add(set, 'str')
+    Sp.clear(set)
+    local stillInDense = false
+    for _, v in pairs(set.dense) do if v == held then stillInDense = true end end
+    expect(not stillInDense, 'sparse: a soft clear drops the dense references')
+    expect(not Sp.has(set, held) and Sp.count(set) == 0, 'sparse: and the value is gone from the set')
+    expect(Sp.add(set, held) == true and Sp.has(set, held), 'sparse: and it can be added again')
+
+    -- Real collection, where the interpreter has weak tables (fengari does not).
+    local probe = setmetatable({}, { __mode = 'k' })
+    probe[{}] = true
+    local hasGc = pcall(collectgarbage) and pcall(collectgarbage)
+    if hasGc and next(probe) == nil then
+        local s2 = Sp.new()
+        local watch = setmetatable({}, { __mode = 'k' })
+        do
+            local obj = {}
+            watch[obj] = true
+            Sp.add(s2, obj)
+            Sp.add(s2, 'x')
+        end
+        Sp.clear(s2)
+        collectgarbage() collectgarbage()
+        expect(next(watch) == nil, 'sparse: after a soft clear the old member is garbage-collectable')
+        local s3 = Sp.new()
+        local keep = setmetatable({}, { __mode = 'k' })
+        do
+            local obj = {}
+            keep[obj] = true
+            Sp.add(s3, obj)
+        end
+        collectgarbage() collectgarbage()
+        expect(next(keep) ~= nil and Sp.count(s3) == 1, 'sparse: but a LIVE member is never collected')
+    end
+end
+
+-- ------------------------------------------------- id: uuid takes a generator
+do
+    local Id = CisId
+    local _, a = pcall(Id.uuid, CisRandom.newGenerator(11))
+    local _, b = pcall(Id.uuid, CisRandom.newGenerator(11))
+    expect(type(a) == 'string' and a == b, 'id: uuid accepts a CisRandom generator and is reproducible')
+    expect(type(a) == 'string'
+        and a:match('^%x%x%x%x%x%x%x%x%-%x%x%x%x%-4%x%x%x%-[89ab]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$') ~= nil,
+        'id: and the result is a version-4, variant-1 UUID: ' .. tostring(a))
+    local none, why = Id.uuid('nope')
+    expect(none == nil and type(why) == 'string', 'id: a non-generator is a refusal, not a raise')
+    expect(#Id.short() == Id.LENGTH and Id.LENGTH * 5 == 60, 'id: LENGTH is 12 symbols, 60 bits')
+end
+
 io.write(('module tests: passed=%d failed=%d\n'):format(passed, failed))
 if failed > 0 then
     os.exit(1)

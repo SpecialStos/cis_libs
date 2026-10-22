@@ -3,7 +3,7 @@
 local M = {
     -- Crockford-style base32: the digits plus the consonants, with I, L, O and U
     ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ',
-    -- 8 characters of 5 bits is 40 bits.
+    -- 12 characters of 5 bits is 60 bits.
     LENGTH = 12,
 }
 
@@ -101,7 +101,14 @@ end
 --- @param rng
 --- @return string|nil,string  an RFC 4122 version-4 shaped string, or nil and a reason if the rng misbehaves. Not a UUID in the cryptographic sense -- see the header.
 function M.uuid(rng)
-    rng = rng or math.random
+    -- The same generator forms draw() takes: nil, a function, or a
+    -- CisRandom.newGenerator object. An object used to be CALLED, and raised.
+    local given = rng
+    rng = normaliseRng(rng)
+    if not rng then
+        return nil, ('rng must be a function returning a number in [0,1), '
+            .. 'or a CisRandom.newGenerator object, got %s'):format(type(given))
+    end
     local hex = '0123456789abcdef'
     local out = {}
     local i = 1

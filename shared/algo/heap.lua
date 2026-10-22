@@ -43,10 +43,22 @@ local function sift(h, index)
 end
 
 --- Add a value.
---- @param h
---- @param value
---- @return number  the new size
+---
+--- nil is refused: it cannot be stored in the array part, so a pushed nil left
+--- `size` counting a slot that held nothing and the next sift compared nil. NaN
+--- is refused under the default ordering, where it compares false both ways
+--- and silently breaks the heap property for every later push.
+--- @param h table
+--- @param value any
+--- @return integer|nil size  the new size, or nil when the value was refused
+--- @return string|nil reason  why it was refused
 function M.push(h, value)
+    if value == nil then
+        return nil, 'cannot push nil into a heap'
+    end
+    if value ~= value and not h.less then
+        return nil, 'cannot push NaN into a heap ordered by <'
+    end
     local n = h.size + 1
     h.items[n] = value
     h.size = n

@@ -8,9 +8,19 @@ local MAX_GENERATION = 9007199254740992
 -- The point of the structure is that clear is O(1), and the price is that it never
 local SWEEP_FLOOR = 64
 
+-- The slot map is WEAK-KEYED. A soft clear only bumps the generation, so every
+-- value from the old generation is still a key here; with strong keys a
+-- cleared set pinned everything it had ever held until the next sweep. A live
+-- value is still held strongly by `dense`, so weakness never drops a member.
+local SLOTS_MODE = { __mode = 'k' }
+
+local function newSlots()
+    return setmetatable({}, SLOTS_MODE)
+end
+
 function M.new()
     return {
-        slots = {},    -- value -> { gen, index }
+        slots = newSlots(),    -- value -> { gen, index }
         dense = {},    -- index -> value, valid for 1..size
         size = 0,
         generation = 1,
@@ -21,7 +31,7 @@ end
 
 -- Drop every slot that is not from the current generation.
 local function sweepSlots(set)
-    local live = {}
+    local live = newSlots()
     for value, slot in pairs(set.slots) do
         if slot.gen == set.generation then
             live[value] = slot
@@ -110,14 +120,17 @@ end
 
 function M.clear(set, hard)
     if hard then
-        set.dense = {}
-        set.slots = {}
+        set.slots = newSlots()
         set.written = 0
     end
+    -- A fresh dense array in BOTH modes: it is one allocation, so the clear stays
+    -- O(1), and the old array was the other place a cleared set kept its former
+    -- members alive.
+    set.dense = {}
     set.size = 0
     if set.generation >= MAX_GENERATION then
         -- Unreachable, and handled anyway because "unreachable" is a property of the
-        set.slots = {}
+        set.slots = newSlots()
         set.dense = {}
         set.written = 0
         set.generation = 1
