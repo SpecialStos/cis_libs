@@ -190,7 +190,10 @@ function main() {
         cwd: tmp,
         encoding: 'utf8',
         maxBuffer: 32 * 1024 * 1024,
-        shell: process.platform === 'win32',
+        // The shell is only there to resolve a bare name on Windows PATH. With
+        // an absolute path it would split a home directory like
+        // C:\Users\First Last at the space, so the binary is spawned directly.
+        shell: process.platform === 'win32' && !path.isAbsolute(luacheck),
       })
       if (res.error && !firstError) firstError = res.error
 
