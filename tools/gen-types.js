@@ -3,6 +3,15 @@
 //   types/cis_libs.lua        a ---@meta stub describing every export
 //   DOCUMENTATION.md §5 and §6, between the generated markers
 //
+// The fifteen MODULES are typed from their own source: every `function M.x`
+// carries ---@param / ---@return annotations in shared/algo and shared/util,
+// and this tool turns them into `---@field x fun(a: T): R` on the module's
+// class (it used to emit a bare `function` for every one), plus the
+// per-module function reference in DOCUMENTATION.md §5.1. A module function
+// with a parameter or return the annotations do not type is a FAILURE here,
+// as is a function the module defines and api.lua does not list, or the
+// reverse -- so the types and the reference cannot quietly fall behind.
+//
 // BOTH ARE COMMITTED AND CI FAILS IF EITHER IS STALE. That is the whole point.
 // A generated file refreshed on demand is documentation nobody reads, because
 // the reader has no way to tell it from the file it drifted away from.
@@ -30,6 +39,8 @@ const OUT_TYPES = 'types/cis_libs.lua'
 const OUT_DOC = 'DOCUMENTATION.md'
 const BEGIN = '<!-- generated:begin -->'
 const END = '<!-- generated:end -->'
+const MOD_BEGIN = '<!-- generated:modules:begin -->'
+const MOD_END = '<!-- generated:modules:end -->'
 
 function loadApi() {
   const L = lauxlib.luaL_newstate()
@@ -149,9 +160,141 @@ function returnAnnotations(returns, indent) {
 }
 
 // ---------------------------------------------------------------------------
+// MODULE SIGNATURES, read from the module source.
+//
+// A LuaLS type can contain spaces (`fun(a: any): boolean`, `table<string, T>`),
+// so a type is read up to the first space at bracket depth 0 -- except a space
+// right after the `:` that introduces a fun() return type.
+function readType(text) {
+  let depth = 0
+  let i = 0
+  for (; i < text.length; i++) {
+    const c = text[i]
+    if ('(<{['.includes(c)) depth++
+    else if (')>}]'.includes(c)) depth--
+    else if (c === ' ' && depth === 0) {
+      const before = text.slice(0, i).trimEnd()
+      if (before.endsWith(':') || before.endsWith('|') || before.endsWith(',')) continue
+      if (/^\s*[|,]/.test(text.slice(i))) continue
+      break
+    }
+  }
+  return [text.slice(0, i).trim(), text.slice(i).trim()]
+}
+
+// What counts as a type here: names, unions, arrays, generics and fun(...).
+// Deliberately narrower than LuaLS -- prose in the type slot ("the id, or nil")
+// is the mistake this rejects.
+const TYPE_RE = /^(?:[A-Za-z_][\w.]*(?:<[^>]*>)?(?:\[\])*|fun\(.*\)(?::\s*.+)?)(?:\|(?:[A-Za-z_][\w.]*(?:<[^>]*>)?(?:\[\])*|fun\(.*\)(?::\s*.+)?))*$/
+
+function moduleGlobal(source) {
+  const m = /^\s+(Cis\w+) = M\s*$/m.exec(source)
+  return m && m[1]
+}
+
+function parseModule(rel) {
+  const source = read(rel)
+  const lines = source.split('\n')
+  const fns = new Map()
+  const aliases = []
+  const problems = []
+  lines.forEach((line, i) => {
+    const alias = /^M\.(\w+)\s*=\s*M\.(\w+)\s*$/.exec(line)
+    if (alias) { aliases.push([alias[1], alias[2]]); return }
+    const m = /^function M\.(\w+)\(([^)]*)\)/.exec(line)
+    if (!m) return
+    const name = m[1]
+    const args = m[2].split(',').map((a) => a.trim()).filter(Boolean)
+    const block = []
+    for (let j = i - 1; j >= 0 && lines[j].startsWith('---'); j--) block.unshift(lines[j])
+    const summary = []
+    const params = new Map()
+    const returns = []
+    for (const b of block) {
+      const pm = /^---\s*@param\s+(\.\.\.|[A-Za-z_]\w*\??)\s*(.*)$/.exec(b)
+      const rm = /^---\s*@return\s*(.*)$/.exec(b)
+      if (pm) {
+        const [type, doc] = readType(pm[2])
+        const optional = pm[1].endsWith('?')
+        params.set(pm[1].replace(/\?$/, ''), { type, doc, optional })
+      } else if (rm) {
+        const [type, rest] = readType(rm[1])
+        returns.push({ type, doc: rest })
+      } else if (!/^---\s*@/.test(b)) {
+        summary.push(b.replace(/^---\s?/, ''))
+      }
+    }
+    const typed = []
+    for (const a of args) {
+      const p = params.get(a)
+      if (!p || !TYPE_RE.test(p.type)) {
+        problems.push(`${rel}: M.${name}: parameter ${a} has no ---@param type`)
+        continue
+      }
+      typed.push({ name: a, ...p })
+    }
+    for (const r of returns) {
+      if (!TYPE_RE.test(r.type)) problems.push(`${rel}: M.${name}: ---@return ${JSON.stringify(r.type)} is not a type`)
+    }
+    fns.set(name, { name, params: typed, returns, summary: summary.join(' ').trim() })
+  })
+  for (const [name, target] of aliases) {
+    const t = fns.get(target)
+    if (!t) { problems.push(`${rel}: M.${name} aliases M.${target}, which is not a function`); continue }
+    fns.set(name, { ...t, name, alias: target })
+  }
+  return { global: moduleGlobal(source), fns, problems }
+}
+
+function funType(fn) {
+  const params = fn.params.map((p) => `${p.name}${p.optional ? '?' : ''}: ${p.type}`).join(', ')
+  const rets = fn.returns.map((r) => r.type).filter((t) => t !== 'nil')
+  return `fun(${params})${rets.length ? ': ' + rets.join(', ') : ''}`
+}
+
+// First sentence of a summary, for one table cell.
+function firstSentence(text) {
+  const m = /^(.*?[.!?])(\s|$)/.exec(text)
+  return (m ? m[1] : text).trim()
+}
+
+// Every module: its class name and parsed functions. Fails loudly on drift.
+function loadModules(api) {
+  const modules = api.modules || {}
+  const out = []
+  const problems = []
+  for (const name of Object.keys(modules).sort()) {
+    const parsed = parseModule(modules[name].path)
+    problems.push(...parsed.problems)
+    if (!parsed.global) {
+      problems.push(`${modules[name].path}: no \`CisXxx = M\` tail, so the module class cannot be named`)
+      continue
+    }
+    const cls = (api.classes || {})[parsed.global]
+    if (!cls) {
+      problems.push(`api.lua classes has no ${parsed.global} for module ${name}`)
+      continue
+    }
+    const declared = new Set((cls.fields || []).filter((f) => f.type === 'function').map((f) => f.name))
+    for (const f of parsed.fns.keys()) {
+      if (!declared.has(f)) problems.push(`${parsed.global}.${f} is defined in ${modules[name].path} but not listed in api.lua classes.${parsed.global}`)
+    }
+    for (const f of declared) {
+      if (!parsed.fns.has(f)) problems.push(`api.lua classes.${parsed.global} lists ${f}, which ${modules[name].path} does not define`)
+    }
+    out.push({ name, path: modules[name].path, global: parsed.global, fns: parsed.fns })
+  }
+  if (problems.length) {
+    throw new Error('module annotations:\n  ' + problems.join('\n  '))
+  }
+  return out
+}
+
+// ---------------------------------------------------------------------------
 // The classes, first: an annotation that names a class defined further down the
 // file works, and the reverse reads as a dangling reference until you scroll.
-function buildClasses(api) {
+function buildClasses(api, modules) {
+  const moduleFns = new Map((modules || []).map((m) => [m.global, m.fns]))
   const L = []
   const classes = api.classes || {}
   const names = Object.keys(classes).sort()
@@ -165,8 +308,17 @@ function buildClasses(api) {
     // stops being loadable -- which is a much bigger problem than a doc that
     // does not render. LuaLS reads the text after a `---@class` either way.
     if (c.doc) L.push(`-- ${oneLine(c.doc)}`)
+    const fns = moduleFns.get(name)
     for (const f of c.fields || []) {
       if (!f || typeof f.name !== 'string') continue
+      const fn = fns && f.type === 'function' && fns.get(f.name)
+      if (fn) {
+        // The module's own annotations, as a callable type the editor can check.
+        const doc = firstSentence(fn.summary)
+        // ` # ` delimits the description: a fun() type has spaces of its own.
+        L.push(`---@field ${f.name} ${funType(fn)}${doc ? ` # ${oneLine(doc)}` : ''}`)
+        continue
+      }
       L.push(`---@field ${f.name}${f.optional ? '?' : ''} ${f.type || 'any'}${f.doc ? ` ${oneLine(f.doc)}` : ''}`)
     }
     L.push(`local ${name} = {}`)
@@ -240,10 +392,14 @@ function buildSurface(api, block, title, kind) {
 // what narrow it, and they come from the SAME `modules` block the loader's
 // allow-list is checked against -- so a module that exists but has no overload
 // is a gap the reader can see rather than a silent `table`.
-function buildModuleOverloads(api) {
+function buildModuleOverloads(api, parsedModules) {
   const L = []
   const modules = api.modules || {}
   const names = Object.keys(modules).sort()
+  // The class name comes from the module's own `CisXxx = M` tail. Deriving it
+  // by capitalising the module name made 'lru' CisLru, which is not a class,
+  // so Cis.require('lru') was typed as a bare table.
+  const globals = new Map((parsedModules || []).map((m) => [m.name, m.global]))
   L.push('---@class CisRequire')
   L.push('--- `Cis.require(name)` RAISES on an unknown name rather than answering nil:')
   L.push('--- every other `Cis.*` call answers `false, reason` because the caller may')
@@ -254,7 +410,7 @@ function buildModuleOverloads(api) {
   L.push('function CisRequire(name) end')
   L.push('')
   for (const n of names) {
-    const g = `Cis${n.charAt(0).toUpperCase()}${n.slice(1)}`
+    const g = globals.get(n) || `Cis${n.charAt(0).toUpperCase()}${n.slice(1)}`
     const declared = api.classes && api.classes[g]
     L.push('---@overload fun(name: "' + n + '"): ' + (declared ? g : 'table'))
   }
@@ -263,7 +419,7 @@ function buildModuleOverloads(api) {
 }
 
 // ---------------------------------------------------------------------------
-function buildTypes(api, surface) {
+function buildTypes(api, surface, modules) {
   const L = []
   L.push('---@meta')
   L.push('')
@@ -280,10 +436,10 @@ function buildTypes(api, surface) {
   L.push('--- The library')
   L.push('local cis_libs = {}')
   L.push('')
-  L.push(...buildClasses(api))
+  L.push(...buildClasses(api, modules))
   L.push(...buildSurface(api, 'exports', 'RAW EXPORTS', 'export'))
   L.push(...buildSurface(api, 'functions', 'Cis.* PROXIES', 'fn'))
-  L.push(...buildModuleOverloads(api))
+  L.push(...buildModuleOverloads(api, modules))
   L.push('--- The consumer-facing proxy table, declared rather than aliased so the')
   L.push('--- completions carry the annotations above.')
   const fnNames = Object.keys(api.functions || {}).sort()
@@ -342,15 +498,42 @@ function buildDocTables(api) {
 }
 
 // ---------------------------------------------------------------------------
+// DOCUMENTATION.md §5.1: one table per module, generated from the same parse
+// that types the editor stub, so the reference and the types cannot disagree.
+function buildModuleDocs(modules) {
+  const L = []
+  for (const m of modules) {
+    L.push(`#### \`${m.name}\` — \`Cis.require('${m.name}')\``)
+    L.push('')
+    L.push(`Source: \`${m.path}\`.`)
+    L.push('')
+    L.push('| Function | Signature | Summary |')
+    L.push('|---|---|---|')
+    for (const name of [...m.fns.keys()].sort()) {
+      const fn = m.fns.get(name)
+      const params = fn.params.map((p) => `${p.name}${p.optional ? '?' : ''}: ${p.type}`).join(', ')
+      const rets = fn.returns.map((r) => r.type)
+      const sig = `(${params})${rets.length ? ' → ' + rets.join(', ') : ''}`
+      let summary = firstSentence(fn.summary)
+      if (fn.alias) summary = `Alias of \`${fn.alias}\`.` + (summary ? ' ' + summary : '')
+      if (!summary && fn.returns[0] && fn.returns[0].doc) summary = `Returns ${fn.returns[0].doc}.`
+      L.push(`| \`${name}\` | \`${sig.replace(/\|/g, '\\|')}\` | ${oneLine(summary)} |`)
+    }
+    L.push('')
+  }
+  return L.join('\n').trimEnd()
+}
+
+// ---------------------------------------------------------------------------
 // Refuses to guess where to write. A generated block with no marker is a
 // hand-maintained block that LOOKS generated, which is the worst of both.
-function replaceBetween(text, generated, label) {
-  const begin = text.indexOf(BEGIN)
-  const endIdx = text.indexOf(END)
+function replaceBetween(text, generated, label, open = BEGIN, close = END) {
+  const begin = text.indexOf(open)
+  const endIdx = text.indexOf(close)
   if (begin < 0 || endIdx < 0 || endIdx < begin) {
-    throw new Error(`${label} has no ${BEGIN} / ${END} markers`)
+    throw new Error(`${label} has no ${open} / ${close} markers`)
   }
-  return text.slice(0, begin + BEGIN.length) + '\n\n' + generated + '\n\n' + text.slice(endIdx)
+  return text.slice(0, begin + open.length) + '\n\n' + generated + '\n\n' + text.slice(endIdx)
 }
 
 // Compare and write in one line ending, always LF.
@@ -367,7 +550,16 @@ function main() {
   const surface = scanResource(root)
   let stale = false
 
-  const types = buildTypes(api, surface)
+  let modules
+  try {
+    modules = loadModules(api)
+  } catch (e) {
+    console.error(`FAIL ${e.message}`)
+    process.exitCode = 1
+    return
+  }
+
+  const types = buildTypes(api, surface, modules)
   const typesPath = path.join(root, OUT_TYPES)
   const existing = fs.existsSync(typesPath) ? nl(fs.readFileSync(typesPath, 'utf8')) : null
   if (existing !== nl(types)) {
@@ -385,6 +577,7 @@ function main() {
   let nextDoc
   try {
     nextDoc = replaceBetween(doc, buildDocTables(api), OUT_DOC)
+    nextDoc = replaceBetween(nextDoc, buildModuleDocs(modules), OUT_DOC, MOD_BEGIN, MOD_END)
   } catch (e) {
     console.error(String(e.message))
     process.exitCode = 1

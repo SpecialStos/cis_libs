@@ -154,10 +154,10 @@ end
 --- non-negative major/minor/patch, and prerelease/build that are themselves
 --- valid -- and the answer is always a fresh, normalised table. A table used
 --- to be handed back unvalidated, so `compare({}, '1.0.0')` compared nil.
---- @param v string|table  the version, or a table shaped like parse's result
---- @param opts table|nil  { loose = boolean }
---- @return table|nil parsed  { major, minor, patch, prerelease, build, prereleaseIds, raw, normalized }
---- @return string|nil reason  why it is not a version
+---@param v string|table  the version, or a table shaped like parse's result
+---@param opts? table  { loose = boolean }
+---@return table|nil parsed  { major, minor, patch, prerelease, build, prereleaseIds, raw, normalized }
+---@return string|nil reason  why it is not a version
 function M.parse(v, opts)
     local loose = type(opts) == 'table' and opts.loose == true
     if type(v) == 'table' then
@@ -230,11 +230,11 @@ local function compareParsed(pa, pb)
 end
 
 --- Compare two versions by SemVer precedence. Build metadata is ignored.
---- @param a string|table
---- @param b string|table
---- @param opts table|nil  { loose = boolean }, applied to both
---- @return integer|nil order  -1 if a < b, 0 if equal, 1 if a > b
---- @return string|nil reason  when either side is not a version
+---@param a string|table
+---@param b string|table
+---@param opts? table  { loose = boolean }, applied to both
+---@return integer|nil order  -1 if a < b, 0 if equal, 1 if a > b
+---@return string|nil reason  when either side is not a version
 function M.compare(a, b, opts)
     local pa, whyA = M.parse(a, opts)
     if not pa then
@@ -247,33 +247,33 @@ function M.compare(a, b, opts)
     return compareParsed(pa, pb)
 end
 
---- @param a string|table
---- @param b string|table
---- @param opts table|nil  { loose = boolean }
---- @return boolean|nil  a >= b, or nil and a reason (see compare)
---- @return string|nil
+---@param a string|table
+---@param b string|table
+---@param opts? table  { loose = boolean }
+---@return boolean|nil  a >= b, or nil and a reason (see compare)
+---@return string|nil
 function M.gte(a, b, opts)
     local c, why = M.compare(a, b, opts)
     if c == nil then return nil, why end
     return c >= 0
 end
 
---- @param a string|table
---- @param b string|table
---- @param opts table|nil  { loose = boolean }
---- @return boolean|nil  a < b, or nil and a reason
---- @return string|nil
+---@param a string|table
+---@param b string|table
+---@param opts? table  { loose = boolean }
+---@return boolean|nil  a < b, or nil and a reason
+---@return string|nil
 function M.lt(a, b, opts)
     local c, why = M.compare(a, b, opts)
     if c == nil then return nil, why end
     return c < 0
 end
 
---- @param a string|table
---- @param b string|table
---- @param opts table|nil  { loose = boolean }
---- @return boolean|nil  equal precedence (build metadata does not count), or nil and a reason
---- @return string|nil
+---@param a string|table
+---@param b string|table
+---@param opts? table  { loose = boolean }
+---@return boolean|nil  equal precedence (build metadata does not count), or nil and a reason
+---@return string|nil
 function M.eq(a, b, opts)
     local c, why = M.compare(a, b, opts)
     if c == nil then return nil, why end
@@ -543,11 +543,11 @@ local function testSet(target, set, incPre)
 end
 
 --- Does `version` satisfy a range expression?
---- @param version string|table
---- @param range string  npm range syntax; '' and '*' mean any release
---- @param opts table|nil  { includePrerelease = boolean, loose = boolean (for the version) }
---- @return boolean|nil ok  nil when the version or the range is malformed
---- @return string|nil reason
+---@param version string|table
+---@param range string  npm range syntax; '' and '*' mean any release
+---@param opts? table  { includePrerelease = boolean, loose = boolean (for the version) }
+---@return boolean|nil ok  nil when the version or the range is malformed
+---@return string|nil reason
 function M.satisfies(version, range, opts)
     opts = opts or {}
     local incPre = opts.includePrerelease == true
@@ -577,11 +577,11 @@ function M.satisfies(version, range, opts)
 end
 
 --- The highest version in a list that satisfies `range`.
---- @param candidates table  array of version strings (or parsed tables)
---- @param range string
---- @param opts table|nil  as satisfies
---- @return any|nil  the candidate exactly as it appeared in the list, or nil when none match
---- @return string|nil reason  when the list, the range or a candidate is malformed
+---@param candidates table  array of version strings (or parsed tables)
+---@param range string
+---@param opts? table  as satisfies
+---@return any|nil  the candidate exactly as it appeared in the list, or nil when none match
+---@return string|nil reason  when the list, the range or a candidate is malformed
 function M.best(candidates, range, opts)
     if type(candidates) ~= 'table' then
         return nil, ('candidates must be a table, got %s'):format(type(candidates))

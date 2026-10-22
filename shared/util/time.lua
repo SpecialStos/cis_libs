@@ -35,8 +35,9 @@ local SYMBOL_SECONDS = {
 }
 
 --- Read the clock from an INJECTED source.
---- @param clock function returning a number of seconds, or nil.
---- @return the number, or `nil, reason`.
+---@param clock fun(): number  returning a number of seconds, or nil.
+---@return number|nil
+---@return string|nil  why
 function M.now(clock)
     if type(clock) ~= 'function' then
         return nil, 'no clock was injected; pass clock() returning seconds'
@@ -52,8 +53,8 @@ function M.now(clock)
 end
 
 --- Break a duration into { weeks, days, hours, minutes, seconds }.
---- @param seconds
---- @return table  { weeks, days, hours, minutes, seconds, fractional, negative }. A non-number, NaN or infinity is 0 rather than an error.
+---@param seconds number
+---@return table  { weeks, days, hours, minutes, seconds, fractional, negative }. A non-number, NaN or infinity is 0 rather than an error.
 function M.parts(seconds)
     local negative = false
     -- Strict about the type, unlike a `tonumber(seconds) or 0`.
@@ -82,9 +83,9 @@ function M.parts(seconds)
 end
 
 --- Format a duration as "2h 14m".
---- @param seconds
---- @param opts
---- @return a string. A non-numeric input is '0s', not an error: this is a
+---@param seconds number
+---@param opts? table  { sep, max, ms }
+---@return string  "0s" for a non-number
 function M.formatDuration(seconds, opts)
     opts = opts or {}
     local sep = opts.sep or ' '
@@ -132,8 +133,9 @@ function M.formatDuration(seconds, opts)
 end
 
 --- Parse a human duration back into seconds.
---- @param text
---- @return the number of seconds, or `nil, reason` naming the offending piece.
+---@param text string|number
+---@return number|nil  seconds
+---@return string|nil  the offending piece
 function M.parseDuration(text)
     if type(text) == 'number' then
         if text ~= text or text == math.huge or text == -math.huge then
@@ -191,10 +193,10 @@ function M.parseDuration(text)
 end
 
 --- Relative time in words: '3 minutes ago', 'in 3 minutes', 'just now'.
---- @param timestamp
---- @param now
---- @param opts
---- @return a string. nil in gives 'unknown', because "this thing has no
+---@param timestamp number
+---@param now number
+---@param opts? table  { within, justNow, future, past }
+---@return string  "unknown" for a non-finite instant
 function M.relative(timestamp, now, opts)
     if type(timestamp) ~= 'number' or timestamp ~= timestamp
         or timestamp == math.huge or timestamp == -math.huge then
@@ -248,9 +250,9 @@ function M.relative(timestamp, now, opts)
 end
 
 --- Seconds elapsed between two instants: `now - since`.
---- @param now
---- @param since
---- @return a number, or 0 when either argument is not a number. Compare the
+---@param now number
+---@param since number
+---@return number  0 when either is not a number
 function M.elapsed(now, since)
     if type(now) ~= 'number' or type(since) ~= 'number' then
         return 0
@@ -259,9 +261,9 @@ function M.elapsed(now, since)
 end
 
 --- Round a duration in SECONDS to a whole number of `unit`s, to the NEAREST, and return
---- @param seconds
---- @param unit
---- @return SECONDS, rounded to a whole multiple of `unit`. Ties go UP (30s to a
+---@param seconds number
+---@param unit? number  default 60
+---@return number  seconds, rounded to a whole multiple of unit, ties up
 function M.roundTo(seconds, unit)
     if type(seconds) ~= 'number' or seconds ~= seconds then
         return 0

@@ -171,8 +171,8 @@ local function hashSeed(seed)
 end
 
 --- A seeded, reproducible generator.
---- @param seed number|nil  any number. Fractions, negatives and magnitudes
---- @return table  { next, float, int, range }
+---@param seed? number  any number. Fractions, negatives and magnitudes
+---@return table  { next, float, int, range }
 function M.newGenerator(seed)
     local s
     if type(seed) == 'number' and seed == seed and math.abs(seed) < 1e18 then
@@ -248,12 +248,12 @@ function M.newGenerator(seed)
 end
 
 --- Integer in [lo, hi] INCLUSIVE, uniformly.
---- @param rng table|function|nil  see the header; nil uses math.random
---- @param lo
---- @param hi
---- @return number  the drawn integer
---- @return number|nil,string  `nil, reason` when a bound is NaN or infinite
 --- @raise  when a bound is not a number -- a mistake in the caller's code, which
+---@param lo number
+---@param hi number
+---@param rng? table|fun(): number  see the header; nil uses math.random
+---@return integer|nil  the draw
+---@return string|nil  why, when the range is NaN, infinite or holds no integer
 function M.integer(lo, hi, rng)
     local a, b = intBounds(lo, hi, 'CisRandom.integer')
     if a == nil then
@@ -266,12 +266,12 @@ function M.integer(lo, hi, rng)
 end
 
 --- Float in [min, max). Same error style as `integer`, and for the same reason: this
---- @param min
---- @param max
---- @param rng
---- @return number
---- @return number|nil,string  `nil, reason` when a bound is NaN or infinite
 --- @raise  when a bound is not a number
+---@param min number
+---@param max number
+---@param rng? table|fun(): number
+---@return number|nil  the draw, in [min, max)
+---@return string|nil  why, when a bound is NaN or infinite
 function M.float(min, max, rng)
     local a, b = floatBounds(min, max, 'CisRandom.float')
     if a == nil then
@@ -284,9 +284,9 @@ function M.float(min, max, rng)
 end
 
 --- Fisher-Yates shuffle, IN PLACE.
---- @param list table|nil  any array; modified in place and returned
---- @param rng table|function|nil
---- @return table  the same table, or nil when list is not a table. Returning
+---@param list table  any array; modified in place and returned
+---@param rng? table|fun(): number
+---@return table|nil  the same table, shuffled in place
 function M.shuffle(list, rng)
     if type(list) ~= 'table' then
         return nil
@@ -299,9 +299,9 @@ function M.shuffle(list, rng)
 end
 
 --- One uniformly random element of a list.
---- @param list
---- @param rng
---- @return any  nil for an empty or non-table list -- "no element" has to be
+---@param list table
+---@param rng? table|fun(): number
+---@return any  nil for an empty list
 function M.pick(list, rng)
     if type(list) ~= 'table' then
         return nil
@@ -314,10 +314,10 @@ function M.pick(list, rng)
 end
 
 --- `k` distinct elements of a list, in random order, WITHOUT touching the input.
---- @param k number  clamped to [0, #list]; k <= 0 returns an empty table
---- @param list
---- @param rng
---- @return table  a NEW array of exactly k elements, in random order; never the
+---@param list table
+---@param k number  floored, then clamped to [0, #list]
+---@param rng? table|fun(): number
+---@return table  a NEW array of floor(k) distinct elements
 function M.sample(list, k, rng)
     local out = {}
     if type(list) ~= 'table' then
@@ -347,9 +347,9 @@ function M.sample(list, k, rng)
 end
 
 --- Weighted choice. Cumulative weights plus a binary search, O(log n) per draw and O(n)
---- @param entries table  array of tables with `.weight` (number, may be
---- @param rng table|function|nil
---- @return any  the chosen `.value`, or nil when the list is empty, has no
+---@param entries table  array of tables with `.weight` (number, may be
+---@param rng? table|fun(): number
+---@return any  the chosen .value (or entry), or nil
 function M.weighted(entries, rng)
     if type(entries) ~= 'table' then
         return nil
@@ -411,9 +411,9 @@ local cumulative = {}
 end
 
 --- Index of a weighted choice, for callers that keep weights and values in parallel
---- @param weights
---- @param rng
---- @return number|nil  1-based index, or nil when the total weight is 0
+---@param weights number[]
+---@param rng? table|fun(): number
+---@return integer|nil  1-based index, or nil when the total weight is 0
 function M.weightedIndex(weights, rng)
     if type(weights) ~= 'table' then
         return nil
@@ -453,10 +453,10 @@ function M.weightedIndex(weights, rng)
 end
 
 --- Normally distributed value, mean 0 and standard deviation 1 unless told otherwise.
---- @param mean number|nil                default 0
---- @param standardDeviation number|nil  default 1
---- @param rng table|function|nil        LAST and optional, like every rng
---- @return number  mean + z * standardDeviation
+---@param mean? number  default 0
+---@param standardDeviation? number  default 1
+---@param rng? table|fun(): number  LAST and optional, like every rng
+---@return number  mean + z * standardDeviation
 function M.gaussian(mean, standardDeviation, rng)
     -- Legacy form: gaussian(rng, mean, standardDeviation).
     if type(mean) == 'function'

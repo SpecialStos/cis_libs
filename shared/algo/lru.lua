@@ -8,8 +8,8 @@ local function sentinel()
 end
 
 --- Create an empty cache.
---- @param capacity number|nil  maximum live entries. nil, a non-number, or a
---- @return table  the cache; treat it as a value and hand it to every function
+---@param capacity? number  maximum live entries. nil, a non-number, or a
+---@return table  the cache; treat it as a value and hand it to every function
 function M.new(capacity)
     local cap
     if type(capacity) == 'number' and capacity == capacity then
@@ -44,9 +44,9 @@ local function pushFront(lru, node)
 end
 
 --- Look up a key and mark it as most recently used.
---- @param lru
---- @param key
---- @return any  the stored value, or nil when the key is absent. A stored
+---@param lru table
+---@param key any
+---@return any  nil when absent
 function M.get(lru, key)
     local node = lru.map[key]
     if not node then
@@ -61,9 +61,9 @@ function M.get(lru, key)
 end
 
 --- Look up a key WITHOUT changing its recency.
---- @param lru
---- @param key
---- @return any  the value, or nil
+---@param lru table
+---@param key any
+---@return any  nil when absent
 function M.peek(lru, key)
     local node = lru.map[key]
     if not node then
@@ -73,18 +73,18 @@ function M.peek(lru, key)
 end
 
 --- Is a key present, without changing its recency?
---- @param lru
---- @param key
---- @return boolean
+---@param lru table
+---@param key any
+---@return boolean
 function M.has(lru, key)
     return lru.map[key] ~= nil
 end
 
 --- Store a value and mark it most recently used.
---- @param value any  nil is treated as a REMOVE, because a table cannot hold a
---- @param lru
---- @param key
---- @return any  the key that had to be evicted to make room, or nil. The
+---@param lru table
+---@param key any
+---@param value any  nil is treated as a REMOVE, because a table cannot hold a
+---@return any  the key evicted to make room, or nil
 function M.put(lru, key, value)
     if value == nil then
         M.remove(lru, key)
@@ -114,8 +114,9 @@ function M.put(lru, key, value)
 end
 
 --- Remove the least recently used entry.
---- @param lru
---- @return any, any  the evicted value and the evicted key; nil, nil when the
+---@param lru table
+---@return any value
+---@return any key
 function M.popOldest(lru)
     local last = lru.tail.prev
     if last == lru.head then
@@ -129,9 +130,9 @@ function M.popOldest(lru)
 end
 
 --- Remove a key, whatever its position in the order.
---- @param lru
---- @param key
---- @return any  the removed value, or nil when the key was not present
+---@param lru table
+---@param key any
+---@return any  the removed value, or nil
 function M.remove(lru, key)
     local node = lru.map[key]
     if not node then
@@ -146,9 +147,9 @@ end
 
 -- at once -- and because a caller who wrote it as a loop of remove() calls would
 --- Remove every entry for which `predicate(key, value)` is true.
---- @param lru
---- @param predicate
---- @return number  how many entries were removed
+---@param lru table
+---@param predicate fun(key: any, value: any): boolean
+---@return integer  how many entries were removed
 function M.removeWhere(lru, predicate)
     if type(predicate) ~= 'function' then
         return 0
@@ -169,15 +170,15 @@ function M.removeWhere(lru, predicate)
 end
 
 --- Number of live entries. O(1): a counter, not a walk.
---- @param lru
---- @return number
+---@param lru table
+---@return integer
 function M.count(lru)
     return lru.size
 end
 
 --- Empty the cache. Both structures are replaced rather than emptied in place.
---- @param lru
---- @return nil  it mutates the cache in place
+---@param lru table
+---@return nil  it mutates the cache in place
 function M.clear(lru)
     local head = sentinel()
     local tail = sentinel()
@@ -190,8 +191,8 @@ function M.clear(lru)
 end
 
 --- Keys from most recently used to least.
---- @param lru
---- @return table  a NEW array. The live list is not walkable from outside and
+---@param lru table
+---@return any[]  most recently used first
 function M.keys(lru)
     local out = {}
     local node = lru.head.next
@@ -210,9 +211,9 @@ end
 --- `next` is the old head and the walk revisits it forever, and a `remove` of
 --- the successor leaves the cursor on an unlinked node with no `next` at all.
 --- An entry removed before its turn is skipped; its current value is passed.
---- @param lru table
---- @param fn fun(key: any, value: any)
---- @return number  how many entries were visited; 0 when fn is not a function. Most recently used first.
+---@param lru table
+---@param fn fun(key: any, value: any)
+---@return number  how many entries were visited; 0 when fn is not a function. Most recently used first.
 function M.each(lru, fn)
     if type(fn) ~= 'function' then
         return 0

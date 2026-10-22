@@ -33,8 +33,8 @@ end
 
 
 --- A counter that resets on an aligned boundary.
---- @param opts
---- @return table  the limiter
+---@param opts? table  { limit, windowSec, anchored }
+---@return table  the limiter
 function M.newFixed(opts)
     opts = opts or {}
     return {
@@ -77,8 +77,8 @@ end
 
 
 --- A two-bucket sliding window estimate.
---- @param opts
---- @return table  the limiter
+---@param opts? table  { limit, windowSec, subdivisions }
+---@return table  the limiter
 function M.newSliding(opts)
     opts = opts or {}
     local sub = math.floor(positive(opts.subdivisions, 10))
@@ -166,8 +166,8 @@ end
 
 
 --- A continuously refilling bucket.
---- @param opts
---- @return table  the limiter
+---@param opts? table  { capacity, refillPerSec }
+---@return table  the limiter
 function M.newTokenBucket(opts)
     opts = opts or {}
     local capacity = positive(opts.capacity, 10)
@@ -211,11 +211,11 @@ local function entryFor(r, key)
 end
 
 --- Try to spend `cost` from a key's budget.
---- @param cost number|nil  events to spend, default 1. Must be >= 1; a
---- @param r
---- @param key
---- @param now
---- @return boolean  true when the action is allowed. A refusal leaves the
+---@param r table
+---@param key any
+---@param now? number  seconds; nil reads GetGameTimer()/1000 (os.time() outside FiveM); NaN or a non-number raises
+---@param cost? number  events to spend, default 1. Must be >= 1; a
+---@return boolean  true when allowed; a refusal spends nothing
 function M.allow(r, key, now, cost)
     now = clock(now)
     if type(cost) ~= 'number' or cost ~= cost or cost < 1 then
@@ -250,10 +250,10 @@ function M.allow(r, key, now, cost)
 end
 
 --- Inspect a key's budget WITHOUT spending from it.
---- @param r
---- @param key
---- @param now
---- @return table  { allowed, remaining, limit, retryAfter, resetAt }
+---@param r table
+---@param key any
+---@param now? number
+---@return table  { allowed, remaining, limit, retryAfter, resetAt }
 function M.peek(r, key, now)
     now = clock(now)
     local e = r.keys[key]
@@ -314,9 +314,9 @@ function M.peek(r, key, now)
 end
 
 --- Forget one key entirely. The right call when a player disconnects.
---- @param r
---- @param key
---- @return nil  it mutates the limiter in place; a key that was not present is a no-op
+---@param r table
+---@param key any
+---@return nil  it mutates the limiter in place; a key that was not present is a no-op
 function M.reset(r, key)
     if r.keys[key] ~= nil then
         r.keys[key] = nil
@@ -325,18 +325,18 @@ function M.reset(r, key)
 end
 
 --- Forget every key.
---- @param r
---- @return nil  it mutates the limiter in place
+---@param r table
+---@return nil  it mutates the limiter in place
 function M.clear(r)
     r.keys = {}
     r.size = 0
 end
 
 --- Drop keys that have not been touched for `idleSec`.
---- @param idleSec number|nil  defaults to a full window (or, for a token
---- @param r
---- @param now
---- @return number  how many keys were reclaimed
+---@param r table
+---@param now? number
+---@param idleSec? number  defaults to a full window (or, for a token
+---@return integer  how many keys were reclaimed
 function M.prune(r, now, idleSec)
     now = clock(now)
     local idle = idleSec
@@ -369,8 +369,8 @@ function M.prune(r, now, idleSec)
 end
 
 --- How many keys the limiter is tracking, including fully restored ones that have not
---- @param r
---- @return number
+---@param r table
+---@return integer
 function M.count(r)
     return r.size
 end

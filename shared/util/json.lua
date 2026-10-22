@@ -8,8 +8,9 @@ local M = {
 }
 
 --- Check that a value is shaped like a usable codec.
---- @param codec
---- @return the codec, or `nil, reason` naming what is missing.
+---@param codec table
+---@return table|nil  the codec
+---@return string|nil  what is missing
 function M.check(codec)
     if type(codec) ~= 'table' and type(codec) ~= 'userdata' then
         return nil, ('codec must be a table (FiveM\'s `json`), got %s'):format(type(codec))
@@ -24,8 +25,9 @@ function M.check(codec)
 end
 
 --- Bind the functions to one codec, so a hot path does not pass it every call.
---- @param codec
---- @return a table of the same three functions with the codec captured, or
+---@param codec table
+---@return table|nil  { encode, decode, tryDecode } with the codec captured
+---@return string|nil
 function M.bind(codec)
     local ok, why = M.check(codec)
     if not ok then
@@ -45,9 +47,9 @@ function M.bind(codec)
 end
 
 --- Walk a value and collect everything a JSON encoder cannot represent.
---- @param value
---- @param opts
---- @return boolean,string|nil  true when the value encodes, or false and a PATH that names the offending key. A table keyed by a function is a real Lua shape and fails here.
+---@param value
+---@param opts
+---@return boolean,string|nil  true when the value encodes, or false and a PATH that names the offending key. A table keyed by a function is a real Lua shape and fails here.
 -- The SHAPE rule for one table, which is where the portable subset of JSON
 -- and the codecs FiveM servers run disagree most. A table encodes the same way
 -- everywhere only when it is one of:
@@ -96,6 +98,10 @@ local function shapeProblem(v)
     return nil
 end
 
+---@param value any
+---@param opts? table  { maxDepth }
+---@return boolean
+---@return string|nil  the problem and its PATH
 function M.checkEncodable(value, opts)
     opts = opts or {}
     local maxDepth = opts.maxDepth or M.MAX_DEPTH
@@ -172,10 +178,11 @@ function M.checkEncodable(value, opts)
 end
 
 --- Encode, refusing rather than raising.
---- @param codec table  a table with encode and decode (FiveM's `json`).
---- @param value any   the value to encode.
---- @param opts table|nil
---- @return the encoded string, or `nil, reason`.
+---@param codec table  a table with encode and decode (FiveM's `json`).
+---@param value any  the value to encode.
+---@param opts? table
+---@return string|nil  the JSON text
+---@return string|nil  why
 function M.encode(codec, value, opts)
     local ok, why = M.check(codec)
     if not ok then
@@ -201,8 +208,9 @@ function M.encode(codec, value, opts)
 end
 
 --- Measure nesting depth in JSON TEXT without parsing it.
---- @param text
---- @return the maximum depth seen, or `nil, reason`.
+---@param text string
+---@return integer|nil  the deepest nesting
+---@return string|nil  why
 function M.scanDepth(text)
     if type(text) ~= 'string' then
         return nil, ('text must be a string, got %s'):format(type(text))
@@ -239,10 +247,11 @@ function M.scanDepth(text)
 end
 
 --- Decode, refusing rather than raising.
---- @param codec
---- @param text
---- @param opts
---- @return the decoded value on success (nil, with no reason, for `null`), or
+---@param codec table
+---@param text string
+---@param opts? table  { maxDepth, maxInput, allowEmpty }
+---@return any  the value; nil for JSON null
+---@return string|nil  why -- the only way to tell a refusal from null
 function M.decode(codec, text, opts)
     local ok, why = M.check(codec)
     if not ok then
@@ -294,10 +303,11 @@ function M.decode(codec, text, opts)
 end
 
 --- Decode, returning a boolean, for callers that cannot use the three-way form.
---- @param codec
---- @param text
---- @param opts
---- @return `true, value` on success -- value may be nil, for `null` -- or
+---@param codec table
+---@param text string
+---@param opts? table
+---@return boolean ok
+---@return any  the value, or the reason when not ok
 function M.tryDecode(codec, text, opts)
     local value, why = M.decode(codec, text, opts)
     if why then
@@ -307,10 +317,11 @@ function M.tryDecode(codec, text, opts)
 end
 
 --- Encode and decode back, and return the value that survived.
---- @param codec
---- @param value
---- @param opts
---- @return the decoded value, or `nil, reason` -- from either direction.
+---@param codec table
+---@param value any
+---@param opts? table
+---@return any  the decoded value
+---@return string|nil  why, from either direction
 function M.roundTrip(codec, value, opts)
     local text, why = M.encode(codec, value, opts)
     if text == nil then

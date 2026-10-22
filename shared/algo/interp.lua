@@ -140,10 +140,17 @@ M.EASINGS.bounceInOut = function(t)
     return 0.5 * M.EASINGS.bounceOut(2 * t - 1) + 0.5
 end
 
+--- Is `name` one of the curves in EASINGS?
+---@param name any
+---@return boolean
 function M.hasEase(name)
     return type(name) == 'string' and M.EASINGS[name] ~= nil
 end
 
+--- Apply the named easing curve to t in [0, 1]. An unknown name is linear.
+---@param name string
+---@param t number
+---@return number
 function M.ease(name, t)
     local curve = M.EASINGS[name]
     if not curve then
@@ -153,6 +160,12 @@ function M.ease(name, t)
 end
 
 
+--- Limit v to [lo, hi]. Raises on a non-number argument.
+---@param v number
+---@param lo number
+---@param hi number
+---@return number|nil  v limited to [lo, hi]
+---@return string|nil  why, for a NaN v or lo > hi
 function M.clamp(v, lo, hi)
     if type(v) ~= 'number' then
         error(('CisInterp.clamp: v must be a number, got %s'):format(type(v)), 2)
@@ -174,26 +187,47 @@ function M.clamp(v, lo, hi)
     return v
 end
 
+--- Limit v to [0, 1].
+---@param v number
+---@return number
 function M.clamp01(v)
     if v < 0 then return 0 end
     if v > 1 then return 1 end
     return v
 end
 
+--- The sign of v.
+---@param v number
+---@return integer  -1, 0 or 1
 function M.sign(v)
     if v > 0 then return 1 end
     if v < 0 then return -1 end
     return 0
 end
 
+--- Linear interpolation; t is not clamped.
+---@param a number
+---@param b number
+---@param t number
+---@return number
 function M.lerp(a, b, t)
     return a + (b - a) * t
 end
 
+--- Linear interpolation with t clamped to [0, 1].
+---@param a number
+---@param b number
+---@param t number
+---@return number
 function M.lerpClamped(a, b, t)
     return a + (b - a) * M.clamp01(t)
 end
 
+--- Where v sits between a and b, as t.
+---@param a number
+---@param b number
+---@param v number
+---@return number  0 when a == b
 function M.inverseLerp(a, b, v)
     if a == b then
         return 0
@@ -201,6 +235,14 @@ function M.inverseLerp(a, b, v)
     return (v - a) / (b - a)
 end
 
+--- Map v from [inMin, inMax] to [outMin, outMax].
+---@param v number
+---@param inMin number
+---@param inMax number
+---@param outMin number
+---@param outMax number
+---@param clamped? boolean
+---@return number
 function M.remap(v, inMin, inMax, outMin, outMax, clamped)
     if inMin == inMax then
         return outMin
@@ -212,6 +254,11 @@ function M.remap(v, inMin, inMax, outMin, outMax, clamped)
     return outMin + (outMax - outMin) * t
 end
 
+--- Wrap v into [min, max), correctly for negative input.
+---@param v number
+---@param min number
+---@param max number
+---@return number  in [min, max)
 function M.wrap(v, min, max)
     local range = max - min
     if range <= 0 then
@@ -220,6 +267,11 @@ function M.wrap(v, min, max)
     return min + ((v - min) % range + range) % range
 end
 
+--- Hermite smoothstep of x between two edges.
+---@param edge0 number
+---@param edge1 number
+---@param x number
+---@return number
 function M.smoothstep(edge0, edge1, x)
     if edge0 == edge1 then
         return x < edge0 and 0 or 1
@@ -228,6 +280,11 @@ function M.smoothstep(edge0, edge1, x)
     return t * t * (3 - 2 * t)
 end
 
+--- Ken Perlin's smootherstep of x between two edges.
+---@param edge0 number
+---@param edge1 number
+---@param x number
+---@return number
 function M.smootherstep(edge0, edge1, x)
     if edge0 == edge1 then
         return x < edge0 and 0 or 1
@@ -236,6 +293,11 @@ function M.smootherstep(edge0, edge1, x)
     return t * t * t * (t * (t * 6 - 15) + 10)
 end
 
+--- Step current toward target by at most maxDelta.
+---@param current number
+---@param target number
+---@param maxDelta number
+---@return number
 function M.moveTowards(current, target, maxDelta)
     if maxDelta < 0 then
         maxDelta = 0
@@ -249,6 +311,12 @@ function M.moveTowards(current, target, maxDelta)
     return target
 end
 
+--- Frame-rate independent exponential approach to target.
+---@param current number
+---@param target number
+---@param smoothTime number
+---@param dt number
+---@return number
 function M.damp(current, target, smoothTime, dt)
     if dt <= 0 then
         return current
@@ -263,11 +331,26 @@ function M.damp(current, target, smoothTime, dt)
     return target + (current - target) * math.exp(-dt / smoothTime)
 end
 
+--- damp() for an angle in radians, along the shortest arc.
+---@param current number
+---@param target number
+---@param smoothTime number
+---@param dt number
+---@return number  radians, wrapped to [-pi, pi)
 function M.dampAngle(current, target, smoothTime, dt)
     local delta = M.wrapAngle(target - current)
     return M.wrapAngle(current + M.damp(0, delta, smoothTime, dt))
 end
 
+--- Critically damped spring toward target (Unity-style SmoothDamp).
+---@param current number
+---@param target number
+---@param velocity? number
+---@param smoothTime number
+---@param maxSpeed? number
+---@param dt number
+---@return number value
+---@return number velocity  feed back in on the next call
 function M.smoothDamp(current, target, velocity, smoothTime, maxSpeed, dt)
     velocity = velocity or 0
     if dt <= 0 then
@@ -318,18 +401,31 @@ function M.smoothDamp(current, target, velocity, smoothTime, maxSpeed, dt)
 end
 
 
+--- Wrap an angle in radians to [-pi, pi).
+---@param rad number
+---@return number  in [-pi, pi)
 function M.wrapAngle(rad)
     return M.wrap(rad, -math.pi, math.pi)
 end
 
+--- Wrap an angle in radians to [0, 2pi).
+---@param rad number
+---@return number  in [0, 2pi)
 function M.wrapAnglePositive(rad)
     return M.wrap(rad, 0, TAU)
 end
 
+--- Wrap degrees to [0, 360).
+---@param deg number
+---@return number  in [0, 360)
 function M.wrapDegrees(deg)
     return M.wrap(deg, 0, 360)
 end
 
+--- Shortest signed difference from angle a to angle b, in radians.
+---@param a number
+---@param b number
+---@return number  radians in [-pi, pi)
 function M.angleDelta(a, b)
     return M.wrapAngle(b - a)
 end
@@ -337,10 +433,18 @@ end
 -- Shortest signed difference from heading `a` to heading `b`, in [-180, 180).
 -- Signed, not wrapped to [0, 360): lerping 10 -> 350 has to go the 20 degrees
 -- through north, not the 340 degrees the long way round.
+---@param a number
+---@param b number
+---@return number  degrees in [-180, 180)
 function M.headingDelta(a, b)
     return M.wrap(b - a, -180, 180)
 end
 
+--- Interpolate two headings along the shortest arc.
+---@param a number
+---@param b number
+---@param t number
+---@return number  degrees in [0, 360)
 function M.lerpHeading(a, b, t)
     return M.wrapDegrees(a + M.headingDelta(a, b) * t)
 end
@@ -348,6 +452,9 @@ end
 -- GTA's convention: heading 0 faces +Y (north) and heading grows anticlockwise,
 -- so heading 90 faces -X (west). This is the vector GetEntityForwardVector
 -- answers for an entity at that heading: (-sin h, cos h).
+---@param headingDeg number
+---@return number x
+---@return number y
 function M.headingToVector(headingDeg)
     local rad = headingDeg * RAD
     return -math.sin(rad), math.cos(rad)
@@ -355,6 +462,9 @@ end
 
 -- The inverse of headingToVector, wrapped to [0, 360). A zero vector has no
 -- direction and answers 0.
+---@param x number
+---@param y number
+---@return number  degrees in [0, 360)
 function M.vectorToHeading(x, y)
     if x == 0 and y == 0 then
         return 0
@@ -403,16 +513,34 @@ local function xyz(p)
     return x, y, z
 end
 
+--- Distance between two 2D points given as numbers.
+---@param ax number
+---@param ay number
+---@param bx number
+---@param by number
+---@return number
 function M.dist2(ax, ay, bx, by)
     local dx, dy = bx - ax, by - ay
     return math.sqrt(dx * dx + dy * dy)
 end
 
+--- Distance between two 3D points given as numbers; a nil z is 0.
+---@param ax number
+---@param ay number
+---@param az number|nil
+---@param bx number
+---@param by number
+---@param bz number|nil
+---@return number
 function M.dist3(ax, ay, az, bx, by, bz)
     local dx, dy, dz = bx - ax, by - ay, (bz or 0) - (az or 0)
     return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
+--- Planar distance between two points.
+---@param a table|vector2|vector3|vector4
+---@param b table|vector2|vector3|vector4
+---@return number  0 when either is not a point
 function M.distance2D(a, b)
     local ax, ay = xyz(a)
     local bx, by = xyz(b)
@@ -421,6 +549,10 @@ function M.distance2D(a, b)
     return M.dist2(ax, ay, bx, by)
 end
 
+--- Distance between two points; a missing z is 0.
+---@param a table|vector2|vector3|vector4
+---@param b table|vector2|vector3|vector4
+---@return number  0 when either is not a point
 function M.distance3D(a, b)
     local ax, ay, az = xyz(a)
     local bx, by, bz = xyz(b)
@@ -429,6 +561,11 @@ function M.distance3D(a, b)
     return M.dist3(ax, ay, az, bx, by, bz)
 end
 
+--- Step a point toward a target by at most maxDelta metres.
+---@param current table|vector2|vector3|vector4
+---@param target table|vector2|vector3|vector4
+---@param maxDelta number
+---@return table  { x, y, z }
 function M.moveTowardsVec3(current, target, maxDelta)
     local cx, cy, cz = xyz(current)
     local tx, ty, tz = xyz(target)
@@ -452,6 +589,12 @@ function M.moveTowardsVec3(current, target, maxDelta)
     return { x = cx + dx * f, y = cy + dy * f, z = cz + dz * f }
 end
 
+--- Linear interpolation between two points.
+---@param a table|vector2|vector3|vector4
+---@param b table|vector2|vector3|vector4
+---@param t number
+---@param out? table
+---@return table  { x, y, z }, out when given
 function M.lerpVec3(a, b, t, out)
     local ax, ay, az = xyz(a)
     local bx, by, bz = xyz(b)
@@ -472,6 +615,13 @@ function M.lerpVec3(a, b, t, out)
     return out
 end
 
+--- damp() per component.
+---@param current table|vector2|vector3|vector4
+---@param target table|vector2|vector3|vector4
+---@param smoothTime number
+---@param dt number
+---@param out? table
+---@return table  { x, y, z }
 function M.dampVec3(current, target, smoothTime, dt, out)
     local cx, cy, cz = xyz(current)
     local tx, ty, tz = xyz(target)
@@ -496,6 +646,11 @@ function M.dampVec3(current, target, smoothTime, dt, out)
     return out
 end
 
+--- Shorten a vector to at most maxLength.
+---@param v table|vector2|vector3|vector4
+---@param maxLength number
+---@param out? table
+---@return table  { x, y, z }
 function M.clampLength(v, maxLength, out)
     local x, y, z = xyz(v)
     if not x then
@@ -514,6 +669,10 @@ function M.clampLength(v, maxLength, out)
     return out
 end
 
+--- Unit vector in the direction of v.
+---@param v table|vector2|vector3|vector4
+---@param out? table
+---@return table  unit { x, y, z }; zero stays zero
 function M.normalize(v, out)
     local x, y, z = xyz(v)
     out = out or {}

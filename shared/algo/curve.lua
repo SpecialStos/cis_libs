@@ -101,8 +101,8 @@ local function tangents(p0, p1, p2, p3, alpha)
 end
 
 --- Chord length of a polyline, summed.
---- @param points table|nil  list of point tables
---- @return number  0 for nil, for an empty list, and for a single point --
+---@param points table|nil  list of point tables
+---@return number  0 for nil, for an empty list, and for a single point --
 function M.lengthOf(points)
     if type(points) ~= 'table' then
         return 0
@@ -123,12 +123,14 @@ function M.lengthOf(points)
 end
 
 --- Cubic Hermite basis evaluation.
---- @param p0
---- @param p1
---- @param m0
---- @param m1
---- @param t
---- @return number, number, number  x, y, z
+---@param p0 table
+---@param p1 table
+---@param m0 table
+---@param m1 table
+---@param t number
+---@return number x
+---@return number y
+---@return number z
 function M.hermite(p0, p1, m0, m1, t)
     local t2 = t * t
     local t3 = t2 * t
@@ -144,13 +146,15 @@ end
 
 -- chord.
 --- Evaluate one Catmull-Rom segment from four control points.
---- @param alpha number|nil  knot exponent: 0.5 centripetal (default), 0 uniform
---- @param t number          0 returns p1, 1 returns p2; not clamped
---- @param p0
---- @param p1
---- @param p2
---- @param p3
---- @return number, number, number  x, y, z
+---@param p0 table|vector2|vector3|vector4|nil
+---@param p1 table|vector2|vector3|vector4
+---@param p2 table|vector2|vector3|vector4
+---@param p3 table|vector2|vector3|vector4|nil
+---@param t number  0 returns p1, 1 returns p2; not clamped
+---@param alpha? number  knot exponent: 0.5 centripetal (default), 0 uniform
+---@return number x
+---@return number y
+---@return number z
 function M.catmullRom(p0, p1, p2, p3, t, alpha)
     alpha = alpha == nil and DEFAULT_ALPHA or alpha
     local ax, ay, az = px(p1)
@@ -179,9 +183,10 @@ function M.catmullRom(p0, p1, p2, p3, t, alpha)
 end
 
 -- Build a path. See the header for what a path is and why it exists.
---- @param points
---- @param opts
---- @return table  a path handle: { points, closed, alpha, samples, segments, count, length, arcD }. A non-table or too-few points still yields a usable empty path rather than nil.
+--- Build an arc-length parameterised Catmull-Rom path.
+---@param points table
+---@param opts? table  { closed, alpha, samples }
+---@return table  a path handle: { points, closed, alpha, samples, segments, count, length, arcD }. A non-table or too-few points still yields a usable empty path rather than nil.
 function M.newPath(points, opts)
     opts = opts or {}
     local closed = opts.closed and true or false
@@ -279,8 +284,8 @@ function M.newPath(points, opts)
 end
 
 --- Number of control points, or 0 for a path built from nothing.
---- @param path
---- @return number
+---@param path table
+---@return integer
 function M.count(path)
     if type(path) ~= 'table' then
         return 0
@@ -289,8 +294,8 @@ function M.count(path)
 end
 
 --- Total arc length of the path in metres, measured along the CURVE and not along the
---- @param path
---- @return number  0 for a path with fewer than two points
+---@param path table
+---@return number  0 for a path with fewer than two points
 function M.length(path)
     if type(path) ~= 'table' then
         return 0
@@ -321,9 +326,12 @@ local function locate(path, d)
 end
 
 --- The point at `distance` metres along the path.
---- @param path table
---- @param distance number  metres. Clamped to the path on an open path; WRAPS
---- @return number, number, number, number  x, y, z, ok
+---@param path table
+---@param distance number  metres. Clamped to the path on an open path; WRAPS
+---@return number x
+---@return number y
+---@return number z
+---@return boolean ok
 function M.pointAtXYZ(path, distance)
     if type(path) ~= 'table' or (path.count or 0) < 1 then
         return 0, 0, 0, false
@@ -381,10 +389,10 @@ function M.pointAtXYZ(path, distance)
 end
 
 --- The point at `distance` metres along the path, as a table.
---- @param out table|nil  write into this instead of allocating
---- @param path
---- @param distance
---- @return table|nil  { x, y, z }, or nil when the path has no points
+---@param path table
+---@param distance number
+---@param out? table  write into this instead of allocating
+---@return table|nil  { x, y, z }, or nil when the path has no points
 function M.pointAt(path, distance, out)
     local x, y, z, ok = M.pointAtXYZ(path, distance)
     if not ok then
@@ -396,10 +404,10 @@ function M.pointAt(path, distance, out)
 end
 
 --- The point at a fraction of the whole path, 0..1.
---- @param path
---- @param t
---- @param out
---- @return table|nil
+---@param path table
+---@param t number
+---@param out? table
+---@return table|nil
 function M.pointAtT(path, t, out)
     local length = M.length(path)
     if type(t) ~= 'number' or t ~= t then
@@ -409,9 +417,11 @@ function M.pointAtT(path, t, out)
 end
 
 --- Unit tangent (the direction of travel) at `distance` metres along the path.
---- @param path
---- @param distance
---- @return number, number, number  x, y, z -- all zero for a degenerate path
+---@param path table
+---@param distance number
+---@return number x
+---@return number y
+---@return number z
 function M.tangentAtXYZ(path, distance)
     local length = M.length(path)
     if length <= 0 then
@@ -432,9 +442,9 @@ function M.tangentAtXYZ(path, distance)
 end
 
 --- Evenly spaced samples along the path, for drawing a route, handing one to a native,
---- @param count number|nil  number of POINTS; default is one per whole metre,
---- @param path
---- @return table  array of { x, y, z }; empty for a path with no points.
+---@param path table
+---@param count? number  number of POINTS; default is one per whole metre,
+---@return table  array of { x, y, z }; empty for a path with no points.
 function M.sample(path, count)
     local out = {}
     if type(path) ~= 'table' or (path.count or 0) < 1 then
