@@ -729,6 +729,48 @@
       "find": "    if entry.ace and not IsPrincipalAceAllowed(('player.%d'):format(src), entry.ace) then\n",
       "replace": "    if false then\n",
       "why": "Skip the ACE check. A callback registered with ace = 'cis.admin' answers any client."
+    },
+    {
+      "id": "M110",
+      "file": "server/proxy.lua",
+      "find": "exports('BreakDoor', function(identifier)\n    if not CisInvokingAllowed() then\n",
+      "replace": "exports('BreakDoor', function(identifier)\n    if false then\n",
+      "why": "Ungate BreakDoor. Any started resource can break any door a player is standing at, while its sibling AddDoorToSystem still asks the allow-list."
+    },
+    {
+      "id": "M111",
+      "file": "server/proxy.lua",
+      "find": "exports('PublishPlayerLoaded', function(job, src)\n    -- Gated like PublishJobUpdate: it writes the same histogram.\n    if not CisInvokingAllowed() then\n",
+      "replace": "exports('PublishPlayerLoaded', function(job, src)\n    -- Gated like PublishJobUpdate: it writes the same histogram.\n    if false then\n",
+      "why": "Ungate PublishPlayerLoaded. It writes the same job histogram PublishJobUpdate is gated for, so any resource can put fifty police on duty through the side door."
+    },
+    {
+      "id": "M112",
+      "file": "server/proxy.lua",
+      "find": "exports('SetDropPlayerHandler', function(provider)\n    if not CisInvokingAllowed() then\n",
+      "replace": "exports('SetDropPlayerHandler', function(provider)\n    if false then\n",
+      "why": "Ungate SetDropPlayerHandler. The first caller takes the security slot, which decides what happens to every player a report names."
+    },
+    {
+      "id": "M113",
+      "file": "server/player.lua",
+      "find": "    if type(src) ~= 'number' or src <= 0 or not GetPlayerName(src) then\n        return false\n    end\n",
+      "replace": "",
+      "why": "Remember a job under any src. Only playerDropped removes an entry, so an id nobody holds is counted until the server restarts."
+    },
+    {
+      "id": "M114",
+      "file": "server/proxy.lua",
+      "find": "        out[i] = auditRing[((auditNext - 1 - count + i - 1) % auditLaidOut) + 1]\n",
+      "replace": "        out[i] = auditRing[((auditNext - 1 - count + i - 1) % auditCapacity()) + 1]\n",
+      "why": "Index the audit ring by a fresh read of the configured capacity instead of the one it is laid out for. A capacity change mid-run returns holes and out-of-order entries."
+    },
+    {
+      "id": "M115",
+      "file": "server/proxy.lua",
+      "find": "    if pinned and supplier ~= pinned and supplier ~= 'cis_libs' then\n",
+      "replace": "    if false then\n",
+      "why": "Ignore cis_config_supplier. Configuration goes back to whichever resource calls SetConfig first, which is a race any early-starting resource can win."
     }
   ]
 }

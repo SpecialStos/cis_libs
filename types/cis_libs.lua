@@ -576,8 +576,8 @@ function AwaitCallback.client(name, ...) end
 function AwaitCallbackClient(name, target, ...) end
 
 --- no proxy equivalent; exports["cis_libs"]:BreakDoor(identifier)
----@param identifier string|integer #the door identifier; deliberately NOT allow-list gated here
----@return any #the provider's value; nil when no doors provider is registered, and the nil is preserved on purpose rather than normalised to false 
+---@param identifier string|integer #the door identifier. Allow-list gated like every other door mutation
+---@return any, string|nil #the provider's value; nil when no doors provider is registered, and the nil is preserved on purpose rather than normalised to false; nil plus a reason naming Security.AuthorizedResources when the caller is not on the allow-list 
 -- Why `any`: the provider's value, and the nil-when-no-provider answer is preserved on purpose rather than normalised to false
 --- realm: server
 function BreakDoor(identifier) end
@@ -784,8 +784,8 @@ function DetectFramework.client(configured, custom) end
 function DrawText3D(x, y, z, text, settings) end
 
 --- no proxy equivalent; exports["cis_libs"]:FixDoor(identifier)
----@param identifier string|integer #the door identifier; deliberately NOT allow-list gated here
----@return any #the provider's value; nil when no doors provider is registered 
+---@param identifier string|integer #the door identifier. Allow-list gated like every other door mutation
+---@return any, string|nil #the provider's value; nil when no doors provider is registered; nil plus a reason when the caller is not on the allow-list 
 -- Why `any`: the provider's value, and the nil-when-no-provider answer is preserved on purpose rather than normalised to false
 --- realm: server
 function FixDoor(identifier) end
@@ -1086,7 +1086,7 @@ function Keybinds() end
 
 --- Cis.doors.setState(identifier, true)
 ---@param identifier string|integer #the group or door identifier
----@return integer #0 when no doors provider is registered
+---@return integer, string|nil #0 when no doors provider is registered; 0 plus a reason naming Security.AuthorizedResources when the caller is not on the allow-list
 --- realm: server
 function LockDoors(identifier) end
 
@@ -1225,14 +1225,14 @@ function PublishInventory(src) end
 --- Called by cis_core when a player changes job. Fires cis_libs:jobUpdated, so the event name stays owned by this library
 ---@param job table #the job record; a non-table is refused by name
 ---@param src? integer #the player to tell; nil broadcasts to every client
----@return boolean, string #true after the event is fired; false plus 'job must be a table', or a reason naming Security.AuthorizedResources
+---@return boolean, string #true after the event is fired; false plus 'job must be a table', a reason naming Security.AuthorizedResources, or a reason when src is given but is not a connected player
 --- realm: server
 function PublishJobUpdate(job, src) end
 
 --- Called by cis_core when a player object exists. Fires cis_libs:playerLoaded
 ---@param job table #the job record; only a table is remembered, but the value is sent as given
----@param src? integer #the one client to tell; nil means the event is never fired and true is still returned
----@return boolean #always true -- this export has no refusal shape at all, which is itself worth knowing before a caller writes one
+---@param src? integer #the one client to tell; nil means the event is never fired and true is still returned. A src that is not a connected player is refused
+---@return boolean, string|nil #true once published; false plus a reason when the caller is not on Security.AuthorizedResources (it writes the same job histogram PublishJobUpdate does) or src is not a connected player
 --- realm: server
 function PublishPlayerLoaded(job, src) end
 
@@ -1437,17 +1437,17 @@ function ServerZoneRemove(id) end
 --- realm: server
 function ServerZoneSphere(center, radius, opts) end
 
---- Called by cis_core at boot with (config, security, discord). First registration wins; a second is refused and named. `security.AllowAnyResource` is the 1.0.0 opt-in escape hatch: with it true an EMPTY AuthorizedResources stops meaning restrictive, and the console warns on every boot
+--- Called by cis_core at boot with (config, security, discord). First registration wins; a second is refused and named. When the server convar cis_config_supplier names a resource, only that resource may call it. When cis_authorized_resources or cis_allow_any_resource is set, the security posture comes from the convars and the AuthorizedResources / AllowAnyResource passed here are ignored (DOCUMENTATION.md section 3). `security.AllowAnyResource` is the 1.0.0 opt-in escape hatch: with it true an EMPTY AuthorizedResources stops meaning restrictive, and the console warns on every boot
 ---@param config? table #merged over the defaults and validated on a COPY
 ---@param security? table #replaces Security outright and is never merged with the default
 ---@param discord? table #sanitised into DiscordConfig
----@return boolean, string #true once applied; false plus a reason naming the current owner, or listing the validation problems
+---@return boolean, string #true once applied; false plus a reason naming the current owner, the pinned supplier, or listing the validation problems
 --- realm: server
 function SetConfig(config, security, discord) end
 
 --- Called by whoever ships the config, with "resource:Export". A FUNCTION cannot be sent across the boundary, which is why this exists
 ---@param provider string #a "resource:Export" string in the same form RegisterCapability takes, for the same reason: a function cannot cross the boundary
----@return boolean, string #the raw result of the registry register: true, or false plus a reason
+---@return boolean, string #the raw result of the registry register: true, or false plus a reason. Allow-list gated: a caller off Security.AuthorizedResources is refused before the slot is touched, because the first caller takes it
 --- realm: server
 function SetDropPlayerHandler(provider) end
 
@@ -1584,7 +1584,7 @@ function UiTextUIShow(text, opts) end
 
 --- Cis.doors.setState(identifier, false)
 ---@param identifier string|integer #the group or door identifier
----@return integer #0 when no doors provider is registered
+---@return integer, string|nil #0 when no doors provider is registered; 0 plus a reason naming Security.AuthorizedResources when the caller is not on the allow-list
 --- realm: server
 function UnlockDoors(identifier) end
 

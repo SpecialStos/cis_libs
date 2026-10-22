@@ -36,6 +36,11 @@ local AUDIT_DEFAULT_LINES = 500
 local auditRing = {}
 local auditNext = 1
 local auditHeld = 0
+-- The capacity the ring is LAID OUT for. Every index below is taken modulo this,
+-- never modulo a fresh read of Config.AuditLines: a SetConfig that changes the
+-- line count mid-run used to re-read the modulus under a ring laid out for the
+-- old one, and the log came back with holes and entries out of order.
+local auditLaidOut = nil
 
 local function auditCapacity()
     local configured = Config and Config.AuditLines
@@ -47,18 +52,41 @@ local function auditCapacity()
     return math.min(math.floor(n), 10000)
 end
 
+-- The surviving entries, oldest first, under the layout the ring has NOW.
+local function auditInOrder(count)
+    local out = {}
+    for i = 1, count do
+        out[i] = auditRing[((auditNext - 1 - count + i - 1) % auditLaidOut) + 1]
+    end
+    return out
+end
+
+-- Re-lay the ring when the configured capacity moved: keep the newest entries
+-- that fit, oldest first from slot 1. Runs once per change, not per entry.
+local function auditLayout()
+    local cap = auditCapacity()
+    if auditLaidOut == nil then
+        auditLaidOut = cap
+    elseif cap ~= auditLaidOut then
+        local keep = math.min(auditHeld, cap)
+        auditRing = auditInOrder(keep)
+        auditHeld = keep
+        auditNext = (keep % cap) + 1
+        auditLaidOut = cap
+    end
+    return cap
+end
+
 --- Every entry also goes through the normal log path, so an operator watching the
 local function audit(event, detail)
     local line = ('%s cis_libs %s %s'):format(
         os.date('%Y-%m-%dT%H:%M:%S'), tostring(event), tostring(detail or ''))
     Logging.Info(line)
 
+    local cap = auditLayout()
     auditRing[auditNext] = { event = tostring(event), detail = tostring(detail or ''), line = line }
-    auditNext = auditNext + 1
-    if auditNext > auditCapacity() then
-        auditNext = 1
-    end
-    if auditHeld < auditCapacity() then
+    auditNext = (auditNext % cap) + 1
+    if auditHeld < cap then
         auditHeld = auditHeld + 1
     end
 end
@@ -66,17 +94,14 @@ end
 -- DECLARED BEFORE the console command below, which uses it.
 --- The entries, newest LAST. `limit` is capped by what the ring actually holds, so
 local function auditEntries(limit)
+    auditLayout()
     local want = tonumber(limit)
     if not want or want < 1 then
         want = auditHeld
     end
     want = math.min(math.floor(want), auditHeld)
-    local out = {}
-    for i = 1, want do
-        -- The oldest surviving entry, then forward.
-        out[#out + 1] = auditRing[((auditNext - 1 - want + i - 1) % auditCapacity()) + 1]
-    end
-    return out
+    -- The oldest surviving entry, then forward.
+    return auditInOrder(want)
 end
 
 --- The console reader, for the operator who has no resource to call from.
@@ -93,7 +118,7 @@ RegisterCommand('cis_audit', function(src, args)
         shown = shown + 1
     end
     print(('[cis_libs] audit: %d entr%s held, %d shown (capacity %d)')
-        :format(auditHeld, auditHeld == 1 and 'y' or 'ies', shown, auditCapacity()))
+        :format(auditHeld, auditHeld == 1 and 'y' or 'ies', shown, auditLayout()))
 end, true)
 
 exports('GetAuditLog', function(limit)
@@ -171,9 +196,31 @@ end
 
 -- CONFIGURATION
 
+-- `set cis_config_supplier "cis_core"`: the one resource allowed to call SetConfig.
+local function pinnedSupplier()
+    if type(GetConvar) ~= 'function' then
+        return nil
+    end
+    local ok, value = pcall(GetConvar, 'cis_config_supplier', '')
+    if not ok or type(value) ~= 'string' then
+        return nil
+    end
+    value = value:match('^%s*(.-)%s*$')
+    return value ~= '' and value or nil
+end
+
 exports('SetConfig', function(config, security, discord)
     -- FIRST SUPPLIER WINS, and the loser is told.
     local supplier = GetInvokingResource() or 'cis_libs'
+    -- UNLESS THE OPERATOR NAMED ONE. "First caller wins" is a race any resource
+    -- that starts early can win; the convar is set before any resource runs.
+    local pinned = pinnedSupplier()
+    if pinned and supplier ~= pinned and supplier ~= 'cis_libs' then
+        audit('config-refused', ('caller=%s pinned=%s'):format(tostring(supplier), pinned))
+        return false, ('configuration may only be supplied by %s (server convar cis_config_supplier); '
+            .. '%s was refused. Change the convar in server.cfg if %s should supply it.')
+            :format(pinned, tostring(supplier), tostring(supplier))
+    end
     if Config and Config.__owned and Config.__owner ~= 'cis_libs' and Config.__owner ~= supplier then
         -- THE REFUSAL STATES THE FIX. Two ways to change the supplier, and the caller
         return false, ('configuration was already supplied by %s; only that resource can '
@@ -210,9 +257,15 @@ exports('SetConfig', function(config, security, discord)
     end
     Config.__owned = true
     Config.__owner = GetInvokingResource() or 'cis_libs'
-    -- The allow-list is DERIVED from Security, so replacing Security has to rebuild it.
-    if type(security) == 'table' and CisSecurityRebuild then
+    -- The allow-list is DERIVED from Security, and the callback limits from Config,
+    -- so replacing either has to rebuild.
+    if CisSecurityRebuild then
         CisSecurityRebuild()
+    end
+    if type(security) == 'table' and CisSecurityPinned and CisSecurityPinned() then
+        Logging.Info(('cis_libs: the security posture is pinned by server convars '
+            .. '(cis_authorized_resources / cis_allow_any_resource); the AuthorizedResources '
+            .. 'and AllowAnyResource %s supplied are ignored.'):format(tostring(supplier)))
     end
     -- EVERY CONNECTED CLIENT IS TOLD, not just the ones that have not fetched yet.
     if CisConfigUtil and TriggerClientEvent then
@@ -447,18 +500,30 @@ exports('AddDoorGroup', function(groupData)
 end)
 
 exports('BreakDoor', function(identifier)
+    if not CisInvokingAllowed() then
+        return nil, notAuthorizedReason('BreakDoor')
+    end
     return forward('doors', nil, 'breakDoor', identifier)
 end)
 
 exports('FixDoor', function(identifier)
+    if not CisInvokingAllowed() then
+        return nil, notAuthorizedReason('FixDoor')
+    end
     return forward('doors', nil, 'fixDoor', identifier)
 end)
 
 exports('LockDoors', function(identifier)
+    if not CisInvokingAllowed() then
+        return 0, notAuthorizedReason('LockDoors')
+    end
     return forward('doors', 0, 'lock', identifier)
 end)
 
 exports('UnlockDoors', function(identifier)
+    if not CisInvokingAllowed() then
+        return 0, notAuthorizedReason('UnlockDoors')
+    end
     return forward('doors', 0, 'unlock', identifier)
 end)
 
@@ -483,7 +548,13 @@ end)
 
 -- SECURITY HANDLER
 
+-- GATED. The first caller takes the security slot, and the security slot decides
+-- what happens to every player a report names -- a resource that got there first
+-- could make every report a no-op, or a kick.
 exports('SetDropPlayerHandler', function(provider)
+    if not CisInvokingAllowed() then
+        return false, notAuthorizedReason('SetDropPlayerHandler')
+    end
     return CisRegistry.register('security', provider)
 end)
 
@@ -491,12 +562,31 @@ end)
 
 -- THE THREE PUBLISHERS ARE NOT ALL THE SAME KIND OF CALL, and gating them as if they
 
+-- A src that is not a connected player would be remembered in the job histogram
+-- under an id nobody holds -- counted as an on-duty officer until the server
+-- restarts, because only playerDropped removes an entry.
+local function badPlayer(src)
+    if type(src) ~= 'number' or src <= 0 then
+        return ('src must be a connected player id, got %s'):format(tostring(src))
+    end
+    if not GetPlayerName(src) then
+        return ('src %d is not connected'):format(src)
+    end
+    return nil
+end
+
 exports('PublishJobUpdate', function(job, src)
     if type(job) ~= 'table' then
         return false, 'job must be a table'
     end
     if not CisInvokingAllowed() then
         return false, notAuthorizedReason('PublishJobUpdate')
+    end
+    if src ~= nil then
+        local why = badPlayer(src)
+        if why then
+            return false, why
+        end
     end
     -- The job histogram is a cis_libs feature and stays one: it is a pure in-memory
     if src then
@@ -515,6 +605,16 @@ exports('PublishJobUpdate', function(job, src)
 end)
 
 exports('PublishPlayerLoaded', function(job, src)
+    -- Gated like PublishJobUpdate: it writes the same histogram.
+    if not CisInvokingAllowed() then
+        return false, notAuthorizedReason('PublishPlayerLoaded')
+    end
+    if src ~= nil then
+        local why = badPlayer(src)
+        if why then
+            return false, why
+        end
+    end
     if type(job) == 'table' and src then
         CisRememberJob(src, job)
     end

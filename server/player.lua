@@ -7,8 +7,15 @@ function CisJobCount(jobs)
 end
 
 -- Accepts a job table OR a bare job name, because the framework events are not
+-- ONLY A CONNECTED PLAYER IS REMEMBERED. Only playerDropped removes an entry, so
+-- an id nobody holds would be counted -- as an on-duty officer, say -- until the
+-- server restarts.
 function CisRememberJob(src, job)
+    if type(src) ~= 'number' or src <= 0 or not GetPlayerName(src) then
+        return false
+    end
     CisHistogram.set(store, src, job)
+    return true
 end
 
 function CisForgetPlayer(src)

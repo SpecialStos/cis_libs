@@ -4511,6 +4511,145 @@ do
     env.reset()
 end
 
+-- ============================ P1. every door mutation is gated
+--
+-- AddDoorToSystem and AddDoorGroup asked CisInvokingAllowed; BreakDoor, FixDoor,
+-- LockDoors and UnlockDoors -- the four that change a door a player is standing
+-- at -- did not. Nor did PublishPlayerLoaded, which writes the same job
+-- histogram PublishJobUpdate is gated for, nor SetDropPlayerHandler, where the
+-- first caller took the security slot.
+do
+    local env = newEnv({ players = { [5] = {} } })
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    Security.AuthorizedResources = { 'cis_keys' }
+    loadModule('server/security.lua')
+    loadModule('server/player.lua')
+    loadModule('server/proxy.lua')
+    local calls = {}
+    CisRegistry.register('doors', function(method)
+        calls[#calls + 1] = method
+        if method == 'lock' or method == 'unlock' then return 1 end
+        return true
+    end)
+
+    env.invoking = 'cis_evil'
+    for _, name in ipairs({ 'BreakDoor', 'FixDoor', 'LockDoors', 'UnlockDoors' }) do
+        local value, why = env.EXPORTS[name]('bank_vault')
+        check(tostring(why):find('AuthorizedResources', 1, true) ~= nil,
+            ('P1: %s from a resource off the list is refused with the fix (got %s, %s)')
+                :format(name, tostring(value), tostring(why)))
+    end
+    check(#calls == 0, ('P1: and the doors provider was never reached (calls=%d)'):format(#calls))
+    local locked = env.EXPORTS.LockDoors('bank_vault')
+    check(locked == 0, 'P1: a refused LockDoors still answers a number')
+
+    local loaded, loadedWhy = env.EXPORTS.PublishPlayerLoaded({ name = 'police' }, 5)
+    check(loaded == false and tostring(loadedWhy):find('AuthorizedResources', 1, true) ~= nil,
+        'P1: PublishPlayerLoaded from a resource off the list is refused')
+    check(CisJobCount('police') == 0, 'P1: and wrote nothing to the job histogram')
+
+    local dropOk = env.EXPORTS.SetDropPlayerHandler('cis_evil:Drop')
+    check(dropOk == false and not CisRegistry.has('security'),
+        'P1: SetDropPlayerHandler from a resource off the list does not take the security slot')
+
+    env.invoking = 'cis_keys'
+    env.EXPORTS.BreakDoor('bank_vault')
+    check(calls[1] == 'breakDoor', 'P1: an allow-listed resource still reaches the provider')
+    CisRegistry.unregister('doors')
+    CisRegistry.unregister('security')
+    env.reset()
+end
+
+-- ============================ P2. a publisher names a connected player
+--
+-- PublishJobUpdate and PublishPlayerLoaded took any src and remembered the job
+-- under it. Only playerDropped clears an entry, so an id nobody held was counted
+-- -- as an on-duty officer, say -- until the server restarted.
+do
+    local env = newEnv({ players = { [5] = {} } })
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    Security.AuthorizedResources = { 'cis_core' }
+    loadModule('server/security.lua')
+    loadModule('server/player.lua')
+    loadModule('server/proxy.lua')
+    env.invoking = 'cis_core'
+
+    local ok, why = env.EXPORTS.PublishJobUpdate({ name = 'police', grade = 1 }, 99)
+    check(ok == false and tostring(why):find('not connected', 1, true) ~= nil,
+        ('P2: a job update for a player who is not here is refused (got %s)'):format(tostring(why)))
+    local ok2 = env.EXPORTS.PublishPlayerLoaded({ name = 'police', grade = 1 }, 99)
+    check(ok2 == false, 'P2: and so is a player-loaded')
+    check(CisJobCount('police') == 0,
+        ('P2: and the histogram counted nobody (count=%d)'):format(CisJobCount('police')))
+    -- The feeder itself refuses too, so a future caller that skips the export's
+    -- check still cannot count a ghost.
+    check(CisRememberJob(98, { name = 'police' }) == false and CisJobCount('police') == 0,
+        'P2: CisRememberJob refuses a src that is not connected')
+    check(env.EXPORTS.PublishPlayerLoaded({ name = 'police', grade = 1 }, 5) == true,
+        'P2: a connected player is still published')
+    check(CisJobCount('police') == 1, 'P2: and counted')
+    env.reset()
+end
+
+-- ============================ P3. the audit ring survives a capacity change
+--
+-- Every index was taken modulo a FRESH read of Config.AuditLines, under a ring
+-- laid out for the old value. A SetConfig that changed the line count mid-run
+-- made GetAuditLog come back with holes and entries out of order.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Config.AuditLines = 3
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+    local function auditOne(i)
+        env.EXPORTS.RegisterCapability(('nope_%d'):format(i), 'x:y')
+    end
+    for i = 1, 5 do auditOne(i) end
+    Config.AuditLines = 10
+    auditOne(6)
+    auditOne(7)
+    local log = env.EXPORTS.GetAuditLog()
+    local seen = {}
+    for i = 1, 5 do
+        local entry = log[i]
+        seen[i] = entry and entry.detail:match('slot=(nope_%d+)') or 'nil'
+    end
+    check(#log == 5 and table.concat(seen, ',') == 'nope_3,nope_4,nope_5,nope_6,nope_7',
+        ('P3: growing the ring keeps every entry, oldest first (got %d: %s)')
+            :format(#log, table.concat(seen, ',')))
+    Config.AuditLines = 2
+    log = env.EXPORTS.GetAuditLog()
+    check(#log == 2 and log[1].detail:find('nope_6', 1, true) and log[2].detail:find('nope_7', 1, true),
+        'P3: shrinking it keeps the newest')
+    env.reset()
+end
+
+-- ============================ P4. the operator can name the config supplier
+do
+    local env = newEnv({})
+    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_G, 'GetConvar') }
+    function GetConvar(name, default)
+        if name == 'cis_config_supplier' then return 'cis_core' end
+        return default
+    end
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+    env.invoking = 'cis_rogue'
+    local ok, why = env.EXPORTS.SetConfig({ CallbackTimeout = 2000 })
+    check(ok == false and tostring(why):find('cis_config_supplier', 1, true) ~= nil,
+        ('P4: a resource the convar does not name cannot supply config (got %s)'):format(tostring(why)))
+    check(Config.CallbackTimeout == 10000, 'P4: and nothing it sent was applied')
+    env.invoking = 'cis_core'
+    check(env.EXPORTS.SetConfig({ CallbackTimeout = 2000 }) == true, 'P4: the named one can')
+    env.reset()
+end
+
 -- ==================================================================== report
 -- Named, not just counted. A suite that reports "failed=3" and exits tells you
 -- something broke and nothing about what, and the fix is to re-run with a print
