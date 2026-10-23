@@ -461,7 +461,7 @@ function isYield(x, yields) {
   // its name is merely mentioned (a parameter, a table key).
   if (yields.has(tok.v) && bareRef(x.list, x.idx, tok.v)) {
     const next = x.list[x.idx + 1]
-    if (isTok(next, '.') || isTok(next, ':') || isTok(next, '(') || isTok(next, '[')) return !isTok(x.list[x.idx - 1], 'local')
+    if (isTok(next, '.') || isTok(next, ':') || isTok(next, '(') || isTok(next, '[')) return true
   }
   // `x.await(...)`, `x:await(...)`, `Citizen.Await(...)`, `Citizen.Wait(...)`,
   // `lib.waitFor(...)`, `MySQL.Sync.fetchAll(...)`
@@ -625,19 +625,18 @@ function serverLists(tree) {
     if (realm !== 'client') lists.add(list)
     for (const node of list) {
       if (node.k === 'if') {
-        const c = node.cond
-        const at = c.findIndex(n => isTok(n, 'IsDuplicityVersion') || isTok(n, 'IS_SERVER'))
-        // Read only the plain shapes: `X`, `not X`, `X == false`, `X ~= true`,
-        // alone in an `if` with at most an `else`. An `elseif`, `and` or `or`
-        // leaves every branch checked: a false alarm on a client handler is
-        // cheaper than a server handler nobody checks.
-        // (An `if` with an `elseif` and no `else` also has two branches, so
-        // the shape is checked by hasElse, not by the count alone.)
+        // Read only the exact shapes `X`, `not X`, `X == false`, `X ~= true`
+        // (X is `IsDuplicityVersion()` or `IS_SERVER`), alone in an `if` with
+        // at most an `else`. Any other shape -- an `elseif`, `and`, `or`,
+        // parentheses, `false == X`, `X == y` -- leaves every branch checked:
+        // a false alarm on a client handler is cheaper than a server handler
+        // nobody checks. (An `if` with an `elseif` and no `else` also has two
+        // branches, so the shape is checked by hasElse, not by the count.)
         const ifElse = node.branches.length === 1 || (node.branches.length === 2 && node.hasElse)
-        const plain = at >= 0 && ifElse && !c.some(n => isTok(n, 'and') || isTok(n, 'or'))
-        const cmp = c.findIndex(n => isTok(n, '==') || isTok(n, '~='))
-        const negated = Boolean(isTok(c[at - 1], 'not')) !== (cmp >= 0 && (
-          (isTok(c[cmp], '==') && isTok(c[cmp + 1], 'false')) || (isTok(c[cmp], '~=') && isTok(c[cmp + 1], 'true'))))
+        const text = node.cond.map(n => (n.k === 'tok' ? n.tok.v : '?')).join(' ')
+        const shape = /^(not )?(IsDuplicityVersion \( \)|IS_SERVER)( == false| ~= true)?$/.exec(text)
+        const plain = ifElse && Boolean(shape)
+        const negated = plain && Boolean(shape[1]) !== Boolean(shape[3])
         if (plain) {
           const first = negated ? 'client' : 'server'
           visit(node.branches[0], realm === 'client' ? 'client' : first)

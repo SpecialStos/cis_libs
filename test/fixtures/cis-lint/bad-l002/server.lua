@@ -129,3 +129,14 @@ RegisterNetEvent('bad:citizenAwait', function(p)
     Citizen.Await(p)
     print(source)
 end)
+
+RegisterNetEvent('bad:coreIndexed', function()
+    local player = QBCore2['Functions'].GetPlayer(source)
+    print(player)
+end)
+
+local notify = exports.cis_libs.Notify
+RegisterNetEvent('bad:aliasCalled', function()
+    notify(1, 'hello')
+    print(source)
+end)

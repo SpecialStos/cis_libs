@@ -35,3 +35,21 @@ end
 if not IsDuplicityVersion() or Config then
     RegisterNetEvent('bad:orServer', function(t) print(t) end)
 end
+
+if IsDuplicityVersion() ~= true then
+    RegisterNetEvent('fine:neTrueClient', function(t) print(t) end)
+else
+    RegisterNetEvent('bad:neTrueServer', function(t) print(t) end)
+end
+
+if not (IsDuplicityVersion()) then
+    print('parentheses: not read, so both branches are checked')
+else
+    RegisterNetEvent('bad:parenServer', function(t) print(t) end)
+end
+
+if false == IsDuplicityVersion() then
+    print('reversed comparison: not read')
+else
+    RegisterNetEvent('bad:reversedServer', function(t) print(t) end)
+end

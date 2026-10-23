@@ -86,6 +86,8 @@ const EXPECTED = {
     'server.lua:120 L002', // PerformHttpRequest callback
     'server.lua:125 L002', // MySQL.Sync.*
     'server.lua:130 L002', // Citizen.Await
+    'server.lua:134 L002', // core object indexed with ['Functions']
+    'server.lua:141 L002', // alias called directly: notify(...)
     'server2.lua:2 L002', // net name declared in server.lua, handler in server2.lua
     'shared.lua:3 L002',  // unguarded handler in a shared_script; its client branch is not flagged
     'shared.lua:16 L002', // else branch of `not IsDuplicityVersion()`
@@ -93,6 +95,9 @@ const EXPECTED = {
     'shared.lua:26 L002', // `IsDuplicityVersion() and X`: not read, so checked
     'shared.lua:32 L002', // else branch of `IsDuplicityVersion() == false`; its client branch is not flagged
     'shared.lua:36 L002', // `not IsDuplicityVersion() or X` can run on the server
+    'shared.lua:42 L002', // else branch of `X ~= true`; its client branch is not flagged
+    'shared.lua:48 L002', // `not (X)`: parentheses are not read, so both branches are checked
+    'shared.lua:54 L002', // `false == X`: not read, so both branches are checked
   ],
   'bad-l003': [
     'web/App.tsx:2 L003',    // Tailwind backdrop-blur
