@@ -62,6 +62,7 @@ function findLuacheck() {
 const EXCLUDED = [
   { match: /(?:^|\/)fxmanifest\.lua$/, why: 'FiveM manifest DSL, not Lua' },
   { match: /^types\//, why: 'generated LuaLS annotation stub (npm run gen-types:check covers it)' },
+  { match: /^test\/fixtures\/cis-lint\//, why: 'deliberately defective resources that npm run test:cis-lint must flag' },
 ]
 
 // Every Lua file the manifest loads, plus the test and tool trees that are not

@@ -1,0 +1,5 @@
+fx_version 'cerulean'
+game 'gta5'
+lua54 'yes'
+dependency 'cis_libs'
+client_script 'client.lua'

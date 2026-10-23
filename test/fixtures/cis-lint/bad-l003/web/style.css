@@ -1,0 +1,5 @@
+.panel {
+    background: rgba(12, 14, 18, 0.4);
+    backdrop-filter: blur(12px);
+}
+.card { -webkit-backdrop-filter: blur(6px); }

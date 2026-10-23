@@ -1,0 +1,4 @@
+.panel { background: rgba(12, 14, 18, 0.92); }
+@font-face { font-family: 'Inter'; src: url('./fonts/inter.woff2'); }
+/* cis-lint: allow L003 owner-approved glass test panel, measured at 0.01 ms */
+.glass { backdrop-filter: blur(4px); }
