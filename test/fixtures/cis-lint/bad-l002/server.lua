@@ -92,3 +92,40 @@ RegisterNetEvent('bad:constAlias', function()
     inv2:Search(1, 'count', 'water')
     print(source)
 end)
+
+QBCore2 = exports['qb-core']:GetCoreObject()
+RegisterNetEvent('bad:coreObjectFirst', function()
+    local player = QBCore2.Functions.GetPlayer(source)
+    print(player)
+end)
+
+RegisterNetEvent('bad:coreObjectAgain', function()
+    local src = source
+    QBCore2.Player.Save(src)
+    print(source)
+end)
+
+RegisterNetEvent('bad:laterCitizen', function()
+    local src = source
+    Citizen.SetTimeout(500, function() print(source, src) end)
+end)
+
+RegisterNetEvent('bad:laterLib', function()
+    local src = source
+    lib.callback('fixture:cb', src, function() print(source) end)
+end)
+
+RegisterNetEvent('bad:laterHttp', function()
+    local src = source
+    PerformHttpRequest('https://example.invalid', function() print(source, src) end)
+end)
+
+RegisterNetEvent('bad:sync', function()
+    MySQL.Sync.fetchAll('SELECT 1')
+    print(source)
+end)
+
+RegisterNetEvent('bad:citizenAwait', function(p)
+    Citizen.Await(p)
+    print(source)
+end)

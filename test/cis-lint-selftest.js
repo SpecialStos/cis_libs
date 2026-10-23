@@ -7,8 +7,9 @@
 // passing fixture pins the shapes it must NOT flag (an answer in both
 // branches, cb answered from a thread, a `function UI.onBuy` handler, a
 // dispatcher that reads `source` one call down, `source` as an argument of
-// the yielding call itself, `QBCore.Functions.GetPlayer(source)` on the core
-// object, `exports['x']:Y(source)` after the local read, a thread or query
+// the yielding call itself, `QBCore.Functions.GetPlayer(src)` after the
+// local read, a table key that reuses an alias's name,
+// `exports['x']:Y(source)` after the local read, a thread or query
 // callback that never reads `source`, `pcall(function() ... source end)`,
 // an `M.fn = function` handler, the server branch of a shared file, a
 // `.state` field that is not a state bag).
@@ -78,8 +79,20 @@ const EXPECTED = {
     'server.lua:81 L002', // read inside a MySQL callback
     'server.lua:86 L002', // local source = data.id
     'server.lua:93 L002', // yield through a <const> alias of exports['x']
+    'server.lua:98 L002', // QBCore.Functions.GetPlayer(source) as the first read: a funcref call can await
+    'server.lua:105 L002', // local read, a framework call, then source again
+    'server.lua:110 L002', // Citizen.SetTimeout callback
+    'server.lua:115 L002', // lib.callback callback
+    'server.lua:120 L002', // PerformHttpRequest callback
+    'server.lua:125 L002', // MySQL.Sync.*
+    'server.lua:130 L002', // Citizen.Await
     'server2.lua:2 L002', // net name declared in server.lua, handler in server2.lua
     'shared.lua:3 L002',  // unguarded handler in a shared_script; its client branch is not flagged
+    'shared.lua:16 L002', // else branch of `not IsDuplicityVersion()`
+    'shared.lua:22 L002', // `elseif IsDuplicityVersion()`
+    'shared.lua:26 L002', // `IsDuplicityVersion() and X`: not read, so checked
+    'shared.lua:32 L002', // else branch of `IsDuplicityVersion() == false`; its client branch is not flagged
+    'shared.lua:36 L002', // `not IsDuplicityVersion() or X` can run on the server
   ],
   'bad-l003': [
     'web/App.tsx:2 L003',    // Tailwind backdrop-blur

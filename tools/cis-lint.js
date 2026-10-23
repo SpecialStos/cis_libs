@@ -456,18 +456,27 @@ function ownTokens(list, out = []) {
 function isYield(x, yields) {
   const tok = x.node.tok
   if (tok.t !== 'name') return false
-  if (yields.has(tok.v) && bareRef(x.list, x.idx, tok.v)) return true
+  if (YIELDS.has(tok.v) && bareRef(x.list, x.idx, tok.v)) return true
+  // An alias or framework object yields when it is CALLED through, not when
+  // its name is merely mentioned (a parameter, a table key).
+  if (yields.has(tok.v) && bareRef(x.list, x.idx, tok.v)) {
+    const next = x.list[x.idx + 1]
+    if (isTok(next, '.') || isTok(next, ':') || isTok(next, '(') || isTok(next, '[')) return !isTok(x.list[x.idx - 1], 'local')
+  }
   // `x.await(...)`, `x:await(...)`, `Citizen.Await(...)`, `Citizen.Wait(...)`,
   // `lib.waitFor(...)`, `MySQL.Sync.fetchAll(...)`
   const prev = x.list[x.idx - 1]
   return /^([aA]wait|waitFor|Wait|Sync)$/.test(tok.v) && (isTok(prev, '.') || isTok(prev, ':'))
 }
 
-// This file's aliases of a resource's exports, which yield like exports
-// itself: `local inv = exports.ox_inventory`, `local inv <const> =
-// exports['ox_inventory']`. Not the RESULT of an export call:
-// `local QBCore = exports['qb-core']:GetCoreObject()` is a table of the
-// framework's functions, and calling them does not go through exports.
+// Names whose calls can yield like exports itself: aliases of a resource's
+// exports (`local inv = exports.ox_inventory`, `local inv <const> =
+// exports['ox_inventory']`), and objects an export returned
+// (`local QBCore = exports['qb-core']:GetCoreObject()`). That object's
+// functions are function references into the framework: a call awaits
+// whenever the framework's function waits (citizen scheduler.lua, the
+// funcref __call), so QBCore.Functions.GetPlayer(source) as the first read
+// is flagged, and `local src = source` first clears it.
 function fileYields(tree) {
   const yields = new Set(YIELDS)
   eachList(tree, (list) => {
@@ -476,12 +485,6 @@ function fileYields(tree) {
       let name = list[idx - 2]
       if (isTok(name, '>') && isTok(list[idx - 3], 'const') && isTok(list[idx - 4], '<')) name = list[idx - 5]
       if (!name || name.k !== 'tok' || name.tok.t !== 'name') continue
-      // Skip the resource selector, `.x` or `['x']`; then a call means the
-      // value is a result, not the exports table.
-      let j = idx + 1
-      if (isTok(list[j], '.')) j += 2
-      else if (isTok(list[j], '[')) j += 3
-      if (isTok(list[j], ':') || isTok(list[j], '(') || isTok(list[j], '.')) continue
       yields.add(name.tok.v)
     }
   })
@@ -622,9 +625,20 @@ function serverLists(tree) {
     if (realm !== 'client') lists.add(list)
     for (const node of list) {
       if (node.k === 'if') {
-        const test = node.cond.some(n => isTok(n, 'IsDuplicityVersion') || isTok(n, 'IS_SERVER'))
-        const negated = node.cond.some(n => isTok(n, 'not'))
-        if (test && node.branches.length <= 2) {
+        const c = node.cond
+        const at = c.findIndex(n => isTok(n, 'IsDuplicityVersion') || isTok(n, 'IS_SERVER'))
+        // Read only the plain shapes: `X`, `not X`, `X == false`, `X ~= true`,
+        // alone in an `if` with at most an `else`. An `elseif`, `and` or `or`
+        // leaves every branch checked: a false alarm on a client handler is
+        // cheaper than a server handler nobody checks.
+        // (An `if` with an `elseif` and no `else` also has two branches, so
+        // the shape is checked by hasElse, not by the count alone.)
+        const ifElse = node.branches.length === 1 || (node.branches.length === 2 && node.hasElse)
+        const plain = at >= 0 && ifElse && !c.some(n => isTok(n, 'and') || isTok(n, 'or'))
+        const cmp = c.findIndex(n => isTok(n, '==') || isTok(n, '~='))
+        const negated = Boolean(isTok(c[at - 1], 'not')) !== (cmp >= 0 && (
+          (isTok(c[cmp], '==') && isTok(c[cmp + 1], 'false')) || (isTok(c[cmp], '~=') && isTok(c[cmp + 1], 'true'))))
+        if (plain) {
           const first = negated ? 'client' : 'server'
           visit(node.branches[0], realm === 'client' ? 'client' : first)
           if (node.branches[1]) visit(node.branches[1], realm === 'client' ? 'client' : (first === 'server' ? 'client' : 'server'))

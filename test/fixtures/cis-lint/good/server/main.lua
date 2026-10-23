@@ -50,7 +50,8 @@ end)
 
 local QBCore = exports['qb-core']:GetCoreObject()
 RegisterNetEvent('fixture:coreObject', function()
-    local player = QBCore.Functions.GetPlayer(source)
+    local src = source
+    local player = QBCore.Functions.GetPlayer(src)
     print(player)
 end)
 
@@ -74,3 +75,8 @@ Server.onBuy = function(item)
     print(src, item)
 end
 RegisterNetEvent('fixture:moduleHandler', Server.onBuy)
+
+RegisterNetEvent('fixture:aliasMention', function()
+    local t = { QBCore = true }
+    print(t.QBCore, source)
+end)
