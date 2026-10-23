@@ -47,3 +47,30 @@ RegisterNetEvent('fixture:argumentOfYield', function()
     exports.ox_inventory:AddItem(source, 'water', 1)
     print(src)
 end)
+
+local QBCore = exports['qb-core']:GetCoreObject()
+RegisterNetEvent('fixture:coreObject', function()
+    local player = QBCore.Functions.GetPlayer(source)
+    print(player)
+end)
+
+RegisterNetEvent('fixture:bracketExport', function()
+    local src = source
+    exports['ox_inventory']:AddItem(source, 'water', 1)
+    print(src)
+end)
+
+RegisterNetEvent('fixture:threadAndQuery', function()
+    Citizen.CreateThread(function() print('later, no source') end)
+    MySQL.query('SELECT 1', {}, function(rows) print(rows) end)
+    local src = source
+    pcall(function() print('now', source) end)
+    print(src)
+end)
+
+local Server = {}
+Server.onBuy = function(item)
+    local src = source
+    print(src, item)
+end
+RegisterNetEvent('fixture:moduleHandler', Server.onBuy)

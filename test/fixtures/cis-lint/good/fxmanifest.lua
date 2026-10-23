@@ -11,3 +11,4 @@ ui_page 'web/index.html'
 files { 'web/index.html', 'web/style.css', 'web/app.js' }
 client_scripts { 'client.lua' }
 server_scripts { 'server/*.lua' }
+shared_script 'shared.lua'

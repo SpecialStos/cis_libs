@@ -17,7 +17,10 @@
 //         and never again after. `source` is a global the runtime rewrites
 //         per event: read after an exports call, a Wait or an await, it
 //         names whichever player's event ran in between. A handler that
-//         never reads it trusts the payload for identity.
+//         never reads it trusts the payload for identity. Also flagged: a
+//         read inside a loop that yields, inside a thread or callback the
+//         handler starts, and a `local source`. Shared files are checked
+//         outside their IsDuplicityVersion() client branch.
 //   L003  no backdrop-filter in the NUI                               (inv. 5)
 //         CEF composites it over the game every frame.
 //   L004  no root-absolute asset path in the NUI                      (inv. 5)
@@ -340,12 +343,18 @@ function functionDefs(tree) {
     for (let idx = 0; idx < list.length; idx += 1) {
       const node = list[idx]
       if (node.k !== 'fn') continue
-      // `local function NAME` and `function NAME` carry their name;
-      // `NAME = function` has it in the two tokens before the fn node.
+      // `local function NAME` and `function M.NAME` carry their name;
+      // `NAME = function` and `M.NAME = function` have it before the `=`.
       if (node.name) {
         defs.set(node.name, node)
-      } else if (isTok(list[idx - 1], '=') && list[idx - 2] && list[idx - 2].k === 'tok' && list[idx - 2].tok.t === 'name') {
-        defs.set(list[idx - 2].tok.v, node)
+      } else if (isTok(list[idx - 1], '=')) {
+        let name = ''
+        let j = idx - 2
+        while (j >= 0 && list[j].k === 'tok' && (list[j].tok.t === 'name' || isTok(list[j], '.') || isTok(list[j], ':'))) {
+          name = list[j].tok.v + name
+          j -= 1
+        }
+        if (/^[A-Za-z_]/.test(name)) defs.set(name, node)
       }
     }
   })
@@ -421,8 +430,12 @@ function checkNuiCallbacks(tree, defs, report) {
 
 // --------------------------------------------------- L002: net-event source
 
-// Calls that can yield, after which `source` belongs to another event.
-const YIELDS = new Set(['Wait', 'exports', 'MySQL', 'Citizen', 'PerformHttpRequestAwait'])
+// Calls that can yield, after which `source` belongs to another event: Wait,
+// any export call (it yields whenever the other resource waits), and the
+// await forms. Not Citizen.CreateThread or SetTimeout (they schedule and
+// return), and not MySQL.query(sql, params, cb) (the callback form returns
+// at once); `.await` and MySQL.Sync are caught by member name in isYield.
+const YIELDS = new Set(['Wait', 'exports', 'PerformHttpRequestAwait'])
 
 // The handler's own tokens in order, nested function bodies excluded: those
 // run later, when `source` is no longer this event's.
@@ -444,18 +457,32 @@ function isYield(x, yields) {
   const tok = x.node.tok
   if (tok.t !== 'name') return false
   if (yields.has(tok.v) && bareRef(x.list, x.idx, tok.v)) return true
-  // `x.await(...)`, `x:await(...)`, `Citizen.Await(...)`, `lib.waitFor(...)`
+  // `x.await(...)`, `x:await(...)`, `Citizen.Await(...)`, `Citizen.Wait(...)`,
+  // `lib.waitFor(...)`, `MySQL.Sync.fetchAll(...)`
   const prev = x.list[x.idx - 1]
-  return /^([aA]wait|waitFor)$/.test(tok.v) && (isTok(prev, '.') || isTok(prev, ':'))
+  return /^([aA]wait|waitFor|Wait|Sync)$/.test(tok.v) && (isTok(prev, '.') || isTok(prev, ':'))
 }
 
+// This file's aliases of a resource's exports, which yield like exports
+// itself: `local inv = exports.ox_inventory`, `local inv <const> =
+// exports['ox_inventory']`. Not the RESULT of an export call:
+// `local QBCore = exports['qb-core']:GetCoreObject()` is a table of the
+// framework's functions, and calling them does not go through exports.
 function fileYields(tree) {
   const yields = new Set(YIELDS)
   eachList(tree, (list) => {
     for (let idx = 2; idx < list.length; idx += 1) {
-      if (isTok(list[idx], 'exports') && isTok(list[idx - 1], '=') && list[idx - 2].k === 'tok' && list[idx - 2].tok.t === 'name') {
-        yields.add(list[idx - 2].tok.v)
-      }
+      if (!isTok(list[idx], 'exports') || !isTok(list[idx - 1], '=')) continue
+      let name = list[idx - 2]
+      if (isTok(name, '>') && isTok(list[idx - 3], 'const') && isTok(list[idx - 4], '<')) name = list[idx - 5]
+      if (!name || name.k !== 'tok' || name.tok.t !== 'name') continue
+      // Skip the resource selector, `.x` or `['x']`; then a call means the
+      // value is a result, not the exports table.
+      let j = idx + 1
+      if (isTok(list[j], '.')) j += 2
+      else if (isTok(list[j], '[')) j += 3
+      if (isTok(list[j], ':') || isTok(list[j], '(') || isTok(list[j], '.')) continue
+      yields.add(name.tok.v)
     }
   })
   return yields
@@ -513,7 +540,12 @@ function sourceAfterYield(body, defs, yields) {
 // `Wait(…)`, `exports.x:Y(…)`, `MySQL.query.await(…)`, `fn'str'`, `fn{…}`.
 function callEnd(list, idx) {
   let j = idx + 1
-  while (j < list.length && list[j].k === 'tok' && (list[j].tok.t === 'name' || isTok(list[j], '.') || isTok(list[j], ':'))) j += 1
+  for (;;) {
+    if (list[j] && list[j].k === 'tok' && (list[j].tok.t === 'name' || isTok(list[j], '.') || isTok(list[j], ':'))) j += 1
+    // `exports['qb-core']`: an index by string is part of the callee.
+    else if (isTok(list[j], '[') && list[j + 1] && list[j + 1].k === 'tok' && list[j + 1].tok.t === 'str' && isTok(list[j + 2], ']')) j += 3
+    else break
+  }
   if (!isTok(list[j], '(') && !isTok(list[j], '{')) return list[j] && list[j].k === 'tok' && list[j].tok.t === 'str' ? j : idx
   let depth = 0
   for (; j < list.length; j += 1) {
@@ -524,14 +556,100 @@ function callEnd(list, idx) {
   return list.length
 }
 
+// The line of the first `source` read under a node list, nested functions
+// included unless a parameter shadows it, or null.
+function sourceLineIn(list) {
+  for (let idx = 0; idx < list.length; idx += 1) {
+    const node = list[idx]
+    let line = null
+    if (bareRef(list, idx, 'source')) line = node.tok.line
+    else if (node.k === 'fn' && !node.params.includes('source')) line = sourceLineIn(node.body)
+    else if (node.k === 'if') line = sourceLineIn(node.cond) || node.branches.map(sourceLineIn).find(Boolean) || null
+    else if (node.k === 'loop') line = sourceLineIn(node.head) || sourceLineIn(node.body)
+    else if (node.k === 'do') line = sourceLineIn(node.body)
+    else if (node.k === 'return') line = sourceLineIn(node.expr)
+    if (line) return line
+  }
+  return null
+}
+
+// Calls whose function arguments run LATER: a thread, a timer, or the
+// callback of an export, a MySQL query, an ox_lib call or an HTTP request.
+// A `source` read inside one names whichever event ran last. A function
+// handed to pcall, ipairs or table.sort runs now and is not listed.
+const LATER = new Set(['CreateThread', 'SetTimeout', 'Citizen', 'MySQL', 'exports', 'lib', 'PerformHttpRequest'])
+
+function laterReads(body, yields) {
+  const out = []
+  for (const x of ownTokens(body)) {
+    const tok = x.node.tok
+    if (tok.t !== 'name' || !(LATER.has(tok.v) || yields.has(tok.v)) || !bareRef(x.list, x.idx, tok.v)) continue
+    const end = callEnd(x.list, x.idx)
+    for (let k = x.idx + 1; k <= end && k < x.list.length; k += 1) {
+      const fn = x.list[k]
+      if (fn.k !== 'fn' || fn.params.includes('source')) continue
+      const line = sourceLineIn(fn.body)
+      if (line) out.push({ line, callLine: tok.line, what: tok.v })
+    }
+  }
+  return out
+}
+
+// `source` read inside a loop whose body can yield: the first pass may read
+// it in time, the next pass reads it after the yield.
+function loopReads(list, defs, yields, out = []) {
+  for (const node of list) {
+    if (node.k === 'loop') {
+      const whole = node.head.concat(node.body)
+      if (bodyYields(whole, defs, yields)) {
+        const read = ownTokens(node.body).find(x => bareRef(x.list, x.idx, 'source'))
+        if (read) out.push({ line: read.node.tok.line, loopLine: node.line })
+      }
+      loopReads(node.body, defs, yields, out)
+    } else if (node.k === 'if') node.branches.forEach(b => loopReads(b, defs, yields, out))
+    else if (node.k === 'do') loopReads(node.body, defs, yields, out)
+  }
+  return out
+}
+
+// The node lists of a shared file that run on the server: everything except
+// the client branch of an `IsDuplicityVersion()` / `IS_SERVER` test. A
+// shared file loads in both realms, so an unguarded net handler there is a
+// server handler too.
+function serverLists(tree) {
+  const lists = new Set()
+  const visit = (list, realm) => {
+    if (realm !== 'client') lists.add(list)
+    for (const node of list) {
+      if (node.k === 'if') {
+        const test = node.cond.some(n => isTok(n, 'IsDuplicityVersion') || isTok(n, 'IS_SERVER'))
+        const negated = node.cond.some(n => isTok(n, 'not'))
+        if (test && node.branches.length <= 2) {
+          const first = negated ? 'client' : 'server'
+          visit(node.branches[0], realm === 'client' ? 'client' : first)
+          if (node.branches[1]) visit(node.branches[1], realm === 'client' ? 'client' : (first === 'server' ? 'client' : 'server'))
+        } else node.branches.forEach(b => visit(b, realm))
+        visit(node.cond, realm)
+      } else if (node.k === 'fn') visit(node.body, realm)
+      else if (node.k === 'loop') { visit(node.head, realm); visit(node.body, realm) }
+      else if (node.k === 'do') visit(node.body, realm)
+      else if (node.k === 'return') visit(node.expr, realm)
+    }
+  }
+  visit(tree, 'both')
+  return lists
+}
+
 const REG_NET = new Set(['RegisterNetEvent', 'RegisterServerEvent', 'AddEventHandler'])
 const literalOf = (arg = []) => arg.length === 1 && arg[0].k === 'tok' && arg[0].tok.t === 'str' ? arg[0].tok.v.slice(1, -1) : null
 
 // Names declared as net events by the one-argument form, for the
 // RegisterNetEvent('x') + AddEventHandler('x', fn) pattern. Collected across
 // every server file first: the two halves often live in different files.
-function declaredNetNames(tree, into) {
+// `only` (a shared file's serverLists) limits the search to server code.
+function declaredNetNames(tree, into, only = null) {
   eachList(tree, (list) => {
+    if (only && !only.has(list)) return
     for (const call of callsIn(list, REG_NET)) {
       if (call.name !== 'AddEventHandler' && call.args.length === 1 && literalOf(call.args[0])) into.add(literalOf(call.args[0]))
     }
@@ -539,10 +657,11 @@ function declaredNetNames(tree, into) {
   return into
 }
 
-function checkNetHandlers(tree, defs, report, netNames) {
+function checkNetHandlers(tree, defs, report, netNames, only = null) {
   const yields = fileYields(tree)
   const handlers = []
   eachList(tree, (list) => {
+    if (only && !only.has(list)) return
     for (const call of callsIn(list, REG_NET)) {
       if (call.args.length >= 2) handlers.push({ call, literal: literalOf(call.args[0]) })
     }
@@ -559,19 +678,31 @@ function checkNetHandlers(tree, defs, report, netNames) {
       continue
     }
     const label = literal ? `'${literal}'` : 'net handler'
+    const own = ownTokens(handler.body)
+    const shadow = own.find(x => bareRef(x.list, x.idx, 'source') && isTok(x.list[x.idx - 1], 'local'))
+    if (shadow) {
+      report('L002', shadow.node.tok.line, `${label} declares a local named source: the payload now decides identity`)
+      continue
+    }
     const order = sourceOrder(handler.body, defs, yields)
     if (order.read) {
       const again = sourceAfterYield(handler.body, defs, yields)
       if (again) {
         report('L002', again.line, `${label} reads source again after a call that can yield (line ${again.yieldLine}); use the local read before it`)
       }
-      continue
-    }
-    const late = ownTokens(handler.body).find(x => bareRef(x.list, x.idx, 'source'))
-    if (late) {
-      report('L002', late.node.tok.line, `${label} reads source after, or as an argument of, a call that can yield (line ${order.yieldLine}); read it first: local src = source`)
     } else {
-      report('L002', call.line, `${label} never reads source: identity must come from source, not the payload`)
+      const late = own.find(x => bareRef(x.list, x.idx, 'source'))
+      if (late) {
+        report('L002', late.node.tok.line, `${label} reads source after, or as an argument of, a call that can yield (line ${order.yieldLine}); read it first: local src = source`)
+      } else {
+        report('L002', call.line, `${label} never reads source: identity must come from source, not the payload`)
+      }
+    }
+    for (const r of loopReads(handler.body, defs, yields)) {
+      report('L002', r.line, `${label} reads source inside a loop that can yield (line ${r.loopLine}); the next pass reads another event's source`)
+    }
+    for (const r of laterReads(handler.body, yields)) {
+      report('L002', r.line, `${label} reads source inside a function ${r.what} (line ${r.callLine}) runs later; capture local src = source first`)
     }
   }
 }
@@ -777,15 +908,22 @@ function lintResource(dir) {
       errors.push(`${rel}: cannot parse (${e.message})`)
     }
   }
+  // Shared files run in both realms: their server half is checked like a
+  // server file, their client branch is not.
+  for (const p of parsed) {
+    if (!server.has(p.rel) && shared.has(p.rel)) p.only = serverLists(p.tree)
+  }
+  const serverSide = (p) => server.has(p.rel) || Boolean(p.only)
   const netNames = new Set()
-  for (const p of parsed) if (server.has(p.rel)) declaredNetNames(p.tree, netNames)
+  for (const p of parsed) if (serverSide(p)) declaredNetNames(p.tree, netNames, p.only)
 
   let oneSyncUsage = null
-  for (const { rel, toks, tree } of parsed) {
+  for (const p of parsed) {
+    const { rel, toks, tree } = p
     const defs = functionDefs(tree)
     const fileReport = (rule, line, message) => report(rel, rule, line, message)
     checkNuiCallbacks(tree, defs, fileReport)
-    if (server.has(rel)) checkNetHandlers(tree, defs, fileReport, netNames)
+    if (serverSide(p)) checkNetHandlers(tree, defs, fileReport, netNames, p.only)
     if (!oneSyncUsage) oneSyncUsage = needsOneSync(rel, toks, server.has(rel))
   }
 

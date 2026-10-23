@@ -7,7 +7,11 @@
 // passing fixture pins the shapes it must NOT flag (an answer in both
 // branches, cb answered from a thread, a `function UI.onBuy` handler, a
 // dispatcher that reads `source` one call down, `source` as an argument of
-// the yielding call itself, a `.state` field that is not a state bag).
+// the yielding call itself, `QBCore.Functions.GetPlayer(source)` on the core
+// object, `exports['x']:Y(source)` after the local read, a thread or query
+// callback that never reads `source`, `pcall(function() ... source end)`,
+// an `M.fn = function` handler, the server branch of a shared file, a
+// `.state` field that is not a state bag).
 //
 //   node test/cis-lint-selftest.js
 //
@@ -60,7 +64,8 @@ const EXPECTED = {
     'server.lua:14 L002', // source after Wait
     'server.lua:19 L002', // source after .await
     'server.lua:22 L002', // a parameter named source
-    'server.lua:26 L002', // source read only in a later thread
+    'server.lua:26 L002', // source read only in a later thread ...
+    'server.lua:28 L002', // ... which is itself a read that runs later
     'server.lua:33 L002', // RegisterServerEvent + AddEventHandler, no source
     'server.lua:37 L002', // handler this file does not define
     'server.lua:39 L000', // allow without a reason
@@ -68,7 +73,13 @@ const EXPECTED = {
     'server.lua:47 L002', // read in time, then read AGAIN after Wait
     'server.lua:53 L002', // yield through a file-level alias of exports
     'server.lua:58 L002', // lib.waitFor
+    'server.lua:65 L002', // read inside a loop that Waits: the next pass is late
+    'server.lua:74 L002', // read inside CreateThread after a correct local read
+    'server.lua:81 L002', // read inside a MySQL callback
+    'server.lua:86 L002', // local source = data.id
+    'server.lua:93 L002', // yield through a <const> alias of exports['x']
     'server2.lua:2 L002', // net name declared in server.lua, handler in server2.lua
+    'shared.lua:3 L002',  // unguarded handler in a shared_script; its client branch is not flagged
   ],
   'bad-l003': [
     'web/App.tsx:2 L003',    // Tailwind backdrop-blur

@@ -59,3 +59,36 @@ RegisterNetEvent('bad:waitFor', function()
 end)
 
 RegisterNetEvent('bad:crossFile')
+
+RegisterNetEvent('bad:loop', function(ids)
+    for _, id in ipairs(ids) do
+        print(id, source)
+        Wait(10)
+    end
+end)
+
+RegisterNetEvent('bad:thread', function()
+    local src = source
+    CreateThread(function()
+        Wait(1000)
+        TriggerClientEvent('bad:reply', source, src)
+    end)
+end)
+
+RegisterNetEvent('bad:queryCallback', function()
+    local src = source
+    MySQL.query('SELECT 1', {}, function(rows)
+        print(rows, source, src)
+    end)
+end)
+
+RegisterNetEvent('bad:localShadow', function(data)
+    local source = data.id
+    print(source)
+end)
+
+local inv2 <const> = exports['ox_inventory']
+RegisterNetEvent('bad:constAlias', function()
+    inv2:Search(1, 'count', 'water')
+    print(source)
+end)
