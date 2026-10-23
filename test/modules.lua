@@ -829,8 +829,48 @@ do
         expect(firstDraw('nope') == firstDraw('nope'),
             'a nonsense seed still gives a usable, repeatable generator')
         local g1, g2 = CisRandom.newGenerator(12345), CisRandom.newGenerator(12345)
-        expect(g1.state == g2.state and g1.state ~= nil and g1.state >= 1 and g1.state <= 2147483646,
-            'the hashed state still lands inside the generator period')
+        local stateOk = type(g1.state) == 'table' and #g1.state == 6
+        for k = 1, 6 do
+            local w, top = stateOk and g1.state[k], k <= 3 and 4294967087 or 4294944443
+            if not (w and w == g2.state[k] and w >= 0 and w < top and w % 1 == 0) then stateOk = false end
+        end
+        expect(stateOk, 'the hashed state is six integral words inside the two MRG32k3a moduli')
+    end
+
+    -- MINSTD made seed k the same stream as seed 1 times k: for seeds 1 and 2,
+    -- b == 2a (mod 1) held on every draw, and seeds 0 and 2147483646 were the
+    -- same generator. The generator is now MRG32k3a with a cubed seed.
+    do
+        local function firstDraw(seed)
+            return CisRandom.newGenerator(seed):float()
+        end
+        expect(firstDraw(0) ~= firstDraw(2147483646), 'seeds 0 and 2147483646 are different generators')
+        expect(firstDraw(0) ~= firstDraw(4294967087), 'a seed past the modulus does not fold onto a smaller one')
+        local base = CisRandom.newGenerator(1)
+        local others = { [2] = CisRandom.newGenerator(2), [3] = CisRandom.newGenerator(3), [7] = CisRandom.newGenerator(7) }
+        local linear = 0
+        for _ = 1, 1000 do
+            local x = base:float()
+            for k, g in pairs(others) do
+                if math.abs((k * x) % 1 - g:float()) < 1e-6 then linear = linear + 1 end
+            end
+        end
+        expect(linear < 5, ('seeds 2, 3 and 7 are not seed 1 times a constant (%d of 3000 draws)'):format(linear))
+        -- L'Ecuyer's published state 12345 x 6: the first U01 is 0.1270111220.
+        local kat = CisRandom.newGenerator(1)
+        kat.state = { 12345, 12345, 12345, 12345, 12345, 12345 }
+        local r1, r2, r3 = kat:next(), kat:next(), kat:next()
+        -- The seeded stream itself is pinned: it is the same under Lua 5.4 and
+        -- fengari, where an integer product wraps at 32 bits.
+        local s1, s2 = CisRandom.newGenerator(1):next(), CisRandom.newGenerator(-2.5):next()
+        local wideDraw = CisRandom.newGenerator(31337):int(0, 2 ^ 40)
+        expect(s1 == 2869526954 and s2 == 4041100382 and wideDraw == 25302793138,
+            ('the seeded stream is the pinned one in every runtime, got %s %s %s')
+                :format(tostring(s1), tostring(s2), tostring(wideDraw)))
+        local drawn = CisRandom.newGenerator(9):int(3, 7)
+        expect(math.type(drawn) == 'integer', 'gen:int answers an integer, not a float, got ' .. tostring(drawn))
+        expect(r1 == 545508589 and r2 == 1368065410 and r3 == 1327943761,
+            ('MRG32k3a matches the reference stream, got %s %s %s'):format(tostring(r1), tostring(r2), tostring(r3)))
     end
 end
 

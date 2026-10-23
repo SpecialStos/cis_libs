@@ -360,7 +360,7 @@ local CisPrint = {}
 
 ---@class CisRandom
 -- The table Cis.require('random') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.
----@field newGenerator fun(seed?: number): table # A seeded, reproducible generator.
+---@field newGenerator fun(seed?: number): table # A seeded, reproducible generator (MRG32k3a, the seed mixed nonlinearly; the same stream in Lua 5.4 and fengari).
 ---@field integer fun(lo: number, hi: number, rng?: table|fun(): number): integer|nil, string|nil # Integer in [lo, hi] INCLUSIVE, uniformly.
 ---@field float fun(min: number, max: number, rng?: table|fun(): number): number|nil, string|nil # Float in [min, max).
 ---@field shuffle fun(list: table, rng?: table|fun(): number): table|nil # Fisher-Yates shuffle, IN PLACE.

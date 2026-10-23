@@ -3221,6 +3221,62 @@
       "find": "    if d < 0 then\n        d = (hi + 0.0) - (lo + 0.0)\n    end",
       "replace": "",
       "why": "A wrapped integer difference is trusted, so the full integer range is counted as 0 values."
+    },
+    {
+      "id": "M465",
+      "file": "shared/algo/random.lua",
+      "find": "    h = absorb(h, negative and 1 or 0)\n",
+      "replace": "",
+      "why": "The sign is no longer mixed into the seed, so seeds 1 and -1 are the same generator again."
+    },
+    {
+      "id": "M466",
+      "file": "shared/algo/random.lua",
+      "find": "    h = absorb(h, lo % 65536)\n    h = absorb(h, math.floor(lo / 65536))",
+      "replace": "    h = absorb(h, lo % M1)",
+      "why": "The low seed word goes in whole and reduced mod M1, so seed 4294967087 folds onto seed 0."
+    },
+    {
+      "id": "M467",
+      "file": "shared/algo/random.lua",
+      "find": "    h = absorb(h, frac % 65536)\n    h = absorb(h, math.floor(frac / 65536))\n",
+      "replace": "",
+      "why": "The fraction is no longer mixed into the seed, so 1 and 1.7 are the same generator again."
+    },
+    {
+      "id": "M468",
+      "file": "shared/algo/random.lua",
+      "find": "        local p2 = (A21 * s[6] - A23N * s[4]) % M2",
+      "replace": "        local p2 = (A21 * s[5] - A23N * s[4]) % M2",
+      "why": "The second MRG32k3a component reads the wrong lag and drifts from the reference stream."
+    },
+    {
+      "id": "M469",
+      "file": "shared/algo/random.lua",
+      "find": "    return nextBits(gen, 134217728.0) * 67108864.0 + nextBits(gen, 67108864.0)",
+      "replace": "    return nextBits(gen, 134217728) * 67108864 + nextBits(gen, 67108864)",
+      "why": "The wide draw multiplies integers, which in fengari wraps at 32 bits, so a 2^40 range draws outside itself."
+    },
+    {
+      "id": "M470",
+      "file": "shared/algo/random.lua",
+      "find": "            return a + math.floor((v - 1) % n)",
+      "replace": "            return a + ((v - 1) % n)",
+      "why": "gen:int answers a float such as 5.0, because the state words are floats."
+    },
+    {
+      "id": "M471",
+      "file": "shared/algo/random.lua",
+      "find": "    return mulmod(mulmod(x, x, M1), x, M1)",
+      "replace": "    return mulmod(x, 48271, M1)",
+      "why": "The seed is mixed linearly again."
+    },
+    {
+      "id": "M472",
+      "file": "shared/util/mathx.lua",
+      "find": "    local v = negative and -(n + 0.0) or n",
+      "replace": "    local v = negative and -n or n",
+      "why": "-math.mininteger wraps back to itself again, and toHex loops forever on it."
     }
   ]
 }

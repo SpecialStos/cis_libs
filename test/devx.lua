@@ -390,6 +390,16 @@ do
     expect(X.toHex(255) == 'ff' and X.toHex(255, { upper = true, width = 4, prefix = '0x' }) == '0x00FF'
         and X.toHex(-16) == '-10' and X.toHex(0) == '0', 'mathx: toHex with options and sign')
     expect(X.toHex(1.5) == nil and X.toHex(2 ^ 53) == nil, 'mathx: toHex refuses a fraction and 2^53')
+    -- -math.mininteger wraps back to itself, and toHex looped forever on it.
+    -- Lua 5.4's is past 2^53 and refused; a 32-bit runtime's is -2^31 and printed.
+    do
+        debug.sethook(function() error('HUNG', 0) end, '', 2000000)
+        local okHex, minHex = pcall(X.toHex, math.mininteger)
+        debug.sethook()
+        local minHexOk
+        if math.mininteger < -(2 ^ 53) then minHexOk = okHex and minHex == nil else minHexOk = okHex and minHex == '-80000000' end
+        expect(minHexOk, 'mathx: toHex(math.mininteger) answers instead of hanging, got ' .. tostring(minHex))
+    end
     expect(X.fromHex('0xFF') == 255 and X.fromHex(' -a ') == -10 and X.fromHex('xyz') == nil and X.fromHex('') == nil,
         'mathx: fromHex accepts prefix, sign and case, refuses junk')
     expect(X.groupDigits(1234567) == '1,234,567' and X.groupDigits(-1234.5) == '-1,234.5'

@@ -193,6 +193,12 @@ under **Changed** so nobody upgrades into them blind.
 - **`CisRandom` with a generator or a function raises for the 64-bit integer
   range** instead of answering a constant. With no generator,
   `integer(0, math.maxinteger)` now draws across the whole range.
+- **`CisRandom.newGenerator` is now MRG32k3a with a nonlinearly mixed seed,
+  so the sequence a given seed produces has changed.** MINSTD made seed k's
+  stream seed 1's stream times k (mod 1), and seeds 0 and 2147483646 were the
+  same generator. Different seeds now give unrelated streams, and the stream
+  is identical under Lua 5.4 and fengari. `gen.state` is now six words, not
+  one number. Anything that stored a seeded sequence must regenerate it.
 
 ### Added
 
@@ -298,6 +304,9 @@ under **Changed** so nobody upgrades into them blind.
 
 ### Fixed
 
+- **`mathx.toHex(math.mininteger)` looped forever**: `-n` wrapped back to a
+  negative number. The magnitude is now taken in floats, so Lua 5.4 refuses
+  it as beyond 2^53.
 - **`CisRandom.integer(0, math.maxinteger)` always answered 0**, and the
   full integer range always answered `math.mininteger`: `hi - lo + 1`
   wrapped. The count no longer trusts the subtraction.

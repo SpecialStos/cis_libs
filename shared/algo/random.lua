@@ -2,10 +2,21 @@
 
 local M = {}
 
-local MOD = 2147483647
-local MULT = 48271
--- The other multiplier from the same Park-Miller family, applied to the magnitude of a
-local MULT_NEG = 16807
+-- MRG32k3a (L'Ecuyer 1999), in exact double arithmetic: every product below is
+-- under 2^53, so fengari and Lua 5.4 produce the same stream bit for bit. The
+-- constants are floats on purpose: fengari integers are 32 bits and wrap.
+-- It replaces MINSTD, whose streams for seeds k and 1 were the same stream times
+-- k: seeds 1 and 2 drew b == 2a (mod 1) on every draw.
+local M1 = 4294967087.0
+local M2 = 4294944443.0
+local A12 = 1403580.0
+local A13N = 810728.0
+local A21 = 527612.0
+local A23N = 1370589.0
+-- The seed is mixed by cubing modulo M1. M1 is prime and 3 does not divide
+-- M1 - 1, so cubing permutes 0 .. M1-1: a nonlinear map with no collisions.
+local SEED_STEP = 2654435769.0
+local SEED_IV = 625341585.0
 
 -- The largest integer a double holds EXACTLY, and therefore the widest uniform range
 local TWO53 = 9007199254740992
@@ -172,54 +183,97 @@ local function randInt(rng, lo, hi)
     return lo + (drawBelow(rng, n, span) % n)
 end
 
--- The same 2^53 assembly for a generator object, which reaches one MINSTD step at a
-local function nextWide(gen)
-    local high = gen:next() - 1                  -- 0 .. MOD-2, 31 bits
-    local low = (gen:next() - 1) % 4194304       -- 22 bits
-    return high * 4194304 + low                  -- 0 .. 2^53 - 1, exactly
+-- A uniform draw in [0, scale), scale a power of two, from one raw draw. next()
+-- yields M1 values, not a power of two, so a draw at or past the largest
+-- multiple of scale is redrawn.
+local function nextBits(gen, scale)
+    local limit = math.floor(M1 / scale) * scale
+    local r, retries = gen:next() - 1, 0
+    while r >= limit and retries < 8 do
+        r = gen:next() - 1
+        retries = retries + 1
+    end
+    return r % scale
 end
 
--- Hash a seed into the generator period.
-local function hashSeed(seed)
+-- The same 2^53 assembly for a generator object: 27 high bits, then 26 low.
+local function nextWide(gen)
+    -- Float constants: in fengari 2^27 * 2^26 on integers wraps at 32 bits.
+    return nextBits(gen, 134217728.0) * 67108864.0 + nextBits(gen, 67108864.0)  -- 0 .. 2^53 - 1
+end
+
+-- a * b mod m, exactly, for a and b below 2^32: b is split into 16-bit halves
+-- so no product reaches 2^53. `a` is always a float here (SEED_STEP is one), so
+-- fengari never multiplies two 32-bit integers.
+local function mulmod(a, b, m)
+    local bh = math.floor(b / 65536)
+    local bl = b % 65536
+    return ((a * bh) % m * 65536 + a * bl) % m
+end
+
+local function absorb(h, w)
+    local x = (h + w + SEED_STEP) % M1
+    return mulmod(mulmod(x, x, M1), x, M1)
+end
+
+-- Hash a seed into the six state words. Every word of the seed goes through the
+-- cube, so neighbouring seeds land on unrelated states: no seed is a multiple,
+-- shift or reflection of another.
+local function seedState(seed)
     local negative = seed < 0
     local a = negative and -seed or seed
     local whole = math.floor(a)
-    -- 32 bits of the fraction. Without this the floor above is all that survives and 1
+    -- 32 bits of the fraction, so 1 and 1.7 are different seeds.
     local frac = math.floor((a - whole) * TWO32)
-    -- The sign goes in by selecting the multiplier, not by being abs'd away and not by
-    local h = whole % (MOD - 1)
-    h = (h * MULT) % MOD
-    h = (h + frac * MULT) % MOD
-    h = (h * (negative and MULT_NEG or MULT)) % MOD
-    if h == 0 then
-        h = 1
+    local lo = whole % TWO32
+    local hi = math.floor(whole / TWO32)
+    -- 16-bit pieces, each below M1, so 0 and M1 do not fold onto one word.
+    local h = SEED_IV
+    h = absorb(h, lo % 65536)
+    h = absorb(h, math.floor(lo / 65536))
+    h = absorb(h, hi)
+    h = absorb(h, frac % 65536)
+    h = absorb(h, math.floor(frac / 65536))
+    h = absorb(h, negative and 1 or 0)
+    local state = {}
+    for k = 1, 6 do
+        h = absorb(h, k)
+        state[k] = k <= 3 and h or h % M2
     end
-    return h
+    -- Each component needs one nonzero word, or it stays at zero forever.
+    if state[1] == 0 and state[2] == 0 and state[3] == 0 then state[1] = 1.0 end
+    if state[4] == 0 and state[5] == 0 and state[6] == 0 then state[4] = 1.0 end
+    return state
 end
 
---- A seeded, reproducible generator.
+--- A seeded, reproducible generator (MRG32k3a, the seed mixed nonlinearly; the same stream in Lua 5.4 and fengari).
 ---@param seed? number  any number. Fractions, negatives and magnitudes
 ---@return table  { next, float, int, range }
 function M.newGenerator(seed)
-    local s
-    if type(seed) == 'number' and seed == seed and math.abs(seed) < 1e18 then
-        s = hashSeed(seed)
-    else
+    if type(seed) ~= 'number' or seed ~= seed or math.abs(seed) >= 1e18 then
         -- A nil or nonsense seed still has to produce a usable generator, or every
-        s = 12345
+        seed = 12345
     end
 
-    local gen = { state = s }
+    local gen = { state = seedState(seed) }
 
-    --- Next raw value, 1 .. MOD-1.
+    --- Next raw value, 1 .. M1 (4294967087).
     function gen:next()
-        self.state = (self.state * MULT) % MOD
-        return self.state
+        local s = self.state
+        local p1 = (A12 * s[2] - A13N * s[1]) % M1
+        s[1], s[2], s[3] = s[2], s[3], p1
+        local p2 = (A21 * s[6] - A23N * s[4]) % M2
+        s[4], s[5], s[6] = s[5], s[6], p2
+        local z = (p1 - p2) % M1
+        if z == 0 then
+            z = M1
+        end
+        return math.floor(z)
     end
 
-    --- Float in [0, 1). Never returns exactly 1, so `(float() * n)` is never n.
+    --- Float in (0, 1). Never returns exactly 1, so `(float() * n)` is never n.
     function gen:float()
-        return self:next() / MOD
+        return self:next() / (M1 + 1)
     end
 
     --- Integer in [lo, hi] inclusive, unbiased, and reversed ranges are swapped rather
@@ -235,9 +289,9 @@ function M.newGenerator(seed)
         if not n then
             tooWide(a, b, 2)
         end
-        if n <= MOD - 1 then
-            -- next() yields 1 .. MOD-1, so the largest multiple of n in that range is
-            local limit = (MOD - 1) - ((MOD - 1) % n)
+        if n <= M1 then
+            -- next() yields 1 .. M1, so the largest multiple of n in that range is
+            local limit = M1 - (M1 % n)
             local v, retries = self:next(), 0
             while v > limit and retries < 8 do
                 v = self:next()
@@ -246,7 +300,7 @@ function M.newGenerator(seed)
             if v > limit then
                 v = v - 1 - ((v - 1 - limit) % n)
             end
-            return a + ((v - 1) % n)
+            return a + math.floor((v - 1) % n)
         end
 
         -- Wider than one period. This used to fall into the branch above with `limit`
@@ -259,7 +313,7 @@ function M.newGenerator(seed)
         if v >= limit then
             v = v - (v - limit) % n
         end
-        return a + (v % n)
+        return a + math.floor(v % n)
     end
 
     --- Float in [min, max). A reversed range is swapped.

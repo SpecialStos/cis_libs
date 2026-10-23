@@ -512,7 +512,7 @@ Source: `shared/algo/random.lua`.
 | `float` | `(min: number, max: number, rng?: table\|fun(): number) → number\|nil, string\|nil` | Float in [min, max). |
 | `gaussian` | `(mean?: number, standardDeviation?: number, rng?: table\|fun(): number) → number` | Normally distributed value, mean 0 and standard deviation 1 unless told otherwise. |
 | `integer` | `(lo: number, hi: number, rng?: table\|fun(): number) → integer\|nil, string\|nil` | Integer in [lo, hi] INCLUSIVE, uniformly. |
-| `newGenerator` | `(seed?: number) → table` | A seeded, reproducible generator. |
+| `newGenerator` | `(seed?: number) → table` | A seeded, reproducible generator (MRG32k3a, the seed mixed nonlinearly; the same stream in Lua 5.4 and fengari). |
 | `pick` | `(list: table, rng?: table\|fun(): number) → any` | One uniformly random element of a list. |
 | `sample` | `(list: table, k: number, rng?: table\|fun(): number) → table` | `k` distinct elements of a list, in random order, WITHOUT touching the input. |
 | `shuffle` | `(list: table, rng?: table\|fun(): number) → table\|nil` | Fisher-Yates shuffle, IN PLACE. |

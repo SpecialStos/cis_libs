@@ -133,7 +133,9 @@ function M.toHex(n, opts)
         return nil, ('%s is not a whole number'):format(tostring(n))
     end
     local negative = n < 0
-    local v = negative and -n or n
+    -- Negated as a float: on integers -math.mininteger wraps back to itself, so v
+    -- stayed negative, passed the 2^53 check and the loop below never reached 0.
+    local v = negative and -(n + 0.0) or n
     if v >= TWO53 then
         return nil, ('%s is beyond 2^53, where a double stops holding every integer'):format(tostring(n))
     end

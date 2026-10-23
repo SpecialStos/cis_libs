@@ -2752,7 +2752,7 @@ return {
     },
     CisMathX = {
         doc = "The table Cis.require('mathx') returns. Number helpers: round to decimals, clamp, lerp (numbers or FiveM vectors), inverseLerp, remap, approx, toHex/fromHex exact to 2^53, groupDigits, and a weighted pick that is reproducible with a CisRandom generator.",
-        fields = { { name = 'round', type = 'function' }, { name = 'clamp', type = 'function' }, { name = 'lerp', type = 'function' }, { name = 'inverseLerp', type = 'function' }, { name = 'remap', type = 'function' }, { name = 'approx', type = 'function' }, { name = 'toHex', type = 'function' }, { name = 'fromHex', type = 'function' }, { name = 'groupDigits', type = 'function' }, { name = 'weightedPick', type = 'function' } },
+        fields = { { name = 'round', type = 'function' }, { name = 'clamp', type = 'function' }, { name = 'lerp', type = 'function' }, { name = 'inverseLerp', type = 'function' }, { name = 'remap', type = 'function' }, { name = 'approx', type = 'function' }, { name = 'toHex', type = 'function', doc = 'toHex(n, opts?) -- a whole number below 2^53 in magnitude; anything else, math.mininteger on Lua 5.4 included, answers nil and a reason' }, { name = 'fromHex', type = 'function' }, { name = 'groupDigits', type = 'function' }, { name = 'weightedPick', type = 'function' } },
     },
     CisPrint = {
         doc = "The table Cis.require('print') returns. Levelled console output (error, warn, info, verbose, debug) with colour prefixes. The level comes from convar cis:printlevel:<resource>, else cis:printlevel, else info; a filtered call costs one comparison and formats nothing.",
@@ -2824,7 +2824,7 @@ return {
     },
     CisRandom = {
         doc = "The table Cis.require('random') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.",
-        fields = { { name = 'newGenerator', type = 'function' }, { name = 'integer', type = 'function', doc = 'integer(lo, hi, rng?) -- inclusive and uniform. With no rng it is math.random over the whole integer range; with a generator or a function, a range of more than 2^53 values raises rather than answering' }, { name = 'float', type = 'function' }, { name = 'shuffle', type = 'function' }, { name = 'pick', type = 'function' }, { name = 'sample', type = 'function' }, { name = 'weighted', type = 'function' }, { name = 'weightedIndex', type = 'function' }, { name = 'gaussian', type = 'function' } },
+        fields = { { name = 'newGenerator', type = 'function', doc = 'newGenerator(seed?) -- MRG32k3a. Different seeds give unrelated streams; the sequence for a given seed changed in this release' }, { name = 'integer', type = 'function', doc = 'integer(lo, hi, rng?) -- inclusive and uniform. With no rng it is math.random over the whole integer range; with a generator or a function, a range of more than 2^53 values raises rather than answering' }, { name = 'float', type = 'function' }, { name = 'shuffle', type = 'function' }, { name = 'pick', type = 'function' }, { name = 'sample', type = 'function' }, { name = 'weighted', type = 'function' }, { name = 'weightedIndex', type = 'function' }, { name = 'gaussian', type = 'function' } },
     },
     CisRate = {
         doc = "The table Cis.require('rate') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.",
