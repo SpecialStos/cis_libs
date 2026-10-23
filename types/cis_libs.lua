@@ -406,7 +406,7 @@ local CisRingBuffer = {}
 -- A scaleform movie object from Cis.scaleform.new. Methods are called with a colon. A disposed movie refuses every further call.
 ---@field name string the movie name
 ---@field handle integer|nil the movie handle; nil once disposed
----@field call fun(self: CisScaleformMovie, method: string, ...): boolean, string|nil call a method. A parameter is typed by its value -- an integer is an int, any other number a float, a boolean a bool, a string a string -- or explicitly as { type = int\|float\|bool\|string\|literal\|playerName, value = v }. An untypable parameter refuses the whole call before anything is sent
+---@field call fun(self: CisScaleformMovie, method: string, ...): boolean, string|nil call a method. A parameter is typed by its value -- an integer is an int, any other number a float, a boolean a bool, a string a string -- or explicitly as { type = int\|float\|bool\|string\|literal\|playerName, value = v }. An untypable parameter, including an explicit type outside that list, refuses the whole call with a reason naming it, before anything is sent
 ---@field draw fun(self: CisScaleformMovie, r?: integer, g?: integer, b?: integer, a?: integer): boolean draw fullscreen for THIS frame
 ---@field draw3d fun(self: CisScaleformMovie, coords: vector3, rot?: vector3, scale?: vector3): boolean draw in the world for THIS frame
 ---@field startDrawing fun(self: CisScaleformMovie, r?: integer, g?: integer, b?: integer, a?: integer): boolean draw fullscreen every frame on a thread of its own
@@ -1160,7 +1160,7 @@ function GetClientLogging() end
 function GetClosestDoor() end
 
 --- Cis.points.getClosest()
----@return integer|nil, number|string|nil #the nearest point id and the distance in metres, or nil plus a reason. TWO SHAPES in the second slot, and a caller that only tests the first has to know which one it got
+---@return integer|nil, number|string|nil #the nearest of the CALLER'S OWN points (cis_libs sees every point) and the distance in metres, or nil plus a reason -- also when the player position has no numeric x/y/z. TWO SHAPES in the second slot, and a caller that only tests the first has to know which one it got
 --- realm: client
 function GetClosestPoint() end
 
@@ -1437,7 +1437,7 @@ function IsReady() end
 function IsTextUIOpen() end
 
 --- Cis.keybind.add({ name, description, defaultKey, onPress, onRelease })
----@param options CisKeybindOptions #name is REQUIRED and validated, and refused while another resource holds it; onPress and onRelease are functions, which reach cis_libs as funcrefs and are called there. A stopped owner takes its bindings with it
+---@param options CisKeybindOptions #name is REQUIRED and validated, and refused while another resource holds it -- in this library, or as a +name command another resource registered (GetRegisteredCommands, any case); onPress and onRelease are functions, which reach cis_libs as funcrefs and are called there. A stopped owner takes its bindings with it
 ---@return table|false, string|nil #a handle with id, name and owner, or false plus a reason. Its methods (disable, isPressed, reset, destroy, getCurrentKey) work only inside cis_libs -- across exports the metatable is lost, so keep handle.id and use KeybindDisable, KeybindEnable, KeybindIsPressed and KeybindRemove. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so renaming a binding creates a SECOND one rather than renaming the first
 --- realm: client
 function KeybindAdd(options) end
@@ -1671,18 +1671,18 @@ function RateOk(src, name, windowMs, maxHits) end
 --- Cis.raycast.camera(flags, ignore, distance, timeoutMs)
 ---@param flags number #shape-test flags, default -1 (everything)
 ---@param ignore number #entity to ignore; default the vehicle the player sits in, else the player ped -- a camera ray starts behind the player and would otherwise hit them. Pass 0 to ignore nothing
----@param distance? number #metres, default 10
+---@param distance? number #metres, default 10; positive, finite and at most 100000, or the call is refused with a reason before a probe starts
 ---@param timeoutMs? number #the BOUND, default 2000. An unbounded poll would leave a caller stuck in Wait with no way out
 ---@return boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil #hit, entityHit, endCoords, surfaceNormal and materialHash. A MISS still carries endCoords and normal: the surface the ray stopped at. nil plus a reason on refusal or timeout
 --- realm: client
 function RaycastCamera(flags, ignore, distance, timeoutMs) end
 
 --- Cis.raycast.fromCoords(origin, target, flags, ignore, timeoutMs)
----@param origin vector3|table #where the ray starts
----@param target vector3|table #where it would end
+---@param origin vector3|table #where the ray starts; x, y and z must be finite, and NaN or infinity is refused by name
+---@param target vector3|table #where it would end; finite x/y/z, as origin
 ---@param flags? number #shape-test flags, default -1
 ---@param ignore? number #entity to ignore; default the vehicle the player sits in, else the player ped -- a camera ray starts behind the player and would otherwise hit them. Pass 0 to ignore nothing
----@param timeoutMs? number #the bound, default 2000
+---@param timeoutMs? number #the bound, default 2000; a non-positive, NaN or infinite value falls back to the default
 ---@return boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil #the same five slots as RaycastCamera, so a caller does not have to know which of the two it called
 --- realm: client
 function RaycastFromCoords(origin, target, flags, ignore, timeoutMs) end
@@ -2707,8 +2707,8 @@ function Cis.points.remove(id) end
 ---@field realm "client"
 ---@param flags? number #shape-test flags, default -1
 ---@param ignore? number #entity to ignore; default the vehicle the player sits in, else the player ped -- a camera ray starts behind the player and would otherwise hit them
----@param distance? number #metres, default 10
----@param timeoutMs? number #the bound, default 2000
+---@param distance? number #metres, default 10; positive, finite and at most 100000, or the call is refused with a reason before a probe starts
+---@param timeoutMs? number #the bound, default 2000; a non-positive, NaN or infinite value falls back to the default
 ---@return boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil #hit, entityHit, endCoords, surfaceNormal, materialHash. Probed from the CAMERA, not the ped: "forward" means where the player is LOOKING, and probing from the ped works until they look up and then hits their feet
 function Cis.raycast.camera(flags, ignore, distance, timeoutMs) end
 

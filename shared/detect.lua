@@ -40,14 +40,17 @@ function CisDetect.versionAtLeast(have, want)
 end
 
 --- Decide which framework to use.
---- @param configured string|nil  Config.Framework.Type, uppercased by the caller
+--- @param configured string|nil  Config.Framework.Type, in any case
 --- @param custom table|nil       Config.Framework.Custom, the operator's own adapter
 --- @param isStarted function     isStarted(resource) -> boolean: true if running
 --- @param version function       version(resource) -> string|nil
 --- @param probe function         probe(resource, exportName) -> boolean
 --- @return table { name, resource, version, how, reason }
 function CisDetect.framework(configured, custom, isStarted, version, probe)
-    configured = (configured or 'AUTO'):upper()
+    -- The NAME is compared in upper case; a RESOURCE is asked for as the operator
+    -- spelled it. Uppercasing it first asked for ND_CORE when ND_Core was running.
+    local spelled = tostring(configured or 'AUTO')
+    configured = spelled:upper()
 
     -- A custom adapter wins over everything, including an explicit Type.
     if type(custom) == 'table' and type(custom.resource) == 'string' and custom.resource ~= '' then
@@ -91,15 +94,15 @@ function CisDetect.framework(configured, custom, isStarted, version, probe)
         end
         -- Configured with a name we do not know.
         if configured ~= 'NONE' then
-            local up = isStarted(configured) and true or false
+            local up = isStarted(spelled) and true or false
             return {
                 name = up and configured or 'NONE',
-                resource = up and configured or nil,
-                version = up and version(configured) or nil,
+                resource = up and spelled or nil,
+                version = up and version(spelled) or nil,
                 how = 'configured',
-                reason = up and ('configured as %s'):format(configured)
+                reason = up and ('configured as %s'):format(spelled)
                     or ('configured as %s, which is not a known framework and is not started')
-                        :format(configured),
+                        :format(spelled),
             }
         end
     end

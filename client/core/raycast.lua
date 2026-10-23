@@ -23,14 +23,22 @@ local DONE = 2
 -- START_SHAPE_TEST_LOS_PROBE's last argument.
 local LOS_OPTIONS = 7
 
-local function isPoint(p)
-    -- vector3 is userdata on some runtimes and the type name 'vector3' on others.
-    return p ~= nil
-        and type(p.x) == 'number' and type(p.y) == 'number' and type(p.z) == 'number'
+-- The longest ray: a hundred kilometres, ten times the map. An infinite one put
+-- inf (or, at a zero direction component, NaN) into the probe's end point.
+local MAX_DISTANCE = 100000
+
+local function finite(v)
+    return type(v) == 'number' and v == v and v ~= math.huge and v ~= -math.huge
 end
 
+local function isPoint(p)
+    -- vector3 is userdata on some runtimes and the type name 'vector3' on others.
+    return p ~= nil and finite(p.x) and finite(p.y) and finite(p.z)
+end
+
+-- An infinite timeout is no timeout, so it falls back like any other bad value.
 local function positiveMs(value, fallback)
-    if type(value) == 'number' and value == value and value > 0 then
+    if finite(value) and value > 0 then
         return value
     end
     return fallback
@@ -87,8 +95,9 @@ function M.camera(flags, ignore, distance, timeoutMs)
     if flags == nil then flags = -1 end
     if ignore == nil then ignore = defaultIgnore() end
     distance = distance or 10.0
-    if type(distance) ~= 'number' or distance ~= distance or distance <= 0 then
-        return nil, ('distance must be a positive finite number, got %s'):format(tostring(distance))
+    if not finite(distance) or distance <= 0 or distance > MAX_DISTANCE then
+        return nil, ('distance must be a positive finite number of at most %d metres, got %s')
+            :format(MAX_DISTANCE, tostring(distance))
     end
     timeoutMs = positiveMs(timeoutMs, DEFAULT_TIMEOUT_MS)
 
@@ -122,10 +131,10 @@ end
 
 function M.fromCoords(origin, target, flags, ignore, timeoutMs)
     if not isPoint(origin) then
-        return nil, 'origin is not a point'
+        return nil, 'origin is not a point with finite x/y/z'
     end
     if not isPoint(target) then
-        return nil, 'target is not a point'
+        return nil, 'target is not a point with finite x/y/z'
     end
     if flags == nil then flags = -1 end
     if ignore == nil then ignore = defaultIgnore() end

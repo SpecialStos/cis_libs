@@ -3107,6 +3107,120 @@
       "find": "        if ms == nil or ms ~= ms or ms < 0 or ms > MAX_TIMEOUT_MS then",
       "replace": "        if ms == nil then",
       "why": "Accept a NaN or infinite streaming timeout; now >= NaN is never true, so the request polls for the rest of the session."
+    },
+    {
+      "id": "M449",
+      "file": "client/core/scaleform.lua",
+      "find": "        if KINDS[value.type] then",
+      "replace": "        if true then",
+      "why": "An explicit scaleform type outside the list passes the check again; the call is sent with a parameter pushed through the wrong native and answers true."
+    },
+    {
+      "id": "M450",
+      "file": "client/core/world.lua",
+      "find": "    if kind == 'player' or POOLS[kind] then return true end",
+      "replace": "    if true then return true end",
+      "why": "A world query stops checking its kind first, so a nil kind raises in 'closest' .. kind instead of being refused by name."
+    },
+    {
+      "id": "M451",
+      "file": "shared/ready.lua",
+      "find": "    if Cis then\n        Cis.isReady = true\n        Cis.isFailed = false\n    end\n    local waiters",
+      "replace": "    local waiters",
+      "why": "Cis.isReady is no longer set before the ready waiters run, so a waiter that reads it is told the gate is not ready."
+    },
+    {
+      "id": "M452",
+      "file": "shared/detect.lua",
+      "find": "            local up = isStarted(spelled) and true or false",
+      "replace": "            local up = isStarted(configured) and true or false",
+      "why": "An unknown configured framework is looked for uppercased again, so a running ND_Core is reported as not started."
+    },
+    {
+      "id": "M453",
+      "file": "client/core/points.lua",
+      "find": "        if owner == nil or point.owner == owner then",
+      "replace": "        if true then",
+      "why": "GetClosestPoint answers the nearest point of any resource again, not the caller's own."
+    },
+    {
+      "id": "M454",
+      "file": "client/core/points.lua",
+      "find": "    if not x or not y or not z then",
+      "replace": "    if not x or not y then",
+      "why": "A player position with no z reaches the distance subtraction again and raises instead of being refused."
+    },
+    {
+      "id": "M455",
+      "file": "client/points.lua",
+      "find": "    return engine:getClosest(nil, queryOwner())",
+      "replace": "    return engine:getClosest()",
+      "why": "The GetClosestPoint export stops passing the caller, so every resource sees every resource's points."
+    },
+    {
+      "id": "M456",
+      "file": "client/core/zones.lua",
+      "find": "            queueEdge(self, id, zone, true)",
+      "replace": "            self.inside[id] = { lastInside = 0, stamp = self.passStamp }\n            self:invoke(zone, 'onEnter', visitCoords)",
+      "why": "onEnter runs inside the grid walk again, so a zone it creates is inserted into the bucket under traversal."
+    },
+    {
+      "id": "M457",
+      "file": "client/core/zones.lua",
+      "find": "        elseif self.zones[id] == zone and not self.inside[id] then",
+      "replace": "        elseif true then",
+      "why": "A queued entry fires for a zone an earlier handler removed in the same pass."
+    },
+    {
+      "id": "M458",
+      "file": "client/core/raycast.lua",
+      "find": "    if not finite(distance) or distance <= 0 or distance > MAX_DISTANCE then",
+      "replace": "    if distance ~= distance or distance <= 0 then",
+      "why": "An infinite or 1e9 camera distance reaches the probe again, putting inf or NaN into its end point."
+    },
+    {
+      "id": "M459",
+      "file": "client/core/raycast.lua",
+      "find": "    return p ~= nil and finite(p.x) and finite(p.y) and finite(p.z)",
+      "replace": "    return p ~= nil and type(p.x) == 'number' and type(p.y) == 'number' and type(p.z) == 'number'",
+      "why": "A NaN or infinite origin or target passes the point check and starts a probe."
+    },
+    {
+      "id": "M460",
+      "file": "client/core/keybind.lua",
+      "find": "        local holder = foreignHolder(('+%s'):format(name))",
+      "replace": "        local holder = nil",
+      "why": "A keybind takes a +name command another resource registered, because only this engine's own byName is consulted."
+    },
+    {
+      "id": "M461",
+      "file": "client/core/keybind.lua",
+      "find": "            if res ~= me then",
+      "replace": "            if false then",
+      "why": "A +name command owned by another resource is treated as this resource's own, so the clash is allowed."
+    },
+    {
+      "id": "M462",
+      "file": "shared/algo/random.lua",
+      "check": "lua54",
+      "find": "    local n = countOf(lo, hi)\n    if not n then\n        tooWide(lo, hi, 3)\n    end",
+      "replace": "    local n = hi - lo + 1",
+      "why": "The injected-generator path counts its range with a subtraction that wraps again; the 64-bit integer range answers instead of being refused."
+    },
+    {
+      "id": "M463",
+      "file": "shared/algo/random.lua",
+      "check": "lua54",
+      "find": "        local n = countOf(a, b)",
+      "replace": "        local n = b - a + 1",
+      "why": "gen:int counts its range with a subtraction that wraps again; the full integer range draws from a count of 0."
+    },
+    {
+      "id": "M464",
+      "file": "shared/algo/random.lua",
+      "find": "    if d < 0 then\n        d = (hi + 0.0) - (lo + 0.0)\n    end",
+      "replace": "",
+      "why": "A wrapped integer difference is trusted, so the full integer range is counted as 0 values."
     }
   ]
 }

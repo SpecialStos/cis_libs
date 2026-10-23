@@ -183,6 +183,16 @@ under **Changed** so nobody upgrades into them blind.
   `max`.
 - **`heap.push` refuses nil** (and NaN under the default ordering) with
   `nil, reason`.
+- **`GetClosestPoint` answers the caller's own nearest point**, as
+  `GetAllPoints` already did; cis_libs still sees every point.
+- **`KeybindAdd` refuses a name whose `+name` command another resource
+  registered** (or a builtin, in any case). Each consumer's engine only saw
+  its own bindings, so two resources could both bind `menu`.
+- **`RaycastCamera` refuses a distance that is infinite or over 100 km**, and
+  `RaycastFromCoords` refuses a NaN or infinite origin or target.
+- **`CisRandom` with a generator or a function raises for the 64-bit integer
+  range** instead of answering a constant. With no generator,
+  `integer(0, math.maxinteger)` now draws across the whole range.
 
 ### Added
 
@@ -288,6 +298,22 @@ under **Changed** so nobody upgrades into them blind.
 
 ### Fixed
 
+- **`CisRandom.integer(0, math.maxinteger)` always answered 0**, and the
+  full integer range always answered `math.mininteger`: `hi - lo + 1`
+  wrapped. The count no longer trusts the subtraction.
+- **A scaleform call with an unknown explicit type sent a half-built call**
+  and answered true. Every parameter is now typed before the method begins.
+- **`'closest' .. nil` raised** when a world query had no kind; the kind is
+  now checked first and refused by name. Queries no longer allocate a table
+  per candidate entity.
+- **A ready waiter read `Cis.isReady` as false**: the flag was set after the
+  waiters ran.
+- **A configured framework such as `ND_Core` was looked for as `ND_CORE`.**
+  The name is compared in upper case; the resource is asked for as spelled.
+- **`GetClosestPoint` raised on a player position with no z**; it is now
+  refused with a reason.
+- **A zone created inside `onEnter` was inserted into the grid bucket being
+  walked**, which can skip zones or raise. Zone edges now run after the walk.
 - **A point or zone at an infinite coordinate hung the client.** The grid
   walked `for x = -inf, inf` forever; coordinates beyond ±2^21 also
   collided in the cell key. The grid refuses bounds beyond 100 km, and its

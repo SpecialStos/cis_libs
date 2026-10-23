@@ -251,6 +251,24 @@ do
     R.markReady()
     expect(fired == 2, 'a second markReady does not re-fire them')
 
+    -- A waiter sees the flags it is being told about. Cis.isReady was written
+    -- AFTER the waiters ran, so a waiter that read it was told false.
+    local savedCis = rawget(_G, 'Cis')
+    Cis = { isReady = false, isFailed = false }
+    local sawReady, sawFailed
+    R.reset()
+    R.onReady(function() sawReady = Cis.isReady end)
+    R.markReady()
+    expect(sawReady == true, 'a ready waiter reads Cis.isReady as true')
+    Cis = { isReady = false, isFailed = false }
+    R.reset()
+    R.onReady(function() sawFailed = Cis.isFailed end)
+    R.markFailed('nope')
+    expect(sawFailed == true, 'a failure waiter reads Cis.isFailed as true')
+    Cis = savedCis
+    R.reset()
+    R.markReady()
+
     -- wait() short-circuits on a settled gate. Deliberately NOT testing the
     -- polling path: sleep() is a no-op outside FiveM, so a real wait would spin
     -- against os.clock until its deadline.
@@ -690,6 +708,35 @@ do
         local ok, err = pcall(function() return wide:int(0, 1e18) end)
         expect(not ok and type(err) == 'string',
             'gen:int refuses a range wider than it can represent, rather than answering')
+
+        -- THE INTEGER BOUNDS, where `hi - lo + 1` wraps. integer(0, maxinteger)
+        -- counted a negative range and always drew 0; the full integer range
+        -- counted 0. On a runtime whose integers are 64-bit both are wider than
+        -- 2^53 and an injected generator refuses them; on a 32-bit one they fit.
+        local maxI, minI = math.maxinteger, math.mininteger
+        local wideInts = (maxI + 0.0) > 2 ^ 53
+        local seenTop, nonZero, drawsInRange = 0, false, true
+        for _ = 1, 64 do
+            local v = CisRandom.integer(0, maxI)
+            if v ~= 0 then nonZero = true end
+            if type(v) ~= 'number' or v < 0 or v > maxI then drawsInRange = false end
+            if v > maxI / 2 then seenTop = seenTop + 1 end
+        end
+        expect(nonZero and drawsInRange and seenTop > 0,
+            ('integer(0, math.maxinteger) draws across the range, not 0 every time (upper half %d of 64)'):format(seenTop))
+        local g4 = CisRandom.newGenerator(77)
+        local okFn, fnRes = pcall(CisRandom.integer, 0, maxI, function() return g4:float() end)
+        local okGen, genRes = pcall(CisRandom.integer, minI, maxI, CisRandom.newGenerator(78))
+        if wideInts then
+            expect(not okFn and tostring(fnRes):find('2^53', 1, true) ~= nil
+                and not okGen and tostring(genRes):find('2^53', 1, true) ~= nil,
+                ('the 64-bit integer range is refused by an injected generator, not answered (%s / %s)')
+                    :format(tostring(fnRes), tostring(genRes)))
+        else
+            expect(okFn and fnRes >= 0 and fnRes <= maxI and okGen and genRes >= minI and genRes <= maxI,
+                ('the 32-bit integer range is drawn from by an injected generator (%s / %s)')
+                    :format(tostring(fnRes), tostring(genRes)))
+        end
     end
 
     -- The two paths disagreed about the same call: math.random raises on

@@ -1449,6 +1449,15 @@ r = CisDetect.framework('AUTO', { resource = 'not_running' }, s, v, p)
 expect(r.name == 'NONE', 'a custom adapter that is not started does not fall back to a stock framework')
 expect(r.reason:find('not started') ~= nil, 'and the reason names the adapter that is missing')
 
+-- An unknown configured Type is a RESOURCE, asked for as the operator spelled it.
+-- It was uppercased first, so a running ND_Core was asked for as ND_CORE.
+s, v, p = server({ ND_Core = true }, {}, { ND_Core = '2.0.0' })
+r = CisDetect.framework('ND_Core', nil, s, v, p)
+expect(r.resource == 'ND_Core' and r.name == 'ND_CORE' and r.version == '2.0.0',
+    ('a configured ND_Core is found under its own spelling (%s, %s)'):format(tostring(r.resource), tostring(r.reason)))
+r = CisDetect.framework('qbcore', nil, server({ ['qb-core'] = true }, {}, {}))
+expect(r.name == 'QBCORE' and r.resource == 'qb-core', 'a known Type still matches in any case')
+
 -- versionAtLeast, the ESX-legacy split.
 expect(CisDetect.versionAtLeast('5.0.0', '5.0.0'), 'equal versions satisfy the bound')
 expect(CisDetect.versionAtLeast('5.1.0', '5.0.0'), 'a greater version satisfies the bound')

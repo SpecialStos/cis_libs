@@ -353,21 +353,21 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.raycast.camera(flags, ignore, distance, timeoutMs)',
             realm = 'client',
-            params = { { name = 'flags', type = 'number', doc = 'shape-test flags, default -1 (everything)' }, { name = 'ignore', type = 'number', doc = 'entity to ignore; default the vehicle the player sits in, else the player ped -- a camera ray starts behind the player and would otherwise hit them. Pass 0 to ignore nothing' }, { name = 'distance', type = 'number', optional = true, doc = 'metres, default 10' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'the BOUND, default 2000. An unbounded poll would leave a caller stuck in Wait with no way out' } },
+            params = { { name = 'flags', type = 'number', doc = 'shape-test flags, default -1 (everything)' }, { name = 'ignore', type = 'number', doc = 'entity to ignore; default the vehicle the player sits in, else the player ped -- a camera ray starts behind the player and would otherwise hit them. Pass 0 to ignore nothing' }, { name = 'distance', type = 'number', optional = true, doc = 'metres, default 10; positive, finite and at most 100000, or the call is refused with a reason before a probe starts' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'the BOUND, default 2000. An unbounded poll would leave a caller stuck in Wait with no way out' } },
             returns = { { type = 'boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil', doc = 'hit, entityHit, endCoords, surfaceNormal and materialHash. A MISS still carries endCoords and normal: the surface the ray stopped at. nil plus a reason on refusal or timeout' } }
         },
         RaycastFromCoords = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.raycast.fromCoords(origin, target, flags, ignore, timeoutMs)',
             realm = 'client',
-            params = { { name = 'origin', type = 'vector3|table', doc = 'where the ray starts' }, { name = 'target', type = 'vector3|table', doc = 'where it would end' }, { name = 'flags', type = 'number', optional = true, doc = 'shape-test flags, default -1' }, { name = 'ignore', type = 'number', optional = true, doc = 'entity to ignore; default the vehicle the player sits in, else the player ped -- a camera ray starts behind the player and would otherwise hit them. Pass 0 to ignore nothing' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'the bound, default 2000' } },
+            params = { { name = 'origin', type = 'vector3|table', doc = 'where the ray starts; x, y and z must be finite, and NaN or infinity is refused by name' }, { name = 'target', type = 'vector3|table', doc = 'where it would end; finite x/y/z, as origin' }, { name = 'flags', type = 'number', optional = true, doc = 'shape-test flags, default -1' }, { name = 'ignore', type = 'number', optional = true, doc = 'entity to ignore; default the vehicle the player sits in, else the player ped -- a camera ray starts behind the player and would otherwise hit them. Pass 0 to ignore nothing' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'the bound, default 2000; a non-positive, NaN or infinite value falls back to the default' } },
             returns = { { type = 'boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil', doc = 'the same five slots as RaycastCamera, so a caller does not have to know which of the two it called' } }
         },
         KeybindAdd = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.keybind.add({ name, description, defaultKey, onPress, onRelease })',
             realm = 'client',
-            params = { { name = 'options', type = 'CisKeybindOptions', doc = 'name is REQUIRED and validated, and refused while another resource holds it; onPress and onRelease are functions, which reach cis_libs as funcrefs and are called there. A stopped owner takes its bindings with it' } },
+            params = { { name = 'options', type = 'CisKeybindOptions', doc = 'name is REQUIRED and validated, and refused while another resource holds it -- in this library, or as a +name command another resource registered (GetRegisteredCommands, any case); onPress and onRelease are functions, which reach cis_libs as funcrefs and are called there. A stopped owner takes its bindings with it' } },
             returns = { { type = 'table|false, string|nil', doc = 'a handle with id, name and owner, or false plus a reason. Its methods (disable, isPressed, reset, destroy, getCurrentKey) work only inside cis_libs -- across exports the metatable is lost, so keep handle.id and use KeybindDisable, KeybindEnable, KeybindIsPressed and KeybindRemove. THE MAPPING IS WRITTEN INTO THE PLAYER SETTINGS AND SURVIVES THE RESOURCE, so renaming a binding creates a SECOND one rather than renaming the first' } }
         },
         Keybinds = {
@@ -1532,7 +1532,7 @@ return {
             use = 'Cis.points.getClosest()',
             realm = 'client',
             params = {},
-            returns = { { type = 'integer|nil, number|string|nil', doc = 'the nearest point id and the distance in metres, or nil plus a reason. TWO SHAPES in the second slot, and a caller that only tests the first has to know which one it got' } }
+            returns = { { type = 'integer|nil, number|string|nil', doc = 'the nearest of the CALLER\'S OWN points (cis_libs sees every point) and the distance in metres, or nil plus a reason -- also when the player position has no numeric x/y/z. TWO SHAPES in the second slot, and a caller that only tests the first has to know which one it got' } }
         },
         GetClosestVehicle = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -2140,7 +2140,7 @@ return {
         since = '1.0.0',
         realm = 'client',
         runsIn = 'consumer',
-        params = { { name = 'flags', type = 'number', optional = true, doc = 'shape-test flags, default -1' }, { name = 'ignore', type = 'number', optional = true, doc = 'entity to ignore; default the vehicle the player sits in, else the player ped -- a camera ray starts behind the player and would otherwise hit them' }, { name = 'distance', type = 'number', optional = true, doc = 'metres, default 10' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'the bound, default 2000' } },
+        params = { { name = 'flags', type = 'number', optional = true, doc = 'shape-test flags, default -1' }, { name = 'ignore', type = 'number', optional = true, doc = 'entity to ignore; default the vehicle the player sits in, else the player ped -- a camera ray starts behind the player and would otherwise hit them' }, { name = 'distance', type = 'number', optional = true, doc = 'metres, default 10; positive, finite and at most 100000, or the call is refused with a reason before a probe starts' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'the bound, default 2000; a non-positive, NaN or infinite value falls back to the default' } },
         returns = { { type = 'boolean|nil, integer|nil, vector3|nil, vector3|nil, integer|nil', doc = 'hit, entityHit, endCoords, surfaceNormal, materialHash. Probed from the CAMERA, not the ped: "forward" means where the player is LOOKING, and probing from the ped works until they look up and then hits their feet' } },
     },
     ['Cis.raycast.fromCoords'] = {
@@ -2728,7 +2728,7 @@ return {
     },
     CisScaleformMovie = {
         doc = 'A scaleform movie object from Cis.scaleform.new. Methods are called with a colon. A disposed movie refuses every further call.',
-        fields = { { name = 'name', type = 'string', doc = 'the movie name' }, { name = 'handle', type = 'integer|nil', doc = 'the movie handle; nil once disposed' }, { name = 'call', type = 'fun(self: CisScaleformMovie, method: string, ...): boolean, string|nil', doc = 'call a method. A parameter is typed by its value -- an integer is an int, any other number a float, a boolean a bool, a string a string -- or explicitly as { type = int|float|bool|string|literal|playerName, value = v }. An untypable parameter refuses the whole call before anything is sent' }, { name = 'draw', type = 'fun(self: CisScaleformMovie, r?: integer, g?: integer, b?: integer, a?: integer): boolean', doc = 'draw fullscreen for THIS frame' }, { name = 'draw3d', type = 'fun(self: CisScaleformMovie, coords: vector3, rot?: vector3, scale?: vector3): boolean', doc = 'draw in the world for THIS frame' }, { name = 'startDrawing', type = 'fun(self: CisScaleformMovie, r?: integer, g?: integer, b?: integer, a?: integer): boolean', doc = 'draw fullscreen every frame on a thread of its own' }, { name = 'stopDrawing', type = 'fun(self: CisScaleformMovie)', doc = 'end that thread' }, { name = 'dispose', type = 'fun(self: CisScaleformMovie): boolean', doc = 'SetScaleformMovieAsNoLongerNeeded; also run for every movie still held when the calling resource stops' } },
+        fields = { { name = 'name', type = 'string', doc = 'the movie name' }, { name = 'handle', type = 'integer|nil', doc = 'the movie handle; nil once disposed' }, { name = 'call', type = 'fun(self: CisScaleformMovie, method: string, ...): boolean, string|nil', doc = 'call a method. A parameter is typed by its value -- an integer is an int, any other number a float, a boolean a bool, a string a string -- or explicitly as { type = int|float|bool|string|literal|playerName, value = v }. An untypable parameter, including an explicit type outside that list, refuses the whole call with a reason naming it, before anything is sent' }, { name = 'draw', type = 'fun(self: CisScaleformMovie, r?: integer, g?: integer, b?: integer, a?: integer): boolean', doc = 'draw fullscreen for THIS frame' }, { name = 'draw3d', type = 'fun(self: CisScaleformMovie, coords: vector3, rot?: vector3, scale?: vector3): boolean', doc = 'draw in the world for THIS frame' }, { name = 'startDrawing', type = 'fun(self: CisScaleformMovie, r?: integer, g?: integer, b?: integer, a?: integer): boolean', doc = 'draw fullscreen every frame on a thread of its own' }, { name = 'stopDrawing', type = 'fun(self: CisScaleformMovie)', doc = 'end that thread' }, { name = 'dispose', type = 'fun(self: CisScaleformMovie): boolean', doc = 'SetScaleformMovieAsNoLongerNeeded; also run for every movie still held when the calling resource stops' } },
     },
     CisDuiOptions = {
         doc = 'The table Cis.dui.new takes.',
@@ -2824,7 +2824,7 @@ return {
     },
     CisRandom = {
         doc = "The table Cis.require('random') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.",
-        fields = { { name = 'newGenerator', type = 'function' }, { name = 'integer', type = 'function' }, { name = 'float', type = 'function' }, { name = 'shuffle', type = 'function' }, { name = 'pick', type = 'function' }, { name = 'sample', type = 'function' }, { name = 'weighted', type = 'function' }, { name = 'weightedIndex', type = 'function' }, { name = 'gaussian', type = 'function' } },
+        fields = { { name = 'newGenerator', type = 'function' }, { name = 'integer', type = 'function', doc = 'integer(lo, hi, rng?) -- inclusive and uniform. With no rng it is math.random over the whole integer range; with a generator or a function, a range of more than 2^53 values raises rather than answering' }, { name = 'float', type = 'function' }, { name = 'shuffle', type = 'function' }, { name = 'pick', type = 'function' }, { name = 'sample', type = 'function' }, { name = 'weighted', type = 'function' }, { name = 'weightedIndex', type = 'function' }, { name = 'gaussian', type = 'function' } },
     },
     CisRate = {
         doc = "The table Cis.require('rate') returns. It installs no global inside a sandbox, so a consumer reaches it through the require call and nowhere else.",

@@ -290,8 +290,9 @@ local function distanceTo(point, coords)
     return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
---- The nearest registered point, and how far away it is.
-function Points:getClosest(coords)
+--- The nearest registered point, and how far away it is. `owner` limits the
+--- answer to that resource's points; nil means every point.
+function Points:getClosest(coords, owner)
     if next(self.points) == nil then
         return nil, 'no points are registered'
     end
@@ -299,12 +300,23 @@ function Points:getClosest(coords)
     if not coords then
         return nil, 'the player has no coordinates yet'
     end
+    -- Read once and checked: a table with no z raised in the subtraction.
+    local x, y, z = tonumber(coords.x), tonumber(coords.y), tonumber(coords.z)
+    if not x or not y or not z then
+        return nil, 'coords has no numeric x/y/z'
+    end
+    local here = { x = x, y = y, z = z }
     local bestId, bestDistance
     for id, point in pairs(self.points) do
-        local d = distanceTo(point, coords)
-        if not bestDistance or d < bestDistance then
-            bestId, bestDistance = id, d
+        if owner == nil or point.owner == owner then
+            local d = distanceTo(point, here)
+            if not bestDistance or d < bestDistance then
+                bestId, bestDistance = id, d
+            end
         end
+    end
+    if not bestId then
+        return nil, ('%s has no points registered'):format(tostring(owner))
     end
     return bestId, bestDistance
 end

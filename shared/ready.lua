@@ -51,14 +51,15 @@ function CisReadyState.markReady()
     end
     CisReadyState.ready = true
     CisReadyState.reason = nil
+    -- Cis.isReady BEFORE the waiters run: a waiter that reads it was told false.
+    if Cis then
+        Cis.isReady = true
+        Cis.isFailed = false
+    end
     local waiters = CisReadyState.waiters
     CisReadyState.waiters = {}
     for i = 1, #waiters do
         callWaiter('ready waiter', waiters[i], true)
-    end
-    if Cis then
-        Cis.isReady = true
-        Cis.isFailed = false
     end
 end
 
@@ -69,14 +70,15 @@ function CisReadyState.markFailed(reason)
     end
     CisReadyState.failed = true
     CisReadyState.reason = reason
+    -- Cis.isReady BEFORE the waiters run: a waiter that reads it was told false.
+    if Cis then
+        Cis.isReady = false
+        Cis.isFailed = true
+    end
     local waiters = CisReadyState.waiters
     CisReadyState.waiters = {}
     for i = 1, #waiters do
         callWaiter('failure waiter', waiters[i], false, reason)
-    end
-    if Cis then
-        Cis.isReady = false
-        Cis.isFailed = true
     end
 end
 

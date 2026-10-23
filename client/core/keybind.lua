@@ -159,6 +159,37 @@ function Keybinds:get(id)
     return type(id) == 'number' and self.binds[id] or nil
 end
 
+-- Who else holds a command of this name, or nil. byName below is ONE engine
+-- instance's, and every consumer runs its own, while the commands are one
+-- client-wide table: two resources each binding 'menu' both passed their own
+-- check and fought over +menu. GET_REGISTERED_COMMANDS (CFX, shared) lists
+-- { name, resource, arity }. A command this VM's resource registered is not
+-- foreign: it is a retired binding's, and byName already arbitrates those.
+local function foreignHolder(command)
+    if type(GetRegisteredCommands) ~= 'function' then
+        return nil
+    end
+    local list = GetRegisteredCommands()
+    if type(list) ~= 'table' then
+        return nil
+    end
+    local me = type(GetCurrentResourceName) == 'function' and GetCurrentResourceName() or nil
+    local want = command:lower()
+    for _, c in ipairs(list) do
+        if type(c) == 'table' and type(c.name) == 'string' and c.name:lower() == want then
+            local res = c.resource
+            if type(res) ~= 'string' or res == '' then
+                return 'a builtin'
+            end
+            if res ~= me then
+                return ('registered by %s'):format(res)
+            end
+            return nil
+        end
+    end
+    return nil
+end
+
 function Keybinds:add(options, owner)
     if type(options) ~= 'table' then
         return false, ('options arrived as %s, not a table'):format(type(options))
@@ -210,6 +241,12 @@ function Keybinds:add(options, owner)
         end
         -- The same owner adding the same name again replaces its own binding.
         self:retire(held)
+    else
+        local holder = foreignHolder(('+%s'):format(name))
+        if holder then
+            return false, ('keybind %q: the command +%s is already %s; pick a different name')
+                :format(name, name, holder)
+        end
     end
 
     self.nextId = self.nextId + 1

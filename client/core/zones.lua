@@ -92,6 +92,8 @@ function M.new(cfg)
         zonesDirty = true,
         lastRefresh = nil,
         passStamp = 0,
+        -- Edges found during the grid walk, run after it (see visitZone).
+        edgeIds = {}, edgeZones = {}, edgeEnter = {}, edgeCount = 0,
         driving = false,
         drawThreadStarted = false,
         debugStats = {
@@ -534,22 +536,50 @@ end
 -- refresh; a stamp on each inside-state does the same job. The visitor is a
 -- file-level function so the query does not allocate a closure either: the
 -- instance and the coords it needs ride in two upvalues set around the query.
+--
+-- THE HANDLERS RUN AFTER THE WALK, not inside it. The walk is a `pairs` over a
+-- grid bucket, and an onEnter that created a zone in the same cell inserted a
+-- new key into the table being traversed -- undefined in Lua, and on a real
+-- run a skipped zone or an "invalid key to 'next'". The edges are queued in
+-- arrays the instance keeps, so the queue costs nothing per pass either.
 local visitSelf, visitCoords
+local function queueEdge(self, id, zone, entering)
+    local n = self.edgeCount + 1
+    self.edgeCount = n
+    self.edgeIds[n], self.edgeZones[n], self.edgeEnter[n] = id, zone, entering
+end
+
 local function visitZone(id, item)
     local self = visitSelf
     local zone = item.data
-    local inside = self.inside
-    local state = inside[id]
+    local state = self.inside[id]
     if self.Geom.contains(zone, visitCoords) then
         if state then
             state.stamp = self.passStamp
         else
-            inside[id] = { lastInside = 0, stamp = self.passStamp }
-            self:invoke(zone, 'onEnter', visitCoords)
+            queueEdge(self, id, zone, true)
         end
     elseif state then
-        inside[id] = nil
-        self:invoke(zone, 'onExit', visitCoords)
+        self.inside[id] = nil
+        queueEdge(self, id, zone, false)
+    end
+end
+
+-- Run the queued edges. An entry is marked inside only now, and only if the
+-- zone is still the one that was found: an earlier handler may have removed it.
+function Zones:runEdges(coords)
+    local ids, zones, enter = self.edgeIds, self.edgeZones, self.edgeEnter
+    local n = self.edgeCount
+    self.edgeCount = 0
+    for i = 1, n do
+        local id, zone, entering = ids[i], zones[i], enter[i]
+        ids[i], zones[i], enter[i] = nil, nil, nil
+        if not entering then
+            self:invoke(zone, 'onExit', coords)
+        elseif self.zones[id] == zone and not self.inside[id] then
+            self.inside[id] = { lastInside = 0, stamp = self.passStamp }
+            self:invoke(zone, 'onEnter', coords)
+        end
     end
 end
 
@@ -560,6 +590,7 @@ function Zones:refreshInside(coords)
     -- overlaps, so the player's own cell holds every zone that can contain them.
     self.Grid.queryPoint(self.grid, coords.x, coords.y, coords.z, visitZone)
     visitSelf, visitCoords = nil, nil
+    self:runEdges(coords)
     -- Inside, but not a candidate this pass: the player left its index box.
     local inside = self.inside
     for id, state in pairs(inside) do

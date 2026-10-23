@@ -69,8 +69,10 @@ end
 -- default, because the closest player to where you stand is otherwise always you,
 -- at 0 m. `opts.includePlayers`: player peds are candidates in a PED query. Off by
 -- default; a ped query means NPCs.
+-- Candidates are two parallel arrays, not a table per entity: a nearby query in a
+-- busy area walks hundreds of handles, every call.
 local function eachOfKind(self, kind, coords, maxDistance, filter, wantsAll, out, opts)
-    local fns = {}
+    local handles, players, n = {}, {}, 0
     local includeSelf = type(opts) == 'table' and opts.includeSelf == true
     local includePlayers = type(opts) == 'table' and opts.includePlayers == true
     local selfIndex = PlayerId()
@@ -91,13 +93,12 @@ local function eachOfKind(self, kind, coords, maxDistance, filter, wantsAll, out
         for i = 1, #indices do
             local ped = GetPlayerPed(indices[i])
             if usable(ped) and (includeSelf or indices[i] ~= selfIndex) then
-                fns[#fns + 1] = { handle = ped, player = indices[i] }
+                n = n + 1
+                handles[n], players[n] = ped, indices[i]
             end
         end
     else
-        local poolName = POOLS[kind]
-        if not poolName then return nil, ('unknown kind %q; valid kinds are object, ped, pickup, player and vehicle'):format(tostring(kind)) end
-        local pool = GetGamePool(poolName)
+        local pool = GetGamePool(POOLS[kind])
         local isPed = kind == 'ped'
         for i = 1, #pool do
             local handle = pool[i]
@@ -110,29 +111,40 @@ local function eachOfKind(self, kind, coords, maxDistance, filter, wantsAll, out
                         keep = false
                     end
                 end
-                if keep then fns[#fns + 1] = { handle = handle } end
+                if keep then
+                    n = n + 1
+                    handles[n] = handle
+                end
             end
         end
     end
 
     local want2 = (type(maxDistance) == 'number' and maxDistance > 0) and (maxDistance * maxDistance) or nil
-    for _, entry in ipairs(fns) do
-        local c = GetEntityCoords(entry.handle)
+    for i = 1, n do
+        local handle = handles[i]
+        local c = GetEntityCoords(handle)
         if c and c.x ~= nil then
             local d2 = dist2(coords.x, coords.y, coords.z, c.x, c.y, c.z)
-            if (not want2 or d2 <= want2) and passes(self, filter, entry.handle, c) then
+            if (not want2 or d2 <= want2) and passes(self, filter, handle, c) then
                 if wantsAll then
-                    out[#out + 1] = { entity = entry.handle, coords = c, distance = math.sqrt(d2), player = entry.player }
+                    out[#out + 1] = { entity = handle, coords = c, distance = math.sqrt(d2), player = players[i] }
                 elseif not out.best or d2 < out.best2 then
-                    out.best = entry.handle
+                    out.best = handle
                     out.bestCoords = c
                     out.best2 = d2
-                    out.bestPlayer = entry.player
+                    out.bestPlayer = players[i]
                 end
             end
         end
     end
     return true
+end
+
+-- The kind is checked FIRST, by name: it is also half of the function name a
+-- coords refusal quotes, and 'closest' .. nil raised instead of refusing.
+local function checkKind(kind)
+    if kind == 'player' or POOLS[kind] then return true end
+    return false, ('unknown kind %q; valid kinds are object, ped, pickup, player and vehicle'):format(tostring(kind))
 end
 
 -- Shared argument checking, so all six entry points refuse the same way.
@@ -148,11 +160,12 @@ local function checkCoords(coords, fn)
 end
 
 function World:closest(kind, coords, maxDistance, filter, opts)
-    local ok, why = checkCoords(coords, 'closest' .. kind)
+    local ok, why = checkKind(kind)
+    if not ok then return false, why end
+    ok, why = checkCoords(coords, 'closest' .. kind)
     if not ok then return false, why end
     local out = {}
-    local walked, walkWhy = eachOfKind(self, kind, coords, maxDistance, filter, false, out, opts)
-    if walked == nil then return false, walkWhy end
+    eachOfKind(self, kind, coords, maxDistance, filter, false, out, opts)
     if not out.best then
         return false, ('no %s within %s'):format(tostring(kind), tostring(maxDistance or 'any distance'))
     end
@@ -165,11 +178,12 @@ end
 
 -- NEARBY ANSWERS A LIST, ALWAYS, and never nil.
 function World:nearby(kind, coords, maxDistance, filter, opts)
-    local ok, why = checkCoords(coords, 'nearby' .. kind)
+    local ok, why = checkKind(kind)
+    if not ok then return false, why end
+    ok, why = checkCoords(coords, 'nearby' .. kind)
     if not ok then return false, why end
     local out = {}
-    local walked, walkWhy = eachOfKind(self, kind, coords, maxDistance, filter, true, out, opts)
-    if walked == nil then return false, walkWhy end
+    eachOfKind(self, kind, coords, maxDistance, filter, true, out, opts)
     table.sort(out, function(a, b) return a.distance < b.distance end)
     return out
 end

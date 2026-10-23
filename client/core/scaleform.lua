@@ -64,22 +64,34 @@ end
 -- `{ type = 'int'|'float'|'bool'|'string'|'literal'|'playerName', value = v }`
 -- says so explicitly, which is how `1.0` reaches a movie as a float on a runtime
 -- that cannot tell 1.0 from 1.
-local function pushParam(value)
-    local kind, v = nil, value
-    if type(value) == 'table' then
-        kind, v = value.type, value.value
-    elseif type(value) == 'number' then
+local KINDS = { int = true, float = true, bool = true, string = true, literal = true, playerName = true }
+
+-- The kind a value is sent as, or nil and why. Asked of EVERY parameter before
+-- the method begins: a { type = 'bogus' } table used to pass the first check,
+-- push nothing, and leave the movie a call one argument short that answered true.
+local function kindOf(value)
+    local t = type(value)
+    if t == 'table' then
+        if KINDS[value.type] then
+            return value.type, value.value
+        end
+        return nil, ('an explicit type of %s; use int, float, bool, string, literal or playerName')
+            :format(tostring(value.type))
+    elseif t == 'number' then
         local mtype = math.type and math.type(value)
         if mtype == 'integer' or (mtype == nil and value % 1 == 0) then
-            kind = 'int'
-        else
-            kind = 'float'
+            return 'int', value
         end
-    elseif type(value) == 'boolean' then
-        kind = 'bool'
-    elseif type(value) == 'string' then
-        kind = 'string'
+        return 'float', value
+    elseif t == 'boolean' then
+        return 'bool', value
+    elseif t == 'string' then
+        return 'string', value
     end
+    return nil, ('a %s; use a number, boolean, string or { type, value }'):format(t)
+end
+
+local function pushParam(kind, v)
     if kind == 'int' then
         ScaleformMovieMethodAddParamInt(math.floor(tonumber(v) or 0))
     elseif kind == 'float' then
@@ -90,12 +102,9 @@ local function pushParam(value)
         ScaleformMovieMethodAddParamTextureNameString(tostring(v))
     elseif kind == 'literal' then
         ScaleformMovieMethodAddParamLiteralString(tostring(v))
-    elseif kind == 'playerName' then
-        ScaleformMovieMethodAddParamPlayerNameString(tostring(v))
     else
-        return false, ('a scaleform parameter cannot be a %s'):format(type(value))
+        ScaleformMovieMethodAddParamPlayerNameString(tostring(v))
     end
-    return true
 end
 
 --- Call a method on the movie. Answers true, or false and a reason; nothing is
@@ -108,20 +117,19 @@ function Movie:call(method, ...)
         return false, 'a method name is a non-empty string'
     end
     local n = select('#', ...)
+    local kinds, values = {}, {}
     for i = 1, n do
-        local v = select(i, ...)
-        local t = type(v)
-        if t ~= 'number' and t ~= 'boolean' and t ~= 'string'
-            and not (t == 'table' and v.type ~= nil) then
-            return false, ('parameter %d is a %s; use a number, boolean, string or { type, value }')
-                :format(i, t)
+        local kind, v = kindOf((select(i, ...)))
+        if not kind then
+            return false, ('parameter %d is %s'):format(i, v)
         end
+        kinds[i], values[i] = kind, v
     end
     if not BeginScaleformMovieMethod(self.handle, method) then
         return false, ('the movie refused method %s'):format(method)
     end
     for i = 1, n do
-        pushParam((select(i, ...)))
+        pushParam(kinds[i], values[i])
     end
     EndScaleformMovieMethod()
     return true

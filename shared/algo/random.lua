@@ -37,6 +37,33 @@ local function intBounds(lo, hi, who)
     return lo, hi
 end
 
+-- How many integers [lo, hi] holds, or nil when that is more than 2^53. Counted
+-- WITHOUT TRUSTING THE SUBTRACTION: on integers `hi - lo + 1` wraps, so
+-- integer(0, math.maxinteger) counted -2^63 values and always drew 0, and
+-- integer(math.mininteger, math.maxinteger) counted 0 and always drew mininteger.
+-- With hi >= lo the true difference is never negative, so a negative one wrapped,
+-- and is taken again in floats: past 2^63 that is too wide anyway, and on a
+-- 32-bit integer runtime it is the exact count of a range wider than 2^31.
+local function countOf(lo, hi)
+    local d = hi - lo
+    if d < 0 then
+        d = (hi + 0.0) - (lo + 0.0)
+    end
+    local n = d + 1
+    if n <= 0 then
+        n = d + 1.0
+    end
+    if n > TWO53 then
+        return nil
+    end
+    return n
+end
+
+local function tooWide(lo, hi, level)
+    error(('CisRandom: the range %s to %s holds more than the 2^53 values a double holds exactly')
+        :format(tostring(lo), tostring(hi)), level + 1)
+end
+
 -- Normalise the caller's `rng` argument into "give me a float in [0, 1)".
 local function rand01(rng)
     local v
@@ -122,24 +149,24 @@ local function drawBelow(rng, n, span)
 end
 
 local function randInt(rng, lo, hi)
-    local n = hi - lo + 1
-    if n <= 0 then
+    if lo == hi then
         return lo
     end
     if type(rng) == 'table' and type(rng.int) == 'function' then
         return rng:int(lo, hi)
     end
     if rng == nil then
-        -- math.random(lo, hi) is already unbiased: it is a modulus-rejection
+        -- math.random(lo, hi) is already unbiased: it is a modulus-rejection, and
+        -- in Lua 5.4 it spans the whole integer range, so no count is needed.
         return math.random(lo, hi)
+    end
+    local n = countOf(lo, hi)
+    if not n then
+        tooWide(lo, hi, 3)
     end
     -- A single rand01 draw addresses 2^32.
     local span = TWO32
     if n > span then
-        if n > TWO53 then
-            error(('CisRandom: a range of %.0f is wider than the 2^53 a double holds exactly')
-                :format(n), 3)
-        end
         span = TWO53
     end
     return lo + (drawBelow(rng, n, span) % n)
@@ -204,7 +231,10 @@ function M.newGenerator(seed)
         if a == b then
             return a
         end
-        local n = b - a + 1
+        local n = countOf(a, b)
+        if not n then
+            tooWide(a, b, 2)
+        end
         if n <= MOD - 1 then
             -- next() yields 1 .. MOD-1, so the largest multiple of n in that range is
             local limit = (MOD - 1) - ((MOD - 1) % n)
@@ -220,10 +250,6 @@ function M.newGenerator(seed)
         end
 
         -- Wider than one period. This used to fall into the branch above with `limit`
-        if n > TWO53 then
-            error(('CisRandom: a range of %.0f is wider than the 2^53 a double holds exactly')
-                :format(n), 2)
-        end
         local limit = TWO53 - (TWO53 % n)
         local v, retries = nextWide(self), 0
         while v >= limit and retries < 8 do

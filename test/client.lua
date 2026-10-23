@@ -1542,6 +1542,66 @@ do
     env.reset()
 end
 
+-- AN onEnter THAT CREATES A ZONE does not insert into the bucket being walked.
+-- The handler ran inside the grid's `pairs`, so a zone made there was a new key
+-- in the table under traversal. The grid is watched rather than trusted to
+-- crash: a Lua table often survives this and silently skips a zone instead.
+do
+    local env = zoneEnv()
+    local realQuery, realInsert = CisGrid.queryPoint, CisGrid.insert
+    local walking, insertedMidWalk = false, 0
+    CisGrid.queryPoint = function(...)
+        walking = true
+        local ok, err = pcall(realQuery, ...)
+        walking = false
+        if not ok then error(err, 0) end
+    end
+    CisGrid.insert = function(...)
+        if walking then insertedMidWalk = insertedMidWalk + 1 end
+        return realInsert(...)
+    end
+    local childEntered, spawned = 0, false
+    exports.CreateZone('box', 'spawner', { x = 0.0, y = 0.0, z = 0.0 }, { x = 20.0, y = 20.0, z = 20.0 }, {
+        onEnter = function()
+            if spawned then return end
+            spawned = true
+            for i = 1, 8 do
+                exports.CreateZone('box', 'child' .. i, { x = 0.0, y = 0.0, z = 0.0 }, { x = 20.0, y = 20.0, z = 20.0 }, {
+                    onEnter = function() childEntered = childEntered + 1 end,
+                })
+            end
+        end,
+    })
+    local okRun, runErr = pcall(simulateSecond, env)
+    CisGrid.queryPoint, CisGrid.insert = realQuery, realInsert
+    check(okRun and spawned and insertedMidWalk == 0,
+        ('a zone created in onEnter is inserted after the grid walk, not during it (mid-walk=%d, %s)')
+            :format(insertedMidWalk, tostring(runErr)))
+    check(childEntered == 8, ('and every zone it created is entered on a later pass (%d of 8)'):format(childEntered))
+    env.reset()
+end
+
+-- An onEnter that REMOVES a zone the same walk also found: that zone is not
+-- entered after it was removed.
+do
+    local env = zoneEnv()
+    local order = {}
+    local function make(name, victim)
+        exports.CreateZone('box', name, { x = 0.0, y = 0.0, z = 0.0 }, { x = 20.0, y = 20.0, z = 20.0 }, {
+            onEnter = function()
+                order[#order + 1] = name
+                if victim then exports.RemoveZone(victim) end
+            end,
+        })
+    end
+    make('killerA', 'killerB')
+    make('killerB', 'killerA')
+    simulateSecond(env)
+    check(#order == 1, ('of two zones that remove each other on entry, only the first is entered (%s)')
+        :format(table.concat(order, ',')))
+    env.reset()
+end
+
 -- A LOCAL ZONE EVENT IS FIRED AS cis_libs, so another resource may not name an
 -- event that trusts that: the cache mirror's, or onResourceStop for a zone named
 -- 'cis_libs' (CisRealStop passes when the invoker is the resource stopping).
@@ -4141,6 +4201,26 @@ do
     check(type(distance) == 'number' and math.abs(distance - 2.0) < 0.001,
         ('7.1: getClosest answers the distance in metres (got %s)'):format(tostring(distance)))
 
+    -- THE CALLER'S POINTS ONLY, as GetAllPoints: the set is shared, and the
+    -- nearest point of another resource is not this resource's business.
+    env.invoking = 'shop'
+    local mine = exports.CreatePoint({ coords = { x = 100, y = 0, z = 0 }, distance = 5 })
+    local shopBest = exports.GetClosestPoint()
+    check(shopBest == mine, ('7.1: getClosest answers the caller\'s own nearest point (got %s, wanted %s)')
+        :format(tostring(shopBest), tostring(mine)))
+    env.invoking = 'bank'
+    local noneOwn, whyOwn = exports.GetClosestPoint()
+    check(noneOwn == nil and tostring(whyOwn):find('bank', 1, true) ~= nil,
+        ('7.1: a resource with no points is told so by name (got %s, %s)'):format(tostring(noneOwn), tostring(whyOwn)))
+    env.invoking = nil
+    check(exports.GetClosestPoint() == b, '7.1: cis_libs still sees every point')
+
+    -- A player position with no z is refused, not raised in the subtraction.
+    env.coords = { x = 28.0, y = 0.0 }
+    local okZ, idZ, whyZ = pcall(exports.GetClosestPoint)
+    check(okZ and idZ == nil and tostring(whyZ):find('x/y/z', 1, true) ~= nil,
+        ('7.1: coords with no z are refused with a reason (%s, %s)'):format(tostring(idZ), tostring(whyZ)))
+
     env.reset()
 end
 
@@ -4905,6 +4985,21 @@ do
         ('7.3: coords with no x is refused and names the missing component (got %s)'):format(tostring(why3)))
     local ok4 = exports.ClosestPed({ x = 0, y = 0, z = 0 }, 100, nil)
     check(ok4 == 101, '7.3: an omitted filter is simply not applied')
+    -- A NIL KIND IS REFUSED BY NAME, whatever the coords. 'closest' .. nil raised
+    -- inside the coords check, before the kind was ever looked at.
+    for _, fn in ipairs({ CisWorldClosest, CisWorldNearby }) do
+        local okK, whyK = pcall(fn, nil, nil)
+        check(okK and whyK == false, ('7.3: a nil kind is refused, not raised (%s)'):format(tostring(whyK)))
+        local _, reason = fn(nil, { x = 0, y = 0, z = 0 })
+        check(type(reason) == 'string' and reason:find('unknown kind', 1, true) ~= nil,
+            ('7.3: and the refusal names the kinds (%s)'):format(tostring(reason)))
+        local _, reasonB = fn('boat', nil)
+        check(type(reasonB) == 'string' and reasonB:find('unknown kind "boat"', 1, true) ~= nil,
+            ('7.3: an unknown kind is named before the coords are checked (%s)'):format(tostring(reasonB)))
+    end
+    local players = CisWorldNearby('player', { x = 0, y = 0, z = 0 }, 100)
+    check(#players == 1 and players[1].player == 1 and players[1].entity == 202,
+        '7.3: a nearby player entry still carries its player index')
     env.reset()
 end
 
@@ -5165,6 +5260,26 @@ do
     env.reset()
 end
 
+-- AN INFINITE RAY, OR A NaN END, NEVER REACHES THE PROBE. inf passed the
+-- distance check, and a NaN coordinate passed the type check.
+do
+    local env = raycastEnv({ pendingReads = 0, hit = true })
+    for _, d in ipairs({ math.huge, 1e9 }) do
+        local ok, why = exports.RaycastCamera(nil, nil, d, 2000)
+        check(ok == nil and tostring(why):find('distance', 1, true) ~= nil,
+            ('7.4: a camera distance of %s is refused (%s)'):format(tostring(d), tostring(why)))
+    end
+    local nan = 0 / 0
+    local okO, whyO = exports.RaycastFromCoords({ x = nan, y = 0, z = 0 }, { x = 1, y = 0, z = 0 })
+    check(okO == nil and tostring(whyO):find('origin', 1, true) ~= nil,
+        ('7.4: a NaN origin is refused by name (%s)'):format(tostring(whyO)))
+    local okT, whyT = exports.RaycastFromCoords({ x = 0, y = 0, z = 0 }, { x = 1, y = -math.huge, z = 0 })
+    check(okT == nil and tostring(whyT):find('target', 1, true) ~= nil,
+        ('7.4: an infinite target is refused by name (%s)'):format(tostring(whyT)))
+    check(#env.calls == 0, ('7.4: and no probe was started (%d)'):format(#env.calls))
+    env.reset()
+end
+
 -- ===================================================== 7.5 Cis.keybind
 do
     local env = newEnv({})
@@ -5209,6 +5324,26 @@ do
     local none, noneWhy = exports.KeybindAdd({ name = 'okname' })
     check(none == false and type(noneWhy) == 'string' and noneWhy:find('onPress', 1, true),
         '7.5: a binding with neither callback is refused')
+
+    -- A COMMAND ANOTHER RESOURCE HOLDS IS REFUSED. Each consumer's engine has
+    -- its own byName, so only the client-wide command list can see the clash.
+    local savedList = rawget(_ENV, 'GetRegisteredCommands')
+    GetRegisteredCommands = function()
+        return {
+            { name = '+other_menu', resource = 'other_res', arity = -1 },
+            { name = '+builtin_bind', arity = -1 },
+            { name = '+cis_test_bind', resource = 'cis_libs', arity = -1 },
+        }
+    end
+    local taken, takenWhy = exports.KeybindAdd({ name = 'other_menu', onPress = function() end })
+    check(taken == false and tostring(takenWhy):find('other_res', 1, true) ~= nil and env.commands['+other_menu'] == nil,
+        ('7.5: a +name another resource registered is refused, naming it (%s)'):format(tostring(takenWhy)))
+    local builtin, builtinWhy = exports.KeybindAdd({ name = 'BUILTIN_BIND', onPress = function() end })
+    check(builtin == false and tostring(builtinWhy):find('builtin', 1, true) ~= nil,
+        ('7.5: a builtin of the same name, in any case, is refused (%s)'):format(tostring(builtinWhy)))
+    local again = exports.KeybindAdd({ name = 'cis_test_bind', onPress = function() end })
+    check(type(again) == 'table', '7.5: a command this resource registered itself is not a clash')
+    GetRegisteredCommands = savedList
     env.reset()
 end
 

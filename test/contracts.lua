@@ -4251,7 +4251,8 @@ end
     local animNames = { 'DoesAnimDictExist', 'HasAnimDictLoaded', 'RequestAnimDict', 'TaskPlayAnim', 'RemoveAnimDict',
         'RequestScaleformMovie', 'HasScaleformMovieLoaded', 'BeginScaleformMovieMethod', 'EndScaleformMovieMethod',
         'ScaleformMovieMethodAddParamInt', 'ScaleformMovieMethodAddParamFloat', 'ScaleformMovieMethodAddParamBool',
-        'ScaleformMovieMethodAddParamTextureNameString', 'SetScaleformMovieAsNoLongerNeeded' }
+        'ScaleformMovieMethodAddParamTextureNameString', 'ScaleformMovieMethodAddParamLiteralString',
+        'ScaleformMovieMethodAddParamPlayerNameString', 'SetScaleformMovieAsNoLongerNeeded' }
     local animSaved = {}
     for i, n in ipairs(animNames) do animSaved[i] = env[n]; env[n] = rec(n) end
     RequestScaleformMovie = function(name) animLog[#animLog + 1] = { name = 'RequestScaleformMovie', args = { name } } return 33 end
@@ -4284,6 +4285,17 @@ end
     animLog = {}
     local refused = movie:call('SHOW_SHARD', function() end)
     check(refused == false and #animLog == 0, '19: an untypable parameter refuses the call before anything is sent')
+    animLog = {}
+    local bogus, bogusWhy = movie:call('SHOW_SHARD', 'WASTED', { type = 'bogus', value = 1 })
+    check(bogus == false and #animLog == 0 and tostring(bogusWhy):find('parameter 2', 1, true) ~= nil
+        and tostring(bogusWhy):find('bogus', 1, true) ~= nil,
+        ('19: an unknown explicit type refuses the call, naming it, before anything is sent (%s, %d calls)')
+            :format(tostring(bogusWhy), #animLog))
+    animLog = {}
+    check(movie:call('SET_NAME', { type = 'playerName', value = 'Ana' }, { type = 'literal', value = 'L' }) == true
+        and #animLog == 4 and animLog[2].name == 'ScaleformMovieMethodAddParamPlayerNameString'
+        and animLog[3].name == 'ScaleformMovieMethodAddParamLiteralString',
+        '19: playerName and literal still push their own natives')
     check(movie:dispose() == true and animLog[#animLog].name == 'SetScaleformMovieAsNoLongerNeeded'
         and animLog[#animLog].args[1] == 33, '19: dispose releases the movie by handle')
     check(movie:dispose() == false and movie:call('X') == false, '19: and a disposed movie refuses further use')

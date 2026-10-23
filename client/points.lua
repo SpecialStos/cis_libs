@@ -52,11 +52,6 @@ function CisPointsRemove(id)
     return engine:remove(id)
 end
 
---- The nearest registered point, and how far away it is.
-function CisPointsGetClosest()
-    return engine:getClosest()
-end
-
 function CisPointsGetDebug()
     return engine:debug()
 end
@@ -69,6 +64,11 @@ local function queryOwner()
         return nil
     end
     return caller
+end
+
+--- The nearest of the CALLER'S points, and how far away it is.
+function CisPointsGetClosest()
+    return engine:getClosest(nil, queryOwner())
 end
 
 function CisPointsGetAll()
