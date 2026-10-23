@@ -58,6 +58,15 @@ for (const abs of files) {
     skipped++
     continue
   }
+  // fengari is Lua 5.3; FiveM and CI's luac5.4 accept 5.4 variable attributes
+  // (`local x <const> = ...`). Skipped only when the failing line holds one.
+  const at = /:(\d+):/.exec(err)
+  const line = at ? src.split('\n')[Number(at[1]) - 1] || '' : ''
+  if (err.includes("near '<'") && /<\s*(const|close)\s*>/.test(line)) {
+    console.log(`skip  ${rel}  (Lua 5.4 attribute, fengari is 5.3)`)
+    skipped++
+    continue
+  }
   console.error(`FAIL  ${rel}\n      ${err}`)
   failed++
 }
