@@ -20,12 +20,29 @@ local function ownerOf()
     return GetCurrentResourceName and GetCurrentResourceName() or 'cis_libs'
 end
 
+-- A list is never changed in place: on, remove and releaseOwner store a new one.
+-- run walks the list it read, so a hook that removes itself, or registers
+-- another, mid-run cannot shift or re-sort the walk under it.
+local function without(list, drop)
+    local out = {}
+    for i = 1, #list do
+        if not drop(list[i]) then
+            out[#out + 1] = list[i]
+        end
+    end
+    return out
+end
+
+local function store(name, list)
+    CisHooks.byName[name] = #list > 0 and list or nil
+end
+
 function CisHooks.on(name, fn, opts)
     if type(name) ~= 'string' or name == '' then
-        return nil, 'hook name must be a non-empty string'
+        return false, 'hook name must be a non-empty string'
     end
     if not CisCallable(fn) then
-        return nil, ('hook fn must be a function, got %s'):format(type(fn))
+        return false, ('hook fn must be a function, got %s'):format(type(fn))
     end
     opts = opts or {}
     local priority = tonumber(opts.priority) or 0
@@ -37,11 +54,7 @@ function CisHooks.on(name, fn, opts)
         priority = priority,
         owner = ownerOf(),
     }
-    local list = CisHooks.byName[name]
-    if not list then
-        list = {}
-        CisHooks.byName[name] = list
-    end
+    local list = without(CisHooks.byName[name] or {}, function() return false end)
     list[#list + 1] = rec
     table.sort(list, function(a, b)
         if a.priority ~= b.priority then
@@ -49,6 +62,7 @@ function CisHooks.on(name, fn, opts)
         end
         return a.id < b.id
     end)
+    store(name, list)
     return rec.id
 end
 
@@ -74,17 +88,22 @@ function CisHooks.run(name, payload)
     return true
 end
 
+-- ONLY THE OWNER, or cis_libs. Ids count up from 1, so without this
+-- `for i = 1, 500 do HookRemove(i) end` stripped every resource's vetoes.
 function CisHooks.remove(id)
     if type(id) ~= 'number' then
         return false, 'hook id must be a number'
     end
+    local caller = ownerOf()
+    local lib = type(GetCurrentResourceName) == 'function' and GetCurrentResourceName() or 'cis_libs'
     for name, list in pairs(CisHooks.byName) do
-        for i = #list, 1, -1 do
-            if list[i].id == id then
-                table.remove(list, i)
-                if #list == 0 then
-                    CisHooks.byName[name] = nil
+        for i = 1, #list do
+            local rec = list[i]
+            if rec.id == id then
+                if caller ~= rec.owner and caller ~= lib then
+                    return false, ('hook %d belongs to %s, not %s'):format(id, tostring(rec.owner), caller)
                 end
+                store(name, without(list, function(r) return r == rec end))
                 return true
             end
         end
@@ -142,16 +161,13 @@ end)
 
 function CisHooks.releaseOwner(resource)
     local n = 0
-    for name, list in pairs(CisHooks.byName) do
-        for i = #list, 1, -1 do
-            if list[i].owner == resource then
-                table.remove(list, i)
-                n = n + 1
-            end
-        end
-        if #list == 0 then
-            CisHooks.byName[name] = nil
-        end
+    local names = {}
+    for name in pairs(CisHooks.byName) do names[#names + 1] = name end
+    for _, name in ipairs(names) do
+        local list = CisHooks.byName[name]
+        local kept = without(list, function(r) return r.owner == resource end)
+        n = n + (#list - #kept)
+        store(name, kept)
     end
     return n
 end

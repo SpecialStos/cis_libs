@@ -339,14 +339,14 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.streaming.animDict(name, timeout)',
             realm = 'client',
-            params = { { name = 'name', type = 'string', doc = 'the dictionary NAME, not a hash -- RequestAnimDict takes a char*, and a hash is a type error the game answers by never loading' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000' } },
+            params = { { name = 'name', type = 'string', doc = 'the dictionary NAME, not a hash -- RequestAnimDict takes a char*, and a hash is a type error the game answers by never loading' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested' } },
             returns = { { type = 'string|nil, string|nil', doc = 'the name, or nil plus a reason. THE ONLY KIND WITH AN EXISTENCE PROBE, so an invalid dictionary is refused immediately rather than after the whole timeout' } }
         },
         AnimSet = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.streaming.animSet(name, timeout)',
             realm = 'client',
-            params = { { name = 'name', type = 'string', doc = 'the set name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000' } },
+            params = { { name = 'name', type = 'string', doc = 'the set name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested' } },
             returns = { { type = 'string|nil, string|nil', doc = 'the name, or nil plus a reason' } }
         },
         RaycastCamera = {
@@ -747,7 +747,7 @@ return {
             use = 'Cis.hooks.remove(id)',
             realm = 'both',
             params = { { name = 'id', type = 'integer', doc = 'the cookie HookOn returned' } },
-            returns = { { type = 'boolean, string|nil', doc = 'true once removed' } }
+            returns = { { type = 'boolean, string|nil', doc = 'true once removed. ONLY the resource that registered the hook, or cis_libs, may remove it; anyone else gets false plus a reason naming the owner, because ids count up from 1 and a loop over them stripped the vetoes of every resource' } }
         },
         StatebagOnEntity = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -834,7 +834,7 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.zones.box / Cis.zones.poly / Cis.zones.sphere',
             realm = 'client',
-            params = { { name = 'kind', type = 'string', doc = "'box', 'poly' or 'sphere'; anything else is refused by name" }, { name = 'name', type = 'string', doc = 'a non-empty name -- the table key, the grid key, and the handle remove(name) takes' }, { name = 'a', type = 'vector3|vector4|table', doc = 'the box or sphere centre, or the poly point list; nil is refused by name and a type outside these three is refused too' }, { name = 'b', type = 'vector3|number|table', doc = 'the box size (required -- nil refuses), the sphere radius (default 1.0), or unused for a poly' }, { name = 'options', type = 'table', optional = true, doc = 'the options table, defaulted to {}' } },
+            params = { { name = 'kind', type = 'string', doc = "'box', 'poly' or 'sphere'; anything else is refused by name" }, { name = 'name', type = 'string', doc = 'a non-empty name -- the table key, the grid key, and the handle remove(name) takes' }, { name = 'a', type = 'vector3|vector4|table', doc = 'the box or sphere centre, or the poly point list; nil is refused by name and a type outside these three is refused too' }, { name = 'b', type = 'vector3|number|table', doc = 'the box size (required -- nil refuses; every axis positive and finite), the sphere radius (default 1.0; positive and finite), or unused for a poly. A poly needs at least 3 points, and every zone must lie within 100 km of the origin' }, { name = 'options', type = 'table', optional = true, doc = 'the options table, defaulted to {}' } },
             returns = { { type = 'boolean, string', doc = 'true on success; every refusal is false plus a reason. ALWAYS capture the second value -- a bare false tells you nothing you did not already guess' } },
         },
         RemoveZone = {
@@ -1208,35 +1208,35 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.streaming.audioBank(name, timeout)',
             realm = 'client',
-            params = { { name = 'name', type = 'string', doc = 'the bank name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000' } },
+            params = { { name = 'name', type = 'string', doc = 'the bank name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested' } },
             returns = { { type = 'string|nil, string|nil', doc = 'the name once RequestScriptAudioBank answers true. The native is its own poll -- false while the bank loads -- so it is called again until true or the timeout, and a timed-out bank is released by name' } }
         },
         Ptfx = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.streaming.ptfx(name, timeout)',
             realm = 'client',
-            params = { { name = 'name', type = 'string', doc = 'the effect name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000' } },
+            params = { { name = 'name', type = 'string', doc = 'the effect name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested' } },
             returns = { { type = 'string|nil, string|nil', doc = 'the name, or nil plus a reason. NO existence probe exists for this kind, so an invalid name costs the whole timeout -- a real asymmetry with AnimDict, documented rather than papered over' } }
         },
         Scaleform = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.streaming.scaleform(name, timeout)',
             realm = 'client',
-            params = { { name = 'name', type = 'string', doc = 'the movie name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000' } },
+            params = { { name = 'name', type = 'string', doc = 'the movie name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested' } },
             returns = { { type = 'string|nil, integer|nil, string|nil', doc = 'the name and the movie handle, or nil plus a reason. RequestScaleformMovie ANSWERS the handle and returns 0 when it refuses, which is a real third state between not-yet and loaded' } }
         },
         TextureDict = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.streaming.textureDict(name, timeout)',
             realm = 'client',
-            params = { { name = 'name', type = 'string', doc = 'the dictionary name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000' } },
+            params = { { name = 'name', type = 'string', doc = 'the dictionary name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested' } },
             returns = { { type = 'string|nil, string|nil', doc = 'the name, or nil plus a reason. The request native takes a streamed flag as its second argument and it is always true here' } }
         },
         WeaponAsset = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.streaming.weaponAsset(hash, timeout)',
             realm = 'client',
-            params = { { name = 'name', type = 'integer', doc = 'the weapon HASH, passed through the parameter called name so all seven registrations share one shape' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000' } },
+            params = { { name = 'name', type = 'integer', doc = 'the weapon HASH, passed through the parameter called name so all seven registrations share one shape' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested' } },
             returns = { { type = 'integer|nil, string|nil', doc = 'the hash, or nil plus a reason' } }
         },
         RequestInventorySync = {
@@ -1573,7 +1573,7 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.streaming.model(model, timeout)',
             realm = 'client',
-            params = { { name = 'model', type = 'integer|string', doc = 'a hash or a model name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'the deadline in ms, default 5000' } },
+            params = { { name = 'model', type = 'integer|string', doc = 'a hash or a model name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'the deadline in ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested' } },
             returns = { { type = 'boolean, integer', doc = 'slot 2 is ALWAYS the hash, including on refusal -- so a caller can release it either way, which is the whole reason the export shape is a pair' } },
         },
 
@@ -1980,7 +1980,7 @@ return {
         since = '1.0.0',
         realm = 'client',
         runsIn = 'consumer',
-        params = { { name = 'name', type = 'string', doc = 'the dictionary NAME, not a hash -- a function argument aside, RequestAnimDict takes a char* and a hash is a type error the game answers by never loading' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000' } },
+        params = { { name = 'name', type = 'string', doc = 'the dictionary NAME, not a hash -- a function argument aside, RequestAnimDict takes a char* and a hash is a type error the game answers by never loading' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested' } },
         returns = { { type = 'string|nil, string|nil', doc = 'the name, or nil plus a reason. An invalid dictionary is refused in microseconds because this is the only kind with an existence probe' } },
         crossNote = 'Runs in the CALLER VM since 1.1.0: the request is the caller own and the poll yields the caller thread. Give the asset back with Cis.streaming.release(kind, asset) when done',
     },
@@ -1988,7 +1988,7 @@ return {
         since = '1.0.0',
         realm = 'client',
         runsIn = 'consumer',
-        params = { { name = 'name', type = 'string', doc = 'the set name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000' } },
+        params = { { name = 'name', type = 'string', doc = 'the set name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested' } },
         returns = { { type = 'string|nil, string|nil', doc = 'the name, or nil plus a reason' } },
         crossNote = 'Runs in the CALLER VM since 1.1.0: the request is the caller own and the poll yields the caller thread. Give the asset back with Cis.streaming.release(kind, asset) when done',
     },
@@ -1996,7 +1996,7 @@ return {
         since = '1.0.0',
         realm = 'client',
         runsIn = 'consumer',
-        params = { { name = 'name', type = 'string', doc = 'the effect name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000' } },
+        params = { { name = 'name', type = 'string', doc = 'the effect name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested' } },
         returns = { { type = 'string|nil, string|nil', doc = 'the name, or nil plus a reason. There is NO existence probe for this kind, so an invalid name costs the whole timeout -- a real asymmetry with animDict and documented rather than hidden' } },
         crossNote = 'Runs in the CALLER VM since 1.1.0: the request is the caller own and the poll yields the caller thread. Give the asset back with Cis.streaming.release(kind, asset) when done',
     },
@@ -2004,7 +2004,7 @@ return {
         since = '1.0.0',
         realm = 'client',
         runsIn = 'consumer',
-        params = { { name = 'name', type = 'string', doc = 'the dictionary name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000' } },
+        params = { { name = 'name', type = 'string', doc = 'the dictionary name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested' } },
         returns = { { type = 'string|nil, string|nil', doc = 'the name, or nil plus a reason' } },
         crossNote = 'Runs in the CALLER VM since 1.1.0: the request is the caller own and the poll yields the caller thread. Give the asset back with Cis.streaming.release(kind, asset) when done',
     },
@@ -2012,7 +2012,7 @@ return {
         since = '1.0.0',
         realm = 'client',
         runsIn = 'consumer',
-        params = { { name = 'hash', type = 'integer', doc = 'the weapon hash' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000' } },
+        params = { { name = 'hash', type = 'integer', doc = 'the weapon hash' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested' } },
         returns = { { type = 'integer|nil, string|nil', doc = 'the hash, or nil plus a reason' } },
         crossNote = 'Runs in the CALLER VM since 1.1.0: the request is the caller own and the poll yields the caller thread. Give the asset back with Cis.streaming.release(kind, asset) when done',
     },
@@ -2020,7 +2020,7 @@ return {
         since = '1.0.0',
         realm = 'client',
         runsIn = 'consumer',
-        params = { { name = 'name', type = 'string', doc = 'the movie name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000' } },
+        params = { { name = 'name', type = 'string', doc = 'the movie name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested' } },
         returns = { { type = 'string|nil, integer|nil, string|nil', doc = 'the name and the movie handle, or nil plus a reason. The request native answers the handle and returns 0 when it refuses, which is a real third state between not-yet and loaded' } },
         crossNote = 'Runs in the CALLER VM since 1.1.0: the request is the caller own and the poll yields the caller thread. Give the asset back with Cis.streaming.release(kind, asset) when done',
     },
@@ -2028,7 +2028,7 @@ return {
         since = '1.0.0',
         realm = 'client',
         runsIn = 'consumer',
-        params = { { name = 'name', type = 'string', doc = 'the bank name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000' } },
+        params = { { name = 'name', type = 'string', doc = 'the bank name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested' } },
         returns = { { type = 'string|nil, string|nil', doc = 'the name once the engine has ACCEPTED the bank, not once it is resident, and it never waits for either' } },
         crossNote = 'Runs in the CALLER VM since 1.1.0: the request is the caller own and the poll yields the caller thread. Give the asset back with Cis.streaming.release(kind, asset) when done',
     },
@@ -2036,7 +2036,7 @@ return {
         since = '1.0.0',
         realm = 'client',
         runsIn = 'consumer',
-        params = { { name = 'model', type = 'integer|string', doc = 'a hash or a model name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'the deadline in ms, default 5000' } },
+        params = { { name = 'model', type = 'integer|string', doc = 'a hash or a model name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'the deadline in ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested' } },
         returns = { { type = 'boolean, integer', doc = "slot 2 is ALWAYS the hash, including on refusal, so a caller can release it either way. Releasing is the caller's job: the library does not keep a reference it cannot see" } },
     },
     ['Cis.sync.clear'] = {
@@ -2654,7 +2654,7 @@ return {
         since = '1.1.0',
         realm = 'client',
         runsIn = 'consumer',
-        params = { { name = 'name', type = 'string', doc = 'the movie name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000' } },
+        params = { { name = 'name', type = 'string', doc = 'the movie name' }, { name = 'timeout', type = 'integer', optional = true, doc = 'ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested' } },
         returns = { { type = 'CisScaleformMovie|nil, string|nil', doc = 'the movie object, or nil plus a reason. Disposed by :dispose() and on the stop of the calling resource' } },
     },
     ['Cis.dui.new'] = {
@@ -2780,7 +2780,7 @@ return {
     },
     CisPointOptions = {
         doc = 'The table Cis.points.add takes. coords and distance are REQUIRED and are refused by name when absent -- a defaulted radius is a specific number nobody asked for, and a defaulted coordinate is a point at the world origin that fires for a player who spawned there. Every other field is optional. From init.lua (Cis.points.add) the function fields are plain local functions in the calling resource; through the CreatePoint export they arrive as funcrefs. The event-name twins fire either way.',
-        fields = { { name = 'coords', type = 'vector3|vector4|table', optional = false, doc = 'the centre' }, { name = 'distance', type = 'number', optional = false, doc = 'the enter radius in metres. Must be finite and greater than zero; NaN and infinity are both refused by name, because NaN makes every containment test false and infinity has no cell to index' }, { name = 'onEnter', type = 'fun(coords: vector3, id: integer)', optional = true, doc = 'called under pcall on arrival' }, { name = 'onExit', type = 'fun(coords: vector3, id: integer)', optional = true, doc = 'called under pcall on departure and on removal' }, { name = 'nearby', type = 'fun(coords: vector3, id: integer)', optional = true, doc = 'called under pcall every nearbyInterval while the player is inside, and ONLY inside' }, { name = 'nearbyInterval', type = 'integer', optional = true, doc = 'ms between nearby calls, default 200. Zero is allowed: a local function asking for every pass is legitimate' }, { name = 'onEnterEvent', type = 'string', optional = true, doc = 'the net event fired on arrival, with (id, x, y, z). The id lets one handler watch several points' }, { name = 'onExitEvent', type = 'string', optional = true, doc = 'the net event fired on departure, with (id, x, y, z)' }, { name = 'nearbyEvent', type = 'string', optional = true, doc = 'the net event fired inside every nearbyInterval, with (id, x, y, z). Aimed at the server, so nearbyInterval is clamped to at least 250 ms when it is set -- the same floor a zone insideEvent has' } },
+        fields = { { name = 'coords', type = 'vector3|vector4|table', optional = false, doc = 'the centre; finite, and within 100 km of the origin -- an infinite coordinate used to hang the grid insert' }, { name = 'distance', type = 'number', optional = false, doc = 'the enter radius in metres. Must be finite and greater than zero; NaN and infinity are both refused by name, because NaN makes every containment test false and infinity has no cell to index' }, { name = 'onEnter', type = 'fun(coords: vector3, id: integer)', optional = true, doc = 'called under pcall on arrival' }, { name = 'onExit', type = 'fun(coords: vector3, id: integer)', optional = true, doc = 'called under pcall on departure and on removal' }, { name = 'nearby', type = 'fun(coords: vector3, id: integer)', optional = true, doc = 'called under pcall every nearbyInterval while the player is inside, and ONLY inside' }, { name = 'nearbyInterval', type = 'integer', optional = true, doc = 'ms between nearby calls, default 200. Zero is allowed: a local function asking for every pass is legitimate' }, { name = 'onEnterEvent', type = 'string', optional = true, doc = 'the net event fired on arrival, with (id, x, y, z). The id lets one handler watch several points' }, { name = 'onExitEvent', type = 'string', optional = true, doc = 'the net event fired on departure, with (id, x, y, z)' }, { name = 'nearbyEvent', type = 'string', optional = true, doc = 'the net event fired inside every nearbyInterval, with (id, x, y, z). Aimed at the server, so nearbyInterval is clamped to at least 250 ms when it is set -- the same floor a zone insideEvent has' } },
     },
     CisAuditEntry = {
         doc = 'One ring-buffer entry from GetAuditLog. RESOURCE AND SLOT NAMES ONLY -- never a player identifier, which is why this is in memory at all.',
@@ -2892,7 +2892,7 @@ return {
     },
     CisZoneOptions = {
         doc = 'The options table for Cis.zones.* and Cis.target.add. Every field is optional; a zone is created with defaults when one is absent. From init.lua (Cis.zones.*) the function fields are plain local functions run in the calling resource; through the CreateZone export they arrive as funcrefs. The event-name twins fire either way.',
-        fields = { { name = 'onEnter', type = 'fun(zone: CisZone, coords: vector3)', optional = true, doc = "called pcall'd on the inside edge, with the ZONE and the player's own coordinates" }, { name = 'onExit', type = 'fun(zone: CisZone, coords: vector3)', optional = true, doc = "called pcall'd on the outside edge and on removal" }, { name = 'inside', type = 'fun(zone: CisZone)', optional = true, doc = 'called every insideInterval while the player is inside' }, { name = 'insideInterval', type = 'integer', optional = true, doc = 'ms between inside calls, default 500. Clamped up to 250 whenever insideEvent is set, so a networked event cannot be asked for faster than a quarter second' }, { name = 'debug', type = 'boolean', optional = true, doc = 'truthy starts the draw thread once registration succeeds' }, { name = 'onEnterEvent', type = 'string', optional = true, doc = 'fires with (zoneName, x, y, z). Falls back to TriggerServerEvent when onEnter is absent' }, { name = 'onExitEvent', type = 'string', optional = true, doc = 'fires with (zoneName, x, y, z). The only way a consumer outside this VM learns the player left' }, { name = 'insideEvent', type = 'string', optional = true, doc = 'its presence is what forces the 250ms clamp' }, { name = 'local', type = 'boolean', optional = true, doc = 'truthy switches the events to client-local TriggerEvent instead of TriggerServerEvent' }, { name = 'minZ', type = 'number', optional = true, doc = 'the floor, default -1000.0, and the fallback Z for any poly point with no z' }, { name = 'maxZ', type = 'number', optional = true, doc = 'the ceiling, default 10000.0' }, { name = 'thickness', type = 'number', optional = true, doc = 'poly only: a slab this many metres tall around the average z of the points, as ox_lib; ignored when minZ or maxZ is given' }, { name = 'heading', type = 'number', optional = true, doc = 'the box heading' }, { name = 'rotation', type = 'number', optional = true, doc = 'an alias for the box heading' } },
+        fields = { { name = 'onEnter', type = 'fun(zone: CisZone, coords: vector3)', optional = true, doc = "called pcall'd on the inside edge, with the ZONE and the player's own coordinates" }, { name = 'onExit', type = 'fun(zone: CisZone, coords: vector3)', optional = true, doc = "called pcall'd on the outside edge and on removal" }, { name = 'inside', type = 'fun(zone: CisZone)', optional = true, doc = 'called every insideInterval while the player is inside' }, { name = 'insideInterval', type = 'integer', optional = true, doc = 'ms between inside calls, default 500. Clamped up to 250 whenever insideEvent is set, so a networked event cannot be asked for faster than a quarter second' }, { name = 'debug', type = 'boolean', optional = true, doc = 'truthy starts the draw thread once registration succeeds' }, { name = 'onEnterEvent', type = 'string', optional = true, doc = 'fires with (zoneName, x, y, z). Falls back to TriggerServerEvent when onEnter is absent. Every event name is a string of 1 to 128 bytes; anything else refuses the zone by name' }, { name = 'onExitEvent', type = 'string', optional = true, doc = 'fires with (zoneName, x, y, z). The only way a consumer outside this VM learns the player left' }, { name = 'insideEvent', type = 'string', optional = true, doc = 'its presence is what forces the 250ms clamp' }, { name = 'local', type = 'boolean', optional = true, doc = 'exactly true switches ALL THREE events (onEnterEvent, onExitEvent, insideEvent) to client-local TriggerEvent instead of TriggerServerEvent. A local event from a resource other than cis_libs must be named <resource>:... -- the creating resource -- so it cannot fire cis_libs:cache, onResourceStop or the events of another resource with cis_libs as the invoker' }, { name = 'minZ', type = 'number', optional = true, doc = 'the floor, default -1000.0, and the fallback Z for any poly point with no z. Must be finite and no higher than maxZ' }, { name = 'maxZ', type = 'number', optional = true, doc = 'the ceiling, default 10000.0' }, { name = 'thickness', type = 'number', optional = true, doc = 'poly only: a slab this many metres tall around the average z of the points, as ox_lib; ignored when minZ or maxZ is given' }, { name = 'heading', type = 'number', optional = true, doc = 'the box heading; a finite number' }, { name = 'rotation', type = 'number', optional = true, doc = 'an alias for the box heading' } },
     },
     },
 

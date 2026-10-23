@@ -144,8 +144,8 @@
     {
       "id": "M08",
       "file": "shared/registry.lua",
-      "find": "    local owner = invokingResource()\n        or (type(provider) == 'table' and provider.resource)\n        or 'cis_libs'",
-      "replace": "    local owner = (type(provider) == 'table' and provider.resource)\n        or (type(provider) == 'string' and provider)\n        or 'cis_libs'",
+      "find": "    local owner = asOwner or invokingResource()\n        or (type(provider) == 'table' and provider.resource)\n        or 'cis_libs'",
+      "replace": "    local owner = asOwner or (type(provider) == 'table' and provider.resource)\n        or invokingResource()\n        or 'cis_libs'",
       "why": "Take the capability owner from an argument instead of the invoker, which lets a resource claim ownership of a slot it did not register."
     },
     {
@@ -445,8 +445,8 @@
     {
       "id": "M70",
       "file": "server/security.lua",
-      "find": "        if (rateCounts[src] or 0) >= RATE_BUCKET_CAP then\n",
-      "replace": "        if (rateCounts[src] or 0) >= 100000000 then\n",
+      "find": "        if (rateCounts[src] or 0) >= RATE_BUCKET_CAP then\n            evictExpired(src, perSrc, now)\n        end\n        if (rateCounts[src] or 0) >= RATE_BUCKET_CAP then\n",
+      "replace": "        if (rateCounts[src] or 0) >= 100000000 then\n            evictExpired(src, perSrc, now)\n        end\n        if (rateCounts[src] or 0) >= 100000000 then\n",
       "why": "Raise the per-source bucket cap out of reach. Event names arrive off the wire, so an unbounded map is a memory growth rate a client controls: one source sending a few hundred thousand distinct event names would grow the table without limit, and the resource that reads it -- a server under attack -- is the one paying."
     },
     {
@@ -606,9 +606,9 @@
     },
     {
       "id": "M93",
-      "file": "client/points.lua",
-      "find": "    while true do\n        -- The interval is returned by the body and waited on HERE, so a yield is never\n        -- swallowed by the guard's pcall.\n        Wait(tick() or Engine.IDLE_MS)\n    end\n",
-      "replace": "    Wait(tick() or Engine.IDLE_MS)\n",
+      "file": "client/core/points.lua",
+      "find": "        while next(self.points) ~= nil do\n            Wait(tick() or IDLE_MS)\n        end\n",
+      "replace": "        Wait(tick() or IDLE_MS)\n",
       "why": "Restore the one-shot points thread: Wait once and fall off the end. The first pass is then the only pass, so a point the player reaches later never fires. The 7.1 test that drives one thread for six wakeups is what sees it."
     },
     {
@@ -789,8 +789,8 @@
     {
       "id": "M119",
       "file": "client/cache.lua",
-      "find": "    if caller ~= 'cis_libs' and caller ~= owner then\n",
-      "replace": "    if false then\n",
+      "find": "    if caller ~= 'cis_libs' and caller ~= owner then\n        return false, ('cache listener %s belongs",
+      "replace": "    if false then\n        return false, ('cache listener %s belongs",
       "why": "Drop the owner check on RemovePlayerCacheListener. Listener ids are 1, 2, 3..., so any resource can unsubscribe every other resource."
     },
     {
@@ -1055,8 +1055,8 @@
     {
       "id": "M157",
       "file": "server/callback.lua",
-      "find": "    if slot.n >= limits.maxInFlight then\n",
-      "replace": "    if false then\n",
+      "find": "    if slot.n >= limits.maxInFlight then\n        answer(src, key, false, 'busy')",
+      "replace": "    if false then\n        answer(src, key, false, 'busy')",
       "why": "Uncap handlers in flight. A client can park any number of handler coroutines that are each waiting on a database, holding their memory and their connections."
     },
     {
@@ -1237,8 +1237,8 @@
     {
       "id": "M183",
       "file": "shared/hooks.lua",
-      "find": "    if not CisCallable(fn) then\n        return nil, ('hook fn must be a function",
-      "replace": "    if type(fn) ~= 'function' then\n        return nil, ('hook fn must be a function",
+      "find": "    if not CisCallable(fn) then\n        return false, ('hook fn must be a function",
+      "replace": "    if type(fn) ~= 'function' then\n        return false, ('hook fn must be a function",
       "why": "Refuse a funcref hook. A function passed by another resource arrives as a callable reference table, so no consumer can register a veto."
     },
     {
@@ -1300,8 +1300,8 @@
     {
       "id": "M192",
       "file": "server/sync.lua",
-      "find": "    if not record.respawn or window.n >= RESPAWN_MAX then",
-      "replace": "    if true then",
+      "find": "    if not record.respawn then\n        Logging.Error(('Cis.sync: networked record %s lost its entity; the record is dropped')",
+      "replace": "    if true then\n        Logging.Error(('Cis.sync: networked record %s lost its entity; the record is dropped')",
       "why": "Never re-create a networked entity removed behind the library's back. KeepEntity only stops the SERVER reaping it; a client delete or a cleanup script still removes it, and the record then claims an entity that is gone."
     },
     {
@@ -1692,9 +1692,9 @@
     {
       "id": "M248",
       "file": "init.lua",
-      "find": "    if requireLoading[key] then",
-      "replace": "    if false then",
-      "why": "Drop the in-progress sentinel: a circular Cis.require recurses until the stack runs out, and the error names neither module."
+      "find": "        error(('Cis.require: circular dependency %s'):format(table.concat(chain, ' -> ')), 3)",
+      "replace": "        error('Cis.require: circular dependency', 3)",
+      "why": "Report a circular Cis.require without the chain. The error then names neither module, and the author has to bisect their requires to find the loop."
     },
     {
       "id": "M249",
@@ -1986,8 +1986,8 @@
     {
       "id": "M290",
       "file": "client/core/mirror.lua",
-      "find": "        if resource == self.resource then\n            self.snapped = false\n            self.lastTry = nil\n            self:ensure()\n        end\n",
-      "replace": "        if resource == self.resource then\n            self.lastTry = nil\n        end\n",
+      "find": "        if resource == self.resource then\n            self.snapped = false\n            self.lastTry = nil\n            -- A restarted producer has forgotten who follows the heading.\n            if self.followingHeading then\n                pcall(self.follow)\n            end\n            self:ensure()\n        end\n",
+      "replace": "        if resource == self.resource then\n            self.lastTry = nil\n            -- A restarted producer has forgotten who follows the heading.\n            if self.followingHeading then\n                pcall(self.follow)\n            end\n        end\n",
       "why": "Do not re-snapshot when cis_libs restarts. A value that moved while it was down -- the player left the vehicle -- is never corrected, because the restarted producer only pushes what differs from its own defaults."
     },
     {
@@ -2993,6 +2993,120 @@
       "find": "  return days !== undefined && d >= 1 && d <= days",
       "replace": "  return d >= 1 && d <= 31",
       "why": "Accept day 31 in every month. 2024-02-30 is a valid date on the page."
+    },
+    {
+      "id": "M433",
+      "file": "test/run.lua",
+      "check": "lua54",
+      "find": "            local passed, failed\n            for p, f in out:gmatch",
+      "replace": "            local passed, failed = 1, 0\n            for p, f in out:gmatch",
+      "why": "The Lua 5.4 driver trusts the case list alone again. A suite that hits a stray os.exit(0) before its assertions reports 0 failed and passes on the interpreter FiveM runs."
+    },
+    {
+      "id": "M434",
+      "file": "tools/test-counts.js",
+      "check": "lua54",
+      "find": "    if (got !== want) {",
+      "replace": "    if (false) {",
+      "why": "Stop comparing assertion counts between Lua 5.4 and fengari. An assertion that only runs under one interpreter switches off silently."
+    },
+    {
+      "id": "M435",
+      "file": "shared/grid.lua",
+      "find": "        if v < -LIMIT or v > LIMIT then",
+      "replace": "        if false then",
+      "why": "Admit an AABB with an infinite or 1e21 x/y bound. The insert walks for x = -inf, inf forever and hangs the client; far coordinates also collide in the cell key."
+    },
+    {
+      "id": "M436",
+      "file": "client/core/zones.lua",
+      "find": "        if eventName:sub(1, #prefix) ~= prefix then",
+      "replace": "        if false then",
+      "why": "Let another resource's local zone fire any event as cis_libs, such as cis_libs:cache or onResourceStop, which the cache mirror and the stop guard trust."
+    },
+    {
+      "id": "M437",
+      "file": "client/core/zones.lua",
+      "find": "    zone['local'] = options['local'] == true",
+      "replace": "    zone['local'] = zone.insideEvent ~= nil and options['local'] == true",
+      "why": "local = true applies only when insideEvent is set again, so a zone with only onEnterEvent sends a server event the consumer never hears."
+    },
+    {
+      "id": "M438",
+      "file": "client/core/zones.lua",
+      "find": "    if type(eventName) ~= 'string' or eventName == '' or #eventName > MAX_EVENT_NAME then",
+      "replace": "    if false then",
+      "why": "Accept a non-string or oversized zone event name; it raises inside the pass instead of refusing the zone by name."
+    },
+    {
+      "id": "M439",
+      "file": "client/zones.lua",
+      "find": "    localEventsAs = GetCurrentResourceName(),",
+      "replace": "    localEventsAs = nil,",
+      "why": "cis_libs' shared engine forgets which VM fires its local events, so the prefix rule never runs and the forgery is open again."
+    },
+    {
+      "id": "M440",
+      "file": "client/core/zones.lua",
+      "find": "        if #points < 3 and #points > 0 then",
+      "replace": "        if false then",
+      "why": "Accept a poly of one or two points, which has no inside and silently never fires."
+    },
+    {
+      "id": "M441",
+      "file": "client/core/zones.lua",
+      "find": "        if not finite(zone.minZ) or not finite(zone.maxZ) or zone.minZ >= zone.maxZ then",
+      "replace": "        if false then",
+      "why": "Accept a poly whose floor is above its ceiling, or NaN; no player is ever inside it."
+    },
+    {
+      "id": "M442",
+      "file": "client/core/zones.lua",
+      "find": "        if not (positive(sx) and positive(sy) and positive(sz)) then",
+      "replace": "        if false then",
+      "why": "Accept a box with a zero, negative or NaN axis, which no player can be inside."
+    },
+    {
+      "id": "M443",
+      "file": "client/core/zones.lua",
+      "find": "        if not finite(heading) then",
+      "replace": "        if false then",
+      "why": "Accept a string or NaN box heading; the containment rotation raises or answers false forever."
+    },
+    {
+      "id": "M444",
+      "file": "client/core/zones.lua",
+      "find": "        if not positive(zone.radius) then",
+      "replace": "        if false then",
+      "why": "Accept a sphere with a negative or table radius."
+    },
+    {
+      "id": "M445",
+      "file": "shared/hooks.lua",
+      "find": "                if caller ~= rec.owner and caller ~= lib then",
+      "replace": "                if false then",
+      "why": "Any resource removes any hook again; ids count up from 1, so a loop strips every veto."
+    },
+    {
+      "id": "M446",
+      "file": "shared/hooks.lua",
+      "find": "    local list = without(CisHooks.byName[name] or {}, function() return false end)",
+      "replace": "    local list = CisHooks.byName[name] or {}",
+      "why": "HookOn sorts the live list in place, so a hook registered mid-run shifts the walk and a later hook runs twice or not at all."
+    },
+    {
+      "id": "M447",
+      "file": "shared/hooks.lua",
+      "find": "                store(name, without(list, function(r) return r == rec end))",
+      "replace": "                table.remove(list, i)\n                store(name, list)",
+      "why": "HookRemove edits the live list in place, so a hook that removes itself mid-run makes the walk skip the next hook."
+    },
+    {
+      "id": "M448",
+      "file": "client/core/streaming.lua",
+      "find": "        if ms == nil or ms ~= ms or ms < 0 or ms > MAX_TIMEOUT_MS then",
+      "replace": "        if ms == nil then",
+      "why": "Accept a NaN or infinite streaming timeout; now >= NaN is never true, so the request polls for the rest of the session."
     }
   ]
 }

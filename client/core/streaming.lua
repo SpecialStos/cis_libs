@@ -9,6 +9,8 @@
 local M = {}
 
 local DEFAULT_TIMEOUT_MS = 5000
+-- The longest wait a caller may ask for: ten minutes is already no timeout.
+local MAX_TIMEOUT_MS = 600000
 local POLL_MS = 50
 
 -- The one kind that has no existence probe.
@@ -116,6 +118,14 @@ local function requestAsset(kind, asset, timeout)
     if type(asset) ~= 'string' and type(asset) ~= 'number' then
         return nil, ('%s was requested with a %s; a name or a hash, not %s')
             :format(kind, type(asset), type(asset))
+    end
+    -- A NaN deadline never passes (`now >= NaN` is false), so a NaN timeout
+    -- polled for the rest of the session; an infinite one is the same thing.
+    if timeout ~= nil then
+        local ms = tonumber(timeout)
+        if ms == nil or ms ~= ms or ms < 0 or ms > MAX_TIMEOUT_MS then
+            return nil, ('%s timeout must be 0 to %d ms, got %s'):format(kind, MAX_TIMEOUT_MS, tostring(timeout))
+        end
     end
 
     -- The hash, for the kinds that are keyed by one.

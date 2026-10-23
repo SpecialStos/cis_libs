@@ -14,6 +14,24 @@ under **Changed** so nobody upgrades into them blind.
 
 ### Changed
 
+- **A local zone event from another resource must carry that resource's
+  prefix.** With `local = true`, a zone created by `shop` may only fire
+  `shop:...` events. Before, any resource could have cis_libs fire
+  `cis_libs:cache` or `onResourceStop` locally with cis_libs as the
+  invoker, which the cache mirror and the stop guard both trust. Event names
+  are now strings of 1 to 128 bytes.
+- **`local` must be exactly `true`, and it now applies to all three zone
+  events.** It used to switch only when `insideEvent` was set, so a zone
+  with only `onEnterEvent` and `local = true` sent a server event.
+- **Degenerate zones are refused with a reason**: a poly with fewer than 3
+  points or a non-finite or inverted `minZ`/`maxZ`, a box with a
+  non-positive axis or a non-finite heading, and a sphere with a
+  non-positive radius. Zones and points must lie within 100 km of the origin.
+- **`HookRemove` only removes the caller's own hooks** (cis_libs may remove
+  any). Hook ids count up from 1, so a loop could strip every veto.
+- **Streaming timeouts must be 0 to 600000 ms.** NaN, infinity, a negative
+  or a non-number is refused before anything is requested.
+
 - **`CommandAdd` refuses a name the server already knows**, another
   resource's command or a builtin (matched without regard to case), and a
   re-add that changes `restricted`. cis_libs provisions `add_ace` only for
@@ -269,6 +287,20 @@ under **Changed** so nobody upgrades into them blind.
   `npm run test:ci`; test/live/RUNBOOK.md, "CI").
 
 ### Fixed
+
+- **A point or zone at an infinite coordinate hung the client.** The grid
+  walked `for x = -inf, inf` forever; coordinates beyond ±2^21 also
+  collided in the cell key. The grid refuses bounds beyond 100 km, and its
+  cell cap is NaN-safe.
+- **A NaN streaming timeout polled for the rest of the session**, because
+  `now >= NaN` is never true.
+- **A hook that removed itself, or registered another, mid-run shifted the
+  walk** and skipped the next hook. Hook lists are now copy-on-write.
+- **`HookOn('')` answered a cookie**; it now answers `false` plus a reason.
+- **Tests:** eight mutation rows no longer matched the source they mutate;
+  they are re-anchored and killed. The lua54 driver now fails a suite that
+  exits early or runs no assertion, and compares each suite's assertion
+  count with the fengari run. `tools/mutate.js` gained a `lua54` check.
 
 - **Exploitable:** with the documented `add_ace resource.cis_libs
   command.add_ace allow` grant, any resource could have cis_libs run

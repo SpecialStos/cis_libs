@@ -102,7 +102,10 @@ const SHARED = [
   'shared/defaults.lua', 'shared/registry.lua', 'shared/grid.lua',
   'shared/zonegeom.lua', 'shared/hooks.lua',
   'shared/pending.lua', 'shared/utf8.lua', 'shared/owned.lua', 'shared/config.lua',
-  'shared/ready.lua', 'shared/histogram.lua', 'shared/detect.lua',
+  'shared/histogram.lua', 'shared/ready.lua', 'shared/detect.lua',
+  // shared/statebag.lua is last in the manifest but not preloaded: it calls
+  // IsDuplicityVersion at load, so the suites that cover it load it
+  // themselves once their native stubs exist.
 ]
 const ALGO_UTIL = [
   'shared/algo/curve.lua', 'shared/algo/heap.lua', 'shared/algo/interp.lua',

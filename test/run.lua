@@ -76,7 +76,10 @@ if not CIS_SUITE_MODE then
         'shared/defaults.lua', 'shared/registry.lua', 'shared/grid.lua',
         'shared/zonegeom.lua', 'shared/hooks.lua',
         'shared/pending.lua', 'shared/utf8.lua', 'shared/owned.lua', 'shared/config.lua',
-        'shared/ready.lua', 'shared/histogram.lua', 'shared/detect.lua',
+        'shared/histogram.lua', 'shared/ready.lua', 'shared/detect.lua',
+        -- shared/statebag.lua is last in the manifest but not preloaded: it calls
+        -- IsDuplicityVersion at load, so the suites that cover it load it
+        -- themselves once their native stubs exist.
     }
     local ALGO_UTIL = {
         'shared/algo/curve.lua', 'shared/algo/heap.lua', 'shared/algo/interp.lua',
@@ -94,6 +97,12 @@ if not CIS_SUITE_MODE then
         'test/modules.lua', 'test/devx.lua', 'test/client.lua', 'test/interface.lua', 'test/server.lua',
         'test/ctl-allow.lua', 'test/examples.lua',
     }
+    -- One suite only: tools/run-lua54.js runs the broken fixtures under
+    -- test/fixtures/ this way to prove the checks below fail them.
+    local only = os.getenv('CIS_LUA54_ONLY')
+    if only and only ~= '' then
+        SUITES = { only }
+    end
     local PRELOAD = {
         ['test/run.lua'] = SHARED,
         ['test/binding.lua'] = SHARED,
@@ -145,6 +154,14 @@ if not CIS_SUITE_MODE then
         env.os = setmetatable({ exit = function(code)
             error({ __suite_exit = code or 0 }, 0)
         end }, { __index = _G.os })
+        -- The suite's own summary ("... passed=N failed=M") goes through
+        -- io.write. It is kept, so a suite that exits 0 before its assertions
+        -- (no summary, or passed=0) is a failure here as it is under fengari.
+        local printed = {}
+        env.io = setmetatable({ write = function(...)
+            for i = 1, select('#', ...) do printed[#printed + 1] = tostring((select(i, ...))) end
+            return io.write(...)
+        end }, { __index = _G.io })
 
         local function exec(rel_)
             local src = assert(readDisk(rel_))
@@ -154,8 +171,9 @@ if not CIS_SUITE_MODE then
         end
 
         local EXITED = {}
+        local exitCode = 0
         local ok, e = xpcall(function()
-            for _, p in ipairs(PRELOAD[rel]) do exec(p) end
+            for _, p in ipairs(PRELOAD[rel] or {}) do exec(p) end
             exec(rel)
         end, function(m)
             -- A suite that fails its assertions calls os.exit(1) rather than
@@ -163,7 +181,10 @@ if not CIS_SUITE_MODE then
             -- reported as "crashed: nil" -- which is what returning nil from
             -- here produced, because xpcall turns a nil handler result into
             -- `false, nil` and the driver then had nothing to print.
-            if type(m) == 'table' and m.__suite_exit then return EXITED end
+            if type(m) == 'table' and m.__suite_exit then
+                exitCode = m.__suite_exit
+                return EXITED
+            end
             return debug.traceback(tostring(m), 2)
         end)
         if not ok and e ~= EXITED then
@@ -180,7 +201,31 @@ if not CIS_SUITE_MODE then
                     bad = bad + 1
                 end
             end
+            -- The same three checks run.js makes. A suite that ran nothing
+            -- reports no failed case, so the case list alone passes it.
+            local out = table.concat(printed)
+            local passed, failed
+            for p, f in out:gmatch('passed=(%d+)%s+failed=(%d+)') do
+                passed, failed = tonumber(p), tonumber(f)
+            end
+            if not passed then
+                io.stderr:write('FAIL(' .. rel .. '): no "passed=N failed=M" summary: the suite stopped before its end\n')
+                bad = bad + 1
+            elseif passed == 0 then
+                io.stderr:write('FAIL(' .. rel .. '): passed=0: the suite ran no assertion\n')
+                bad = bad + 1
+            elseif failed > 0 and bad == 0 then
+                io.stderr:write(('FAIL(%s): its summary reports failed=%d\n'):format(rel, failed))
+                bad = bad + 1
+            end
+            if exitCode ~= 0 and exitCode ~= true and bad == 0 then
+                io.stderr:write(('FAIL(%s): exited %s with no failed case recorded\n'):format(rel, tostring(exitCode)))
+                bad = bad + 1
+            end
             failedAssertions = failedAssertions + bad
+            -- One line per suite, read by tools/run-lua54.js to compare the
+            -- count with the fengari run's.
+            io.write(('lua54-suite %s passed=%d\n'):format(rel, passed or 0))
         end
     end
 
@@ -335,6 +380,35 @@ local wide = CisGrid.new()
 CisGrid.insert(wide, 'wide', CisGrid.aabbFromCenter(0, 0, 0, 500, 500, 500), {})
 expect(#collectPoint(wide, 400, 400, 0) == 1, 'oversized AABB reachable across many cells')
 expect(#collectPoint(wide, -490, 490, 0) == 1, 'oversized AABB reachable at far corner')
+
+-- AN UNBOUNDED BOUND IS REFUSED, NOT WALKED. An infinite bound made the cell
+-- count NaN (which passed the cap) and the cell loop a float loop; so did one
+-- past about 6e20, where `cx + 1 == cx`. Either froze the game thread. The
+-- instruction hook turns a hang back into a failing assertion.
+local function bounded(fn, ...)
+    debug.sethook(function() error('HUNG', 0) end, '', 2000000)
+    local r = table.pack(pcall(fn, ...))
+    debug.sethook()
+    return r
+end
+local function bounds(x0, x1, y0, y1) return { minX = x0, maxX = x1, minY = y0, maxY = y1 } end
+for _, c in ipairs({
+    { 'an infinite maxX', bounds(0, math.huge, 0, 1) },
+    { 'an infinite minY', bounds(0, 1, -math.huge, 1) },
+    { 'a point at x = inf (inf - inf is NaN)', bounds(math.huge, math.huge, 0, 1) },
+    { 'a point at x = 1e21', bounds(1e21, 1e21 + 1, 0, 1) },
+    { 'a bound past the 100 km limit', bounds(0, 100001, 0, 1) },
+    { 'an infinite maxZ', { minX = 0, maxX = 1, minY = 0, maxY = 1, minZ = 0, maxZ = math.huge } },
+}) do
+    local r = bounded(CisGrid.admits, c[2])
+    expect(r[1] == true and r[2] == false and type(r[3]) == 'string',
+        ('grid: %s is refused with a reason (%s, %s)'):format(c[1], tostring(r[2]), tostring(r[3])))
+    local g = CisGrid.new()
+    local ins = bounded(CisGrid.insert, g, 'x', c[2], {})
+    expect(ins[1] == true and not ins[2] and next(g.cells) == nil,
+        ('grid: and insert of %s indexes nothing (%s)'):format(c[1], tostring(ins[2])))
+end
+expect(CisGrid.admits(bounds(-8000, -7990, 7990, 8000)) == true, 'grid: a box at the map edge is still admitted')
 
 -- ------------------------------------------------------------------- geometry
 local square = { vec(0, 0), vec(10, 0), vec(10, 10), vec(0, 10) }
@@ -1041,6 +1115,62 @@ do
     local okRef, whyRef = CisHooks.run('test.ref', { deny = true })
     expect(okRef == false and whyRef == 'shop says no', '7.13: and its veto is honoured')
     CisHooks.remove(refId)
+
+    -- ONLY THE OWNER REMOVES A HOOK. Ids count up from 1, so any resource could
+    -- loop HookRemove(1..n) and strip every other resource's vetoes.
+    local savedInvoking = rawget(_G, 'GetInvokingResource')
+    local invoking
+    GetInvokingResource = function() return invoking end
+    invoking = 'res_a'
+    local guardId = CisHooks.on('test.owned', function() return false, 'res_a says no' end)
+    invoking = 'res_evil'
+    local okSteal, whySteal = CisHooks.remove(guardId)
+    expect(okSteal == false and tostring(whySteal):find('res_a', 1, true) ~= nil,
+        ('7.13: another resource cannot remove a hook (%s)'):format(tostring(whySteal)))
+    local stillVetoes = CisHooks.run('test.owned', {})
+    expect(stillVetoes == false, '7.13: and the veto still stands')
+    invoking = 'res_a'
+    expect(CisHooks.remove(guardId) == true, '7.13: its owner can remove it')
+    invoking = nil
+    local libId = CisHooks.on('test.owned', function() return true end)
+    invoking = 'res_a'
+    local ownedByA = CisHooks.on('test.owned', function() return true end)
+    invoking = nil
+    expect(CisHooks.remove(ownedByA) == true, '7.13: and cis_libs itself can remove any hook')
+    CisHooks.remove(libId)
+
+    -- A HOOK MAY CHANGE THE LIST WHILE IT RUNS. run walked the live list, so a
+    -- hook that removed itself shifted the next one out from under the walk
+    -- (and raised on the nil past the end), and one that registered another
+    -- re-sorted the list mid-run.
+    local order = {}
+    local selfId
+    selfId = CisHooks.on('test.mutate', function()
+        order[#order + 1] = 'first'
+        CisHooks.remove(selfId)
+        return true
+    end, { priority = 3 })
+    CisHooks.on('test.mutate', function()
+        order[#order + 1] = 'second'
+        CisHooks.on('test.mutate', function() order[#order + 1] = 'late' return true end, { priority = 9 })
+        return true
+    end, { priority = 2 })
+    CisHooks.on('test.mutate', function() order[#order + 1] = 'veto' return false, 'third says no' end, { priority = 1 })
+    local okMut, whyMut = CisHooks.run('test.mutate', {})
+    expect(okMut == false and whyMut == 'third says no' and table.concat(order, ',') == 'first,second,veto',
+        ('7.13: hooks that remove or add hooks mid-run do not disturb the walk (%s; %s)')
+            :format(table.concat(order, ','), tostring(whyMut)))
+    order = {}
+    CisHooks.run('test.mutate', {})
+    expect(table.concat(order, ',') == 'late,second,veto',
+        ('7.13: and the changes apply from the next run (%s)'):format(table.concat(order, ',')))
+    CisHooks.releaseOwner('cis_libs')
+    expect(CisHooks.byName['test.mutate'] == nil, '7.13: releaseOwner takes every hook of that owner')
+
+    -- A refusal is false, reason, as HookOn documents, not nil.
+    local bad, badWhy = CisHooks.on('', function() end)
+    expect(bad == false and type(badWhy) == 'string', '7.13: a refused registration returns false and a reason')
+    GetInvokingResource = savedInvoking
 end
 
 -- 8.1 pass timings. Not CisHistogram (that is job counts).

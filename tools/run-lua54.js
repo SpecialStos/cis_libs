@@ -69,4 +69,51 @@ console.log(`lua54 runner: ${String(v.stderr || v.stdout).trim()}`)
 const r = spawnSync(lua, ['test/run.lua'], { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
 process.stdout.write(r.stdout || '')
 process.stderr.write(r.stderr || '')
-process.exit(r.status === null ? 2 : r.status)
+if (r.status !== 0) process.exit(r.status === null ? 2 : r.status)
+
+// THE DRIVER FAILS A BROKEN SUITE. Each fixture is wrong in a way the case list
+// alone does not show; a driver that passes one would pass a real suite broken
+// the same way.
+const BROKEN = {
+  'test/fixtures/suite-early-exit.lua': 'stopped before its end',
+  'test/fixtures/suite-empty.lua': 'ran no assertion',
+}
+for (const [fixture, why] of Object.entries(BROKEN)) {
+  const b = spawnSync(lua, ['test/run.lua'], {
+    cwd: root, encoding: 'utf8', env: { ...process.env, CIS_LUA54_ONLY: fixture },
+  })
+  if (b.status === 0 || !String(b.stderr).includes(why)) {
+    console.error(`FAIL the Lua 5.4 driver passed ${fixture} (expected "${why}"); exit ${b.status}`)
+    console.error(String(b.stderr || '').trim())
+    process.exit(1)
+  }
+}
+console.log(`lua54 driver: fails ${Object.keys(BROKEN).length} broken fixture suites`)
+
+// THE SAME COUNT AS FENGARI, suite by suite, apart from deliberate differences.
+const counts = require('./test-counts')
+if (counts.compare({ 'a.lua': 2 }, { 'a.lua': 1 }).length !== 1 || counts.compare({ 'a.lua': 2 }, { 'a.lua': 2 }).length !== 0) {
+  console.error('FAIL tools/test-counts.js compare() does not report a one-assertion difference')
+  process.exit(1)
+}
+const lua54 = {}
+for (const m of String(r.stdout).matchAll(/^lua54-suite (\S+) passed=(\d+)/gm)) lua54[m[1]] = Number(m[2])
+const fengari = counts.load()
+if (!fengari) {
+  const why = 'no fengari counts for this tree (run `npm test` first)'
+  if (ciIsSet()) {
+    console.error(`FAIL ${why}. CI is set, so the counts must be compared.`)
+    process.exit(1)
+  }
+  console.error(`WARNING  count comparison skipped: ${why}`)
+  process.exit(0)
+}
+const bad = counts.compare(fengari, lua54)
+if (bad.length) {
+  console.error('FAIL assertion counts differ between Lua 5.4 and fengari:')
+  for (const line of bad) console.error(`  ${line}`)
+  console.error('  An assertion that runs under one interpreter only is switched off on the other.')
+  console.error('  If the difference is deliberate, add it to KNOWN_DELTA in tools/test-counts.js.')
+  process.exit(1)
+}
+console.log(`lua54 counts: ${Object.keys(lua54).length} suites match the fengari run`)

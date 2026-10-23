@@ -326,7 +326,7 @@ local CisModuleInfo = {}
 
 ---@class CisPointOptions
 -- The table Cis.points.add takes. coords and distance are REQUIRED and are refused by name when absent -- a defaulted radius is a specific number nobody asked for, and a defaulted coordinate is a point at the world origin that fires for a player who spawned there. Every other field is optional. From init.lua (Cis.points.add) the function fields are plain local functions in the calling resource; through the CreatePoint export they arrive as funcrefs. The event-name twins fire either way.
----@field coords vector3|vector4|table the centre
+---@field coords vector3|vector4|table the centre; finite, and within 100 km of the origin -- an infinite coordinate used to hang the grid insert
 ---@field distance number the enter radius in metres. Must be finite and greater than zero; NaN and infinity are both refused by name, because NaN makes every containment test false and infinity has no cell to index
 ---@field onEnter? fun(coords: vector3, id: integer) called under pcall on arrival
 ---@field onExit? fun(coords: vector3, id: integer) called under pcall on departure and on removal
@@ -703,14 +703,14 @@ local CisZoneDebug = {}
 ---@field inside? fun(zone: CisZone) called every insideInterval while the player is inside
 ---@field insideInterval? integer ms between inside calls, default 500. Clamped up to 250 whenever insideEvent is set, so a networked event cannot be asked for faster than a quarter second
 ---@field debug? boolean truthy starts the draw thread once registration succeeds
----@field onEnterEvent? string fires with (zoneName, x, y, z). Falls back to TriggerServerEvent when onEnter is absent
+---@field onEnterEvent? string fires with (zoneName, x, y, z). Falls back to TriggerServerEvent when onEnter is absent. Every event name is a string of 1 to 128 bytes; anything else refuses the zone by name
 ---@field onExitEvent? string fires with (zoneName, x, y, z). The only way a consumer outside this VM learns the player left
 ---@field insideEvent? string its presence is what forces the 250ms clamp
----@field local? boolean truthy switches the events to client-local TriggerEvent instead of TriggerServerEvent
----@field minZ? number the floor, default -1000.0, and the fallback Z for any poly point with no z
+---@field local? boolean exactly true switches ALL THREE events (onEnterEvent, onExitEvent, insideEvent) to client-local TriggerEvent instead of TriggerServerEvent. A local event from a resource other than cis_libs must be named <resource>:... -- the creating resource -- so it cannot fire cis_libs:cache, onResourceStop or the events of another resource with cis_libs as the invoker
+---@field minZ? number the floor, default -1000.0, and the fallback Z for any poly point with no z. Must be finite and no higher than maxZ
 ---@field maxZ? number the ceiling, default 10000.0
 ---@field thickness? number poly only: a slab this many metres tall around the average z of the points, as ox_lib; ignored when minZ or maxZ is given
----@field heading? number the box heading
+---@field heading? number the box heading; a finite number
 ---@field rotation? number an alias for the box heading
 local CisZoneOptions = {}
 
@@ -764,21 +764,21 @@ function AlertDialog(data) end
 
 --- Cis.streaming.animDict(name, timeout)
 ---@param name string #the dictionary NAME, not a hash -- RequestAnimDict takes a char*, and a hash is a type error the game answers by never loading
----@param timeout? integer #ms, default 5000
+---@param timeout? integer #ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested
 ---@return string|nil, string|nil #the name, or nil plus a reason. THE ONLY KIND WITH AN EXISTENCE PROBE, so an invalid dictionary is refused immediately rather than after the whole timeout
 --- realm: client
 function AnimDict(name, timeout) end
 
 --- Cis.streaming.animSet(name, timeout)
 ---@param name string #the set name
----@param timeout? integer #ms, default 5000
+---@param timeout? integer #ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested
 ---@return string|nil, string|nil #the name, or nil plus a reason
 --- realm: client
 function AnimSet(name, timeout) end
 
 --- Cis.streaming.audioBank(name, timeout)
 ---@param name string #the bank name
----@param timeout? integer #ms, default 5000
+---@param timeout? integer #ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested
 ---@return string|nil, string|nil #the name once RequestScriptAudioBank answers true. The native is its own poll -- false while the bank loads -- so it is called again until true or the timeout, and a timed-out bank is released by name
 --- realm: client
 function AudioBank(name, timeout) end
@@ -965,7 +965,7 @@ function CreateTarget(zoneType, name, coords, size, options) end
 ---@param kind string #'box', 'poly' or 'sphere'; anything else is refused by name
 ---@param name string #a non-empty name -- the table key, the grid key, and the handle remove(name) takes
 ---@param a vector3|vector4|table #the box or sphere centre, or the poly point list; nil is refused by name and a type outside these three is refused too
----@param b vector3|number|table #the box size (required -- nil refuses), the sphere radius (default 1.0), or unused for a poly
+---@param b vector3|number|table #the box size (required -- nil refuses; every axis positive and finite), the sphere radius (default 1.0; positive and finite), or unused for a poly. A poly needs at least 3 points, and every zone must lie within 100 km of the origin
 ---@param options? table #the options table, defaulted to {}
 ---@return boolean, string #true on success; every refusal is false plus a reason. ALWAYS capture the second value -- a bare false tells you nothing you did not already guess
 --- realm: client
@@ -1359,7 +1359,7 @@ function HookOn(name, fn, opts) end
 
 --- Cis.hooks.remove(id)
 ---@param id integer #the cookie HookOn returned
----@return boolean, string|nil #true once removed
+---@return boolean, string|nil #true once removed. ONLY the resource that registered the hook, or cis_libs, may remove it; anyone else gets false plus a reason naming the owner, because ids count up from 1 and a loop over them stripped the vetoes of every resource
 --- realm: both
 function HookRemove(id) end
 
@@ -1627,7 +1627,7 @@ function ProgressCircle(data) end
 
 --- Cis.streaming.ptfx(name, timeout)
 ---@param name string #the effect name
----@param timeout? integer #ms, default 5000
+---@param timeout? integer #ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested
 ---@return string|nil, string|nil #the name, or nil plus a reason. NO existence probe exists for this kind, so an invalid name costs the whole timeout -- a real asymmetry with AnimDict, documented rather than papered over
 --- realm: client
 function Ptfx(name, timeout) end
@@ -1795,7 +1795,7 @@ function RequestLockDoors(identifier) end
 
 --- Cis.streaming.model(model, timeout)
 ---@param model integer|string #a hash or a model name
----@param timeout? integer #the deadline in ms, default 5000
+---@param timeout? integer #the deadline in ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested
 ---@return boolean, integer #slot 2 is ALWAYS the hash, including on refusal -- so a caller can release it either way, which is the whole reason the export shape is a pair
 --- realm: client
 function RequestModelTimeout(model, timeout) end
@@ -1816,7 +1816,7 @@ function Round(num, numDecimalPlaces) end
 
 --- Cis.streaming.scaleform(name, timeout)
 ---@param name string #the movie name
----@param timeout? integer #ms, default 5000
+---@param timeout? integer #ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested
 ---@return string|nil, integer|nil, string|nil #the name and the movie handle, or nil plus a reason. RequestScaleformMovie ANSWERS the handle and returns 0 when it refuses, which is a real third state between not-yet and loaded
 --- realm: client
 function Scaleform(name, timeout) end
@@ -2015,7 +2015,7 @@ function TargetExists(name) end
 
 --- Cis.streaming.textureDict(name, timeout)
 ---@param name string #the dictionary name
----@param timeout? integer #ms, default 5000
+---@param timeout? integer #ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested
 ---@return string|nil, string|nil #the name, or nil plus a reason. The request native takes a streamed flag as its second argument and it is always true here
 --- realm: client
 function TextureDict(name, timeout) end
@@ -2146,7 +2146,7 @@ function WatchNear(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent)
 
 --- Cis.streaming.weaponAsset(hash, timeout)
 ---@param name integer #the weapon HASH, passed through the parameter called name so all seven registrations share one shape
----@param timeout? integer #ms, default 5000
+---@param timeout? integer #ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested
 ---@return integer|nil, string|nil #the hash, or nil plus a reason
 --- realm: client
 function WeaponAsset(name, timeout) end
@@ -2750,7 +2750,7 @@ function Cis.requireList() end
 ---@field since string 1.1.0
 ---@field realm "client"
 ---@param name string #the movie name
----@param timeout? integer #ms, default 5000
+---@param timeout? integer #ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested
 ---@return CisScaleformMovie|nil, string|nil #the movie object, or nil plus a reason. Disposed by :dispose() and on the stop of the calling resource
 function Cis.scaleform.new(name, timeout) end
 
@@ -2795,7 +2795,7 @@ function Cis.statebag.remove(cookie) end
 ---@field since string 1.0.0
 ---@field realm "client"
 ---@param name string #the dictionary NAME, not a hash -- a function argument aside, RequestAnimDict takes a char* and a hash is a type error the game answers by never loading
----@param timeout? integer #ms, default 5000
+---@param timeout? integer #ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested
 ---@return string|nil, string|nil #the name, or nil plus a reason. An invalid dictionary is refused in microseconds because this is the only kind with an existence probe
 function Cis.streaming.animDict(name, timeout) end
 
@@ -2803,7 +2803,7 @@ function Cis.streaming.animDict(name, timeout) end
 ---@field since string 1.0.0
 ---@field realm "client"
 ---@param name string #the set name
----@param timeout? integer #ms, default 5000
+---@param timeout? integer #ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested
 ---@return string|nil, string|nil #the name, or nil plus a reason
 function Cis.streaming.animSet(name, timeout) end
 
@@ -2811,7 +2811,7 @@ function Cis.streaming.animSet(name, timeout) end
 ---@field since string 1.0.0
 ---@field realm "client"
 ---@param name string #the bank name
----@param timeout? integer #ms, default 5000
+---@param timeout? integer #ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested
 ---@return string|nil, string|nil #the name once the engine has ACCEPTED the bank, not once it is resident, and it never waits for either
 function Cis.streaming.audioBank(name, timeout) end
 
@@ -2819,7 +2819,7 @@ function Cis.streaming.audioBank(name, timeout) end
 ---@field since string 1.0.0
 ---@field realm "client"
 ---@param model integer|string #a hash or a model name
----@param timeout? integer #the deadline in ms, default 5000
+---@param timeout? integer #the deadline in ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested
 ---@return boolean, integer #slot 2 is ALWAYS the hash, including on refusal, so a caller can release it either way. Releasing is the caller's job: the library does not keep a reference it cannot see
 function Cis.streaming.model(model, timeout) end
 
@@ -2827,7 +2827,7 @@ function Cis.streaming.model(model, timeout) end
 ---@field since string 1.0.0
 ---@field realm "client"
 ---@param name string #the effect name
----@param timeout? integer #ms, default 5000
+---@param timeout? integer #ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested
 ---@return string|nil, string|nil #the name, or nil plus a reason. There is NO existence probe for this kind, so an invalid name costs the whole timeout -- a real asymmetry with animDict and documented rather than hidden
 function Cis.streaming.ptfx(name, timeout) end
 
@@ -2843,7 +2843,7 @@ function Cis.streaming.release(kind, asset) end
 ---@field since string 1.0.0
 ---@field realm "client"
 ---@param name string #the movie name
----@param timeout? integer #ms, default 5000
+---@param timeout? integer #ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested
 ---@return string|nil, integer|nil, string|nil #the name and the movie handle, or nil plus a reason. The request native answers the handle and returns 0 when it refuses, which is a real third state between not-yet and loaded
 function Cis.streaming.scaleform(name, timeout) end
 
@@ -2851,7 +2851,7 @@ function Cis.streaming.scaleform(name, timeout) end
 ---@field since string 1.0.0
 ---@field realm "client"
 ---@param name string #the dictionary name
----@param timeout? integer #ms, default 5000
+---@param timeout? integer #ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested
 ---@return string|nil, string|nil #the name, or nil plus a reason
 function Cis.streaming.textureDict(name, timeout) end
 
@@ -2859,7 +2859,7 @@ function Cis.streaming.textureDict(name, timeout) end
 ---@field since string 1.0.0
 ---@field realm "client"
 ---@param hash integer #the weapon hash
----@param timeout? integer #ms, default 5000
+---@param timeout? integer #ms, default 5000; 0 to 600000, and NaN, infinity, a negative or a non-number is refused with a reason before anything is requested
 ---@return integer|nil, string|nil #the hash, or nil plus a reason
 function Cis.streaming.weaponAsset(hash, timeout) end
 

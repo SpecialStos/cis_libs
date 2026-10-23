@@ -1523,6 +1523,57 @@ do
     env.reset()
 end
 
+-- `local = true` covers onEnterEvent too. It was read only when insideEvent was
+-- set, so an enter event meant to stay on this client went to the server.
+do
+    local env = zoneEnv()
+    env.invoking = 'my_resource'
+    local ok = exports.CreateZone('box', 'localEnter',
+        { x = 0.0, y = 0.0, z = 0.0 }, { x = 20.0, y = 20.0, z = 20.0 }, {
+            onEnterEvent = 'my_resource:entered',
+            ['local'] = true,
+        })
+    env.invoking = nil
+    simulateSecond(env)
+    check(ok == true and #env.serverEventsOf('my_resource:entered') == 0
+        and #env.localEventsOf('my_resource:entered') == 1,
+        ('`local = true` with only onEnterEvent fires it locally, once (server=%d local=%d)')
+            :format(#env.serverEventsOf('my_resource:entered'), #env.localEventsOf('my_resource:entered')))
+    env.reset()
+end
+
+-- A LOCAL ZONE EVENT IS FIRED AS cis_libs, so another resource may not name an
+-- event that trusts that: the cache mirror's, or onResourceStop for a zone named
+-- 'cis_libs' (CisRealStop passes when the invoker is the resource stopping).
+do
+    local env = zoneEnv()
+    env.invoking = 'evil'
+    local center, size = { x = 0.0, y = 0.0, z = 0.0 }, { x = 20.0, y = 20.0, z = 20.0 }
+    for _, c in ipairs({
+        { 'vehicle', 'onEnterEvent', 'cis_libs:cache' },
+        { 'cis_libs', 'onEnterEvent', 'onResourceStop' },
+        { 'evilExit', 'onExitEvent', 'onClientResourceStop' },
+        { 'evilInside', 'insideEvent', 'other_res:open' },
+    }) do
+        local okZone, why = exports.CreateZone('box', c[1], center, size, { [c[2]] = c[3], ['local'] = true })
+        check(okZone == false and tostring(why):find('evil:', 1, true) ~= nil,
+            ('a local %s %q from another resource is refused, naming the prefix it needs (%s)')
+                :format(c[2], c[3], tostring(why)))
+    end
+    local okOwn = exports.CreateZone('box', 'evilOwn', center, size, { onEnterEvent = 'evil:entered', ['local'] = true })
+    check(okOwn == true, 'its own "<resource>:" local event is allowed')
+    local okServer = exports.CreateZone('box', 'evilServer', center, size, { onEnterEvent = 'cis_libs:anything' })
+    check(okServer == true, 'and a server event keeps any name: the server sees the player, not cis_libs')
+    local okType, typeWhy = exports.CreateZone('box', 'evilType', center, size, { onEnterEvent = 42 })
+    check(okType == false and tostring(typeWhy):find('string', 1, true) ~= nil,
+        ('an event name that is not a string is refused (%s)'):format(tostring(typeWhy)))
+    env.invoking = nil
+    simulateSecond(env)
+    check(#env.localEventsOf('onResourceStop') == 0 and #env.localEventsOf('cis_libs:cache') == 0,
+        'and nothing reserved was fired')
+    env.reset()
+end
+
 -- A zone whose `inside` is a plain FUNCTION keeps whatever interval the caller
 -- asked for, including 0. The clamp exists because an event aimed at the SERVER
 -- spends someone else's budget; a local function spends none, and clamping it
@@ -2366,6 +2417,13 @@ do
     local huge = exports.CreateZone('sphere', 'shop', { x = 0.0, y = 0.0, z = 0.0 }, 1e6, {})
     check(huge == false and exports.ZoneContains('shop', { x = 5.0, y = 0.0, z = 0.0 }) == true,
         'so does one the index refuses (a sphere a thousand kilometres wide)')
+    for _, c in ipairs({ { 'y = -inf', 0.0, -math.huge }, { 'x = 1e21', 1e21, 0.0 } }) do
+        debug.sethook(function() error('HUNG', 0) end, '', 2000000)
+        local okCall, inf, infWhy = pcall(exports.CreateZone, 'sphere', 'far', { x = c[2], y = c[3], z = 0.0 }, 2.0, {})
+        debug.sethook()
+        check(okCall and inf == false and type(infWhy) == 'string',
+            ('a sphere at %s is refused with a reason, not a hang (%s, %s)'):format(c[1], tostring(inf), tostring(infWhy)))
+    end
     local str, strWhy = exports.CreateZone('box', 'shop2',
         { x = 0.0, y = 0.0, z = 0.0 }, { x = 2.0, y = 2.0, z = 2.0 },
         { inside = function() end, insideInterval = '250' })
@@ -2598,11 +2656,34 @@ do
     check(exports.RemoveZone('ghost') == false,
         'and there is nothing to remove, because it was never registered')
 
+    -- A SHAPE THAT CAN CONTAIN NOTHING, OR CANNOT BE COMPUTED, IS REFUSED WITH A
+    -- REASON. A table radius or a string heading raised inside the export; a
+    -- negative size, a two-point poly or minZ above maxZ registered a zone that
+    -- never fires.
+    local o = { x = 0.0, y = 0.0, z = 0.0 }
+    local p3 = { { x = 0.0, y = 0.0, z = 0.0 }, { x = 4.0, y = 0.0, z = 0.0 }, { x = 0.0, y = 4.0, z = 0.0 } }
+    for _, c in ipairs({
+        { 'a sphere with a table radius', 'sphere', o, { 2 }, {}, 'radius' },
+        { 'a sphere with a negative radius', 'sphere', o, -1.0, {}, 'radius' },
+        { 'a box with a negative size', 'box', o, { x = -0.5, y = 2.0, z = 2.0 }, {}, 'size' },
+        { 'a box with a NaN size', 'box', o, 0 / 0, {}, 'size' },
+        { 'a box with a string heading', 'box', o, 2.0, { heading = 'north' }, 'heading' },
+        { 'a two-point poly', 'poly', { p3[1], p3[2] }, {}, nil, '3 points' },
+        { 'a poly with minZ above maxZ', 'poly', p3, { minZ = 10.0, maxZ = 5.0 }, nil, 'minZ' },
+    }) do
+        local okCall, okShape, whyShape = pcall(exports.CreateZone, c[2], 'shape', c[3], c[4], c[5])
+        check(okCall and okShape == false and tostring(whyShape):find(c[6], 1, true) ~= nil,
+            ('%s is refused with a reason naming %s (%s, %s)'):format(c[1], c[6], tostring(okShape), tostring(whyShape)))
+    end
+    check(exports.CreateZone('poly', 'tri', p3, { minZ = -1.0, maxZ = 3.0 }) == true,
+        'a three-point poly with minZ below maxZ is still accepted')
+    exports.RemoveZone('tri')
+
     -- A box whose AABB would cover an absurd number of cells. The refusal has
     -- to leave nothing behind: a zone stored that no query can reach is the
     -- same invisible-record failure was about, in a new place.
     ok, why = exports.CreateZone('box', 'vast',
-        { x = 0.0, y = 0.0, z = 0.0 }, { x = 1e9, y = 1e9, z = 1e9 }, {})
+        { x = 0.0, y = 0.0, z = 0.0 }, { x = 2e4, y = 2e4, z = 10.0 }, {})
     check(ok == false, 'a zone covering an absurd number of cells is refused')
     check(tostring(why):find('cells', 1, true) ~= nil,
         ('and the reason names the cell count: %s'):format(tostring(why)))
@@ -2914,12 +2995,12 @@ do
         '3.4b: no draw thread before any debug zone exists')
 
     exports.CreateZone('box', 'quiet', { x = 0.0, y = 0.0, z = 0.0 },
-        { x = 10.0, y = 10.0, z = 0.0 }, {})
+        { x = 10.0, y = 10.0, z = 4.0 }, {})
     check(drawing() == false,
         '3.4b: a zone WITHOUT debug does not start the draw thread')
 
     exports.CreateZone('box', 'loud', { x = 0.0, y = 0.0, z = 0.0 },
-        { x = 10.0, y = 10.0, z = 0.0 }, { debug = true })
+        { x = 10.0, y = 10.0, z = 4.0 }, { debug = true })
     check(drawing() == true,
         '3.4b: the FIRST debug zone starts the draw thread')
 
@@ -4006,6 +4087,15 @@ do
         ('7.1: a radius the index cannot hold is refused (got %s, %s)'):format(tostring(okBig), tostring(whyBig)))
     local okNan = whyOf({ coords = { x = 0 / 0, y = 0, z = 0 }, distance = 5 })
     check(okNan == false, '7.1: and so are NaN coords')
+    -- Infinite or absurd coords froze the game thread inside the export: the
+    -- grid walked a float loop that never ends. The hook makes a hang a failure.
+    for _, c in ipairs({ { 'x = inf', math.huge, 0 }, { 'x = 1e21', 1e21, 0 }, { 'y = -inf', 0, -math.huge } }) do
+        debug.sethook(function() error('HUNG', 0) end, '', 2000000)
+        local okCall, okInf, whyInf = pcall(whyOf, { coords = { x = c[2], y = c[3], z = 0 }, distance = 2 })
+        debug.sethook()
+        check(okCall and okInf == false and type(whyInf) == 'string',
+            ('7.1: a point at %s is refused with a reason, not a hang (%s, %s)'):format(c[1], tostring(okInf), tostring(whyInf)))
+    end
     check(exports.GetClosestPoint() == nil, '7.1: neither left a point behind for getClosest')
 
     -- NaN IS TRUTHY. `if distance ~= distance` is the NaN test; `if not
@@ -4426,6 +4516,17 @@ do
                 ('7.2: %s times out with a reason (got %s, %s)'):format(k.call, tostring(got), tostring(why)))
             check(env.called(k.release) ~= nil,
                 ('7.2: %s RELEASES on timeout -- without this the request stays resident forever'):format(k.call))
+            env.reset()
+        end
+        -- A NaN deadline never passes, so a NaN timeout polled forever. The hook
+        -- turns that back into a failure.
+        for _, bad in ipairs({ 0 / 0, math.huge, -1 }) do
+            local env = streamEnv({ never = true })
+            debug.sethook(function() error('HUNG', 0) end, '', 2000000)
+            local okCall, got, why = pcall(exports[k.call], k.asset, bad)
+            debug.sethook()
+            check(okCall and got == nil and tostring(why):find('timeout', 1, true) ~= nil,
+                ('7.2: %s refuses a timeout of %s with a reason, not a wait (%s)'):format(k.call, tostring(bad), tostring(why)))
             env.reset()
         end
     end

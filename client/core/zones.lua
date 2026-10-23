@@ -83,6 +83,9 @@ function M.new(cfg)
         timing = cfg.timing,
         autoDrive = cfg.autoDrive == true,
         awaitReady = cfg.awaitReady,
+        -- The resource local events are fired as, when other resources' zones
+        -- share this instance (cis_libs'). Unset in a consumer's own VM.
+        localEventsAs = cfg.localEventsAs,
         zones = {},
         inside = {},
         -- Set by any create or remove, so the next pass runs discovery at once.
@@ -152,6 +155,43 @@ function Zones:hasZones()
     return next(self.zones) ~= nil
 end
 
+local function finite(v)
+    return type(v) == 'number' and v == v and v ~= math.huge and v ~= -math.huge
+end
+
+local function positive(v)
+    return finite(v) and v > 0
+end
+
+local EVENT_KEYS = { 'onEnterEvent', 'onExitEvent', 'insideEvent' }
+local MAX_EVENT_NAME = 128
+
+-- A LOCAL EVENT IS FIRED AS THIS VM. In cis_libs' shared instance that is
+-- cis_libs, and handlers that trust an invoker of cis_libs (the cache mirror,
+-- CisRealStop for a stop of cis_libs) would take a zone named 'vehicle' firing
+-- 'cis_libs:cache', or one named 'cis_libs' firing 'onResourceStop', as the
+-- library itself. So there, another resource's zone may only fire local events
+-- under its own '<owner>:' prefix. A server event carries no such identity: the
+-- server sees the player, as it would from any client script.
+function Zones:eventNameOk(eventName, isLocal, owner)
+    if eventName == nil then
+        return true
+    end
+    if type(eventName) ~= 'string' or eventName == '' or #eventName > MAX_EVENT_NAME then
+        return false, ('must be a non-empty string of at most %d bytes, got %s')
+            :format(MAX_EVENT_NAME, type(eventName) == 'string' and ('%d bytes'):format(#eventName) or type(eventName))
+    end
+    local as = self.localEventsAs
+    if isLocal and as and type(owner) == 'string' and owner ~= as then
+        local prefix = owner .. ':'
+        if eventName:sub(1, #prefix) ~= prefix then
+            return false, ('%q is a local event fired as %s, so it must start with %q')
+                :format(eventName, as, prefix)
+        end
+    end
+    return true
+end
+
 function Zones:create(kind, name, a, b, options, owner)
     -- Every refusal returns a reason as a second value.
     if type(name) ~= 'string' or name == '' then
@@ -196,6 +236,16 @@ function Zones:create(kind, name, a, b, options, owner)
     zone.onEnterEvent = options.onEnterEvent
     zone.onExitEvent = options.onExitEvent
     zone.insideEvent = options.insideEvent
+    -- `local` is a Lua keyword, so this key is read with brackets. It applies to
+    -- all three events; it used to be read only when insideEvent was set, so an
+    -- onEnterEvent meant for this client went to the server.
+    zone['local'] = options['local'] == true
+    for _, key in ipairs(EVENT_KEYS) do
+        local ok, why = self:eventNameOk(zone[key], zone['local'], owner)
+        if not ok then
+            return false, ('zone %q: %s %s'):format(name, key, why)
+        end
+    end
 
     local interval = zone.insideInterval
     if interval ~= nil and (type(interval) ~= 'number' or interval ~= interval or interval < 0) then
@@ -203,8 +253,6 @@ function Zones:create(kind, name, a, b, options, owner)
     end
     -- THE INSIDE INTERVAL IS CLAMPED, AND A CLIENT-SIDE OPTION EXISTS.
     if zone.insideEvent then
-        -- `local` is a Lua keyword, so this key is read with brackets.
-        zone['local'] = options['local'] and true or false
         if zone.insideInterval == nil then
             zone.insideInterval = 500
         end
@@ -239,6 +287,16 @@ function Zones:create(kind, name, a, b, options, owner)
         end
         zone.minZ = minZ or -1000.0
         zone.maxZ = maxZ or 10000.0
+        -- A ZONE THAT CAN CONTAIN NOTHING IS REFUSED: two points have no area,
+        -- and a slab with minZ above maxZ has no height. Both used to register
+        -- and then never fire.
+        if #points < 3 and #points > 0 then
+            return false, ('poly zone %q: needs at least 3 points, got %d'):format(name, #points)
+        end
+        if not finite(zone.minZ) or not finite(zone.maxZ) or zone.minZ >= zone.maxZ then
+            return false, ('poly zone %q: minZ (%s) must be a number below maxZ (%s)')
+                :format(name, tostring(zone.minZ), tostring(zone.maxZ))
+        end
         -- A poly zone with no points, or a point that did not survive the
         local box, boxWhy = self.Grid.aabbFromPoints(points, zone.minZ, zone.maxZ, 0.5)
         if not box then
@@ -256,9 +314,17 @@ function Zones:create(kind, name, a, b, options, owner)
         else
             sx, sy, sz = size, size, size
         end
+        if not (positive(sx) and positive(sy) and positive(sz)) then
+            return false, ('box zone %q: every size axis must be a positive number, got %s, %s, %s')
+                :format(name, tostring(sx), tostring(sy), tostring(sz))
+        end
+        local heading = options.heading or options.rotation or 0.0
+        if not finite(heading) then
+            return false, ('box zone %q: heading must be a number of degrees, got %s'):format(name, tostring(heading))
+        end
         zone.cx, zone.cy, zone.cz = center.x, center.y, center.z
         zone.hx, zone.hy, zone.hz = sx * 0.5, sy * 0.5, sz * 0.5
-        zone.heading = options.heading or options.rotation or 0.0
+        zone.heading = heading
         -- THE INDEX BOX OF A ROTATED BOX IS THE ROTATED FOOTPRINT'S BOUNDS. The
         -- unrotated half-extents leave the corners of a turned box outside the
         -- index, and a player standing in a corner is never a candidate -- part
@@ -272,6 +338,9 @@ function Zones:create(kind, name, a, b, options, owner)
         local center = asVec3(a)
         zone.cx, zone.cy, zone.cz = center.x, center.y, center.z
         zone.radius = b or 1.0
+        if not positive(zone.radius) then
+            return false, ('sphere zone %q: radius must be a positive number, got %s'):format(name, tostring(zone.radius))
+        end
         zone.aabb = self.Grid.aabbFromCenter(zone.cx, zone.cy, zone.cz, zone.radius, zone.radius, zone.radius)
     else
         -- an unknown kind is a refusal WITH A REASON.

@@ -75,6 +75,9 @@ for (const r of results) {
   console.log(`  ${verdict}  ${r.file.padEnd(20)} ${detail}`)
 }
 const failed = results.filter(r => !r.ok)
+if (!failed.length) {
+  require('../tools/test-counts').save(Object.fromEntries(results.map(r => [r.file, r.count])))
+}
 
 // The consumer compatibility check runs HERE rather than only in `npm run
 // test:api`, because the promise is that renaming a name a sibling uses turns

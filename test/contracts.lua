@@ -3292,8 +3292,10 @@ do
             '5.1: the chunk receives (name, canonical path), like Lua\'s require')
 
         local okCycle, cycleErr = pcall(lib.require, 'mods.a')
+        -- The chain itself, not just the two paths: the error's location prefix
+        -- names both files whether or not the message does.
         check(not okCycle and type(cycleErr) == 'string' and cycleErr:find('circular', 1, true) ~= nil
-            and cycleErr:find('mods/a.lua', 1, true) ~= nil and cycleErr:find('mods/b.lua', 1, true) ~= nil,
+            and cycleErr:find('mods/a.lua -> @consumer_res/mods/b.lua -> @consumer_res/mods/a.lua', 1, true) ~= nil,
             ('5.1: a circular require RAISES naming the chain instead of recursing forever (%s)')
                 :format(tostring(cycleErr)))
         local okSelf, selfErr = pcall(lib.require, 'mods.self')

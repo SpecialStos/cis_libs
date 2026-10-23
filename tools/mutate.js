@@ -119,8 +119,18 @@ function main() {
         // 'web' is the page's own suite (test/web): a defect in web/ is
         // invisible to every Lua suite, so without it a page-side fix could
         // only ever be asserted, never shown to be caught.
+        //
+        // 'lua54' is the real-interpreter runner: its driver checks (a suite
+        // that stops early, counts that differ from fengari) never run here
+        // otherwise, because the suite above is the fengari one.
         if (m.check) {
-          const args = m.check === 'web' ? ['test/web/run.mjs'] : ['tools/validate-api.js', '--api', 'api.lua', '--resource', '.']
+          const CHECKS = {
+            web: ['test/web/run.mjs'],
+            lua54: ['tools/run-lua54.js'],
+            api: ['tools/validate-api.js', '--api', 'api.lua', '--resource', '.'],
+          }
+          const args = CHECKS[m.check]
+          if (!args) throw new Error(`${m.id}: unknown check '${m.check}'`)
           const c = spawnSync(process.execPath, args, {
             cwd: tmpRoot,
             encoding: 'utf8',

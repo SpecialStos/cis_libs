@@ -39,6 +39,9 @@ local engine = Engine.new({
     -- zone exists. Two always-on loops woke six times a second with no zone.
     autoDrive = true,
     awaitReady = awaitReady,
+    -- Local zone events fire from this VM, so as cis_libs: another resource's
+    -- zone may only fire its own '<resource>:' events locally.
+    localEventsAs = GetCurrentResourceName(),
     -- [D3] A NAME HELD BY ANOTHER RESOURCE IS REFUSED, NOT REPLACED.
     admit = function(name, held, zoneOwner)
         local holder = held and held.owner

@@ -11,6 +11,12 @@ local STRIDE = CisGrid.STRIDE
 -- The most cells one item may cover.
 local MAX_CELLS = 4096
 
+-- The largest |coordinate| an AABB may have. The map is about +-8000 m; an
+-- infinite bound made the cell loop a float loop whose step no longer changes
+-- the counter (the game thread hung), and past +-2^21 m the cell keys collide.
+CisGrid.LIMIT = 100000
+local LIMIT = CisGrid.LIMIT
+
 function CisGrid.cell(x, y)
     return math.floor(x / CELL), math.floor(y / CELL)
 end
@@ -48,11 +54,19 @@ local function checkAabb(aabb)
         if v ~= v then
             return nil, 'the AABB has a NaN bound'
         end
+        if v < -LIMIT or v > LIMIT then
+            return nil, ('the AABB has a bound of %s; at most %d metres from the origin is allowed')
+                :format(tostring(v), LIMIT)
+        end
     end
     -- minZ and maxZ may be nil -- queryPoint reads a nil z as "do not test z" -- but
     for _, v in ipairs({ aabb.minZ, aabb.maxZ }) do
         if v ~= nil and v ~= v then
             return nil, 'the AABB has a NaN z bound'
+        end
+        if type(v) == 'number' and (v < -LIMIT or v > LIMIT) then
+            return nil, ('the AABB has a z bound of %s; at most %d metres is allowed')
+                :format(tostring(v), LIMIT)
         end
     end
     if minX > maxX or minY > maxY then
@@ -89,7 +103,8 @@ function CisGrid.admits(aabb)
     local maxCy = math.floor(aabb.maxY / CELL)
     local cols = maxCx - minCx + 1
     local rows = maxCy - minCy + 1
-    if cols > MAX_CELLS or rows > MAX_CELLS or cols * rows > MAX_CELLS then
+    -- Written as "not within", so a NaN count is refused rather than admitted.
+    if not (cols <= MAX_CELLS and rows <= MAX_CELLS and cols * rows <= MAX_CELLS) then
         return false, ('the AABB covers %.0fx%.0f cells; at most %d are allowed. '
             .. 'A size in metres read as a cell count lands here.')
             :format(cols, rows, MAX_CELLS)
