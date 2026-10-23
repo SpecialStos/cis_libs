@@ -5,8 +5,9 @@
 // A lint rule that never fires reads exactly like a clean codebase, so every
 // rule is pinned to a fixture that must turn it red, line for line, and the
 // passing fixture pins the shapes it must NOT flag (an answer in both
-// branches, cb answered from a thread, a dispatcher that reads `source` one
-// call down, a `.state` field that is not a state bag).
+// branches, cb answered from a thread, a `function UI.onBuy` handler, a
+// dispatcher that reads `source` one call down, `source` as an argument of
+// the yielding call itself, a `.state` field that is not a state bag).
 //
 //   node test/cis-lint-selftest.js
 //
@@ -50,6 +51,8 @@ const EXPECTED = {
     'client.lua:32 L001', // handler with no cb parameter
     'client.lua:34 L001', // handler this file does not define
     'client.lua:39 L001', // return inside a loop
+    'client.lua:48 L001', // RegisterNuiCallback, the alias
+    'client.lua:53 L001', // RegisterNuiCallbackType + '__cfx_nui:' handler
   ],
   'bad-l002': [
     'server.lua:2 L002',  // identity from the payload
@@ -62,6 +65,10 @@ const EXPECTED = {
     'server.lua:37 L002', // handler this file does not define
     'server.lua:39 L000', // allow without a reason
     'server.lua:40 L002', // ... so the violation stands
+    'server.lua:47 L002', // read in time, then read AGAIN after Wait
+    'server.lua:53 L002', // yield through a file-level alias of exports
+    'server.lua:58 L002', // lib.waitFor
+    'server2.lua:2 L002', // net name declared in server.lua, handler in server2.lua
   ],
   'bad-l003': [
     'web/App.tsx:2 L003',    // Tailwind backdrop-blur

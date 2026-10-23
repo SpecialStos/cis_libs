@@ -60,3 +60,14 @@ RegisterNUICallback('elseif', function(data, cb)
 end)
 
 LocalPlayer.state:set('cisLintFixture', true, false)
+
+UI = {}
+function UI.onBuy(data, cb)
+    cb({ ok = data.item ~= nil })
+end
+RegisterNUICallback('buy', UI.onBuy)
+
+RegisterNuiCallbackType('raw')
+AddEventHandler('__cfx_nui:raw', function(data, cb)
+    cb({ ok = data ~= nil })
+end)

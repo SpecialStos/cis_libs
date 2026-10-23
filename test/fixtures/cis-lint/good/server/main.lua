@@ -41,3 +41,9 @@ RegisterNetEvent('fixture:ping', function()
 end)
 
 print(GetPlayerPed(1), Entity(1).state.fuel, GlobalState.weather)
+
+RegisterNetEvent('fixture:argumentOfYield', function()
+    local src = source
+    exports.ox_inventory:AddItem(source, 'water', 1)
+    print(src)
+end)

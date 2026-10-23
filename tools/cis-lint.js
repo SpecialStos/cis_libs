@@ -9,14 +9,15 @@
 // Exit 0 clean, 1 on any violation, 2 on a usage error.
 //
 // THE RULES (cis-fivem SKILL.md § 4 numbers the invariants):
-//   L001  every RegisterNUICallback handler calls cb on every path   (inv. 3)
+//   L001  every NUI callback handler calls cb on every path            (inv. 3)
+//         (RegisterNUICallback, RegisterNuiCallback, '__cfx_nui:' handlers).
 //         A path that returns, or falls off the end, without calling cb
 //         hangs the page's fetch forever, with no error anywhere.
-//   L002  a server net-event handler reads `source` before it yields  (inv. 2)
-//         `source` is a global the runtime rewrites per event: read after an
-//         exports call, a Wait or an await, it names whichever player's
-//         event ran in between. A handler that never reads it trusts the
-//         payload for identity.
+//   L002  a server net-event handler reads `source` before it yields,  (inv. 2)
+//         and never again after. `source` is a global the runtime rewrites
+//         per event: read after an exports call, a Wait or an await, it
+//         names whichever player's event ran in between. A handler that
+//         never reads it trusts the payload for identity.
 //   L003  no backdrop-filter in the NUI                               (inv. 5)
 //         CEF composites it over the game every frame.
 //   L004  no root-absolute asset path in the NUI                      (inv. 5)
@@ -323,11 +324,13 @@ function answersIn(list, cb) {
 
 
 // A handler argument: a function literal, or a name this file defines with
-// `local function name(...)`, `function name(...)` or `name = function(...)`.
+// `local function name(...)`, `function Mod.name(...)` or `name = function(...)`.
 function resolveHandler(arg, defs) {
   const parts = arg.filter(n => !(n.k === 'tok' && n.tok.t === 'op' && (n.tok.v === '(' || n.tok.v === ')')))
   if (parts.length === 1 && parts[0].k === 'fn') return parts[0]
-  if (parts.length === 1 && parts[0].k === 'tok' && parts[0].tok.t === 'name') return defs.get(parts[0].tok.v) || null
+  if (parts.length && parts.every(n => n.k === 'tok' && (n.tok.t === 'name' || n.tok.v === '.' || n.tok.v === ':'))) {
+    return defs.get(parts.map(n => n.tok.v).join('')) || null
+  }
   return null
 }
 
@@ -386,9 +389,18 @@ function walkCb(list, cb, called, report) {
   return { called, terminates: false }
 }
 
+// The runtime registers a NUI callback three ways (citizen scheduler.lua):
+// RegisterNUICallback, its alias RegisterNuiCallback, and
+// RegisterNuiCallbackType + AddEventHandler('__cfx_nui:<name>', fn).
+const NUI_REG = new Set(['RegisterNUICallback', 'RegisterNuiCallback', 'AddEventHandler'])
+
 function checkNuiCallbacks(tree, defs, report) {
   eachList(tree, (list) => {
-    for (const call of callsIn(list, new Set(['RegisterNUICallback']))) {
+    for (const call of callsIn(list, NUI_REG)) {
+      if (call.name === 'AddEventHandler') {
+        const first = call.args[0] || []
+        if (!(first.length === 1 && first[0].k === 'tok' && first[0].tok.t === 'str' && /^.__cfx_nui:/.test(first[0].tok.v))) continue
+      }
       const handler = call.args[1] && resolveHandler(call.args[1], defs)
       if (!handler) {
         report('L001', call.line, 'handler is not a function literal or a function defined in this file; cis-lint cannot check that it calls cb')
@@ -426,29 +438,46 @@ function ownTokens(list, out = []) {
   return out
 }
 
-function isYield(x) {
+// `yields` is YIELDS plus this file's aliases of exports
+// (`local inv = exports.ox_inventory`).
+function isYield(x, yields) {
   const tok = x.node.tok
   if (tok.t !== 'name') return false
-  if (YIELDS.has(tok.v) && bareRef(x.list, x.idx, tok.v)) return true
-  // `x.await(...)`, `x:await(...)`, `Citizen.Await(...)`
+  if (yields.has(tok.v) && bareRef(x.list, x.idx, tok.v)) return true
+  // `x.await(...)`, `x:await(...)`, `Citizen.Await(...)`, `lib.waitFor(...)`
   const prev = x.list[x.idx - 1]
-  return /^[aA]wait$/.test(tok.v) && (isTok(prev, '.') || isTok(prev, ':'))
+  return /^([aA]wait|waitFor)$/.test(tok.v) && (isTok(prev, '.') || isTok(prev, ':'))
 }
+
+function fileYields(tree) {
+  const yields = new Set(YIELDS)
+  eachList(tree, (list) => {
+    for (let idx = 2; idx < list.length; idx += 1) {
+      if (isTok(list[idx], 'exports') && isTok(list[idx - 1], '=') && list[idx - 2].k === 'tok' && list[idx - 2].tok.t === 'name') {
+        yields.add(list[idx - 2].tok.v)
+      }
+    }
+  })
+  return yields
+}
+
+// A call `NAME(` to a function this file defines.
+const localCall = (x, defs) => x.node.tok.t === 'name' && defs.has(x.node.tok.v) && bareRef(x.list, x.idx, x.node.tok.v) && isTok(x.list[x.idx + 1], '(')
 
 // Which comes first in a handler: a read of `source`, or a yield? A call to a
 // function this file defines runs synchronously, so a dispatcher that hands
 // `...` to `local function dispatch` reading `source` on its first line is
 // followed into it (three levels deep at most).
-function sourceOrder(body, defs, depth = 0) {
+function sourceOrder(body, defs, yields, depth = 0) {
   for (const x of ownTokens(body)) {
     const tok = x.node.tok
     if (bareRef(x.list, x.idx, 'source')) return { read: tok.line }
-    if (isYield(x)) return { yieldLine: tok.line }
-    if (depth < 3 && tok.t === 'name' && defs.has(tok.v) && bareRef(x.list, x.idx, tok.v) && isTok(x.list[x.idx + 1], '(')) {
+    if (isYield(x, yields)) return { yieldLine: tok.line }
+    if (depth < 3 && localCall(x, defs)) {
       // Arguments are evaluated before the call: `openFor(source)` has read it.
       const [call] = callsIn(x.list.slice(x.idx), new Set([tok.v]))
       if (call && call.args.some(a => a.some((_, k) => bareRef(a, k, 'source')))) return { read: tok.line }
-      const inner = sourceOrder(defs.get(tok.v).body, defs, depth + 1)
+      const inner = sourceOrder(defs.get(tok.v).body, defs, yields, depth + 1)
       if (inner.read) return { read: tok.line }
       if (inner.yieldLine) return { yieldLine: tok.line }
     }
@@ -456,22 +485,66 @@ function sourceOrder(body, defs, depth = 0) {
   return {}
 }
 
-function checkNetHandlers(tree, defs, report) {
-  // Names declared as net events by the one-argument form, for the
-  // RegisterNetEvent('x') + AddEventHandler('x', fn) pattern.
-  const netNames = new Set()
-  const handlers = []
-  const REG = new Set(['RegisterNetEvent', 'RegisterServerEvent', 'AddEventHandler'])
+function bodyYields(body, defs, yields, depth = 0) {
+  return ownTokens(body).some(x => isYield(x, yields) ||
+    (depth < 3 && localCall(x, defs) && bodyYields(defs.get(x.node.tok.v).body, defs, yields, depth + 1)))
+}
+
+// The first `source` read after the handler's first yield, or null. Reading
+// it once in time is not enough: `local src = source`, then a Wait, then
+// `TriggerClientEvent('x', source)` sends to whoever's event ran meanwhile.
+function sourceAfterYield(body, defs, yields) {
+  let pending = null
+  for (const x of ownTokens(body)) {
+    // A call yields only once its arguments are evaluated, so the yield
+    // takes effect after its closing parenthesis.
+    if (pending && (x.list !== pending.list || x.idx > pending.end)) {
+      if (bareRef(x.list, x.idx, 'source')) return { line: x.node.tok.line, yieldLine: pending.line }
+      continue
+    }
+    if (!pending && (isYield(x, yields) || (localCall(x, defs) && bodyYields(defs.get(x.node.tok.v).body, defs, yields)))) {
+      pending = { list: x.list, end: callEnd(x.list, x.idx), line: x.node.tok.line }
+    }
+  }
+  return null
+}
+
+// The index of the token that closes the call starting at idx:
+// `Wait(…)`, `exports.x:Y(…)`, `MySQL.query.await(…)`, `fn'str'`, `fn{…}`.
+function callEnd(list, idx) {
+  let j = idx + 1
+  while (j < list.length && list[j].k === 'tok' && (list[j].tok.t === 'name' || isTok(list[j], '.') || isTok(list[j], ':'))) j += 1
+  if (!isTok(list[j], '(') && !isTok(list[j], '{')) return list[j] && list[j].k === 'tok' && list[j].tok.t === 'str' ? j : idx
+  let depth = 0
+  for (; j < list.length; j += 1) {
+    if (list[j].k !== 'tok' || list[j].tok.t !== 'op') continue
+    if ('({['.includes(list[j].tok.v)) depth += 1
+    else if (')}]'.includes(list[j].tok.v) && --depth === 0) return j
+  }
+  return list.length
+}
+
+const REG_NET = new Set(['RegisterNetEvent', 'RegisterServerEvent', 'AddEventHandler'])
+const literalOf = (arg = []) => arg.length === 1 && arg[0].k === 'tok' && arg[0].tok.t === 'str' ? arg[0].tok.v.slice(1, -1) : null
+
+// Names declared as net events by the one-argument form, for the
+// RegisterNetEvent('x') + AddEventHandler('x', fn) pattern. Collected across
+// every server file first: the two halves often live in different files.
+function declaredNetNames(tree, into) {
   eachList(tree, (list) => {
-    for (const call of callsIn(list, REG)) {
-      const nameArg = call.args[0] || []
-      const literal = nameArg.length === 1 && nameArg[0].k === 'tok' && nameArg[0].tok.t === 'str' ? nameArg[0].tok.v.slice(1, -1) : null
-      if (call.name !== 'AddEventHandler' && call.args.length === 1 && call.args[0].length) {
-        if (literal) netNames.add(literal)
-        continue
-      }
-      if (call.args.length < 2) continue
-      handlers.push({ call, literal })
+    for (const call of callsIn(list, REG_NET)) {
+      if (call.name !== 'AddEventHandler' && call.args.length === 1 && literalOf(call.args[0])) into.add(literalOf(call.args[0]))
+    }
+  })
+  return into
+}
+
+function checkNetHandlers(tree, defs, report, netNames) {
+  const yields = fileYields(tree)
+  const handlers = []
+  eachList(tree, (list) => {
+    for (const call of callsIn(list, REG_NET)) {
+      if (call.args.length >= 2) handlers.push({ call, literal: literalOf(call.args[0]) })
     }
   })
   for (const { call, literal } of handlers) {
@@ -485,12 +558,18 @@ function checkNetHandlers(tree, defs, report) {
       report('L002', handler.line, 'a parameter named source shadows the runtime global: the payload now decides identity')
       continue
     }
-    const order = sourceOrder(handler.body, defs)
-    if (order.read) continue
     const label = literal ? `'${literal}'` : 'net handler'
+    const order = sourceOrder(handler.body, defs, yields)
+    if (order.read) {
+      const again = sourceAfterYield(handler.body, defs, yields)
+      if (again) {
+        report('L002', again.line, `${label} reads source again after a call that can yield (line ${again.yieldLine}); use the local read before it`)
+      }
+      continue
+    }
     const late = ownTokens(handler.body).find(x => bareRef(x.list, x.idx, 'source'))
     if (late) {
-      report('L002', late.node.tok.line, `${label} reads source after a call that can yield (line ${order.yieldLine}); read it into a local first`)
+      report('L002', late.node.tok.line, `${label} reads source after, or as an argument of, a call that can yield (line ${order.yieldLine}); read it first: local src = source`)
     } else {
       report('L002', call.line, `${label} never reads source: identity must come from source, not the payload`)
     }
@@ -688,21 +767,25 @@ function lintResource(dir) {
   const files = new Set(expand(dir, all, manifest.blocks.file))
   const luaFiles = [...new Set([...server, ...client, ...shared, ...files])].filter(f => f.endsWith('.lua')).sort()
 
-  let oneSyncUsage = null
+  const parsed = []
   for (const rel of luaFiles) {
     const src = fs.readFileSync(path.join(dir, rel), 'utf8')
-    let toks, tree
     try {
-      toks = tokenize(src).toks
-      tree = parse(toks)
+      const toks = tokenize(src).toks
+      parsed.push({ rel, toks, tree: parse(toks) })
     } catch (e) {
       errors.push(`${rel}: cannot parse (${e.message})`)
-      continue
     }
+  }
+  const netNames = new Set()
+  for (const p of parsed) if (server.has(p.rel)) declaredNetNames(p.tree, netNames)
+
+  let oneSyncUsage = null
+  for (const { rel, toks, tree } of parsed) {
     const defs = functionDefs(tree)
     const fileReport = (rule, line, message) => report(rel, rule, line, message)
     checkNuiCallbacks(tree, defs, fileReport)
-    if (server.has(rel)) checkNetHandlers(tree, defs, fileReport)
+    if (server.has(rel)) checkNetHandlers(tree, defs, fileReport, netNames)
     if (!oneSyncUsage) oneSyncUsage = needsOneSync(rel, toks, server.has(rel))
   }
 

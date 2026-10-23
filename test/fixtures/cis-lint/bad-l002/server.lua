@@ -40,3 +40,22 @@ RegisterNetEvent('bad:external', Handlers.onBuy)
 RegisterNetEvent('bad:allowWithoutReason', function()
     print('x')
 end)
+
+RegisterNetEvent('bad:reRead', function()
+    local src = source
+    Wait(100)
+    TriggerClientEvent('bad:reply', source, src)
+end)
+
+local inv = exports.ox_inventory
+RegisterNetEvent('bad:alias', function()
+    local count = inv:Search(1, 'count', 'water')
+    print(count, source)
+end)
+
+RegisterNetEvent('bad:waitFor', function()
+    lib.waitFor(function() return true end)
+    print(source)
+end)
+
+RegisterNetEvent('bad:crossFile')

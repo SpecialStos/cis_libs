@@ -42,3 +42,12 @@ RegisterNUICallback('returnInLoop', function(data, cb)
     end
     cb(true)
 end)
+
+RegisterNuiCallback('alias', function(data, cb)
+    if data.ok then cb(1) end
+end)
+
+RegisterNuiCallbackType('raw')
+AddEventHandler('__cfx_nui:raw', function(data, cb)
+    print(data, cb ~= nil)
+end)
