@@ -165,7 +165,8 @@ function CisRegisterCallback(name, handler, opts)
 end
 
 -- A CONSUMER THAT STOPS TAKES ITS CALLBACKS WITH IT ().
-AddEventHandler('onResourceStop', function(resource)
+-- Through CisOnResourceStop (shared/owned.lua), so a forged stop is ignored.
+CisOnResourceStop(function(resource)
     if resource == GetCurrentResourceName() then
         return
     end

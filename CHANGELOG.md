@@ -806,6 +806,15 @@ which is forgotten when that resource stops.
   `ok`.** A truthy string, number or table in its place resolved the call and
   reached the caller unbounded as its first value. It now reaches the caller
   as `false, 'bad reply'`.
+- A forged `TriggerEvent('onResourceStop', 'victim')` from another server
+  resource no longer releases the victim's capability slots, net handlers,
+  callbacks, commands, server zones, sync records, hooks or state bags (a
+  forger could then register into the slot the victim held). A stop counts at
+  once when the engine fired it, the resource stopped itself, cis_libs fired it,
+  or the invoker holds `command.stop`; any other invoker's stop counts one tick
+  later, and only if the resource is no longer `started`. Limitation: an
+  untrusted script that stops and restarts a resource in the same tick leaves
+  the old instance's records in place until its next stop.
 
 ## [1.0.0] — 2026-10-07
 

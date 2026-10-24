@@ -934,7 +934,8 @@ exports('GetLibsPrefix', function()
 end)
 
 -- A resource that stops takes its net bindings with it ().
-AddEventHandler('onResourceStop', function(resource)
+-- Through CisOnResourceStop (shared/owned.lua), so a forged stop is ignored.
+CisOnResourceStop(function(resource)
     for name, binding in pairs(netBindings) do
         if binding.owner == resource then
             netBindings[name] = nil

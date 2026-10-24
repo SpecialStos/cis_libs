@@ -1256,6 +1256,9 @@ Live harness: `test/LIVE.md`. Counts are not repeated here.
   call is another crossing. Zones, points and keybinds made through `init.lua`
   avoid that by running in the caller (§5.2); hooks and callbacks still cross.
 - Networked entities are created and deleted on the server.
+- A server resource stop from a script without `command.stop` is honoured one
+  tick late, once the resource is no longer started; a stop and restart in the
+  same tick keeps the old records until the next stop.
 - This resource writes no files. Logs are console, the in-memory audit ring,
   and an optional discord capability.
 - Console lines are rate-limited: one message prints at most 20 times per 10 s

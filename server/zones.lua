@@ -483,7 +483,8 @@ AddEventHandler('playerDropped', function()
     end
 end)
 
-AddEventHandler('onResourceStop', function(resource)
+-- Through CisOnResourceStop (shared/owned.lua), so a forged stop is ignored.
+CisOnResourceStop(function(resource)
     if resource == GetCurrentResourceName() then
         return
     end

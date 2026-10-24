@@ -464,7 +464,8 @@ end)
 
 -- A resource that stops takes its commands with it: the platform keeps the
 -- closure, but it finds no entry and runs nothing.
-AddEventHandler('onResourceStop', function(resource)
+-- Through CisOnResourceStop (shared/owned.lua), so a forged stop is ignored.
+CisOnResourceStop(function(resource)
     if resource == GetCurrentResourceName() then
         return
     end

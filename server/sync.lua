@@ -1274,7 +1274,8 @@ AddEventHandler('entityRemoved', function(entity)
 end)
 
 -- Records owned by a consumer that stops go with it ().
-AddEventHandler('onResourceStop', function(resource)
+-- Through CisOnResourceStop (shared/owned.lua), so a forged stop is ignored.
+CisOnResourceStop(function(resource)
     if resource == GetCurrentResourceName() then
         -- cis_libs itself is stopping. Its clients stop with it and despawn their
         -- client-local copies on their own onResourceStop, so nothing is sent: a

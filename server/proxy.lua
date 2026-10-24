@@ -385,7 +385,8 @@ exports('WaitCapability', function(slot, timeoutMs)
 end)
 
 -- A stopped resource's exports are gone.
-AddEventHandler('onResourceStop', function(resource)
+-- Through CisOnResourceStop (shared/owned.lua), so a forged stop is ignored.
+CisOnResourceStop(function(resource)
     -- The resource's refusal goes with it.
     lastRefusal[resource] = nil
     CisRegistry.forgetDeprecationCaller(resource)

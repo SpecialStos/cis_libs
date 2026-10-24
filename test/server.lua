@@ -59,7 +59,7 @@ local function newEnv(opts)
         'SetNetworkedEntityLocallyVisible', 'SetNetworkedEntityLocallyInvisible',
         'TriggerLatentClientEvent', 'FreezeEntityPosition', 'CreateObjectNoOffset',
         'CreateVehicleServerSetter', 'CreatePed', 'SetEntityRoutingBucket', 'SetEntityOrphanMode',
-        'promise', 'Citizen', 'collectgarbage', 'SetTimeout',
+        'promise', 'Citizen', 'collectgarbage', 'SetTimeout', 'IsDuplicityVersion',
     }) do
         env.saved[#env.saved + 1] = { name = name, value = rawget(_G, name) }
     end
@@ -107,6 +107,8 @@ local function newEnv(opts)
     end
     function GetGameTimer() return env.clock end
     function GetCurrentResourceName() return 'cis_libs' end
+    -- The server realm: shared code that branches on it must take the server path.
+    function IsDuplicityVersion() return true end
     function GetInvokingResource() return env.invoking end
     function GetResourceState() return 'missing' end
     -- SRC-AWARE, because a stub that answers a name for every id makes "is this
@@ -6578,6 +6580,91 @@ do
     env.clock = env.clock + 10000
     Logging.Info('w2d end')
     check(count('other line(s) suppressed') == 1, 'W2d: the lines held past the report limit are counted on one line')
+    env.reset()
+end
+
+-- ============================ W2e. a forged onResourceStop does not release a victim
+--
+-- onResourceStop is an ordinary event. Any server resource could
+-- TriggerEvent('onResourceStop', 'victim') and have the victim's capability
+-- slots, net handlers, callbacks, commands, zones and sync records released --
+-- then claim the slot the victim held. A stop now counts at once only when the
+-- engine fired it (no invoker), the resource stopped itself, cis_libs fired it,
+-- or the invoker holds command.stop; otherwise it counts one tick later, and
+-- only if the named resource is really no longer started.
+do
+    local function scenario(invoker, state, aceAllowed)
+        local env = newEnv({})
+        env.saved[#env.saved + 1] = { name = 'IsPrincipalAceAllowed', value = rawget(_G, 'IsPrincipalAceAllowed') }
+        env.saved[#env.saved + 1] = { name = 'GetResourceState', value = rawget(_G, 'GetResourceState') }
+        Config = CisDefaults.config()
+        Security = CisDefaults.security()
+        Security.AuthorizedResources = { 'w2e_victim' }
+        loadModule('server/security.lua')
+        loadModule('server/proxy.lua')
+        loadModule('server/callback.lua')
+        env.invoking = 'w2e_victim'
+        env.EXPORTS.RegisterCapability('doors', function() return true end)
+        env.EXPORTS.SecureNetOn('w2e:evt', function() end)
+        local aceAsked = nil
+        function IsPrincipalAceAllowed(principal, object)
+            aceAsked = principal .. ' ' .. object
+            return aceAllowed == true
+        end
+        function GetResourceState() return state end
+        env.invoking = invoker
+        env.fire('onResourceStop', 'w2e_victim')
+        local probes = CisDiagnostics.Collect('server').probes
+        local out = {
+            slot = CisRegistry.owner('doors'),
+            net = (probes.netHandlers.byOwner or {}).w2e_victim or 0,
+            aceAsked = aceAsked,
+        }
+        CisRegistry.unregister('doors')
+        env.reset()
+        return out
+    end
+
+    local forged = scenario('w2e_attacker', 'started', false)
+    check(forged.slot == 'w2e_victim',
+        ('W2e: a forged stop of a running resource keeps its capability slot (owner %s)'):format(tostring(forged.slot)))
+    check(forged.net == 1,
+        ('W2e: and keeps its net handler (got %d)'):format(forged.net))
+    check(forged.aceAsked == 'resource.w2e_attacker command.stop',
+        ('W2e: the invoker\'s command.stop ACE was asked (got %s)'):format(tostring(forged.aceAsked)))
+
+    local engine = scenario(nil, 'started', false)
+    check(engine.slot == nil and engine.net == 0, 'W2e: an engine stop (no invoker) still releases at once')
+    local own = scenario('w2e_victim', 'started', false)
+    check(own.slot == nil and own.net == 0, 'W2e: a resource stopping itself still releases')
+    local scripted = scenario('w2e_attacker', 'stopped', false)
+    check(scripted.slot == nil and scripted.net == 0,
+        'W2e: a script stop that really stopped the resource releases on the next tick')
+    local trusted = scenario('monitor', 'started', true)
+    check(trusted.slot == nil and trusted.net == 0,
+        'W2e: an invoker holding command.stop (txAdmin restarting) releases at once')
+end
+
+do
+    local env = newEnv({ players = { [1] = { coords = { x = 5.0, y = 0.0, z = 0.0 } } } })
+    env.saved[#env.saved + 1] = { name = 'GetResourceState', value = rawget(_G, 'GetResourceState') }
+    env.saved[#env.saved + 1] = { name = 'IsPrincipalAceAllowed', value = rawget(_G, 'IsPrincipalAceAllowed') }
+    loadSync(env)
+    function IsPrincipalAceAllowed() return false end
+    env.invoking = 'w2e_victim'
+    env.EXPORTS.SyncCreate('prop', { id = 'w2e', model = 'x', coords = { x = 0.0, y = 0.0, z = 0.0 } })
+    function GetResourceState() return 'started' end
+    env.invoking = 'w2e_attacker'
+    env.fire('onResourceStop', 'w2e_victim')
+    env.invoking = 'w2e_victim'
+    local list = env.EXPORTS.SyncList()
+    check(type(list) == 'table' and #list == 1, 'W2e: a forged stop leaves the victim\'s sync records in place')
+    function GetResourceState() return 'stopped' end
+    env.invoking = 'w2e_attacker'
+    env.fire('onResourceStop', 'w2e_victim')
+    env.invoking = 'w2e_victim'
+    list = env.EXPORTS.SyncList()
+    check(type(list) == 'table' and #list == 0, 'W2e: a real stop still takes them down')
     env.reset()
 end
 

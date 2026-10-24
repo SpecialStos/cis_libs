@@ -4252,6 +4252,41 @@
       "find": "        if entry.held > 0 then",
       "replace": "        if false then",
       "why": "Suppressed console lines must be counted and said on the window roll, never dropped silently."
+    },
+    {
+      "id": "M782",
+      "file": "shared/owned.lua",
+      "find": "        if GetResourceState(resource) ~= 'started' then",
+      "replace": "        if true then",
+      "why": "A forged TriggerEvent('onResourceStop', victim) from any server resource released the victim's capability slots, net handlers and records; a stop from an untrusted invoker must count only once the resource is really no longer started."
+    },
+    {
+      "id": "M783",
+      "file": "server/sync.lua",
+      "find": "CisOnResourceStop(function(resource)",
+      "replace": "AddEventHandler('onResourceStop', function(resource)",
+      "why": "A forged onResourceStop took down every sync record of a running resource."
+    },
+    {
+      "id": "M784",
+      "file": "server/proxy.lua",
+      "find": "CisOnResourceStop(function(resource)",
+      "replace": "AddEventHandler('onResourceStop', function(resource)",
+      "why": "A forged onResourceStop released a running resource's capability slot, so the forger could register into it."
+    },
+    {
+      "id": "M785",
+      "file": "server/security.lua",
+      "find": "CisOnResourceStop(function(resource)",
+      "replace": "AddEventHandler('onResourceStop', function(resource)",
+      "why": "A forged onResourceStop unbound a running resource's net handlers."
+    },
+    {
+      "id": "M786",
+      "file": "shared/owned.lua",
+      "find": "    return ok and allowed == true",
+      "replace": "    return false",
+      "why": "A stop by an invoker holding command.stop (txAdmin restarting a resource) must release at once, not wait on a state check a same-tick restart defeats."
     }
   ]
 }
