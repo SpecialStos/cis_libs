@@ -41,6 +41,8 @@ local state = {
 }
 
 local function warnOnce(key, message)
+    -- By its text: t(nil) or t(0/0) raised "index is nil" here on the write.
+    key = tostring(key)
     if state.warned[key] then
         return
     end
@@ -189,7 +191,7 @@ function M.t(key, ...)
     if ok then
         return formatted
     end
-    warnOnce(key .. '#format', ('the phrase for %q does not fit its arguments: %s'):format(key, tostring(formatted)))
+    warnOnce(tostring(key) .. '#format', ('the phrase for %q does not fit its arguments: %s'):format(tostring(key), tostring(formatted)))
     return phrase
 end
 

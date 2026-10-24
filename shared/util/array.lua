@@ -24,7 +24,8 @@ local ArrayMT = { __index = M }
 
 local function len(a)
     local n = rawget(a, 'n')
-    if type(n) == 'number' then
+    -- A NaN or infinite `n` is not a length: `for i = 1, math.huge` never ended.
+    if type(n) == 'number' and n == n and n ~= math.huge and n ~= -math.huge then
         return n
     end
     return rawlen(a)
@@ -99,7 +100,7 @@ end
 ---@return table  a NEW array
 function M.from(list, n)
     checkArray(list, 'from')
-    n = (type(n) == 'number' and n >= 0) and math.floor(n) or len(list)
+    n = (type(n) == 'number' and n >= 0 and n ~= math.huge) and math.floor(n) or len(list)
     local out = make(n)
     for i = 1, n do out[i] = list[i] end
     return out
@@ -358,18 +359,31 @@ end
 
 -- `active` holds the arrays being spread right now: one met again inside itself is a
 -- cycle, and is kept as an element rather than followed forever.
+-- An explicit stack, not recursion: a 200k-deep array overflowed the C stack.
 local function flatInto(out, k, a, depth, active)
+    local arrs, idxs, deps, lens = { a }, { 0 }, { depth }, { len(a) }
+    local top = 1
     active[a] = true
-    for i = 1, len(a) do
-        local v = a[i]
-        if depth > 0 and not active[v] and M.isArrayLike(v) then
-            k = flatInto(out, k, v, depth - 1, active)
+    while top > 0 do
+        local i = idxs[top] + 1
+        if i > lens[top] then
+            active[arrs[top]] = nil
+            arrs[top] = nil
+            top = top - 1
         else
-            k = k + 1
-            out[k] = v
+            idxs[top] = i
+            local v = arrs[top][i]
+            local d = deps[top]
+            if d > 0 and not active[v] and M.isArrayLike(v) then
+                top = top + 1
+                arrs[top], idxs[top], deps[top], lens[top] = v, 0, d - 1, len(v)
+                active[v] = true
+            else
+                k = k + 1
+                out[k] = v
+            end
         end
     end
-    active[a] = nil
     return k
 end
 

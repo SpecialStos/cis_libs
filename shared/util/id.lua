@@ -30,8 +30,11 @@ local function normaliseRng(value)
     return nil
 end
 
+-- The most symbols one draw makes: far past any id, short of a hang.
+local MAX_COUNT = 65536
+
 --- Draw `count` symbols from `alphabet`.
----@param count? number  how many symbols; default CisId.LENGTH
+---@param count? number  how many symbols, 1 to 65536; default CisId.LENGTH
 ---@param alphabet? string  default CisId.ALPHABET
 ---@param rng? table|fun(): number  a function returning [0,1), or an object
 ---@return string|nil  the symbols
@@ -53,8 +56,9 @@ function M.draw(count, alphabet, rng)
     if type(alphabet) ~= 'string' or alphabet == '' then
         return nil, 'alphabet must be a non-empty string'
     end
-    if type(count) ~= 'number' or count < 1 then
-        return nil, 'count must be a positive number'
+    -- NaN slipped past `count < 1` and drew an empty id; math.huge never ended.
+    if type(count) ~= 'number' or not (count >= 1) or count > MAX_COUNT then
+        return nil, ('count must be a number from 1 to %d, got %s'):format(MAX_COUNT, tostring(count))
     end
     local n = #alphabet
     local out = {}
@@ -179,7 +183,7 @@ end
 --- Turn a display name into a key that is safe to use as a table key, a database column
 ---@param raw string
 ---@param used? table
----@param opts? table  { separator, maxLength }
+---@param opts? table  { separator, maxLength }; separator has no letter or digit, maxLength is 1 or more (a fraction floored)
 ---@return string|nil  the key
 ---@return string|nil  why
 function M.normaliseName(raw, used, opts)
@@ -191,7 +195,19 @@ function M.normaliseName(raw, used, opts)
     if type(separator) ~= 'string' or separator == '' then
         return nil, 'separator must be a non-empty string'
     end
+    -- A letter or digit separator was stripped from the name itself ('x' turned
+    -- 'xavier' into 'avier').
+    if separator:find('%w') then
+        return nil, ('separator %q holds a letter or digit'):format(separator)
+    end
     local maxLength = opts.maxLength or 32
+    -- A negative or NaN maxLength used to be ignored; a fraction raised in sub().
+    if type(maxLength) ~= 'number' or not (maxLength >= 1) then
+        return nil, ('maxLength must be a number 1 or more, got %s'):format(tostring(maxLength))
+    end
+    if maxLength ~= math.huge then
+        maxLength = math.floor(maxLength)
+    end
     local pattern = escapePattern(separator)
     local replacement = escapeReplacement(separator)
     local lowered = raw:lower()
