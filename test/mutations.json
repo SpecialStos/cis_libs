@@ -4161,6 +4161,76 @@
       "find": "            CisReportBadPayload(src, name, schemaWhy, limits.windowMs, 'callback')",
       "replace": "            CisSecurityReport(src, 'bad callback payload ' .. tostring(name))",
       "why": "A callback schema failure was a security report on every request, so a client repeating one bad shape was a strike per request; it must share the net event's one-report-per-run latch."
+    },
+    {
+      "id": "M769",
+      "file": "server/proxy.lua",
+      "find": "        return false, notAuthorizedReason('AddDoorToSystem')",
+      "replace": "        return false",
+      "why": "AddDoorToSystem refused a resource off the allow-list with a bare false, so the caller could not tell a refusal from a missing doors provider."
+    },
+    {
+      "id": "M770",
+      "file": "server/proxy.lua",
+      "find": "        return false, notAuthorizedReason('BreakDoor')",
+      "replace": "        return nil, notAuthorizedReason('BreakDoor')",
+      "why": "BreakDoor answered its allow-list refusal as nil plus a reason; a nil first value truncates the list at the exports boundary, so the reason never arrived."
+    },
+    {
+      "id": "M771",
+      "file": "server/proxy.lua",
+      "find": "        return false, ('capability %q is held by %s, not %s; only its holder may release it')",
+      "replace": "        do return false end\n        return false, ('capability %q is held by %s, not %s; only its holder may release it')",
+      "why": "UnregisterCapability refused a non-holder with a bare false and no reason naming the holder."
+    },
+    {
+      "id": "M772",
+      "file": "server/sync.lua",
+      "find": "    Logging.Error(('Cis.sync.%s rejected: %s'):format(tostring(kind), why))\n    return false, why",
+      "replace": "    Logging.Error(('Cis.sync.%s rejected: %s'):format(tostring(kind), why))\n    return nil",
+      "why": "Every SyncCreate validation refusal returned nil, so the logged reason never reached the caller."
+    },
+    {
+      "id": "M773",
+      "file": "server/sync.lua",
+      "find": "        return notAllowed('SyncCreate')",
+      "replace": "        return nil",
+      "why": "SyncCreate from a resource off the allow-list returned a bare nil with no reason."
+    },
+    {
+      "id": "M774",
+      "file": "server/sync.lua",
+      "find": "        return false, SYNC_DISABLED",
+      "replace": "        return nil",
+      "why": "SyncCreate with Config.Sync.Enabled = false returned a bare nil, indistinguishable from any other failure."
+    },
+    {
+      "id": "M775",
+      "file": "server/sync.lua",
+      "find": "        return notAllowed('SyncList')",
+      "replace": "        return nil, 'this resource is not in Security.AuthorizedResources'",
+      "why": "SyncList answered its allow-list refusal as nil plus a reason, which the exports boundary truncates to nil."
+    },
+    {
+      "id": "M776",
+      "file": "server/sync.lua",
+      "find": "        return notAllowed('SyncRemove')",
+      "replace": "        return false",
+      "why": "SyncRemove from a resource off the allow-list returned a bare false with no reason."
+    },
+    {
+      "id": "M777",
+      "file": "server/callback.lua",
+      "find": "        return false, ('callback %q: target must be a player id, got %s')\n            :format(tostring(name), tostring(target))\n    end\n    if not GetPlayerName(target) then",
+      "replace": "        return\n    end\n    if not GetPlayerName(target) then",
+      "why": "CallCallbackClient with a bad target returned nothing, so a caller with no cb could not tell a refusal from a send."
+    },
+    {
+      "id": "M778",
+      "file": "server/callback.lua",
+      "find": "    if not GetPlayerName(target) then\n        if CisCallable(cb) then\n            cb(false, 'not connected')",
+      "replace": "    if false then\n        if CisCallable(cb) then\n            cb(false, 'not connected')",
+      "why": "CallCallbackClient to a disconnected player sent the event and parked a pending key that could only time out."
     }
   ]
 }

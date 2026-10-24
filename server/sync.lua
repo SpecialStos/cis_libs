@@ -584,10 +584,20 @@ local function normalizeCoords(value, heading)
     return { x = x, y = y, z = z, heading = (type(h) == 'number') and h or 0.0 }
 end
 
+-- EVERY REFUSAL IS `false, reason`. A nil first value truncates the return list
+-- at the exports boundary, so the reason a refusal logged never reached the caller.
 local function refuse(kind, why)
     Logging.Error(('Cis.sync.%s rejected: %s'):format(tostring(kind), why))
-    return nil
+    return false, why
 end
+
+-- The allow-list refusal, quiet on the console like every other allow-list gate.
+local function notAllowed(exportName)
+    return false, ('%s refused: %s is not in Security.AuthorizedResources')
+        :format(exportName, tostring(GetInvokingResource() or 'cis_libs'))
+end
+
+local SYNC_DISABLED = 'Cis.sync is disabled on this server (Config.Sync.Enabled = false)'
 
 -- Wait for another upsert of the same key (or content) to finish its yield.
 local function awaitFree(locks, k)
@@ -753,7 +763,7 @@ local function upsertLocked(rec, key, print_)
                 -- THIS KIND CANNOT BE NETWORKED.
                 Logging.Error(('Cis.sync.%s rejected: %s'):format(
                     tostring(rec.id), tostring(why)))
-                return nil, why
+                return false, why
             end
             if not created then
                 -- NEVER A NETWORKED RECORD WITHOUT AN ENTITY. The old shape stored it
@@ -761,14 +771,14 @@ local function upsertLocked(rec, key, print_)
                 stats.networkedFailed = stats.networkedFailed + 1
                 Logging.Error(('Cis.sync.%s networked: %s'):format(
                     tostring(rec.id), tostring(why)))
-                return nil, why
+                return false, why
             end
             -- RE-CHECK AFTER THE YIELD. A remove, a clear or the owner stopping may
             -- have happened while the entity was being created.
             local lock = inflight[key]
             if lock and lock.cancelled then
                 destroyEntity(created)
-                return nil, 'removed while its entity was being created'
+                return false, 'removed while its entity was being created'
             end
             previous = records[key]
             local old = handles[key]
@@ -810,12 +820,12 @@ local function upsertLocked(rec, key, print_)
 end
 
 local function upsert(kind, data)
-    -- Two refusals before any work, both returning nil rather than raising: a caller
+    -- Two refusals before any work, both `false, reason` rather than raising: a caller
     if not CisInvokingAllowed() then
-        return nil
+        return notAllowed('SyncCreate')
     end
     if not CisSyncEnabled() then
-        return nil
+        return false, SYNC_DISABLED
     end
     if type(data) ~= 'table' then
         return refuse(kind, ('data must be a table, got %s'):format(type(data)))
@@ -927,7 +937,7 @@ end
 -- Takes the INTERNAL key. Every caller resolves its own id to one first, so there is
 local function remove(key)
     if not CisInvokingAllowed() then
-        return false
+        return notAllowed('SyncRemove')
     end
     -- false for "no such entity", which is a different answer from true and is what
     if not records[key] then
@@ -1345,7 +1355,7 @@ end)
 -- WHAT THIS RESOURCE HAS IN THE WORLD, and the two calls that act on it.
 exports('SyncList', function()
     if not CisInvokingAllowed() then
-        return nil, 'this resource is not in Security.AuthorizedResources'
+        return notAllowed('SyncList')
     end
     local owner = GetInvokingResource() or 'cis_libs'
     local out = {}
@@ -1373,7 +1383,7 @@ end)
 -- TAKE THEM ALL DOWN. This is what a resource calls before it rebuilds its map, so it
 exports('SyncClear', function()
     if not CisInvokingAllowed() then
-        return nil, 'this resource is not in Security.AuthorizedResources'
+        return notAllowed('SyncClear')
     end
     local owner = GetInvokingResource() or 'cis_libs'
     -- Collected first, then removed, and every holder told ONCE.

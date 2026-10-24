@@ -341,6 +341,17 @@ Check these first; each is a line under **Changed** or **Deprecated**.
   NaN or infinite `windowMs`/`maxHits`, or `maxHits` 0, built a limiter
   window that never rolled or let the first hit through. A nil name raised.
   `RegisterCallback` checks its `schema` the same way.
+- Every server export that can refuse now answers `false, reason`. `SyncCreate`
+  (each validation refusal, the allow-list, `Config.Sync.Enabled = false`, a
+  failed networked spawn), `SyncList` and `SyncClear` used to answer `nil`,
+  which the exports boundary truncates, so the reason never arrived.
+  `SyncRemove`, `AddDoorToSystem` and `AddDoorGroup` returned a bare `false`
+  from a resource off the allow-list, and `UnregisterCapability` returned one to
+  a non-holder; each now names why. `BreakDoor` and `FixDoor` answer the
+  allow-list refusal as `false, reason` (nil still means no doors provider).
+  `CallCallbackClient` with a bad target returned nothing; it now answers
+  `false, reason` as well as telling `cb`, and refuses a player who is not
+  connected before sending, as `AwaitCallbackClient` does.
 
 ### Added
 

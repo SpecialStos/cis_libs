@@ -827,7 +827,7 @@ function AwaitCallbackClient(name, target, ...) end
 ---@deprecated
 --- deprecated since 1.1.0; use the cis_bridge doors API
 ---@param identifier string|integer #the door identifier. Allow-list gated like every other door mutation
----@return any, string|nil #the provider's value; nil when no doors provider is registered, and the nil is preserved on purpose rather than normalised to false; nil plus a reason naming Security.AuthorizedResources when the caller is not on the allow-list 
+---@return any, string|nil #the provider's value; nil when no doors provider is registered, and the nil is preserved on purpose rather than normalised to false; false plus a reason naming Security.AuthorizedResources when the caller is not on the allow-list 
 -- Why `any`: the provider's value, and the nil-when-no-provider answer is preserved on purpose rather than normalised to false
 --- realm: server
 function BreakDoor(identifier) end
@@ -848,10 +848,10 @@ function CallCallback.client(name, cb, ...) end
 
 --- Cis.callback.callClient(src, name, cb, ...)
 ---@param name string #the callback the CLIENT answers
----@param target integer #a connected player server id; anything else is refused and nobody is told
+---@param target integer #a connected player server id; anything else, or a player who is not connected, is refused before anything is sent
 ---@param cb? function #a consumer-side function, consumed on the consumer side, so it does not cross
 ---@param ... ... #the unbounded tail; the client caps it at 32 args and answers "too large"
----@return string #the pending key, an opaque random token. A bad target returns NOTHING and instead calls cb(false, reason)
+---@return string|false, string|nil #the pending key, an opaque random token. A bad or disconnected target answers false plus a reason, and cb (when given) is told too, as cb(false, bad target) or cb(false, not connected)
 --- realm: server
 function CallCallbackClient(name, target, cb, ...) end
 
@@ -1082,7 +1082,7 @@ function DrawText3D(x, y, z, text, settings) end
 ---@deprecated
 --- deprecated since 1.1.0; use the cis_bridge doors API
 ---@param identifier string|integer #the door identifier. Allow-list gated like every other door mutation
----@return any, string|nil #the provider's value; nil when no doors provider is registered; nil plus a reason when the caller is not on the allow-list 
+---@return any, string|nil #the provider's value; nil when no doors provider is registered; false plus a reason naming Security.AuthorizedResources when the caller is not on the allow-list 
 -- Why `any`: the provider's value, and the nil-when-no-provider answer is preserved on purpose rather than normalised to false
 --- realm: server
 function FixDoor(identifier) end
@@ -2016,25 +2016,25 @@ function StatebagOnEntity(key, handler, timeoutMs) end
 function StatebagOnPlayer(key, handler, timeoutMs) end
 
 --- Cis.sync.clear()
----@return integer|nil, string|nil #how many records it took; 0 is an honest answer for a resource that has synced nothing, and a reason only on the allow-list refusal
+---@return integer|false, string|nil #how many records it took; 0 is an honest answer for a resource that has synced nothing; false plus a reason only on the allow-list refusal
 --- realm: server
 function SyncClear() end
 
 --- Cis.sync.ped / Cis.sync.prop / Cis.sync.vehicle
 ---@param kind string #'prop', 'vehicle' or 'ped' -- never type-guarded, and the branch is on exactly these literals
----@param data table #the record. Not type-guarded either: the first hard requirement is data.coords, which raises on a non-table
----@return string|nil, string|nil #the record id, and a reason when a networked record is refused -- a kind with no server-side creation native, an entity the server could not create, or a removal that overtook the creation. EVERY OTHER REFUSAL IS A BARE NIL (and a logged reason), because a nil first value truncates the return list at the exports boundary
+---@param data table #the record. A non-table, missing or non-finite coords, a bad heading, model, scope, bucket or id are each refused as false plus a reason, never raised
+---@return string|false, string|nil #the record id; on ANY refusal false plus a reason -- a caller off Security.AuthorizedResources, Config.Sync.Enabled = false, a bad field, a kind with no server-side creation native, an entity the server could not create, or a removal that overtook the creation. Never nil first, because a nil first value truncates the return list at the exports boundary
 --- realm: server
 function SyncCreate(kind, data) end
 
 --- Cis.sync.list()
----@return CisSyncSummary[], string|nil #the CALLING resource's own ids, sorted so an entry can go straight back to SyncRemove, and a reason only on the allow-list refusal
+---@return CisSyncSummary[]|false, string|nil #the CALLING resource's own ids, sorted so an entry can go straight back to SyncRemove; false plus a reason only on the allow-list refusal
 --- realm: server
 function SyncList() end
 
 --- Cis.sync.remove(id)
 ---@param id? string|integer #the id; a number is stringified at this boundary. Namespaced by the INVOKING RESOURCE, never by the argument
----@return boolean, string #true on success; false always names why -- 'no sync id given', a type message, "belongs to another resource", or "not in this resource's namespace"
+---@return boolean, string #true on success; false always names why -- 'no sync id given', a type message, "belongs to another resource", "not in this resource's namespace", or a caller off Security.AuthorizedResources
 --- realm: server
 function SyncRemove(id) end
 
@@ -2148,7 +2148,7 @@ function UnlockDoors(identifier) end
 
 --- Called by a product on shutdown or handover. Only the slot owner may release it
 ---@param slot string #the slot to release; only its current owner may release it
----@return boolean #true released; false with NO reason at all when the caller is not the holder
+---@return boolean, string|nil #true released; false plus a reason naming the holder when the caller is not it, or saying the slot is not registered
 --- realm: server
 function UnregisterCapability(slot) end
 
@@ -2974,7 +2974,7 @@ function Cis.sync.onSpawn(fn) end
 ---@field realm "both"
 ---@field forwardsTo string SyncCreate
 ---@param data CisSyncRecord #with kind = "ped"
----@return string|nil, string|nil #the caller's own id, never the namespaced key the client receives. On the client this answers false, "server only"
+---@return string|false, string|nil #the caller's own id, never the namespaced key the client receives; false plus a reason on a refusal. On the client this answers false, "server only"
 function Cis.sync.ped(data) end
 
 ---@class Cis.sync.prop
@@ -2982,7 +2982,7 @@ function Cis.sync.ped(data) end
 ---@field realm "both"
 ---@field forwardsTo string SyncCreate
 ---@param data CisSyncRecord #with kind = "prop"
----@return string|nil, string|nil #the caller's own id. On the client this answers false, "server only"
+---@return string|false, string|nil #the caller's own id; false plus a reason on a refusal. On the client this answers false, "server only"
 function Cis.sync.prop(data) end
 
 ---@class Cis.sync.remove
@@ -2998,7 +2998,7 @@ function Cis.sync.remove(id) end
 ---@field realm "both"
 ---@field forwardsTo string SyncCreate
 ---@param data CisSyncRecord #with kind = "vehicle"; vehicleType defaults to automobile
----@return string|nil, string|nil #the caller's own id. On the client this answers false, "server only"
+---@return string|false, string|nil #the caller's own id; false plus a reason on a refusal. On the client this answers false, "server only"
 function Cis.sync.vehicle(data) end
 
 ---@class Cis.target.add

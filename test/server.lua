@@ -944,7 +944,7 @@ do
         coords = { x = 0.0, y = 0.0, z = 0.0 },
         networked = true,
     })
-    check(id == nil and type(why) == 'string' and why ~= '',
+    check(id == false and type(why) == 'string' and why ~= '',
         ('a failed networked spawn is refused with a reason (%s)'):format(tostring(why)))
     env.tick()
     check(#env.sentTo(1, 'cis_libs:client:syncUpsert') == 0,
@@ -1010,9 +1010,9 @@ end
 do
     local env = newEnv({})
     loadSync(env)
-    check(env.EXPORTS.SyncCreate('prop', { model = 'prop_barrier_05a' }) == nil,
+    check(env.EXPORTS.SyncCreate('prop', { model = 'prop_barrier_05a' }) == false,
         'a record with no coords is refused')
-    check(env.EXPORTS.SyncCreate('prop', { model = 'x', coords = { y = 1.0 } }) == nil,
+    check(env.EXPORTS.SyncCreate('prop', { model = 'x', coords = { y = 1.0 } }) == false,
         'a record missing an x is refused')
     env.reset()
 end
@@ -1914,7 +1914,7 @@ end
 -- The test drives the REAL handler through the REAL net event, ten times in one
 -- window, and counts how many reached the callback.
 do
-    local env = newEnv({})
+    local env = newEnv({ players = { [7] = {} } })
     Config = CisDefaults.config()
     Security = CisDefaults.security()
     loadModule('server/security.lua')
@@ -2922,7 +2922,7 @@ do
         local made = env.EXPORTS.SyncCreate('prop', {
             id = 'bad', model = 'prop_barrel_01', coords = bad,
         })
-        check(made == nil,
+        check(made == false,
             ('4.2: non-finite coords are refused (%s,%s,%s)')
                 :format(tostring(bad.x), tostring(bad.y), tostring(bad.z)))
     end
@@ -2930,7 +2930,7 @@ do
     -- AND A MISSING ONE IS STILL REFUSED, with the reason naming the key.
     local before = #env.lines
     local none = env.EXPORTS.SyncCreate('prop', { id = 'none', model = 'prop_barrel_01' })
-    check(none == nil, '4.2: a record with no coords at all is refused')
+    check(none == false, '4.2: a record with no coords at all is refused')
     local saidCoords = false
     for i = before, #env.lines do
         if tostring(env.lines[i]):lower():find('coords', 1, true) then saidCoords = true end
@@ -3063,7 +3063,7 @@ do
     local withNul = as('res_a', 'prop', {
         id = 'a\0b', model = 'prop_barrel_01', coords = { x = 50.0, y = 0.0, z = 0.0 },
     })
-    check(withNul == nil, '4.3: an id containing a NUL is refused')
+    check(withNul == false, '4.3: an id containing a NUL is refused')
     local namedIt = false
     for i = beforeNul, #env.lines do
         local line = tostring(env.lines[i]):lower()
@@ -3472,7 +3472,7 @@ do
         coords = { x = 0.0, y = 0.0, z = 0.0 },
         networked = true,
     })
-    check(made == nil,
+    check(made == false,
         '4.5: an unknown kind refuses networked creation rather than pretending')
     check(type(why) == 'string' and why ~= '',
         ('4.5: and answers with a reason (%s)'):format(tostring(why)))
@@ -4208,7 +4208,7 @@ do
     function CisInvokingAllowed() return false end
     local list, why = env.EXPORTS.SyncList()
     local cleared = env.EXPORTS.SyncClear()
-    check(list == nil and cleared == nil,
+    check(list == false and cleared == false,
         '4.10c: an un-authorised resource gets no list and no clear')
     check(type(why) == 'string' and why:find('not', 1, true) ~= nil,
         ('4.10c: and the refusal says why (got %s)'):format(tostring(why)))
@@ -4610,7 +4610,7 @@ do
     DoesEntityExist = realExists
     check(removed and removed[1] == true,
         '4.15: a remove during the creation is accepted, not answered "no such id"')
-    check(made == nil, '4.15: and the creation it overtook does not come back as a record')
+    check(made == false, '4.15: and the creation it overtook does not come back as a record')
     local list = env.EXPORTS.SyncList()
     check(#list == 0, '4.15: nothing is left in the list')
     local created = callsNamed(env, 'CreateObjectNoOffset')
@@ -4675,7 +4675,7 @@ do
         id = 'never', model = 'prop_barrel_01', coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = true,
     })
     DoesEntityExist = realExists
-    check(made == nil, '4.15: an entity that never exists is refused')
+    check(made == false, '4.15: an entity that never exists is refused')
     check(waits > 0 and waits <= 400,
         ('4.15: after ~5000 ms of frames, not 5000 frames (%d waits)'):format(waits))
     env.reset()
@@ -4877,7 +4877,7 @@ do
         local made = env.EXPORTS.SyncCreate('prop', {
             id = 'scoped', model = 'prop_barrel_01', coords = { x = 0.0, y = 0.0, z = 0.0 }, scope = bad,
         })
-        check(made == nil, ('4.19: scope %s is refused'):format(tostring(bad)))
+        check(made == false, ('4.19: scope %s is refused'):format(tostring(bad)))
     end
     env.reset()
 end
@@ -4967,7 +4967,7 @@ do
     function DeleteEntity(e) deleted[#deleted + 1] = e end
     local made = env.EXPORTS.SyncCreate('prop', { id = 'ghost', model = 'prop_gate',
         coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = true })
-    check(made == nil and #deleted == 1,
+    check(made == false and #deleted == 1,
         ('4.20: a spawn that never comes into existence deletes its handle (%d deletes)'):format(#deleted))
     env.reset()
 end
@@ -5735,7 +5735,7 @@ end
 
 -- ============================ CB4. replies, handlers and funcrefs
 do
-    local env = callbackEnv({})
+    local env = callbackEnv({ players = { [9] = {} } })
 
     -- A closure another resource passes to CallCallback arrives as a callable
     -- reference table; type() == 'function' refused every one of them.
@@ -6432,6 +6432,107 @@ do
     env.players[4] = true
     env.emit('cis_libs:cb', 4, 'w2b:shaped', 1, { amount = 'x' })
     check(reports == 3, ('W2b: the latch is per player (got %d)'):format(reports))
+    env.reset()
+end
+
+-- ============================ W2c. every refusal is false plus a reason
+--
+-- A refusal answered nil (which truncates the return list at the exports
+-- boundary, so the reason never arrived), a bare false, or nothing at all. A
+-- consumer could not tell "refused" from "no provider" from "not sent", and the
+-- console was the only place the reason went.
+do
+    local env = newEnv({ players = { [5] = {} } })
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    Security.AuthorizedResources = { 'cis_keys' }
+    loadModule('server/security.lua')
+    loadModule('server/player.lua')
+    loadModule('server/proxy.lua')
+    local calls = 0
+    CisRegistry.register('doors', function() calls = calls + 1; return true end)
+    env.invoking = 'cis_evil'
+    for _, name in ipairs({ 'AddDoorToSystem', 'AddDoorGroup', 'BreakDoor', 'FixDoor' }) do
+        local okCall, value, why = pcall(env.EXPORTS[name], { id = 'bank_vault' })
+        check(okCall and value == false and tostring(why):find('AuthorizedResources', 1, true) ~= nil,
+            ('W2c: %s off the allow-list is false plus a reason (got %s, %s)')
+                :format(name, tostring(value), tostring(why)))
+    end
+    check(calls == 0, 'W2c: and no door call reached the provider')
+    CisRegistry.unregister('doors')
+
+    -- Releasing a slot this resource does not hold names the holder.
+    env.invoking = 'cis_keys'
+    check(env.EXPORTS.RegisterCapability('doors', function() return true end) == true,
+        'W2c: a slot registers for the release test')
+    env.invoking = 'cis_other'
+    local released, releaseWhy = env.EXPORTS.UnregisterCapability('doors')
+    check(released == false and tostring(releaseWhy):find('cis_keys', 1, true) ~= nil,
+        ('W2c: releasing another resource\'s slot is false plus a reason naming the holder (got %s, %s)')
+            :format(tostring(released), tostring(releaseWhy)))
+    local none, noneWhy = env.EXPORTS.UnregisterCapability('w2c_never')
+    check(none == false and type(noneWhy) == 'string' and noneWhy ~= '',
+        ('W2c: releasing a slot nobody holds is false plus a reason (got %s, %s)')
+            :format(tostring(none), tostring(noneWhy)))
+    env.invoking = 'cis_keys'
+    check(env.EXPORTS.UnregisterCapability('doors') == true, 'W2c: the holder still releases its slot')
+    env.reset()
+end
+
+do
+    local env = newEnv({ players = { [1] = { coords = { x = 5.0, y = 0.0, z = 0.0 } } } })
+    loadSync(env)
+    local function refused(label, made, why)
+        check(made == false and type(why) == 'string' and why ~= '',
+            ('W2c: SyncCreate %s is false plus a reason (got %s, %s)')
+                :format(label, tostring(made), tostring(why)))
+    end
+    refused('with no coords', env.EXPORTS.SyncCreate('prop', { model = 'x' }))
+    refused('with a non-table', env.EXPORTS.SyncCreate('prop', 'nope'))
+    refused('with a bad scope', env.EXPORTS.SyncCreate('prop',
+        { model = 'x', coords = { x = 0.0, y = 0.0, z = 0.0 }, scope = -1 }))
+    function CisSyncEnabled() return false end
+    local off, offWhy = env.EXPORTS.SyncCreate('prop', { model = 'x', coords = { x = 0.0, y = 0.0, z = 0.0 } })
+    refused('with sync disabled', off, offWhy)
+    check(tostring(offWhy):find('Enabled', 1, true) ~= nil, 'W2c: and the reason names Config.Sync.Enabled')
+    function CisSyncEnabled() return true end
+    check(env.EXPORTS.SyncCreate('prop', { id = 'w2c', model = 'x', coords = { x = 0.0, y = 0.0, z = 0.0 } }) == 'w2c',
+        'W2c: a good record is still created')
+    function CisInvokingAllowed() return false end
+    local denied, deniedWhy = env.EXPORTS.SyncCreate('prop', { model = 'x', coords = { x = 0.0, y = 0.0, z = 0.0 } })
+    refused('off the allow-list', denied, deniedWhy)
+    check(tostring(deniedWhy):find('AuthorizedResources', 1, true) ~= nil,
+        'W2c: and the reason names Security.AuthorizedResources')
+    local list, listWhy = env.EXPORTS.SyncList()
+    check(list == false and tostring(listWhy):find('AuthorizedResources', 1, true) ~= nil,
+        ('W2c: SyncList off the allow-list is false plus a reason (got %s, %s)'):format(tostring(list), tostring(listWhy)))
+    local cleared, clearWhy = env.EXPORTS.SyncClear()
+    check(cleared == false and tostring(clearWhy):find('AuthorizedResources', 1, true) ~= nil,
+        ('W2c: SyncClear off the allow-list is false plus a reason (got %s, %s)'):format(tostring(cleared), tostring(clearWhy)))
+    local removed, removeWhy = env.EXPORTS.SyncRemove('w2c')
+    check(removed == false and tostring(removeWhy):find('AuthorizedResources', 1, true) ~= nil,
+        ('W2c: SyncRemove off the allow-list is false plus a reason (got %s, %s)'):format(tostring(removed), tostring(removeWhy)))
+    env.reset()
+end
+
+do
+    local env = callbackEnv({ players = { [7] = true } })
+    local told = {}
+    local key, why = env.EXPORTS.CallCallbackClient('w2c:cb', 'nobody', function(ok, reason)
+        told[#told + 1] = { ok, reason }
+    end)
+    check(key == false and tostring(why):find('target', 1, true) ~= nil,
+        ('W2c: CallCallbackClient with a bad target is false plus a reason (got %s, %s)'):format(tostring(key), tostring(why)))
+    check(#told == 1 and told[1][1] == false, 'W2c: and the consumer callback is still told')
+    local gone, goneWhy = env.EXPORTS.CallCallbackClient('w2c:cb', 42, function(ok, reason)
+        told[#told + 1] = { ok, reason }
+    end)
+    check(gone == false and tostring(goneWhy):find('not connected', 1, true) ~= nil,
+        ('W2c: CallCallbackClient to a disconnected player is false plus a reason (got %s, %s)'):format(tostring(gone), tostring(goneWhy)))
+    check(#told == 2 and told[2][1] == false, 'W2c: and its callback is told too')
+    check(#env.sentTo(42, 'cis_libs:cb') == 0, 'W2c: and nothing was sent to the absent player')
+    check(type(env.EXPORTS.CallCallbackClient('w2c:cb', 7, function() end)) == 'string',
+        'W2c: a connected player still gets a pending key')
     env.reset()
 end
 

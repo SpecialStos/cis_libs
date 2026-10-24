@@ -451,13 +451,24 @@ CreateThread(CisLoopGuard.Run('server.callback.sweep', 1000, function()
     end)
 end))
 
+-- A refusal is told to cb AND answered as `false, reason`: it used to return
+-- nothing, so a caller with no cb could not tell a refusal from a send. A player
+-- who is not connected is refused here too, as AwaitCallbackClient refuses one,
+-- rather than parking a pending key that can only time out.
 local function askClient(name, target, cb, ...)
     if type(target) ~= 'number' or target <= 0 then
         Logging.Error('Cis.callback.callClient needs a numeric target server id')
         if CisCallable(cb) then
             cb(false, 'bad target')
         end
-        return
+        return false, ('callback %q: target must be a player id, got %s')
+            :format(tostring(name), tostring(target))
+    end
+    if not GetPlayerName(target) then
+        if CisCallable(cb) then
+            cb(false, 'not connected')
+        end
+        return false, ('callback %q: player %d is not connected'):format(tostring(name), target)
     end
     if cb ~= nil and not CisCallable(cb) then
         cb = nil
