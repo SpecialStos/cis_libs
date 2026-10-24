@@ -89,9 +89,13 @@ local function readOptions(name, opts)
         return nil, ("RegisterCallback %s: opts.ace must be an ACE object string like 'cis.admin', got %s")
             :format(name, type(opts.ace))
     end
-    if opts.schema ~= nil and type(opts.schema) ~= 'table' then
-        return nil, ('RegisterCallback %s: opts.schema must be a map of field -> { type, min, max, maxLen, optional }, got %s')
-            :format(name, type(opts.schema))
+    if opts.schema ~= nil then
+        -- Checked here, not at the first request: a rule the checker cannot read
+        -- refused every payload, and every refusal is a security report.
+        local schemaOk, schemaWhy = CisValidateNetSchema(opts.schema)
+        if not schemaOk then
+            return nil, ('RegisterCallback %s: opts.%s'):format(name, schemaWhy)
+        end
     end
     local maxLen = opts.maxStringLen
     if maxLen ~= nil and (type(maxLen) ~= 'number' or maxLen ~= maxLen or maxLen < 1) then

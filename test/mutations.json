@@ -4098,6 +4098,62 @@
       "find": "    if type(ok) ~= 'boolean' then\n        ok = false\n        packed = { n = 1, 'bad reply' }",
       "replace": "    if ok == nil then\n        ok = false\n        packed = { n = 1, 'bad reply' }",
       "why": "A client reply whose ok flag is a truthy string or table resolves the server-to-client callback and hands the caller that unbounded value as its first result."
+    },
+    {
+      "id": "M760",
+      "file": "server/security.lua",
+      "find": "    if opts.schema ~= nil then\n        local schemaOk, schemaWhy = validateNetSchema(opts.schema)",
+      "replace": "    if false then\n        local schemaOk, schemaWhy = validateNetSchema(opts.schema)",
+      "why": "A net binding whose schema the checker cannot read (a string, a rule that is not a table, an unknown type) refused and reported every payload, kicking every player who sent the event; it must be refused at registration."
+    },
+    {
+      "id": "M761",
+      "file": "server/security.lua",
+      "find": "(type(value) ~= 'number' or value ~= value or value == math.huge or value < 1) then\n            return false, ('Cis.net.on(\"%s\"): opts.%s must be a finite number of at least 1",
+      "replace": "(type(value) ~= 'number' or value < 1) then\n            return false, ('Cis.net.on(\"%s\"): opts.%s must be a finite number of at least 1",
+      "why": "A NaN or infinite windowMs/maxHits on a net binding built a limiter window that never rolled; registration must refuse it."
+    },
+    {
+      "id": "M762",
+      "file": "server/security.lua",
+      "find": "    elseif type(src) ~= 'string' or src == '' then",
+      "replace": "    elseif false then",
+      "why": "RateOk with a nil or empty src raised inside cis_libs (table index is nil) instead of answering false, reason."
+    },
+    {
+      "id": "M763",
+      "file": "server/security.lua",
+      "find": "    if nonPlayerCount >= NONPLAYER_SRC_CAP then\n        return nil, 'cap'",
+      "replace": "    if false then\n        return nil, 'cap'",
+      "why": "Rate keys that are not connected players are never freed by playerDropped; without the cap a consumer's dynamic keys grow the table for the life of cis_libs."
+    },
+    {
+      "id": "M764",
+      "file": "server/security.lua",
+      "find": "        if not live then\n            nonPlayer[key] = nil",
+      "replace": "        if false then\n            nonPlayer[key] = nil",
+      "why": "Idle non-player rate keys must be swept, or the cap fills once and every new non-player key is refused for the session."
+    },
+    {
+      "id": "M765",
+      "file": "server/security.lua",
+      "find": "    if type(name) ~= 'string' or name == '' then\n        return refuseNet(",
+      "replace": "    if false then\n        return refuseNet(",
+      "why": "CisNetOn with a nil name raised (table index is nil) at the binding store instead of answering false, reason."
+    },
+    {
+      "id": "M766",
+      "file": "server/callback.lua",
+      "find": "        local schemaOk, schemaWhy = CisValidateNetSchema(opts.schema)\n        if not schemaOk then",
+      "replace": "        local schemaOk, schemaWhy = CisValidateNetSchema(opts.schema)\n        if false then",
+      "why": "A callback schema the checker cannot read refused every request with a security report; it must be refused at registration."
+    },
+    {
+      "id": "M767",
+      "file": "server/security.lua",
+      "find": "not isFinite(maxHits) or maxHits < 1 then",
+      "replace": "not isFinite(maxHits) then",
+      "why": "RateOk with maxHits 0 let the first hit of every window through, because a new bucket never compared against the limit."
     }
   ]
 }

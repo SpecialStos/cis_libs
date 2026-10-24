@@ -333,6 +333,14 @@ Check these first; each is a line under **Changed** or **Deprecated**.
 - **`class` copies `__newindex` and `__gc` down to a subclass, and a parent
   `__index` function keeps answering after the subclass's own methods** (A-L9).
   A read-only parent was writable through a subclass.
+- **`SecureNetOn` (`Cis.net.on`) answers `false, reason` on every refusal,
+  and checks its options at registration.** A schema the checker cannot read
+  (a string, a rule that is not a table, an unknown type, a non-number
+  `min`/`max`/`maxLen`) used to register, then refuse and report every
+  payload, which on most servers kicked every player who sent the event. A
+  NaN or infinite `windowMs`/`maxHits`, or `maxHits` 0, built a limiter
+  window that never rolled or let the first hit through. A nil name raised.
+  `RegisterCallback` checks its `schema` the same way.
 
 ### Added
 
@@ -756,6 +764,14 @@ which is forgotten when that resource stops.
 - The seeded generator redraws up to 64 times instead of 8 before it folds a
   rejected draw. After 8 rejections the fold put roughly 1 draw in 512 of a
   half-period range on the top value (A-L14).
+- **`RateOk` answers `false, reason` instead of raising**, for a nil, NaN or
+  empty src, a nil name, or a `windowMs`/`maxHits` that is not a positive
+  finite number (`maxHits` at least 1). A refused hit carries `'limited'`.
+- **Rate keys that are not connected players are bounded.** playerDropped
+  never freed a license string or a stale id, so a consumer's dynamic keys
+  grew the limiter for the life of cis_libs. Idle ones are swept, and past
+  1024 live ones a new key is refused with `'cap'`; a connected player is
+  never refused for that bound.
 
 ### Security
 

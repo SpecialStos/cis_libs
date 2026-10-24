@@ -6317,6 +6317,95 @@ do
     env.reset()
 end
 
+-- ============================ W2a. net bindings and the limiter fail closed on bad input
+--
+-- A schema that was a string kicked every player who sent the event, a NaN
+-- window never rolled, maxHits 0 let the first hit through, and a nil name or a
+-- nil src raised inside cis_libs instead of answering.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    local fn = function() end
+    local function refused(label, name, opts)
+        local ok, res, why = pcall(CisNetOn, name, fn, opts)
+        check(ok, ('W2a: %s does not raise (%s)'):format(label, tostring(res)))
+        check(res == false and type(why) == 'string' and why ~= '',
+            ('W2a: %s is refused with a reason (%s, %s)'):format(label, tostring(res), tostring(why)))
+    end
+    refused('a string schema', 'w2a:one', { schema = 'amount' })
+    refused('a schema rule that is not a table', 'w2a:one', { schema = { amount = 'number' } })
+    refused('a schema rule with an unknown type', 'w2a:one', { schema = { amount = { type = 'int' } } })
+    refused('a schema rule with a string min', 'w2a:one', { schema = { amount = { type = 'number', min = '1' } } })
+    refused('a NaN windowMs', 'w2a:one', { windowMs = 0 / 0 })
+    refused('an infinite windowMs', 'w2a:one', { windowMs = math.huge })
+    refused('a string windowMs', 'w2a:one', { windowMs = '1000' })
+    refused('maxHits 0', 'w2a:one', { maxHits = 0 })
+    refused('a NaN maxHits', 'w2a:one', { maxHits = 0 / 0 })
+    refused('a nil name', nil, {})
+    refused('an empty name', '', {})
+    refused('opts that are not a table', 'w2a:one', 'fast')
+    local okRef, refRes, refWhy = pcall(CisNetOn, 'w2a:one', 42, {})
+    check(okRef and refRes == false and type(refWhy) == 'string', 'W2a: a non-callable handler says why')
+    check(CisNetOn('w2a:good', fn, { windowMs = 500, maxHits = 2,
+        schema = { amount = { type = 'integer', min = 1, optional = true }, pos = { type = 'vector3' } } }) == true,
+        'W2a: a well-formed binding still registers')
+
+    -- RateOk: a bad src or name is an answer, not a raise.
+    for _, case in ipairs({
+        { 'a nil src', nil, 'k' }, { 'a NaN src', 0 / 0, 'k' }, { 'an infinite src', math.huge, 'k' },
+        { 'an empty src', '', 'k' }, { 'a table src', {}, 'k' }, { 'a nil name', 1, nil },
+    }) do
+        local ok, res, why = pcall(CisRateOk, case[2], case[3], 1000, 8)
+        check(ok and res == false and type(why) == 'string',
+            ('W2a: RateOk with %s is refused with a reason (%s, %s, %s)'):format(case[1], tostring(ok), tostring(res), tostring(why)))
+    end
+    local okW, resW = pcall(CisRateOk, 1, 'w2a:nanwin', 0 / 0, 8)
+    check(okW and resW == false, 'W2a: RateOk with a NaN window is refused')
+    local okZ, resZ = pcall(CisRateOk, 1, 'w2a:zero', 1000, 0)
+    check(okZ and resZ == false, 'W2a: RateOk with maxHits 0 refuses the first hit too')
+    local okE, resE = pcall(env.EXPORTS.RateOk, nil, 'k')
+    check(okE and resE == false, 'W2a: the RateOk export answers false for a nil src')
+
+    -- Keys that are not connected players are never freed by playerDropped, so
+    -- they are bounded on their own: idle ones are swept, live ones are capped.
+    local probe = function()
+        return CisDiagnostics.Collect('server').probes.rateBuckets
+    end
+    for i = 1, 3000 do CisRateOk('license:' .. i, 'buy', 1000, 8) end
+    local live = probe()
+    check(live and live.nonPlayer and live.nonPlayer <= live.nonPlayerCap,
+        ('W2a: live non-player keys stop at the cap (%s of %s)'):format(tostring(live and live.nonPlayer),
+            tostring(live and live.nonPlayerCap)))
+    env.clock = env.clock + 61000
+    CisRateOk('license:late', 'buy', 1000, 8)
+    local swept = probe()
+    check(swept and swept.nonPlayer == 1,
+        ('W2a: idle non-player keys are swept (%s left)'):format(tostring(swept and swept.nonPlayer)))
+    -- A connected player is never refused because the non-player keys are full.
+    env.players[5] = true
+    for i = 1, 3000 do CisRateOk('steam:' .. i, 'buy', 1000, 8) end
+    check(CisRateOk(5, 'buy', 1000, 8) == true, 'W2a: a player still gets a bucket when non-player keys are full')
+    env.reset()
+end
+
+-- ============================ W2a2. a callback schema is checked when it is registered
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+    loadModule('server/callback.lua')
+    local ok, why = env.EXPORTS.RegisterCallback('w2a:cb', function() end, { schema = { amount = 'number' } })
+    check(ok == false and type(why) == 'string' and why:find('schema.amount', 1, true) ~= nil,
+        ('W2a2: a callback schema rule that is not a table is refused (%s, %s)'):format(tostring(ok), tostring(why)))
+    check(env.EXPORTS.RegisterCallback('w2a:cb2', function() end, { schema = { amount = { type = 'integer' } } }) == true,
+        'W2a2: a well-formed callback schema still registers')
+    env.reset()
+end
+
 -- ==================================================================== report
 -- Named, not just counted. A suite that reports "failed=3" and exits tells you
 -- something broke and nothing about what, and the fix is to re-run with a print

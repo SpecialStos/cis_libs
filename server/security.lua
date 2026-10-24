@@ -243,20 +243,102 @@ local function evictExpired(src, perSrc, now)
     return dropped
 end
 
+-- KEYS THAT ARE NOT CONNECTED PLAYERS are never freed by playerDropped: a
+-- consumer calling RateOk('license:...') or with a stale id held those buckets
+-- for the life of cis_libs. They are tracked on their own, idle ones (every
+-- window passed) are swept at most once per NONPLAYER_SWEEP_MS, and a new one
+-- past NONPLAYER_SRC_CAP live keys is refused rather than allocated. A
+-- connected player is never counted here, so a full table never refuses one.
+local NONPLAYER_SRC_CAP = 1024
+local NONPLAYER_SWEEP_MS = 60000
+local NONPLAYER_FULL_SWEEP_MS = 1000
+local nonPlayer, nonPlayerCount = {}, 0
+local lastNonPlayerSweep = nil
+
+local function isFinite(n)
+    return n == n and n ~= math.huge and n ~= -math.huge
+end
+
+local function sweepNonPlayers(now)
+    lastNonPlayerSweep = now
+    for key in pairs(nonPlayer) do
+        local live = false
+        for _, bucket in pairs(rates[key] or {}) do
+            if now - bucket.started < bucket.windowMs then
+                live = true
+                break
+            end
+        end
+        if not live then
+            nonPlayer[key] = nil
+            nonPlayerCount = nonPlayerCount - 1
+            rates[key] = nil
+            rateCounts[key] = nil
+        end
+    end
+end
+
+-- A NEW key's bucket set: a connected player's, or a non-player's under the
+-- bound above. Answers nil and a reason when the non-player keys are full.
+local function bucketsFor(src, now)
+    if type(src) == 'number' and src > 0 and GetPlayerName(src) ~= nil then
+        local perSrc = {}
+        rates[src] = perSrc
+        return perSrc
+    end
+    local due = lastNonPlayerSweep == nil or now < lastNonPlayerSweep
+        or now - lastNonPlayerSweep >= NONPLAYER_SWEEP_MS
+        or (nonPlayerCount >= NONPLAYER_SRC_CAP and now - lastNonPlayerSweep >= NONPLAYER_FULL_SWEEP_MS)
+    if due then
+        sweepNonPlayers(now)
+    end
+    if nonPlayerCount >= NONPLAYER_SRC_CAP then
+        return nil, 'cap'
+    end
+    local perSrc = {}
+    rates[src] = perSrc
+    nonPlayer[src] = true
+    nonPlayerCount = nonPlayerCount + 1
+    return perSrc
+end
+
 -- Answers allowed, and 'cap' when a NEW name was refused only because this src
 -- holds RATE_BUCKET_CAP live buckets: that is the limiter's own bound, not the
--- player flooding the event, and is never escalated as one.
+-- player flooding the event, and is never escalated as one. Bad input (a nil,
+-- NaN or empty src, a nil name, a window or limit that is not a positive finite
+-- number) is `false, reason` -- it used to raise inside cis_libs, or build a
+-- bucket that never rolled.
 local function rateOk(src, name, windowMs, maxHits)
-    windowMs = windowMs or 1000
-    maxHits = maxHits or 8
+    windowMs = windowMs == nil and 1000 or windowMs
+    maxHits = maxHits == nil and 8 or maxHits
     -- ONE KEY PER PLAYER. GetPlayers() hands out ids as strings, and a string
     -- src got buckets that playerDropped (which clears the number) never freed.
     src = tonumber(src) or src
+    if type(src) == 'number' then
+        if not isFinite(src) then
+            return false, 'src must be a finite number or a non-empty string'
+        end
+    elseif type(src) ~= 'string' or src == '' then
+        return false, 'src must be a finite number or a non-empty string'
+    end
+    if (type(name) ~= 'string' or name == '') and not (type(name) == 'number' and isFinite(name)) then
+        return false, 'name must be a non-empty string'
+    end
+    if type(windowMs) ~= 'number' or not isFinite(windowMs) or windowMs <= 0 then
+        return false, 'windowMs must be a positive finite number'
+    end
+    if type(maxHits) ~= 'number' or not isFinite(maxHits) or maxHits < 1 then
+        return false, 'maxHits must be a number of at least 1'
+    end
     local now = GetGameTimer()
     local perSrc = rates[src]
     if not perSrc then
-        perSrc = {}
-        rates[src] = perSrc
+        local why
+        perSrc, why = bucketsFor(src, now)
+        if not perSrc then
+            CisDiagnostics.Inc(CisDiagnostics.NAMES.RATE_LIMITED)
+            return false, why
+        end
     end
     local bucket = perSrc[name]
     if not bucket then
@@ -289,8 +371,9 @@ local function rateOk(src, name, windowMs, maxHits)
     if not allowed then
         -- Counted HERE, at the single place a request is actually turned away, rather
         CisDiagnostics.Inc(CisDiagnostics.NAMES.RATE_LIMITED)
+        return false, 'limited'
     end
-    return allowed
+    return true
 end
 
 function CisRateOk(src, name, windowMs, maxHits)
@@ -385,6 +468,10 @@ local BAD_PAYLOAD_QUIET_MS = 5000
 AddEventHandler('playerDropped', function()
     rates[source] = nil
     rateCounts[source] = nil
+    if nonPlayer[source] then
+        nonPlayer[source] = nil
+        nonPlayerCount = nonPlayerCount - 1
+    end
     rateWarned[source] = nil
     schemaReported[source] = nil
 end)
@@ -469,6 +556,53 @@ function CisCheckNetSchema(schema, payload)
     return checkNetSchema(schema, payload)
 end
 
+-- The types a schema rule may name: what type() answers for a decoded client
+-- argument (LuaGLM vectors included), plus 'integer'.
+local SCHEMA_TYPES = {
+    string = true, number = true, integer = true, boolean = true, table = true,
+    vector2 = true, vector3 = true, vector4 = true, quat = true,
+}
+
+-- A SCHEMA IS CHECKED WHEN IT IS REGISTERED. The checker skips what it cannot
+-- read, so a string schema, a rule that is not a table or a typo in a type
+-- name was a binding that refused -- and reported, and on most servers kicked
+-- -- every player who sent the event. Answers true, or false and the first
+-- thing wrong with it.
+local function validateNetSchema(schema)
+    if type(schema) ~= 'table' then
+        return false, ('schema must be a map of field -> { type, min, max, maxLen, optional }, got %s')
+            :format(type(schema))
+    end
+    for field, rule in pairs(schema) do
+        if type(field) ~= 'string' then
+            return false, ('schema field names must be strings, got %s'):format(type(field))
+        end
+        if type(rule) ~= 'table' then
+            return false, ('schema.%s must be a rule table, got %s'):format(field, type(rule))
+        end
+        if rule.type ~= nil and not SCHEMA_TYPES[rule.type] then
+            return false, ('schema.%s.type %s is not a known type'):format(field, tostring(rule.type))
+        end
+        for _, key in ipairs({ 'min', 'max', 'maxLen' }) do
+            local v = rule[key]
+            if v ~= nil and (type(v) ~= 'number' or v ~= v) then
+                return false, ('schema.%s.%s must be a number, got %s'):format(field, key, tostring(v))
+            end
+        end
+        for _, key in ipairs({ 'optional', 'finite' }) do
+            if rule[key] ~= nil and type(rule[key]) ~= 'boolean' then
+                return false, ('schema.%s.%s must be true or false, got %s'):format(field, key, type(rule[key]))
+            end
+        end
+    end
+    return true
+end
+
+--- The same registration check for server/callback.lua's `schema` option.
+function CisValidateNetSchema(schema)
+    return validateNetSchema(schema)
+end
+
 -- How much of a client's payload is worth walking before it is refused. The
 -- same bounds for a net event and a callback; a net event may raise its own.
 local MAX_PAYLOAD_ARGS = 32
@@ -538,6 +672,21 @@ local function readNetLimits(name, opts)
         if value ~= nil and (type(value) ~= 'number' or value ~= value or value < 1) then
             return false, ('Cis.net.on("%s"): opts.%s must be a positive number, got %s')
                 :format(tostring(name), key, tostring(value))
+        end
+    end
+    -- The limiter's own two. A NaN window never rolled, and maxHits 0 let the
+    -- first hit of every window through.
+    for _, key in ipairs({ 'windowMs', 'maxHits' }) do
+        local value = opts[key]
+        if value ~= nil and (type(value) ~= 'number' or value ~= value or value == math.huge or value < 1) then
+            return false, ('Cis.net.on("%s"): opts.%s must be a finite number of at least 1, got %s')
+                :format(tostring(name), key, tostring(value))
+        end
+    end
+    if opts.schema ~= nil then
+        local schemaOk, schemaWhy = validateNetSchema(opts.schema)
+        if not schemaOk then
+            return false, ('Cis.net.on("%s"): opts.%s'):format(tostring(name), schemaWhy)
         end
     end
     return true
@@ -634,16 +783,27 @@ local function dispatch(name, ...)
     end
 end
 
+-- Every refusal is `false, reason`, logged once here.
+local function refuseNet(level, why)
+    if level == 'warn' then
+        Logging.Warn(why)
+    else
+        Logging.Error(why)
+    end
+    return false, why
+end
+
 function CisNetOn(name, fn, opts)
+    if type(name) ~= 'string' or name == '' then
+        return refuseNet('error', ('Cis.net.on: the event name must be a non-empty string, got %s'):format(type(name)))
+    end
     opts = opts or {}
     if type(opts) ~= 'table' then
-        Logging.Error(('Cis.net.on("%s"): opts must be a table, got %s'):format(tostring(name), type(opts)))
-        return false
+        return refuseNet('error', ('Cis.net.on("%s"): opts must be a table, got %s'):format(name, type(opts)))
     end
     local limitsOk, limitsWhy = readNetLimits(name, opts)
     if not limitsOk then
-        Logging.Error(limitsWhy)
-        return false
+        return refuseNet('error', limitsWhy)
     end
 
     -- THE OWNER IS THE CALLER, never the reference string. Parsed from
@@ -654,9 +814,8 @@ function CisNetOn(name, fn, opts)
     if type(fn) == 'string' then
         resource, exportName = fn:match('^([^:]+):(.+)$')
         if resource and resource ~= owner and owner ~= GetCurrentResourceName() then
-            Logging.Warn(('cis_libs: %s tried to bind net event %q to %s, which is not its own export; refused')
+            return refuseNet('warn', ('cis_libs: %s tried to bind net event %q to %s, which is not its own export; refused')
                 :format(tostring(owner), tostring(name), tostring(fn)))
-            return false
         end
         if resource and exportName then
             -- pcall BECAUSE LOOKING UP A MISSING EXPORT RAISES.
@@ -683,15 +842,13 @@ function CisNetOn(name, fn, opts)
     if not handler then
         -- The message has to name the REFERENCE, not just the type.
         if type(fn) == 'string' and resource and exportName then
-            Logging.Error(('Cis.net.on("%s") registered nothing: resource %q does '
+            return refuseNet('error', ('Cis.net.on("%s") registered nothing: resource %q does '
                 .. 'not export %q. Check the name, and that the resource is started.')
                 :format(tostring(name), tostring(resource), tostring(exportName)))
-        else
-            Logging.Error(('Cis.net.on("%s") registered nothing: the handler must be a function '
-                .. 'or a "resource:export" reference, not %s')
-                :format(tostring(name), type(fn)))
         end
-        return false
+        return refuseNet('error', ('Cis.net.on("%s") registered nothing: the handler must be a function '
+            .. 'or a "resource:export" reference, not %s')
+            :format(tostring(name), type(fn)))
     end
 
     local binding = netBindings[name]
@@ -705,9 +862,8 @@ function CisNetOn(name, fn, opts)
             binding.exportName = exportName
             return true
         end
-        Logging.Warn(('cis_libs: net event %q is already bound by %s; %s was refused')
+        return refuseNet('warn', ('cis_libs: net event %q is already bound by %s; %s was refused')
             :format(tostring(name), tostring(binding.owner), tostring(owner)))
-        return false
     end
 
     netBindings[name] = {
@@ -792,5 +948,5 @@ end)
 CisDiagnostics.Register('server', 'rateBuckets', function()
     local total = 0
     for _ in pairs(rateCounts) do total = total + 1 end
-    return { srcs = total, cap = RATE_BUCKET_CAP }
+    return { srcs = total, cap = RATE_BUCKET_CAP, nonPlayer = nonPlayerCount, nonPlayerCap = NONPLAYER_SRC_CAP }
 end)
