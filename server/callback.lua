@@ -34,6 +34,13 @@ local function invoke(name, src, ...)
     if not entry then
         return false, 'unknown'
     end
+    -- AN OWNER THAT HAS STOPPED HOLDS NOTHING. Its stop releases the entry, but a
+    -- stop a script asked for is confirmed one tick later (CisWhenRealStop), and
+    -- a call inside that tick invoked the dead reference and answered an error.
+    local ownerState = entry.owner and GetResourceState(entry.owner)
+    if ownerState == 'stopped' or ownerState == 'stopping' then
+        return false, 'unknown'
+    end
     local fn, self = entry.fn, nil
     if not fn then
         -- UNDER pcall: a stopped resource, or a name it does not export, RAISES on

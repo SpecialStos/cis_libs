@@ -204,7 +204,36 @@ function deployAll(t, info, timestamp) {
   return lines
 }
 
+// fivem-console speaks UDP rcon and exits 0 with "(no reply)" when nothing
+// came back, so a datagram that never arrived reads as success.
+// run-20261024-112628 lost `ensure cis_test_b` exactly that way: the server
+// logged no "Rcon from" for it, the resource never started, and a suite ERRORed
+// on a missing export three minutes later. So a stop is resent while nothing
+// answers, and an ensure must answer "Started resource <name>" -- which also
+// catches a lost stop, since ensuring a resource still running prints nothing.
+const CONSOLE_ATTEMPTS = 3
+
+function consoleChecked(t, cmd, sleep) {
+  const m = /^(stop|ensure) ([A-Za-z0-9_-]+)$/.exec(cmd)
+  let r
+  for (let attempt = 1; attempt <= CONSOLE_ATTEMPTS; attempt++) {
+    r = t.console(cmd)
+    if (!r.ok) return Object.assign({ attempts: attempt }, r)
+    const silent = r.out === '' || r.out === '(no reply)'
+    if (!m) return Object.assign({ attempts: attempt }, r)
+    if (m[1] === 'stop' && !silent) return Object.assign({ attempts: attempt }, r)
+    if (m[1] === 'ensure' && new RegExp(`Started resource ${m[2]}(?![A-Za-z0-9_-])`).test(r.out)) return Object.assign({ attempts: attempt }, r)
+    if (attempt < CONSOLE_ATTEMPTS && sleep) sleep(1000)
+  }
+  if (m[1] === 'stop') return Object.assign({ attempts: CONSOLE_ATTEMPTS }, r)
+  return {
+    ok: false, code: r.code, attempts: CONSOLE_ATTEMPTS,
+    out: `${r.out}\n  "${cmd}" never answered "Started resource ${m[2]}" in ${CONSOLE_ATTEMPTS} attempts`,
+  }
+}
+
 module.exports = {
   SERVERS, HARNESS, HARNESS_ACES, HARNESS_CONVARS, LOCK,
   remoteConfig, resourceDir, transport, preflight, buildEntries, deployAll, safeCommand, shq,
+  consoleChecked, CONSOLE_ATTEMPTS,
 }

@@ -5158,6 +5158,13 @@
       "find": "    if type(osLib) == 'table' then\n",
       "replace": "    if true then\n",
       "why": "Drop the os-table check. The FiveM client has no os table, so rawget(os, ...) raises in every timed pass and the client zone loop dies: no zone ever fires."
+    },
+    {
+      "id": "M881",
+      "file": "server/callback.lua",
+      "find": "    if ownerState == 'stopped' or ownerState == 'stopping' then\n",
+      "replace": "    if false then\n",
+      "why": "Drop the stopped-owner check in invoke. A callback whose owner stopped is still invoked during the tick before its release lands, and the caller is answered an error from a dead function reference instead of unknown (run-20261024-112628)."
     }
   ]
 }

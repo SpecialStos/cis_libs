@@ -376,9 +376,9 @@ function remoteDeployAndEnsure(env, noDeploy) {
   }
   log('[2/7] harness convars and ACEs, then stop / refresh / ensure through fivem-console')
   for (const cmd of remote.HARNESS_CONVARS.concat(remote.HARNESS_ACES, SEQUENCE)) {
-    const r = t.console(cmd)
-    if (!r.ok) fail(`fivem-console refused "${cmd}" (exit ${r.code}).\n${indent(r.out)}\n  Nothing was run.`)
-    log(`  ${cmd}`)
+    const r = remote.consoleChecked(t, cmd, sleep)
+    if (!r.ok) fail(`fivem-console refused "${cmd}" (exit ${r.code}).\n${indent(r.out)}\n  The sequence stopped there; rerun live:run.`)
+    log(`  ${cmd}${r.attempts > 1 ? ` (answered on attempt ${r.attempts})` : ''}`)
   }
 }
 

@@ -228,8 +228,17 @@ P.RegisterSuite('zones', {
             exports['cis_libs']:RemoveZone('z_remove')
             P.ClearEnterLog()
             P.ClearExitLog()
+            -- CENTRED ON WHERE THE PED STANDS NOW, NOT ON at(2, 2, 2). A size-4
+            -- box at that offset spans [0, 4] from the base origin on every
+            -- axis, so the player stood exactly on its corner, and ReturnToBase
+            -- only promises to land within 0.5 m of the base. Whenever the ped
+            -- came back a hair on the negative side it was outside the box:
+            -- run-20261024-112628 reported insideCount=0 for that reason, after
+            -- passing on earlier runs by luck.
+            local here = P.Origin()
+            if not here then return false, 'no ped to build the zone around' end
             local ok, why = exports['cis_libs']:CreateZone('box', 'z_remove',
-                at(2.0, 2.0, 2.0), extent(4.0, 4.0, 4.0),
+                { x = here.x, y = here.y, z = here.z }, extent(4.0, 4.0, 4.0),
                 { onEnter = function() end, onExit = function(_zone, coords) P.NoteExit(coords) end })
             -- A refused zone here reports "coords MISSING" thirty lines later,
             -- which names the symptom and hides the cause. The exit can only be

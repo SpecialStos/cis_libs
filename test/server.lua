@@ -1904,6 +1904,39 @@ do
     env.reset()
 end
 
+-- A STOPPED OWNER'S CALLBACK IS UNKNOWN, NOT AN ERROR. cis_libs releases a
+-- consumer's callbacks on its onResourceStop, but a stop a script asked for is
+-- confirmed one tick later (shared/owned.lua). Measured on run-20261024-112628:
+-- a call in that tick invoked the dead reference and answered "Execution of
+-- function reference in script host failed" -- an error that sends the caller
+-- to its handler, when the truth is that nobody is registered any more.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+    loadModule('server/callback.lua')
+
+    local state = 'started'
+    function GetResourceState(name) return name == 'other_res' and state or 'missing' end
+    env.invoking = 'other_res'
+    local ran = 0
+    env.EXPORTS.RegisterCallback('stop:window', function() ran = ran + 1 return 'alive' end)
+    env.invoking = nil
+
+    local ok, value = env.EXPORTS.TryAwaitCallback('stop:window')
+    check(ok == true and value == 'alive', 'a started owner answers its callback')
+
+    state = 'stopped'
+    local ok2, why = env.EXPORTS.TryAwaitCallback('stop:window')
+    check(ok2 == false, "a stopped owner's callback does not answer")
+    check(tostring(why):find('unknown', 1, true) ~= nil,
+        ('and it reads unknown, not error (%s)'):format(tostring(why)))
+    check(ran == 1, 'and the dead handler is never invoked')
+    env.reset()
+end
+
 -- ============================================ 12. server->client callback rate
 -- `cis_libs:cb:serverRes` went through CisNetOn with no limit of its
 -- own, so it inherited the default backstop of EIGHT per second per player. A

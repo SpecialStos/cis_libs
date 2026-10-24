@@ -244,3 +244,53 @@ test('live:run takes one tier and the two flags, and refuses anything else', () 
   assert.throws(() => parseArgs(['--force']), /unknown flag/)
   assert.throws(() => parseArgs(['--deploy-only', '--no-deploy']), /together/)
 })
+
+function scriptedConsole(replies) {
+  const sent = []
+  return {
+    sent,
+    console(cmd) {
+      sent.push(cmd)
+      const out = replies.length ? replies.shift() : '(no reply)'
+      return { ok: true, code: 0, out }
+    },
+  }
+}
+
+test('a lost ensure is resent until the server says it started', () => {
+  const t = scriptedConsole(['(no reply)', 'Started resource cis_test_b'])
+  const r = remote.consoleChecked(t, 'ensure cis_test_b')
+  assert.equal(r.ok, true)
+  assert.equal(r.attempts, 2)
+  assert.deepEqual(t.sent, ['ensure cis_test_b', 'ensure cis_test_b'])
+})
+
+test('an ensure that never says it started fails, naming the resource', () => {
+  const t = scriptedConsole([])
+  const r = remote.consoleChecked(t, 'ensure cis_test_b')
+  assert.equal(r.ok, false)
+  assert.equal(t.sent.length, remote.CONSOLE_ATTEMPTS)
+  assert.match(r.out, /never answered "Started resource cis_test_b"/)
+})
+
+test('another resource starting is not this ensure answering', () => {
+  const t = scriptedConsole(['Started resource cis_test_bb', 'Started resource cis_test_b'])
+  const r = remote.consoleChecked(t, 'ensure cis_test_b')
+  assert.equal(r.attempts, 2)
+})
+
+test('a silent stop is resent, then accepted, because stopping a stopped resource may say nothing', () => {
+  const t = scriptedConsole([])
+  const r = remote.consoleChecked(t, 'stop cis_test_b')
+  assert.equal(r.ok, true)
+  assert.equal(t.sent.length, remote.CONSOLE_ATTEMPTS)
+  const u = scriptedConsole(['Stopping resource cis_test_b'])
+  assert.equal(remote.consoleChecked(u, 'stop cis_test_b').attempts, 1)
+})
+
+test('a convar or ACE line is sent once, whatever it answers', () => {
+  const t = scriptedConsole([])
+  remote.consoleChecked(t, 'set cis_check_version false')
+  remote.consoleChecked(t, 'refresh')
+  assert.equal(t.sent.length, 2)
+})

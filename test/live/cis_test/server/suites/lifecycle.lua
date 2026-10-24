@@ -59,10 +59,21 @@ CisTestRunner.Suite('lifecycle', { tier = 'lifecycle', realm = 'server' }, funct
             exports['cis_test_c']:Reown()
         end)
 
-        local after = exports['cis_libs']:GetDiagnostics()
-        local afterByOwner = (after.probes.syncRecords or {}).byOwner or {}
+        -- THE RELEASE MAY LAND ONE TICK AFTER 'stopped'. A stop a script asked
+        -- for is confirmed through CisWhenRealStop, which can defer by a tick;
+        -- run-20261024-112628 read the count inside that tick and saw 2. The
+        -- property is that the records go, so wait a bounded second for it and
+        -- say in the message how long it took.
+        local waitStart = GetGameTimer()
+        local after, afterByOwner
+        t.waitUntil(function()
+            after = exports['cis_libs']:GetDiagnostics()
+            afterByOwner = (after.probes.syncRecords or {}).byOwner or {}
+            return afterByOwner.cis_test_c == nil
+        end, 1000)
         t.eq(afterByOwner.cis_test_c, nil,
-            'cis_test_c took its own records with it')
+            ('cis_test_c took its own records with it (released after %d ms)')
+                :format(GetGameTimer() - waitStart))
         t.ok((afterByOwner.cis_test or 0) >= 1,
             'and cis_test kept every one of its own')
         t.ok((after.probes.syncRecords or {}).total < (withBoth.probes.syncRecords or {}).total,

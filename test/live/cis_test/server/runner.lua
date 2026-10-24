@@ -180,6 +180,17 @@ function Case:allowCounterAny(name)
     return self
 end
 
+-- AT MOST n, for a counter a case may move ONCE PER PROCESS rather than every
+-- time. cis_libs logs a deprecated slot's notice the first time each resource
+-- uses it, so whichever case reaches the slot first sees one more warning and
+-- every later case none -- and a suite run alone, or a second run without a
+-- cis_test restart, moves it by zero. Exact deltas cannot say that; "any" is
+-- weaker than the truth.
+function Case:allowCounterUpTo(name, n)
+    self.expectedCounters[name] = { upTo = n }
+    return self
+end
+
 function Case:record(passed, msg, detail)
     self.checks = self.checks + 1
     if passed then
@@ -256,13 +267,17 @@ local function diffCounters(before, after, expected)
         if now ~= was then
             local allowed = expected[key]
             local declared = allowed ~= nil
-            local explained = declared and (allowed == ANY_COUNTER or (now - was) == allowed)
+            local upTo = type(allowed) == 'table' and allowed.upTo
+            local explained = declared and (allowed == ANY_COUNTER or (now - was) == allowed
+                or (upTo and now - was > 0 and now - was <= upTo))
             if not explained then
                 local suffix
                 if not declared then
                     suffix = ' (no case declared this)'
                 elseif allowed == ANY_COUNTER then
                     suffix = ' (this case declares any movement expected)'
+                elseif upTo then
+                    suffix = (' (this case allows at most %d)'):format(upTo)
                 else
                     suffix = (' (this case allows %d)'):format(allowed)
                 end
@@ -459,6 +474,9 @@ local function runSuite(suite)
     end
     t.allowCounterAny = function(name)
         return Case.allowCounterAny(needCase('t.allowCounterAny'), name)
+    end
+    t.allowCounterUpTo = function(name, n)
+        return Case.allowCounterUpTo(needCase('t.allowCounterUpTo'), name, n)
     end
     t.waitUntil = function(fn, timeoutMs, msg)
         return CisTestRunner.waitUntil(fn, timeoutMs, msg)

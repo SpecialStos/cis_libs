@@ -102,6 +102,9 @@ CisTestRunner.Suite('registry', { tier = 'server', realm = 'server' }, function(
     end)
 
     t.case('a capability forwards its arguments exactly', function()
+        -- The first database call cis_test makes logs the slot's one-time
+        -- deprecation notice (since 1.1.0). This case is usually that call.
+        t.allowCounterUpTo('warnings', 1)
         exports['cis_test_providers']:ResetCalls('database')
         exports['cis_test_providers']:SetDbRows({ { id = 1 }, { id = 2 } })
 
