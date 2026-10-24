@@ -45,6 +45,14 @@ local function intBounds(lo, hi, who)
     if lo > hi then
         return nil, 'there is no integer between the bounds'
     end
+    -- A bound the runtime cannot hold as an integer (past 2^63 in Lua 5.4, past
+    -- 2^31 in a 32-bit build) stays a float, and math.random raised on it. A
+    -- float past 2^53 no longer holds every integer, so there is no uniform draw
+    -- to make; refused here, not raised later.
+    if (math.type(lo) == 'float' and (lo >= TWO53 or lo <= -TWO53))
+        or (math.type(hi) == 'float' and (hi >= TWO53 or hi <= -TWO53)) then
+        return nil, 'a bound is past 2^53, where a double no longer holds every integer'
+    end
     return lo, hi
 end
 
@@ -70,9 +78,10 @@ local function countOf(lo, hi)
     return n
 end
 
-local function tooWide(lo, hi, level)
-    error(('CisRandom: the range %s to %s holds more than the 2^53 values a double holds exactly')
-        :format(tostring(lo), tostring(hi)), level + 1)
+-- The refusal for a span wider than 2^53: an answer, not a raise.
+local function tooWide(lo, hi)
+    return ('CisRandom: the range %s to %s holds more than the 2^53 values a double holds exactly')
+        :format(tostring(lo), tostring(hi))
 end
 
 -- Normalise the caller's `rng` argument into "give me a float in [0, 1)".
@@ -168,14 +177,15 @@ local function randInt(rng, lo, hi)
     if type(rng) == 'table' and type(rng.int) == 'function' then
         return rng:int(lo, hi)
     end
-    if rng == nil then
+    if rng == nil and math.type(lo) == 'integer' and math.type(hi) == 'integer' then
         -- math.random(lo, hi) is already unbiased: it is a modulus-rejection, and
         -- in Lua 5.4 it spans the whole integer range, so no count is needed.
+        -- Float bounds (past 2^31 in a 32-bit build) go the counted way below.
         return math.random(lo, hi)
     end
     local n = countOf(lo, hi)
     if not n then
-        tooWide(lo, hi, 3)
+        return nil, tooWide(lo, hi)
     end
     -- A single rand01 draw addresses 2^32.
     local span = TWO32
@@ -289,7 +299,7 @@ function M.newGenerator(seed)
         end
         local n = countOf(a, b)
         if not n then
-            tooWide(a, b, 2)
+            return nil, tooWide(a, b)
         end
         if n <= M1 then
             -- next() yields 1 .. M1, so the largest multiple of n in that range is
@@ -318,24 +328,25 @@ function M.newGenerator(seed)
         return a + math.floor(v % n)
     end
 
-    --- Float in [min, max). A reversed range is swapped.
+    --- Float in [min, max). A reversed range is swapped; a NaN or infinite bound is refused, as in CisRandom.float.
     function gen:range(min, max)
-        if min > max then
-            min, max = max, min
+        local a, b = floatBounds(min, max, 'generator:range')
+        if a == nil then
+            return nil, b
         end
-        return min + self:float() * (max - min)
+        return a + self:float() * (b - a)
     end
 
     return gen
 end
 
---- Integer in [lo, hi] INCLUSIVE, uniformly.
+--- Integer in [lo, hi] INCLUSIVE, uniformly. A bound past 2^53, or an injected generator asked for a span wider than 2^53, is refused with a reason.
 --- @raise  when a bound is not a number -- a mistake in the caller's code, which
 ---@param lo number
 ---@param hi number
 ---@param rng? table|fun(): number  see the header; nil uses math.random
 ---@return integer|nil  the draw
----@return string|nil  why, when the range is NaN, infinite or holds no integer
+---@return string|nil  why, when the range is NaN, infinite, past 2^53 or holds no integer
 function M.integer(lo, hi, rng)
     local a, b = intBounds(lo, hi, 'CisRandom.integer')
     if a == nil then
@@ -428,6 +439,30 @@ function M.sample(list, k, rng)
     return out
 end
 
+-- Scan a weight list once: the index of the first infinite weight, or else the
+-- divisor that keeps the running total finite. Finite weights can still sum
+-- past 1.8e308; the total then read as infinite, and the entry that crossed it
+-- was picked every time as if it were the infinite one. Dividing every weight
+-- by the largest keeps the proportions and the sum below n. The divisor is 1
+-- whenever the plain sum fits, so an ordinary list draws the same stream.
+local function weightScale(n, weightAt)
+    local total, largest = 0, 0
+    for i = 1, n do
+        local w = weightAt(i)
+        if type(w) == 'number' and w > 0 then
+            if w == math.huge then
+                return nil, i
+            end
+            total = total + w
+            if w > largest then largest = w end
+        end
+    end
+    if total == math.huge then
+        return largest
+    end
+    return 1
+end
+
 --- Weighted choice. Cumulative weights plus a binary search, O(log n) per draw and O(n)
 ---@param entries table  array of tables with `.weight` (number, may be
 ---@param rng? table|fun(): number
@@ -442,21 +477,20 @@ function M.weighted(entries, rng)
     end
 
     -- Cumulative array first, then one uniform draw, then a search.
-local cumulative = {}
-    local last = 0
-    local guaranteed
-    for i = 1, n do
+    local function weightAt(i)
         local e = entries[i]
-        local w = type(e) == 'table' and e.weight or nil
-        if type(w) == 'number' and w > 0 then
-            -- An infinite weight is a config saying "always this one", and it is
-            if w == math.huge or last + w == math.huge then
-                guaranteed = i
-                break
+        return type(e) == 'table' and e.weight or nil
+    end
+    -- An infinite weight is a config saying "always this one": the first wins.
+    local scale, guaranteed = weightScale(n, weightAt)
+    local cumulative = {}
+    local last = 0
+    if not guaranteed then
+        for i = 1, n do
+            local w = weightAt(i)
+            if type(w) == 'number' and w > 0 then
+                last = last + w / scale
             end
-            last = last + w
-            cumulative[i] = last
-        else
             cumulative[i] = last
         end
     end
@@ -504,15 +538,16 @@ function M.weightedIndex(weights, rng)
     if n < 1 then
         return nil
     end
+    local scale, always = weightScale(n, function(i) return weights[i] end)
+    if always then
+        return always
+    end
     local cumulative = {}
     local last = 0
     for i = 1, n do
         local w = weights[i]
         if type(w) == 'number' and w > 0 then
-            if w == math.huge or last + w == math.huge then
-                return i
-            end
-            last = last + w
+            last = last + w / scale
         end
         cumulative[i] = last
     end

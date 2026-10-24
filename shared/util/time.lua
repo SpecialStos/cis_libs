@@ -268,7 +268,7 @@ end
 
 --- Round a duration in SECONDS to a whole number of `unit`s, to the NEAREST, and return
 ---@param seconds number
----@param unit? number  default 60
+---@param unit? number  default 60; a NaN, infinite or non-positive one answers 0
 ---@return number  seconds, rounded to a whole multiple of unit, ties up
 function M.roundTo(seconds, unit)
     if type(seconds) ~= 'number' or seconds ~= seconds then
@@ -277,10 +277,18 @@ function M.roundTo(seconds, unit)
     if unit == nil then
         unit = M.MINUTE
     end
-    if type(unit) ~= 'number' or unit <= 0 then
+    -- `not (unit > 0)` also refuses NaN; an infinite unit made the answer NaN.
+    if type(unit) ~= 'number' or unit ~= unit or unit <= 0 or unit == math.huge then
         return 0
     end
-    return math.floor(seconds / unit + 0.5) * unit
+    local q = math.floor(seconds / unit + 0.5)
+    local r = q * unit
+    -- An integer product can wrap (32-bit in fengari, 64-bit in Lua 5.4) and come
+    -- back negative; the float product is then the honest answer.
+    if math.type(r) == 'integer' and r + 0.0 ~= q * (unit + 0.0) then
+        return q * (unit + 0.0)
+    end
+    return r
 end
 
 -- A MODULE, NOT A GLOBAL.

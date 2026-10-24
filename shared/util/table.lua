@@ -134,17 +134,37 @@ function M.deepCopy(value, seen)
     if existing ~= nil then
         return existing
     end
-    local out = {}
+    local root = {}
     -- Registered BEFORE the descent.
-    seen[value] = out
-    -- VALUES are copied; KEYS are kept. A table used as a key is an identity --
-    -- a set of players, a map from entity handle tables to state -- and a copy
-    -- of the key is a different identity, so every lookup by the original key
-    -- missed in the copy.
-    for k, v in next, value do
-        out[k] = M.deepCopy(v, seen)
+    seen[value] = root
+    -- A worklist, not recursion: a 200k-deep chain overflowed the C stack. Each
+    -- table is queued once, when its copy is made, so cycles and shared tables
+    -- still come out as one copy each.
+    local srcs, dsts, top = { value }, { root }, 1
+    while top > 0 do
+        local src, out = srcs[top], dsts[top]
+        srcs[top], dsts[top] = nil, nil
+        top = top - 1
+        -- VALUES are copied; KEYS are kept. A table used as a key is an identity --
+        -- a set of players, a map from entity handle tables to state -- and a copy
+        -- of the key is a different identity, so every lookup by the original key
+        -- missed in the copy.
+        for k, v in next, src do
+            if type(v) == 'table' then
+                local copy = seen[v]
+                if copy == nil then
+                    copy = {}
+                    seen[v] = copy
+                    top = top + 1
+                    srcs[top], dsts[top] = v, copy
+                end
+                out[k] = copy
+            else
+                out[k] = v
+            end
+        end
     end
-    return out
+    return root
 end
 
 --- How deeply nested a table is.

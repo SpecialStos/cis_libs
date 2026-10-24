@@ -178,6 +178,10 @@ function M.clamp(v, lo, hi)
     if v ~= v then
         return nil, 'CisInterp.clamp: v is NaN, which cannot be clamped'
     end
+    -- A NaN bound failed every comparison, so v came back unclamped.
+    if lo ~= lo or hi ~= hi then
+        return nil, 'CisInterp.clamp: a bound is NaN, which is not a range'
+    end
     -- An infinite VALUE still clamps: inf > hi, so it lands on hi, and that is the
     if lo > hi then
         return nil, ('CisInterp.clamp: lo %s is greater than hi %s')
@@ -192,6 +196,8 @@ end
 ---@param v number
 ---@return number
 function M.clamp01(v)
+    -- NaN is no fraction; 0 keeps a smoothstep or lerp fed by it finite.
+    if v ~= v then return 0 end
     if v < 0 then return 0 end
     if v > 1 then return 1 end
     return v
@@ -262,7 +268,9 @@ end
 ---@return number  in [min, max)
 function M.wrap(v, min, max)
     local range = max - min
-    if range <= 0 then
+    -- `not (range > 0)` also catches a NaN range; an infinite one, or an
+    -- infinite v, made `%` answer NaN.
+    if range ~= range or range <= 0 or range == math.huge or v ~= v or v == math.huge or v == -math.huge then
         return min
     end
     return min + ((v - min) % range + range) % range
@@ -300,7 +308,9 @@ end
 ---@param maxDelta number
 ---@return number
 function M.moveTowards(current, target, maxDelta)
-    if maxDelta < 0 then
+    -- `not (>= 0)` also catches NaN, which failed both comparisons below and
+    -- jumped straight to target.
+    if maxDelta ~= maxDelta or maxDelta < 0 then
         maxDelta = 0
     end
     local d = target - current
@@ -647,6 +657,22 @@ function M.dampVec3(current, target, smoothTime, dt, out)
     return out
 end
 
+-- A vector's length that survives a component whose square overflows: 1e200
+-- squared is inf, and the vector came back as zeros. Scaled by the largest
+-- component only when the plain sum overflows, so the common path is unchanged.
+local function length3(x, y, z)
+    local sq = x * x + y * y + z * z
+    if sq ~= math.huge then
+        return math.sqrt(sq)
+    end
+    local m = math.max(math.abs(x), math.abs(y), math.abs(z))
+    if m == math.huge then
+        return m
+    end
+    local a, b, c = x / m, y / m, z / m
+    return m * math.sqrt(a * a + b * b + c * c)
+end
+
 --- Shorten a vector to at most maxLength.
 ---@param v table|vector2|vector3|vector4
 ---@param maxLength number
@@ -663,9 +689,9 @@ function M.clampLength(v, maxLength, out)
     out = out or {}
     -- A negative length would scale the vector by a negative factor and flip it.
     if maxLength < 0 then maxLength = 0 end
-    local lenSq = x * x + y * y + z * z
-    if lenSq > maxLength * maxLength and lenSq > 0 then
-        local f = maxLength / math.sqrt(lenSq)
+    local len = length3(x, y, z)
+    if len > maxLength and len > 0 then
+        local f = maxLength / len
         x, y, z = x * f, y * f, z * f
     end
     out.x, out.y, out.z = x, y, z
@@ -684,7 +710,7 @@ function M.normalize(v, out)
         return out
     end
     z = z or 0
-    local len = math.sqrt(x * x + y * y + z * z)
+    local len = length3(x, y, z)
     if len > 0 then
         x, y, z = x / len, y / len, z / len
     end
