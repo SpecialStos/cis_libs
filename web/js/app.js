@@ -1,6 +1,6 @@
 // Entry: load the components (each registers its handlers), report Escape
 // to Lua's focus stack, and tell Lua the page is ready.
-import { on, post, setLocale, setTheme } from './core.js'
+import { on, post, setLocale, setSession, setTheme } from './core.js'
 import { applySettings } from './notify.js'
 import './progress.js'
 import './textui.js'
@@ -24,6 +24,7 @@ on('hello', (d) => {
 
 on('init', (d) => {
   live = true
+  setSession(session)
   setLocale(d.locale)
   setTheme(d.theme)
   applySettings()

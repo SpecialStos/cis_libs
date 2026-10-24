@@ -5,7 +5,7 @@
    were ignored, leaving every centred panel off by half its size); the enter
    and leave animations keep it, and every other element resets it. */
 :root {
-  --cis-accent: #4c8dff; --cis-accent-fg: #fff; --cis-radius: 8px; --cis-scale: 1;
+  --cis-accent: #4c8dff; --cis-accent-fg: #0b1220; --cis-radius: 8px; --cis-scale: 1;
   --cis-font: system-ui, "Segoe UI", Roboto, Arial, sans-serif;
   --cis-bg: rgba(18,20,26,.94); --cis-surface: rgba(36,39,48,.96); --cis-hover: rgba(255,255,255,.07);
   --cis-border: rgba(255,255,255,.1); --cis-fg: #eef0f4; --cis-muted: #a3a9b6; --cis-backdrop: rgba(0,0,0,.45);
@@ -21,6 +21,7 @@
 html, body {margin:0;height:100%;overflow:hidden;background:transparent;user-select:none;font:calc(15px * var(--cis-scale)) / 1.4 var(--cis-font);color:var(--cis-fg)}
 body > div {position:fixed;inset:0;pointer-events:none}
 body > div > * {pointer-events:auto}
+#cis-notify {z-index:100}
 :focus {outline:none}
 :focus-visible {outline:2px solid var(--cis-accent);outline-offset:2px}
 button {font:inherit;color:inherit;cursor:pointer}

@@ -334,6 +334,16 @@ Check these first; each is a line under **Changed** or **Deprecated**.
   `__index` function keeps answering after the subclass's own methods** (A-L9).
   A read-only parent was writable through a subclass.
 
+- **A NUI message over 1 MiB is refused, not sent** (NUI-L11): the send
+  returns `false, 'message too large'` and logs one error. A payload that size
+  stalled CEF and the game frame.
+- **The default `--cis-accent-fg` is dark ink (`#0b1220`)** (NUI-L12). White
+  on the default accent `#4c8dff` was 3.2:1, under WCAG AA; dark ink is about
+  5.9:1. `SetUiTheme({ colors = { ['accent-fg'] = '#fff' } })` restores it.
+- **`SetUiLocale({ lang = 'de' })` sets the page language** (the html `lang`
+  attribute, a BCP 47 tag; anything else is ignored), so a screen reader reads
+  translated labels in the right voice (NUI-L12).
+
 ### Added
 
 - **The rest of the built-in interface under `Cis.ui`** (ox_lib names):
@@ -756,6 +766,17 @@ which is forgotten when that resource stops.
 - The seeded generator redraws up to 64 times instead of 8 before it folds a
   rejected draw. After 8 rejections the fold put roughly 1 draw in 512 of a
   half-period range on the top value (A-L14).
+- The page's `notify:clear` handler is gone: nothing ever sent it (NUI-L11).
+  A test now holds every page handler to an action Lua sends, and the reverse.
+- A select or multi-select in an input dialog is named by `aria-labelledby`;
+  its `<label for>` pointed at a div, so the listbox had no accessible name
+  (NUI-L12).
+- A context menu opened over a dialog paints above the dialog's backdrop, and
+  a dialog opened from a context option paints above the menu: the two layers
+  stack in the order they opened, not in document order (NUI-L5, page side).
+- The page bundle test rejects a root-absolute or remote path in index.html
+  (its rule let `/style.css` through) and fails on any `backdrop-filter`
+  (NUI-N3).
 
 ### Security
 
@@ -771,6 +792,17 @@ which is forgotten when that resource stops.
   `ok`.** A truthy string, number or table in its place resolved the call and
   reached the caller unbounded as its first value. It now reaches the caller
   as `false, 'bad reply'`.
+- **NUI callbacks run in strict mode** (`nui_callback_strict_mode 'true'`):
+  FiveM refuses a post to `https://cis_libs/<cb>` whose Origin is not this
+  resource's own page, so another resource's frame cannot reach them at all
+  (NUI-N1).
+- **The page has a Content-Security-Policy**: only its own scripts and styles
+  run, no object, no base or form target; images from `https:` and `nui:`,
+  callbacks over `https:` (NUI-N1).
+- **Page `error` and `warn` reports need the session token and are rate
+  limited** (10 per kind per 10 s; the dropped count is logged once the window
+  ends), with control characters collapsed. Any frame could post forged or
+  endless lines into the client log (NUI-N2).
 
 ## [1.0.0] — 2026-10-07
 

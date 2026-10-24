@@ -4098,6 +4098,120 @@
       "find": "    if type(ok) ~= 'boolean' then\n        ok = false\n        packed = { n = 1, 'bad reply' }",
       "replace": "    if ok == nil then\n        ok = false\n        packed = { n = 1, 'bad reply' }",
       "why": "A client reply whose ok flag is a truthy string or table resolves the server-to-client callback and hands the caller that unbounded value as its first result."
+    },
+    {
+      "id": "M740",
+      "file": "client/interface/nui.lua",
+      "find": "    if not I.isSession(data.token) then\n",
+      "replace": "    if false then\n",
+      "why": "Take an error or warn report from any frame without the session token, so another resource's page can fill the client log with forged lines."
+    },
+    {
+      "id": "M741",
+      "file": "client/interface/nui.lua",
+      "find": "    if r.count >= REPORT_BURST then",
+      "replace": "    if false then",
+      "why": "No rate limit on page reports: a page posting error in a loop writes a log line every frame."
+    },
+    {
+      "id": "M742",
+      "file": "client/interface/nui.lua",
+      "find": "(I.str(data.message, max) or ''):gsub('%c+', ' | ')",
+      "replace": "(I.str(data.message, max) or '')",
+      "why": "A newline in a page report starts a new log line, so a report can forge a second log entry."
+    },
+    {
+      "id": "M743",
+      "file": "client/interface/nui.lua",
+      "find": "    if #encoded > MAX_MESSAGE then",
+      "replace": "    if false then",
+      "why": "Send a message of any size to the page; a huge open payload stalls CEF and the frame."
+    },
+    {
+      "id": "M744",
+      "file": "client/interface/nui.lua",
+      "find": "    if now - r.start >= REPORT_WINDOW_MS then",
+      "replace": "    if false then",
+      "why": "The report budget never refills: after ten errors the page can never report again, and the dropped count is never logged."
+    },
+    {
+      "id": "M745",
+      "file": "fxmanifest.lua",
+      "check": "web",
+      "find": "nui_callback_strict_mode 'true'\n",
+      "replace": "",
+      "why": "Accept NUI callbacks from any resource's frame; only the session tokens stand behind them."
+    },
+    {
+      "id": "M746",
+      "file": "web/index.html",
+      "check": "web",
+      "find": "<meta http-equiv=\"Content-Security-Policy\"",
+      "replace": "<meta name=\"x-removed-csp\"",
+      "why": "No CSP: an injected inline script or a remote script runs in the page."
+    },
+    {
+      "id": "M747",
+      "file": "web/index.html",
+      "check": "web",
+      "find": "href=\"style.css\"",
+      "replace": "href=\"/style.css\"",
+      "why": "A root-absolute path resolves against the resource root on cfx-nui and 404s: the page draws unstyled."
+    },
+    {
+      "id": "M748",
+      "file": "web/js/dialog.js",
+      "check": "web",
+      "find": "    if (listy) target.setAttribute('aria-labelledby', `${id}-label`)\n",
+      "replace": "",
+      "why": "A select's listbox has no accessible name: a screen reader announces an unnamed list."
+    },
+    {
+      "id": "M749",
+      "file": "web/style.css",
+      "check": "web",
+      "find": "--cis-accent-fg: #0b1220;",
+      "replace": "--cis-accent-fg: #fff;",
+      "why": "Text on the accent is back to 3.2:1, under WCAG AA."
+    },
+    {
+      "id": "M750",
+      "file": "web/js/context.js",
+      "check": "web",
+      "find": "  raise('cis-context')\n",
+      "replace": "",
+      "why": "A context menu opened over a dialog sits under the dialog's backdrop and cannot be clicked."
+    },
+    {
+      "id": "M751",
+      "file": "web/js/dialog.js",
+      "check": "web",
+      "find": "  raise('cis-dialogs')\n",
+      "replace": "",
+      "why": "A dialog opened from a context option sits under the menu it came from."
+    },
+    {
+      "id": "M752",
+      "file": "web/js/core.js",
+      "check": "web",
+      "find": "  post(name, { token: session, message })",
+      "replace": "  post(name, { message })",
+      "why": "Page reports go without the session token, so Lua drops every real page error."
+    },
+    {
+      "id": "M753",
+      "file": "web/js/core.js",
+      "check": "web",
+      "find": "typeof lang === 'string' && LANG.test(lang)",
+      "replace": "typeof lang === 'string'",
+      "why": "Any string becomes the html lang attribute, unchecked."
+    },
+    {
+      "id": "M754",
+      "file": "client/interface/theme.lua",
+      "find": "'pressKey', 'lang',",
+      "replace": "'pressKey',",
+      "why": "SetUiLocale drops lang, so the page language can never be set."
     }
   ]
 }

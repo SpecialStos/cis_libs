@@ -26,6 +26,11 @@ local buffered = {}
 local nextId = 0
 local MAX_STRING = 4096
 local MAX_BUFFER = 32
+-- The largest message the page is sent, in bytes of JSON. Every component
+-- bounds its own fields, but those bounds multiply (a list menu re-sends up to
+-- 256 options of 128 values on each SetMenuOptions), and one encode and parse
+-- of many megabytes is a visible frame hitch. Past this the message is refused.
+local MAX_MESSAGE = 1024 * 1024
 
 function I.log(level, message)
     if CisLog then
@@ -107,8 +112,14 @@ function I.send(action, data, buffer)
         end
         return false
     end
+    local encoded = json.encode({ action = action, data = data or {} })
+    if #encoded > MAX_MESSAGE then
+        I.stats.errors = I.stats.errors + 1
+        I.log('error', ('%s message is %d bytes, over the %d byte cap; not sent'):format(action, #encoded, MAX_MESSAGE))
+        return false, 'message too large'
+    end
     I.stats.sent = I.stats.sent + 1
-    SendNuiMessage(json.encode({ action = action, data = data or {} }))
+    SendNuiMessage(encoded)
     return true
 end
 
@@ -288,17 +299,60 @@ function I.markReady(initial)
     runAll(readyHandlers)
 end
 
+-- PAGE REPORTS. Like escape, they carry the session token: any frame can post
+-- to https://cis_libs/error, and without it a forged report wrote whatever it
+-- liked into the client log and inflated the error count. Each kind has a
+-- budget of REPORT_BURST per REPORT_WINDOW_MS, so even the real page cannot
+-- flood the log from an error that repeats every frame; what the budget drops
+-- is summed in one line when the next window opens. Control characters are
+-- collapsed, so a report is one log line and cannot fake the start of another.
+local REPORT_WINDOW_MS = 10000
+local REPORT_BURST = 10
+local reports = {
+    error = { start = -REPORT_WINDOW_MS, count = 0, dropped = 0 },
+    warn = { start = -REPORT_WINDOW_MS, count = 0, dropped = 0 },
+}
+
+local function pageReport(kind, data, max)
+    if not I.isSession(data.token) then
+        return nil
+    end
+    local r = reports[kind]
+    local now = GetGameTimer()
+    if now - r.start >= REPORT_WINDOW_MS then
+        if r.dropped > 0 then
+            I.log('warn', ('%d page %s reports dropped by the rate limit'):format(r.dropped, kind))
+        end
+        r.start, r.count, r.dropped = now, 0, 0
+    end
+    if r.count >= REPORT_BURST then
+        r.dropped = r.dropped + 1
+        I.stats.rejected = I.stats.rejected + 1
+        return nil
+    end
+    r.count = r.count + 1
+    local message = (I.str(data.message, max) or ''):gsub('%c+', ' | ')
+    return message
+end
+
 -- The page reports its own uncaught errors here, so a broken component is a
 -- line in the client log rather than a silent blank.
-I.on('error', { message = 'string' }, function(data)
+I.on('error', { token = 'string', message = 'string' }, function(data)
+    local message = pageReport('error', data, 1000)
+    if not message then
+        return
+    end
     I.stats.errors = I.stats.errors + 1
-    I.log('error', 'page: ' .. data.message)
+    I.log('error', 'page: ' .. message)
 end)
 
 -- Not an error: a consumer named an icon the page does not have, so the slot
 -- is left empty. The page reports each name once.
-I.on('warn', { message = 'string' }, function(data)
-    I.log('warn', 'page: ' .. (I.str(data.message, 200) or ''))
+I.on('warn', { token = 'string', message = 'string' }, function(data)
+    local message = pageReport('warn', data, 200)
+    if message then
+        I.log('warn', 'page: ' .. message)
+    end
 end)
 
 AddEventHandler('onResourceStop', function(resource)

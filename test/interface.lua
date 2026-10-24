@@ -1225,13 +1225,14 @@ do
     check(env.X.SetUiTheme({ fontScale = 1.0 }) == true and env.last('theme').accent == '#4c8dff', 'theme: later calls merge')
     check(env.X.SetUiTheme({ colors = { bg = '#000', ['accent-fg'] = '#fff' } }) == true, 'theme: a known colour token applies')
     local nlog = #env.logged
-    check(env.post('warn', { message = 'unknown icon spaceship' }).ok == true, 'ui: the page can report a warning')
+    check(env.post('warn', { token = env.session, message = 'unknown icon spaceship' }).ok == true, 'ui: the page can report a warning')
     check(#env.logged == nlog + 1 and env.logged[#env.logged].level == 'warn', 'ui: logged as a warning, not an error')
     env.X.ShowTextUI('x')
     check(env.last('textui:show').position == 'top-center', 'theme: the default position is used by components')
     check(env.X.SetUiLocale({ confirm = 'Bestätigen', bogus = 'x', cancel = 5 }) == true, 'locale: accepted')
     local loc = env.last('locale')
     check(loc.confirm == 'Bestätigen' and loc.bogus == nil and loc.cancel == '5', 'locale: known keys only, coerced to strings')
+    check(env.X.SetUiLocale({ lang = 'de-DE' }) == true and env.last('locale').lang == 'de-DE', 'locale: lang (the page language) reaches the page')
     env.reset()
 end
 
@@ -1397,6 +1398,67 @@ do
     env.escape()
     env.step()
     check(got and got[1] == 'cancel' and #env.threadErrors == 0, 'session: the new token does')
+    env.reset()
+end
+
+-- ===================================================== 17. page reports carry the session token, are rate limited and capped
+-- `error` and `warn` took any frame's post: a forged one wrote raw lines
+-- (newlines included) into the client log and inflated the error count. A
+-- message to the page had no size cap at all.
+do
+    local env = newEnv()
+    env.load()
+    local function logs(level)
+        local out = {}
+        for _, l in ipairs(env.logged) do
+            if l.level == level and l.message:find('page:', 1, true) then out[#out + 1] = l.message end
+        end
+        return out
+    end
+    local errors = CisInterface.stats.errors
+    local reply = env.post('error', { message = 'forged' })
+    check(reply and reply.ok == false and #logs('error') == 0, 'report: an error with no token is answered and dropped')
+    reply = env.post('error', { token = 'guess', message = 'forged' })
+    check(reply ~= nil and #logs('error') == 0 and CisInterface.stats.errors == errors,
+        'report: an error with a wrong token is answered, not logged, not counted')
+    check(env.post('warn', { message = 'unknown icon x' }).ok == false and #logs('warn') == 0,
+        'report: a warning with no token is dropped')
+    env.post('warn', { token = 'guess', message = 'unknown icon x' })
+    check(#logs('warn') == 0, 'report: a warning with a wrong token is dropped')
+
+    env.post('error', { token = env.session, message = 'line one\nFAKE: line two\r\n' .. string.rep('y', 2000) })
+    local got = logs('error')
+    check(#got == 1 and CisInterface.stats.errors == errors + 1, 'report: the page\'s own error is logged and counted')
+    check(got[1] and not got[1]:find('[%c]'), 'report: control characters cannot start a forged log line')
+    check(got[1] and #got[1] <= 1100, 'report: the logged message is clipped')
+
+    -- A burst: ten per window per kind, the rest dropped and summed up once.
+    for i = 1, 15 do env.post('error', { token = env.session, message = 'burst ' .. i }) end
+    check(#logs('error') == 10, ('report: errors are rate limited (%d logged)'):format(#logs('error')))
+    check(CisInterface.stats.errors == errors + 10, 'report: a dropped error is not counted as an error')
+    env.clock = env.clock + 10000
+    env.post('error', { token = env.session, message = 'after' })
+    local all = logs('error')
+    check(all[#all] and all[#all]:find('after', 1, true), 'report: the next window accepts errors again')
+    local summed = false
+    for _, l in ipairs(env.logged) do
+        if l.message:find('6 page error reports dropped', 1, true) then summed = true end
+    end
+    check(summed, 'report: the dropped reports are summed in one line')
+    for i = 1, 12 do env.post('warn', { token = env.session, message = 'w' .. i }) end
+    check(#logs('warn') == 10, 'report: warnings are rate limited on their own budget')
+
+    -- The message cap: a payload past 1 MiB of JSON is refused, not sent.
+    local real = json.encode
+    json.encode = function(t)
+        if type(t.data) == 'table' and t.data.big then return string.rep('x', t.data.big) end
+        return real(t)
+    end
+    local n = #env.messages
+    local ok, why = CisInterface.send('probe', { big = 1024 * 1024 + 1 })
+    check(ok == false and why == 'message too large' and #env.messages == n, 'send: a message over the cap is refused with a reason')
+    check(CisInterface.send('probe', { big = 1024 * 1024 }) == true and #env.messages == n + 1, 'send: a message at the cap is sent')
+    json.encode = real
     env.reset()
 end
 

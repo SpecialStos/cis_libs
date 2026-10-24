@@ -1251,6 +1251,10 @@ Live harness: `test/LIVE.md`. Counts are not repeated here.
 
 - The built-in NUI targets FiveM's CEF (Chromium 103). A ui provider replaces
   it per call; there is no way to replace one component and keep the rest.
+- One NUI message is at most 1 MiB of JSON; a larger one is refused
+  (`false, 'message too large'`), not truncated.
+- NUI callbacks run in strict mode and the page has a CSP: a fork that loads
+  remote scripts, inline styles or `backdrop-filter` fails `npm run test:web`.
 - Empty `Security.AuthorizedResources` refuses mutating exports.
 - A handler that crosses the exports boundary arrives as a funcref, and each
   call is another crossing. Zones, points and keybinds made through `init.lua`

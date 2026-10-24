@@ -119,6 +119,11 @@ files {
 }
 
 ui_page 'web/index.html'
+-- Callbacks (https://cis_libs/<cb>) are refused unless their Origin is this
+-- resource's own page, so another resource's frame cannot post to them at all;
+-- the session tokens remain the check behind it. Applies only with exactly one
+-- ui_page (citizenfx/fivem ResourceUI.cpp).
+nui_callback_strict_mode 'true'
 
 client_scripts {
     -- The engines first. Each is one file of pure logic that cis_libs runs here

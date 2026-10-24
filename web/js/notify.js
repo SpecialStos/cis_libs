@@ -75,10 +75,4 @@ on('notify', (d) => {
   }
 })
 
-on('notify:clear', () => {
-  for (const { el, timer } of live.values()) { clearTimeout(timer); el.remove() }
-  live.clear()
-  queue.clear()
-})
-
 export const applySettings = () => queue.setMax(setting('notifyMax')).forEach(show)
