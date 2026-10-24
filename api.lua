@@ -1059,7 +1059,7 @@ return {
             use = 'Cis.player.near(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent)',
             realm = 'client',
             params = { { name = 'coords', type = 'vector3|table', doc = 'the point; nil is refused by name because the boundary dropped it' }, { name = 'distance', type = 'number', optional = true, doc = 'the radius, default 2.0' }, { name = 'onEnter', type = 'function', optional = true, doc = "called pcall'd with the distance on the inside edge" }, { name = 'onExit', type = 'function', optional = true, doc = "called pcall'd with the distance on the outside edge" }, { name = 'onEnterEvent', type = 'string', optional = true, doc = 'an event name, used only when onEnter is absent' }, { name = 'onExitEvent', type = 'string', optional = true, doc = 'an event name, used only when onExit is absent' } },
-            returns = { { type = 'function, integer', doc = 'the in-realm unsubscribe and the watcher id -- feed slot two to RemoveNearWatcher. Refusal is nil plus a reason naming what arrived as nil' } },
+            returns = { { type = 'function, integer', doc = 'the in-realm unsubscribe and the watcher id -- feed slot two to RemoveNearWatcher. Refusal is nil plus a reason: coords that arrived as nil or lack finite numeric x, y and z, a distance that is not a finite number above 0, or an event name that is not a string' } },
         },
         RemoveNearWatcher = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -1856,7 +1856,7 @@ return {
         realm = 'client',
         forwardsTo = 'WatchNear',
         params = { { name = 'coords', type = 'vector3|table', doc = 'the point to watch. Receives the distance on the server half' }, { name = 'distance', type = 'number', optional = true, doc = 'the radius, default 2.0' }, { name = 'onEnter', type = 'function', optional = true, doc = 'on the client this is a function argument and it is DROPPED across the boundary' }, { name = 'onExit', type = 'function', optional = true, doc = 'on the client this is a function argument and it is DROPPED across the boundary' }, { name = 'onEnterEvent', type = 'string', optional = true, doc = 'an event name, which is a string and does cross -- this is the working form from a consumer' }, { name = 'onExitEvent', type = 'string', optional = true, doc = 'an event name, which is a string and does cross' } },
-        returns = { { type = 'function, integer', doc = 'the in-realm unsubscribe (unusable once it has crossed) and the watcher id, for Cis.player.nearStop. The watcher is made again, under the same id, when cis_libs restarts. Refusal is nil plus a reason naming what arrived as nil' } },
+        returns = { { type = 'function, integer', doc = 'the in-realm unsubscribe (unusable once it has crossed) and the watcher id, for Cis.player.nearStop. The watcher is made again, under the same id, when cis_libs restarts. Refusal is nil plus a reason: coords that arrived as nil or lack finite numeric x, y and z, a distance that is not a finite number above 0, or an event name that is not a string' } },
     },
     ['Cis.player.nearStop'] = {
         since = '1.1.0',

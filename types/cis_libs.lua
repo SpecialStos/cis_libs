@@ -2180,7 +2180,7 @@ function WaitReady(timeout) end
 ---@param onExit? function #called pcall'd with the distance on the outside edge
 ---@param onEnterEvent? string #an event name, used only when onEnter is absent
 ---@param onExitEvent? string #an event name, used only when onExit is absent
----@return function, integer #the in-realm unsubscribe and the watcher id -- feed slot two to RemoveNearWatcher. Refusal is nil plus a reason naming what arrived as nil
+---@return function, integer #the in-realm unsubscribe and the watcher id -- feed slot two to RemoveNearWatcher. Refusal is nil plus a reason: coords that arrived as nil or lack finite numeric x, y and z, a distance that is not a finite number above 0, or an event name that is not a string
 --- realm: client
 function WatchNear(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent) end
 
@@ -2682,7 +2682,7 @@ function Cis.player.heading() end
 ---@param onExit? function #on the client this is a function argument and it is DROPPED across the boundary
 ---@param onEnterEvent? string #an event name, which is a string and does cross -- this is the working form from a consumer
 ---@param onExitEvent? string #an event name, which is a string and does cross
----@return function, integer #the in-realm unsubscribe (unusable once it has crossed) and the watcher id, for Cis.player.nearStop. The watcher is made again, under the same id, when cis_libs restarts. Refusal is nil plus a reason naming what arrived as nil
+---@return function, integer #the in-realm unsubscribe (unusable once it has crossed) and the watcher id, for Cis.player.nearStop. The watcher is made again, under the same id, when cis_libs restarts. Refusal is nil plus a reason: coords that arrived as nil or lack finite numeric x, y and z, a distance that is not a finite number above 0, or an event name that is not a string
 function Cis.player.near(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent) end
 
 ---@class Cis.player.nearStop

@@ -4140,6 +4140,27 @@
       "find": "        local refused = localEventRefused(option.event, owner)\n        if refused then",
       "replace": "        local refused = nil\n        if refused then",
       "why": "An option held by reference whose event is changed to a reserved name after registration is fired on the click."
+    },
+    {
+      "id": "M716",
+      "file": "client/cache.lua",
+      "find": "        or not (finite(coords.x) and finite(coords.y) and finite(coords.z)) then",
+      "replace": "        or false then",
+      "why": "WatchNear accepts a NaN, infinite or non-numeric coordinate: the watcher never enters, or raises in the shared near tick."
+    },
+    {
+      "id": "M717",
+      "file": "client/cache.lua",
+      "find": "    if distance ~= nil and not (finite(distance) and distance > 0) then",
+      "replace": "    if false then",
+      "why": "WatchNear accepts a string, zero, negative, NaN or infinite distance; a string raises on every near tick."
+    },
+    {
+      "id": "M718",
+      "file": "client/cache.lua",
+      "find": "                    local ok, err = pcall(evalWatcher, watcher, coords)",
+      "replace": "                    local ok, err = true, evalWatcher(watcher, coords)",
+      "why": "One near watcher that raises ends the tick, so every watcher after it in the table is never checked again."
     }
   ]
 }

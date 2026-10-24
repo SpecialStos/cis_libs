@@ -761,6 +761,11 @@ which is forgotten when that resource stops.
   option n.
 - `RegisterContext` with a list is all or nothing: a bad entry no longer leaves
   the entries before it registered behind a `false`.
+- `WatchNear` refuses coords without finite numeric `x`, `y` and `z`, a
+  distance that is not a finite number above 0, and a non-string event name,
+  with `nil` plus a reason. A string distance used to raise inside the shared
+  near tick, and every watcher after it was never checked again; each watcher
+  is now also checked in its own `pcall`.
 
 ### Security
 

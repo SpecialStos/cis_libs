@@ -2037,6 +2037,73 @@ do
     env.reset()
 end
 
+-- NEAR WATCHERS FAIL CLOSED AND FAIL ALONE. A watcher with a string distance
+-- raised on `dist <= distance` inside the shared tick, so every watcher after
+-- it was never checked again; a NaN or infinite coordinate never entered or
+-- always did. watchNear now refuses them with nil plus a reason, and each
+-- watcher is checked in its own pcall.
+do
+    local env = cacheEnv()
+    env.saved[#env.saved + 1] = { name = 'Cis', value = rawget(_ENV, 'Cis') }
+    Cis = Cis or {}
+    Cis.player = Cis.player or {}
+    local priorCoords = Cis.player.coords
+    Cis.player.coords = function() return vector3(0.0, 0.0, 0.0) end
+    GetInvokingResource = function() return 'res_a' end
+    local base = #(env.threads or {})
+    local nan, inf = 0 / 0, math.huge
+    local bad = {
+        { 'coords x a string', { x = 'a', y = 0.0, z = 0.0 }, 2.0 },
+        { 'coords with no z', { x = 0.0, y = 0.0 }, 2.0 },
+        { 'a NaN coordinate', { x = nan, y = 0.0, z = 0.0 }, 2.0 },
+        { 'an infinite coordinate', { x = 0.0, y = inf, z = 0.0 }, 2.0 },
+        { 'coords a string', 'here', 2.0 },
+        { 'a string distance', { x = 0.0, y = 0.0, z = 0.0 }, 'far' },
+        { 'a zero distance', { x = 0.0, y = 0.0, z = 0.0 }, 0 },
+        { 'a negative distance', { x = 0.0, y = 0.0, z = 0.0 }, -5 },
+        { 'a NaN distance', { x = 0.0, y = 0.0, z = 0.0 }, nan },
+        { 'an infinite distance', { x = 0.0, y = 0.0, z = 0.0 }, inf },
+    }
+    for _, b in ipairs(bad) do
+        local r1, r2 = exports.WatchNear(b[2], b[3], nil, nil, 'a:in', 'a:out')
+        check(r1 == nil and type(r2) == 'string',
+            ('near N4: %s is refused with nil and a reason (got %s, %s)'):format(b[1], tostring(r1), tostring(r2)))
+    end
+    local e1, e2 = exports.WatchNear({ x = 0.0, y = 0.0, z = 0.0 }, 2.0, nil, nil, 5, 'a:out')
+    check(e1 == nil and type(e2) == 'string', 'near N4: a non-string onEnterEvent is refused')
+    check(#env.threads == base, ('near N4: no refused watcher started the thread (%d)'):format(#env.threads - base))
+
+    -- One watcher that raises does not starve the next one.
+    local boom = function() end
+    local realCallable = CisCallable
+    CisCallable = function(v)
+        if v == boom then error('boom', 0) end
+        return realCallable(v)
+    end
+    local _, wa = exports.WatchNear({ x = 0.0, y = 0.0, z = 0.0 }, 2.0, boom)
+    local _, wb = exports.WatchNear({ x = 1.0, y = 0.0, z = 0.0 }, 2.0, nil, nil, 'b:in', 'b:out')
+    local nearThread = env.threads[#env.threads]
+    local waits = 0
+    local realWait = Wait
+    Wait = function(ms)
+        waits = waits + 1
+        env.clock = env.clock + (tonumber(ms) or 0)
+        if waits == 1 then
+            exports.RemoveNearWatcher(wa)
+            exports.RemoveNearWatcher(wb)
+        end
+        if waits > 10 then error('near: the thread did not end', 0) end
+    end
+    local ok, err = pcall(nearThread)
+    Wait = realWait
+    CisCallable = realCallable
+    check(ok, ('near N4: the thread ran (%s)'):format(tostring(err)))
+    check(#env.serverEventsOf('b:in') == 1,
+        ('near N4: a watcher after one that raised is still entered (b:in x%d)'):format(#env.serverEventsOf('b:in')))
+    Cis.player.coords = priorCoords
+    env.reset()
+end
+
 -- THE CACHE LOOP NEVER GIVES UP ON READINESS.
 do
     local calls = 0

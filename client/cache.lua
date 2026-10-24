@@ -390,6 +390,30 @@ end)
 -- ends with the last, so a client with no watcher has no thread to wake (it
 -- woke twice a second for nothing).
 local nearDriving = false
+
+-- One watcher's check. Run in its own pcall, so a watcher that raises costs
+-- only itself: the tick used to end at it, and every watcher after it in the
+-- table was never checked again.
+local function evalWatcher(watcher, coords)
+    local dist = #(coords - watcher.coords)
+    local inside = dist <= watcher.distance
+    if inside and not watcher.inside then
+        watcher.inside = true
+        if CisCallable(watcher.onEnter) then
+            pcall(watcher.onEnter, dist)
+        elseif watcher.onEnterEvent then
+            pcall(TriggerServerEvent, watcher.onEnterEvent, dist)
+        end
+    elseif not inside and watcher.inside then
+        watcher.inside = false
+        if CisCallable(watcher.onExit) then
+            pcall(watcher.onExit, dist)
+        elseif watcher.onExitEvent then
+            pcall(TriggerServerEvent, watcher.onExitEvent, dist)
+        end
+    end
+end
+
 local function driveNear()
     if nearDriving then
         return
@@ -411,23 +435,11 @@ local function driveNear()
             if moved or (now - lastCheck) >= 500 then
                 lastCoords = coords
                 lastCheck = now
-                for _, watcher in pairs(nearWatchers) do
-                    local dist = #(coords - watcher.coords)
-                    local inside = dist <= watcher.distance
-                    if inside and not watcher.inside then
-                        watcher.inside = true
-                        if CisCallable(watcher.onEnter) then
-                            pcall(watcher.onEnter, dist)
-                        elseif watcher.onEnterEvent then
-                            pcall(TriggerServerEvent, watcher.onEnterEvent, dist)
-                        end
-                    elseif not inside and watcher.inside then
-                        watcher.inside = false
-                        if CisCallable(watcher.onExit) then
-                            pcall(watcher.onExit, dist)
-                        elseif watcher.onExitEvent then
-                            pcall(TriggerServerEvent, watcher.onExitEvent, dist)
-                        end
+                for id, watcher in pairs(nearWatchers) do
+                    local ok, err = pcall(evalWatcher, watcher, coords)
+                    if not ok and not watcher.raised then
+                        watcher.raised = true -- logged once, not every tick
+                        CisLog('error', ('near watcher %s: %s'):format(tostring(id), tostring(err)))
                     end
                 end
             end
@@ -530,11 +542,30 @@ function CisCache.removeNearWatcher(id)
     return true
 end
 
+local function finite(v)
+    return type(v) == 'number' and v == v and v ~= math.huge and v ~= -math.huge
+end
+
 function CisCache.watchNear(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent)
     if coords == nil then
         -- The exports boundary can drop a value entirely; indexing nil would
         -- throw inside the caller's export call.
         return nil, 'coords arrived as nil (the exports boundary dropped them)'
+    end
+    -- FAIL CLOSED, here and not in the tick. A string distance raised in the
+    -- shared tick; a NaN or infinite coordinate or distance never entered, or
+    -- was always inside.
+    local ct = type(coords)
+    if (ct ~= 'table' and ct ~= 'vector3' and ct ~= 'vector4')
+        or not (finite(coords.x) and finite(coords.y) and finite(coords.z)) then
+        return nil, 'coords must have finite numeric x, y and z'
+    end
+    if distance ~= nil and not (finite(distance) and distance > 0) then
+        return nil, ('distance must be a finite number above 0, got %s'):format(tostring(distance))
+    end
+    if (onEnterEvent ~= nil and type(onEnterEvent) ~= 'string')
+        or (onExitEvent ~= nil and type(onExitEvent) ~= 'string') then
+        return nil, 'onEnterEvent and onExitEvent must be strings'
     end
     nearSeq = nearSeq + 1
     local id = nearSeq
