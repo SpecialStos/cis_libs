@@ -756,6 +756,11 @@ which is forgotten when that resource stops.
 - The seeded generator redraws up to 64 times instead of 8 before it folds a
   rejected draw. After 8 rejections the fold put roughly 1 draw in 512 of a
   half-period range on the top value (A-L14).
+- Re-registering the context menu on screen redraws it under a new token. The
+  page kept showing the old options, and a click on index n ran the new list's
+  option n.
+- `RegisterContext` with a list is all or nothing: a bad entry no longer leaves
+  the entries before it registered behind a `false`.
 
 ### Security
 
@@ -771,6 +776,19 @@ which is forgotten when that resource stops.
   `ok`.** A truthy string, number or table in its place resolved the call and
   reached the caller unbounded as its first value. It now reaches the caller
   as `false, 'bad reply'`.
+- **A context menu option can no longer fire a reserved or foreign event.**
+  An option's `event` is fired from the cis_libs VM, so every handler saw
+  cis_libs as the invoker: an option firing `onResourceStop` with
+  `'cis_libs'` passed `CisRealStop` and every consumer marked the library
+  stopped. `RegisterContext` now refuses an `event` that lacks the
+  registering resource's own `<resource>:` prefix, is over 128 bytes, or is
+  `onResourceStart`/`Stop`/`Starting`, `onClientResourceStart`/`Stop` or any
+  `cis_libs:` or `__cfx_` name; the click checks again. Fire any other event
+  from `onSelect`. `serverEvent` is unchanged.
+- **A context id belongs to its registrant.** Another resource registering the
+  same id got the menu silently; it now gets `false, 'context "<id>" is
+  registered by <res>; pick a different id'`. The id is free once the holder
+  stops.
 
 ## [1.0.0] — 2026-10-07
 

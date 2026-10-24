@@ -543,8 +543,8 @@ return {
             since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
             use = 'exports.cis_libs:RegisterContext(context)',
             realm = 'client',
-            params = { { name = 'context', type = 'table', doc = 'one context or a list: { id, title, menu (parent id), canClose, onExit, onBack, options = { { title, description, icon, iconColor, arrow, disabled, readOnly, progress, colorScheme, metadata, image, menu, onSelect, event, serverEvent, args } } }. serverEvent is fired by THIS CLIENT with TriggerServerEvent(name, args): the server handler must validate it like any client event' } },
-            returns = { { type = 'boolean, string|nil', doc = 'true once registered. Owned by the calling resource and removed when it stops' } }
+            params = { { name = 'context', type = 'table', doc = 'one context or a list: { id, title, menu (parent id), canClose, onExit, onBack, options = { { title, description, icon, iconColor, arrow, disabled, readOnly, progress, colorScheme, metadata, image, menu, onSelect, event, serverEvent, args } } }. serverEvent is fired by THIS CLIENT with TriggerServerEvent(name, args): the server handler must validate it like any client event. event is fired from the cis_libs VM, so it must start with the calling resource name as a "<resource>:" prefix, at most 128 bytes; onResourceStart/Stop/Starting, onClientResourceStart/Stop and any cis_libs: or __cfx_ name are refused for every caller. Fire any other event from onSelect' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true once registered. Owned by the calling resource and removed when it stops. false plus a reason for a bad option, a refused event, or an id another resource holds ("context <id> is registered by <res>"). A list is all or nothing. Re-registering the menu on screen redraws it under a new token' } }
         },
         ShowContext = {
             since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
@@ -2210,8 +2210,8 @@ return {
         since = '1.1.0',
         realm = 'client',
         forwardsTo = 'RegisterContext',
-        params = { { name = 'context', type = 'table', doc = 'one context or a list: { id, title, menu (parent id), canClose, onExit, onBack, options = { { title, description, icon, iconColor, arrow, disabled, readOnly, progress, colorScheme, metadata, image, menu, onSelect, event, serverEvent, args } } }. serverEvent is fired by THIS CLIENT with TriggerServerEvent(name, args): the server handler must validate it like any client event' } },
-        returns = { { type = 'boolean, string|nil', doc = 'true once registered; made again when cis_libs restarts. Owned by the calling resource and removed when it stops' } }
+        params = { { name = 'context', type = 'table', doc = 'one context or a list: { id, title, menu (parent id), canClose, onExit, onBack, options = { { title, description, icon, iconColor, arrow, disabled, readOnly, progress, colorScheme, metadata, image, menu, onSelect, event, serverEvent, args } } }. serverEvent is fired by THIS CLIENT with TriggerServerEvent(name, args): the server handler must validate it like any client event. event is fired from the cis_libs VM, so it must start with the calling resource name as a "<resource>:" prefix, at most 128 bytes; onResourceStart/Stop/Starting, onClientResourceStart/Stop and any cis_libs: or __cfx_ name are refused for every caller. Fire any other event from onSelect' } },
+        returns = { { type = 'boolean, string|nil', doc = 'true once registered; made again when cis_libs restarts. Owned by the calling resource and removed when it stops. false plus a reason for a bad option, a refused event, or an id another resource holds ("context <id> is registered by <res>"). A list is all or nothing. Re-registering the menu on screen redraws it under a new token' } }
     },
     ['Cis.ui.context.show'] = {
         since = '1.1.0',

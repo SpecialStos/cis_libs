@@ -1752,8 +1752,8 @@ function RegisterCapability.server(slot, provider, contract) end
 function RegisterCapability.client(slot, provider, contract) end
 
 --- exports.cis_libs:RegisterContext(context)
----@param context table #one context or a list: { id, title, menu (parent id), canClose, onExit, onBack, options = { { title, description, icon, iconColor, arrow, disabled, readOnly, progress, colorScheme, metadata, image, menu, onSelect, event, serverEvent, args } } }. serverEvent is fired by THIS CLIENT with TriggerServerEvent(name, args): the server handler must validate it like any client event
----@return boolean, string|nil #true once registered. Owned by the calling resource and removed when it stops
+---@param context table #one context or a list: { id, title, menu (parent id), canClose, onExit, onBack, options = { { title, description, icon, iconColor, arrow, disabled, readOnly, progress, colorScheme, metadata, image, menu, onSelect, event, serverEvent, args } } }. serverEvent is fired by THIS CLIENT with TriggerServerEvent(name, args): the server handler must validate it like any client event. event is fired from the cis_libs VM, so it must start with the calling resource name as a "<resource>:" prefix, at most 128 bytes; onResourceStart/Stop/Starting, onClientResourceStart/Stop and any cis_libs: or __cfx_ name are refused for every caller. Fire any other event from onSelect
+---@return boolean, string|nil #true once registered. Owned by the calling resource and removed when it stops. false plus a reason for a bad option, a refused event, or an id another resource holds ("context <id> is registered by <res>"). A list is all or nothing. Re-registering the menu on screen redraws it under a new token
 --- realm: client
 function RegisterContext(context) end
 
@@ -3103,8 +3103,8 @@ function Cis.ui.context.hide(onExit) end
 ---@field since string 1.1.0
 ---@field realm "client"
 ---@field forwardsTo string RegisterContext
----@param context table #one context or a list: { id, title, menu (parent id), canClose, onExit, onBack, options = { { title, description, icon, iconColor, arrow, disabled, readOnly, progress, colorScheme, metadata, image, menu, onSelect, event, serverEvent, args } } }. serverEvent is fired by THIS CLIENT with TriggerServerEvent(name, args): the server handler must validate it like any client event
----@return boolean, string|nil #true once registered; made again when cis_libs restarts. Owned by the calling resource and removed when it stops
+---@param context table #one context or a list: { id, title, menu (parent id), canClose, onExit, onBack, options = { { title, description, icon, iconColor, arrow, disabled, readOnly, progress, colorScheme, metadata, image, menu, onSelect, event, serverEvent, args } } }. serverEvent is fired by THIS CLIENT with TriggerServerEvent(name, args): the server handler must validate it like any client event. event is fired from the cis_libs VM, so it must start with the calling resource name as a "<resource>:" prefix, at most 128 bytes; onResourceStart/Stop/Starting, onClientResourceStart/Stop and any cis_libs: or __cfx_ name are refused for every caller. Fire any other event from onSelect
+---@return boolean, string|nil #true once registered; made again when cis_libs restarts. Owned by the calling resource and removed when it stops. false plus a reason for a bad option, a refused event, or an id another resource holds ("context <id> is registered by <res>"). A list is all or nothing. Re-registering the menu on screen redraws it under a new token
 function Cis.ui.context.register(context) end
 
 ---@class Cis.ui.context.show

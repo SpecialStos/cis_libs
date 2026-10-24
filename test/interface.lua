@@ -961,7 +961,7 @@ do
             id = 'main', title = 'Main', onExit = function() exited = exited + 1 end,
             options = {
                 { title = 'Run', onSelect = function(args) selected[#selected + 1] = args end, args = { n = 1 },
-                  event = 'my:event', serverEvent = 'my:server', metadata = { Weight = '2kg' } },
+                  event = 'res_c:event', serverEvent = 'my:server', metadata = { Weight = '2kg' } },
                 { title = 'Off', disabled = true, onSelect = function() selected[#selected + 1] = 'disabled' end },
                 { title = 'Info', readOnly = true, serverEvent = 'never' },
                 { title = 'More', menu = 'sub' },
@@ -996,7 +996,7 @@ do
     for _, e in ipairs(env.events) do if e.kind == 'server' then server[#server + 1] = e end end
     check(#server == 1 and server[1].name == 'my:server' and server[1].args[1].n == 1,
         'context: serverEvent is the REGISTERED name, fired by the client with args; names in the payload are ignored')
-    check(env.events[1].kind == 'local' and env.events[1].name == 'my:event', 'context: event fires as a local event')
+    check(env.events[1].kind == 'local' and env.events[1].name == 'res_c:event', 'context: event fires as a local event')
     check(env.X.GetOpenContextMenu() == nil and lastFocus(env).focus == false, 'context: selecting closes it and releases focus')
 
     env.X.ShowContext('main')
@@ -1037,6 +1037,113 @@ do
     check(exited == 2, 'context: without calling into the stopped resource (no onExit)')
     check(env.X.ShowContext('main') == false and env.X.ShowContext('sub') == false, 'context: and unregisters all of its menus')
     check(env.X.ShowContext('theirs') == true, 'context: another resource\'s menu survives')
+    env.reset()
+end
+
+-- ===================================================== 8b. context menus: who may fire what, and own which id
+--
+-- An option's `event` is fired by TriggerEvent from cis_libs' OWN VM, so every
+-- handler sees GetInvokingResource() == 'cis_libs'. A co-resident resource that
+-- registered { event = 'onResourceStop', args = 'cis_libs' } got a forged stop
+-- of cis_libs past CisRealStop with one click: sync despawned everything and
+-- every consumer marked the library stopped. Same rule as zones: a local event
+-- must carry the registrant's own '<resource>:' prefix, and the lifecycle,
+-- 'cis_libs:' and '__cfx_' names are refused for everyone.
+do
+    local env = newEnv()
+    env.load()
+    local function reg(by, ctx)
+        env.invoking = by
+        local r = { env.X.RegisterContext(ctx) }
+        env.invoking = nil
+        return r[1], r[2]
+    end
+    local forged = {
+        { 'onResourceStop', 'a lifecycle event' },
+        { 'onClientResourceStart', 'a client lifecycle event' },
+        { 'cis_libs:cache', 'a cis_libs: event' },
+        { '__cfx_nui:context', 'a __cfx_ event (a forged NUI callback)' },
+        { 'other_res:open', 'another resource\'s event' },
+    }
+    for _, f in ipairs(forged) do
+        local ok, why = reg('res_x', { id = 'f_' .. f[1], options = { { title = 'Open shop', event = f[1], args = 'cis_libs' } } })
+        check(ok == false and type(why) == 'string',
+            ('context N1: an option firing %s is refused at registration (got %s, %s)'):format(f[2], tostring(ok), tostring(why)))
+        check(env.X.ShowContext('f_' .. f[1]) == false, ('context N1: and the menu with %s was never stored'):format(f[2]))
+    end
+    local okOwn = reg('res_x', { id = 'own', options = { { title = 'Mine', event = 'res_x:open', args = 1 } } })
+    check(okOwn == true, 'context N1: an option firing the registrant\'s own res_x: event is accepted')
+    -- cis_libs itself has no prefix rule, but the reserved names still apply.
+    local okLib = reg(nil, { id = 'lib_stop', options = { { title = 'x', event = 'onResourceStop' } } })
+    check(okLib == false, 'context N1: even cis_libs\' own menu may not fire onResourceStop')
+    local okLong = reg('res_x', { id = 'long', options = { { title = 'x', event = 'res_x:' .. ('a'):rep(200) } } })
+    check(okLong == false, 'context N1: an event name over 128 bytes is refused')
+
+    -- The own-prefix event fires, as a local event, with its args.
+    env.X.ShowContext('own')
+    env.post('context', { token = env.last('context:open').token, action = 'select', index = 1 })
+    local fired = env.events[#env.events]
+    check(fired and fired.kind == 'local' and fired.name == 'res_x:open' and fired.args[1] == 1,
+        'context N1: the accepted own-prefix event fires with its args')
+
+    -- N2: an id belongs to its registrant.
+    check(reg('res_a', { id = 'garage', title = 'A garage', options = { { title = 'A' } } }) == true,
+        'context N2: res_a registers garage')
+    local okB, whyB = reg('res_b', { id = 'garage', title = 'B garage', options = { { title = 'B' } } })
+    check(okB == false and tostring(whyB):find('res_a', 1, true) ~= nil,
+        ('context N2: res_b is refused res_a\'s id, with the holder named (got %s, %s)'):format(tostring(okB), tostring(whyB)))
+    env.X.ShowContext('garage')
+    check(env.last('context:open').title == 'A garage' and env.last('context:open').options[1].title == 'A',
+        'context N2: and res_a\'s menu is still the one shown')
+    env.X.HideContext(false)
+    check(reg('res_a', { id = 'garage', title = 'A2', options = {} }) == true, 'context N2: its owner may re-register it')
+    env.fire('onResourceStop', 'res_a')
+    check(reg('res_b', { id = 'garage', title = 'B garage', options = {} }) == true,
+        'context N2: once res_a stops, the id is free for res_b')
+
+    -- NUI N4: a list is all or nothing.
+    local okList, whyList = reg('res_l', {
+        { id = 'l1', options = { { title = 'fine' } } },
+        { id = 'l2', options = { { title = 'bad', onSelect = 'notafunction' } } },
+    })
+    check(okList == false and tostring(whyList):find('context 2', 1, true) ~= nil,
+        'context NUI-N4: a list with a bad second context is refused, naming it')
+    check(env.X.ShowContext('l1') == false, 'context NUI-N4: and the good first context was NOT stored')
+
+    -- L14: re-registering the menu on screen redraws it under a new token, so a
+    -- click on the old list cannot run the new list's option at that index.
+    local picks = {}
+    reg('res_r', { id = 'live', options = {
+        { title = 'Look', serverEvent = 'res_r:look' },
+    } })
+    env.X.ShowContext('live')
+    local before = env.last('context:open')
+    reg('res_r', { id = 'live', options = {
+        { title = 'Pay', serverEvent = 'res_r:pay', onSelect = function() picks[#picks + 1] = 'pay' end },
+    } })
+    local after = env.last('context:open')
+    check(after ~= before and after.token ~= before.token and after.options[1].title == 'Pay',
+        'context L14: re-registering the open menu redraws it with the new options under a new token')
+    local nEvents = #env.events
+    env.post('context', { token = before.token, action = 'select', index = 1 })
+    check(#picks == 0 and #env.events == nEvents and env.X.GetOpenContextMenu() == 'live',
+        'context L14: a click carrying the old token runs nothing')
+    check(CisInterface.focus.top() == 'context', 'context L14: the redraw keeps the menu\'s focus entry')
+    env.escape()
+    check(env.X.GetOpenContextMenu() == nil, 'context L14: Escape still closes the redrawn menu')
+    env.X.ShowContext('live')
+    env.post('context', { token = env.last('context:open').token, action = 'select', index = 1 })
+    check(#picks == 1, 'context L14: a click on the redrawn menu runs the option the player saw')
+
+    -- The click re-checks: a list registered in cis_libs' own VM is held by
+    -- reference, so its event can be changed after registration.
+    local byref = { { title = 'x', event = 'lib_local:open' } }
+    check(reg(nil, { id = 'byref', options = byref }) == true, 'context N1: cis_libs registers a menu by reference')
+    byref[1].event = 'onResourceStop'
+    env.X.ShowContext('byref')
+    local nBefore = #env.events
+    env.post('context', { token = env.last('context:open').token, action = 'select', index = 1 })
+    check(#env.events == nBefore, 'context N1: an event changed to a reserved name after registration is not fired on the click')
     env.reset()
 end
 

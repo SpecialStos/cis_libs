@@ -10,6 +10,21 @@
 -- serverEvent used. A disabled or read-only option is refused here as well as
 -- in the page.
 --
+-- `event` IS FIRED FROM CIS_LIBS' OWN VM, so every handler sees
+-- GetInvokingResource() == 'cis_libs'. Handlers that trust that invoker (the
+-- cache mirror, CisRealStop for a stop of cis_libs) would take an option firing
+-- 'onResourceStop' with args 'cis_libs' as the library itself stopping. So an
+-- option's local event must start with the registering resource's own
+-- '<resource>:' prefix (the zone rule, client/core/zones.lua eventNameOk), and
+-- a lifecycle, 'cis_libs:' or '__cfx_' name is refused for everyone. Any other
+-- event is fired from onSelect, in the consumer's own VM. Checked when the menu
+-- is registered, and again on the click.
+--
+-- AN ID BELONGS TO ITS REGISTRANT. Another resource registering the same id is
+-- refused with the holder named (the D3 rule zones, targets and callbacks
+-- follow), instead of silently taking the menu over. The holder's records are
+-- released when it stops, so a held id always names a running resource.
+--
 -- serverEvent IS FIRED BY THIS CLIENT, with TriggerServerEvent(name, args),
 -- exactly as ox_lib does. The server handler receives it like any other
 -- client event, so it MUST validate `source` and `args` itself: a cheater can
@@ -21,6 +36,42 @@ local contexts = {}
 local owned = CisOwned.new()
 local open = nil -- { id, token, owner }
 local MAX_OPTIONS = 128
+local MAX_EVENT_NAME = 128
+local LIB = GetCurrentResourceName() or 'cis_libs'
+
+-- Names no context option may fire as a local event, whoever registered it.
+local RESERVED_EVENTS = {
+    onResourceStart = true, onResourceStop = true, onResourceStarting = true,
+    onClientResourceStart = true, onClientResourceStop = true,
+}
+local RESERVED_PREFIXES = { LIB .. ':', 'cis_libs:', '__cfx_' }
+
+-- nil when `name` may be fired as a local event for `owner`, else the reason.
+local function localEventRefused(name, owner)
+    if name == nil then
+        return nil
+    end
+    if type(name) ~= 'string' or name == '' or #name > MAX_EVENT_NAME then
+        return ('event must be a non-empty string of at most %d bytes'):format(MAX_EVENT_NAME)
+    end
+    if RESERVED_EVENTS[name] then
+        return ('event %q is reserved'):format(name)
+    end
+    for i = 1, #RESERVED_PREFIXES do
+        local prefix = RESERVED_PREFIXES[i]
+        if name:sub(1, #prefix) == prefix then
+            return ('event %q is reserved (%s*)'):format(name, prefix)
+        end
+    end
+    if owner ~= LIB then
+        local prefix = tostring(owner) .. ':'
+        if name:sub(1, #prefix) ~= prefix then
+            return ('event %q is fired from cis_libs, so it must start with %q; fire any other event from onSelect')
+                :format(name, prefix)
+        end
+    end
+    return nil
+end
 
 local function readMetadata(meta)
     if type(meta) ~= 'table' then
@@ -97,61 +148,6 @@ local function view(ctx)
     return out
 end
 
-local function register(ctx, owner)
-    if type(ctx) ~= 'table' then
-        return false, ('a context menu must be a table, got %s'):format(type(ctx))
-    end
-    local id = ctx.id
-    if type(id) ~= 'string' or id == '' or #id > 128 then
-        return false, 'a context menu needs a string id'
-    end
-    local options = optionList(ctx.options)
-    if #options > MAX_OPTIONS then
-        return false, ('a context menu holds at most %d options'):format(MAX_OPTIONS)
-    end
-    for i, o in ipairs(options) do
-        if type(o) ~= 'table' then
-            return false, ('option %d of %s is not a table'):format(i, id)
-        end
-        if o.event ~= nil and type(o.event) ~= 'string' then
-            return false, ('option %d of %s: event must be a string'):format(i, id)
-        end
-        if o.serverEvent ~= nil and type(o.serverEvent) ~= 'string' then
-            return false, ('option %d of %s: serverEvent must be a string'):format(i, id)
-        end
-        if o.onSelect ~= nil and not CisCallable(o.onSelect) then
-            return false, ('option %d of %s: onSelect must be a function'):format(i, id)
-        end
-    end
-    contexts[id] = {
-        id = id,
-        title = I.str(ctx.title, 256) or '',
-        menu = type(ctx.menu) == 'string' and ctx.menu or nil,
-        canClose = ctx.canClose ~= false,
-        onExit = CisCallable(ctx.onExit) and ctx.onExit or nil,
-        onBack = CisCallable(ctx.onBack) and ctx.onBack or nil,
-        options = options,
-        owner = owner,
-    }
-    CisOwned.track(owned, owner, 'context', id)
-    return true
-end
-
---- @param context table  one context, or a list of them
-local function registerContext(context)
-    local owner = I.caller()
-    if type(context) == 'table' and context.id == nil and #context > 0 then
-        for i, ctx in ipairs(context) do
-            local ok, err = register(ctx, owner)
-            if not ok then
-                return false, ('context %d: %s'):format(i, err)
-            end
-        end
-        return true
-    end
-    return register(context, owner)
-end
-
 local function close(callExit)
     local o = open
     if not o then
@@ -167,6 +163,17 @@ local function close(callExit)
     return true
 end
 
+local function sendOpen(ctx, token)
+    I.send('context:open', {
+        token = token,
+        id = ctx.id,
+        title = ctx.title,
+        canClose = ctx.canClose,
+        hasBack = ctx.menu ~= nil and contexts[ctx.menu] ~= nil,
+        options = view(ctx),
+    })
+end
+
 local function showContext(id)
     local ctx = type(id) == 'string' and contexts[id] or nil
     if not ctx then
@@ -176,25 +183,20 @@ local function showContext(id)
         return false, 'ui not ready'
     end
     local token = I.nextId()
-    open = { id = id, token = token, owner = ctx.owner }
+    local session = { id = id, token = token, owner = ctx.owner }
+    open = session
     local ok, err = pcall(function()
         I.focus.push('context', {
             owner = ctx.owner,
             onEscape = function()
+                -- The session, not the token: a redraw rotates the token.
                 local cur = contexts[id]
-                if open and open.token == token and (not cur or cur.canClose) then
+                if open == session and (not cur or cur.canClose) then
                     close(true)
                 end
             end,
         })
-        I.send('context:open', {
-            token = token,
-            id = id,
-            title = ctx.title,
-            canClose = ctx.canClose,
-            hasBack = ctx.menu ~= nil and contexts[ctx.menu] ~= nil,
-            options = view(ctx),
-        })
+        sendOpen(ctx, token)
     end)
     if not ok then
         -- Never leave the cursor up for a menu that was not drawn.
@@ -202,6 +204,105 @@ local function showContext(id)
         close(false)
         return false, 'context menu failed to open'
     end
+    return true
+end
+
+-- The open menu, drawn again from its registered options under a fresh token,
+-- so a click the page sends for the old list is stale. Focus is not touched.
+local function redraw()
+    local o = open
+    local ctx = o and contexts[o.id]
+    if not ctx then
+        return
+    end
+    local token = I.nextId()
+    o.token = token
+    local ok, err = pcall(sendOpen, ctx, token)
+    if not ok then
+        I.log('error', ('context menu %s failed to redraw: %s'):format(o.id, tostring(err)))
+        close(false)
+    end
+end
+
+-- The menu as it will be stored, or false and why. Changes nothing, so a list
+-- is checked whole before any of it is stored.
+local function prepare(ctx, owner)
+    if type(ctx) ~= 'table' then
+        return false, ('a context menu must be a table, got %s'):format(type(ctx))
+    end
+    local id = ctx.id
+    if type(id) ~= 'string' or id == '' or #id > 128 then
+        return false, 'a context menu needs a string id'
+    end
+    local holder = CisOwned.ownerOf(owned, 'context', id)
+    if holder and holder ~= owner then
+        return false, ('context %q is registered by %s; pick a different id'):format(id, tostring(holder))
+    end
+    local options = optionList(ctx.options)
+    if #options > MAX_OPTIONS then
+        return false, ('a context menu holds at most %d options'):format(MAX_OPTIONS)
+    end
+    for i, o in ipairs(options) do
+        if type(o) ~= 'table' then
+            return false, ('option %d of %s is not a table'):format(i, id)
+        end
+        local refused = localEventRefused(o.event, owner)
+        if refused then
+            return false, ('option %d of %s: %s'):format(i, id, refused)
+        end
+        if o.serverEvent ~= nil and type(o.serverEvent) ~= 'string' then
+            return false, ('option %d of %s: serverEvent must be a string'):format(i, id)
+        end
+        if o.onSelect ~= nil and not CisCallable(o.onSelect) then
+            return false, ('option %d of %s: onSelect must be a function'):format(i, id)
+        end
+    end
+    return {
+        id = id,
+        title = I.str(ctx.title, 256) or '',
+        menu = type(ctx.menu) == 'string' and ctx.menu or nil,
+        canClose = ctx.canClose ~= false,
+        onExit = CisCallable(ctx.onExit) and ctx.onExit or nil,
+        onBack = CisCallable(ctx.onBack) and ctx.onBack or nil,
+        options = options,
+        owner = owner,
+    }
+end
+
+local function commit(entry)
+    contexts[entry.id] = entry
+    CisOwned.track(owned, entry.owner, 'context', entry.id)
+    -- THE MENU ON SCREEN IS DRAWN AGAIN, UNDER A NEW TOKEN. The page still showed
+    -- the old options, and a click on index n would have run the NEW list's
+    -- option n -- a different serverEvent than the one the player saw.
+    if open and open.id == entry.id then
+        redraw()
+    end
+end
+
+--- @param context table  one context, or a list of them
+local function registerContext(context)
+    local owner = I.caller()
+    if type(context) == 'table' and context.id == nil and #context > 0 then
+        -- ALL OR NOTHING: every context is checked before any is stored.
+        local ready = {}
+        for i, ctx in ipairs(context) do
+            local entry, err = prepare(ctx, owner)
+            if not entry then
+                return false, ('context %d: %s'):format(i, err)
+            end
+            ready[i] = entry
+        end
+        for i = 1, #ready do
+            commit(ready[i])
+        end
+        return true
+    end
+    local entry, err = prepare(context, owner)
+    if not entry then
+        return false, err
+    end
+    commit(entry)
     return true
 end
 
@@ -214,7 +315,7 @@ local function getOpenContextMenu()
     return open and open.id or nil
 end
 
-local function choose(option)
+local function choose(option, owner)
     if type(option.menu) == 'string' and contexts[option.menu] then
         showContext(option.menu)
         return
@@ -224,7 +325,13 @@ local function choose(option)
         I.invoke(option.onSelect, option.args)
     end
     if type(option.event) == 'string' and option.event ~= '' then
-        TriggerEvent(option.event, option.args)
+        -- Checked again here: an in-VM caller's option table is held by reference.
+        local refused = localEventRefused(option.event, owner)
+        if refused then
+            I.log('error', ('context option refused: %s'):format(refused))
+        else
+            TriggerEvent(option.event, option.args)
+        end
     end
     if type(option.serverEvent) == 'string' and option.serverEvent ~= '' then
         TriggerServerEvent(option.serverEvent, option.args)
@@ -254,7 +361,7 @@ I.on('context', { token = 'string', action = 'string', index = '?integer' }, fun
         if type(option) ~= 'table' or option.disabled or option.readOnly then
             return
         end
-        choose(option)
+        choose(option, ctx.owner)
     end
 end)
 

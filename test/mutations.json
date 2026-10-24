@@ -4098,6 +4098,48 @@
       "find": "    if type(ok) ~= 'boolean' then\n        ok = false\n        packed = { n = 1, 'bad reply' }",
       "replace": "    if ok == nil then\n        ok = false\n        packed = { n = 1, 'bad reply' }",
       "why": "A client reply whose ok flag is a truthy string or table resolves the server-to-client callback and hands the caller that unbounded value as its first result."
+    },
+    {
+      "id": "M710",
+      "file": "client/interface/context.lua",
+      "find": "    if owner ~= LIB then\n        local prefix = tostring(owner) .. ':'",
+      "replace": "    if false then\n        local prefix = tostring(owner) .. ':'",
+      "why": "A context option may fire any resource's event from cis_libs' VM, so a click runs another resource's handler with cis_libs as the invoker."
+    },
+    {
+      "id": "M711",
+      "file": "client/interface/context.lua",
+      "find": "    if RESERVED_EVENTS[name] then",
+      "replace": "    if false then",
+      "why": "A context option fires onResourceStop with args 'cis_libs' from cis_libs' own VM: CisRealStop accepts it and every consumer marks the library stopped."
+    },
+    {
+      "id": "M712",
+      "file": "client/interface/context.lua",
+      "find": "    if holder and holder ~= owner then\n        return false, ('context %q is registered by %s",
+      "replace": "    if false then\n        return false, ('context %q is registered by %s",
+      "why": "Any resource re-registers another resource's context id and takes the menu over: the player sees the hijacker's options under the original menu's id."
+    },
+    {
+      "id": "M713",
+      "file": "client/interface/context.lua",
+      "find": "    if open and open.id == entry.id then\n        redraw()",
+      "replace": "    if false then\n        redraw()",
+      "why": "Re-registering the menu on screen keeps the old token, so a click on the old list's index n runs the new list's option n."
+    },
+    {
+      "id": "M714",
+      "file": "client/interface/context.lua",
+      "find": "            ready[i] = entry\n",
+      "replace": "            ready[i] = entry\n            commit(entry)\n",
+      "why": "A list of contexts with a bad entry is refused but keeps the entries before it, so the caller gets false and a half-registered list."
+    },
+    {
+      "id": "M715",
+      "file": "client/interface/context.lua",
+      "find": "        local refused = localEventRefused(option.event, owner)\n        if refused then",
+      "replace": "        local refused = nil\n        if refused then",
+      "why": "An option held by reference whose event is changed to a reserved name after registration is fired on the click."
     }
   ]
 }
