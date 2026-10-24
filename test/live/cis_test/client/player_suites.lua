@@ -850,16 +850,20 @@ P.RegisterSuite('ui', {
         end,
     },
     {
-        name = 'progress without a ui provider refuses by name',
+        -- THE BUILT-IN BAR, NOT A REFUSAL. Since 58d418f an empty `ui` slot
+        -- routes progress to cis_libs' own NUI, and 'no ui provider' is only
+        -- the answer when that is missing too (test/client.lua, 7.9 and 7.9b).
+        -- A live client always has it, so this case asked for a refusal that
+        -- cannot happen; it failed on every CisFiveM run, hidden behind the
+        -- zones failure because a case reports its first failing check only.
+        name = 'progress without a ui provider runs the built-in bar',
         run = function()
             local ok, why = exports['cis_libs']:UiProgress({ duration = 1 })
-            if ok ~= false then
-                return false, ('progress answered %s, wanted false'):format(tostring(ok))
+            if ok ~= true then
+                return false, ('progress answered %s (%s), wanted true from the built-in bar')
+                    :format(tostring(ok), tostring(why))
             end
-            if type(why) ~= 'string' or not why:find('no ui provider', 1, true) then
-                return false, ('reason was %s'):format(tostring(why))
-            end
-            return true, why
+            return true, 'built-in bar ran 1 ms and answered true'
         end,
     },
 })
