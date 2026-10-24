@@ -25,8 +25,8 @@ end
 -- forger's, for a TriggerEvent from a script, and nil for the stop the engine
 -- itself fires on a client. A resource "stopping" itself only hurts itself.
 -- On the SERVER a real restart can come from a script (txAdmin's monitor runs
--- `restart` from its own runtime), and a server resource is trusted code that
--- can call these exports directly anyway, so every stop counts there.
+-- `restart` from its own runtime), so the caller alone cannot decide there and
+-- this answers true; server handlers go through CisWhenRealStop below.
 --- @param resource string  the resource named by the event
 --- @return boolean
 function CisRealStop(resource)
@@ -35,6 +35,56 @@ function CisRealStop(resource)
     end
     local by = GetInvokingResource()
     return by == nil or by == resource
+end
+
+-- Whether a server resource may stop resources: the ACE `stop` itself checks.
+local function mayStopResources(by)
+    if type(IsPrincipalAceAllowed) ~= 'function' then
+        return false
+    end
+    local ok, allowed = pcall(IsPrincipalAceAllowed, 'resource.' .. by, 'command.stop')
+    return ok and allowed == true
+end
+
+-- A FORGED STOP ON THE SERVER. Any server resource could TriggerEvent(
+-- 'onResourceStop', 'victim') and have the victim's capability slots, net
+-- handlers, callbacks, commands and records released -- then register into the
+-- slot the victim held. A stop counts AT ONCE when the engine fired it (no
+-- invoker), the resource stopped itself, cis_libs fired it, or the invoker holds
+-- command.stop (txAdmin's monitor restarting a resource). Any other invoker is
+-- checked ONE TICK LATER: a real StopResource has finished by then and the
+-- resource is no longer 'started'; a forged event leaves it 'started' and is
+-- ignored. LIMITATION: an untrusted script that calls StopResource and then
+-- StartResource in the same tick leaves the old instance's records (keyed by the
+-- same name) in place until that resource's next stop.
+-- On the client this is CisRealStop: run now or not at all.
+--- @param resource string  the resource named by the event
+--- @param fn function  called as fn(resource) for a real stop
+function CisWhenRealStop(resource, fn)
+    if not IsDuplicityVersion() then
+        if CisRealStop(resource) then
+            fn(resource)
+        end
+        return
+    end
+    local by = GetInvokingResource()
+    if by == nil or by == resource or by == GetCurrentResourceName() or mayStopResources(by) then
+        fn(resource)
+        return
+    end
+    SetTimeout(0, function()
+        if GetResourceState(resource) ~= 'started' then
+            fn(resource)
+        end
+    end)
+end
+
+--- AddEventHandler('onResourceStop', fn), with a forged stop filtered out.
+--- @param fn function  called as fn(resource)
+function CisOnResourceStop(fn)
+    AddEventHandler('onResourceStop', function(resource)
+        CisWhenRealStop(resource, fn)
+    end)
 end
 
 --- @return table

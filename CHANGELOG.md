@@ -327,6 +327,25 @@ Check these first; each is a line under **Changed** or **Deprecated**.
   `interp.clamp` refuse a NaN bound, which handed the value back unclamped;
   `mathx.clamp` and `validate.clamp` answer a reason for a non-number bound
   instead of raising a compare error.
+- **`SecureNetOn` (`Cis.net.on`) answers `false, reason` on every refusal,
+  and checks its options at registration.** A schema the checker cannot read
+  (a string, a rule that is not a table, an unknown type, a non-number
+  `min`/`max`/`maxLen`) used to register, then refuse and report every
+  payload, which on most servers kicked every player who sent the event. A
+  NaN or infinite `windowMs`/`maxHits`, or `maxHits` 0, built a limiter
+  window that never rolled or let the first hit through. A nil name raised.
+  `RegisterCallback` checks its `schema` the same way.
+- Every server export that can refuse now answers `false, reason`. `SyncCreate`
+  (each validation refusal, the allow-list, `Config.Sync.Enabled = false`, a
+  failed networked spawn), `SyncList` and `SyncClear` used to answer `nil`,
+  which the exports boundary truncates, so the reason never arrived.
+  `SyncRemove`, `AddDoorToSystem` and `AddDoorGroup` returned a bare `false`
+  from a resource off the allow-list, and `UnregisterCapability` returned one to
+  a non-holder; each now names why. `BreakDoor` and `FixDoor` answer the
+  allow-list refusal as `false, reason` (nil still means no doors provider).
+  `CallCallbackClient` with a bad target returned nothing; it now answers
+  `false, reason` as well as telling `cb`, and refuses a player who is not
+  connected before sending, as `AwaitCallbackClient` does.
 
 ### Added
 
@@ -778,6 +797,22 @@ which is forgotten when that resource stops.
 - **`time.roundTo` no longer wraps** an integer product negative (or to 0 in
   a 32-bit build), and an infinite or NaN unit answers 0, not NaN.
 - **`locale.t(nil)` answers `"nil"` and warns** instead of raising.
+- **`RateOk` answers `false, reason` instead of raising**, for a nil, NaN or
+  empty src, a nil name, or a `windowMs`/`maxHits` that is not a positive
+  finite number (`maxHits` at least 1). A refused hit carries `'limited'`.
+- **Rate keys that are not connected players are bounded.** playerDropped
+  never freed a license string or a stale id, so a consumer's dynamic keys
+  grew the limiter for the life of cis_libs. Idle ones are swept, and past
+  1024 live ones a new key is refused with `'cap'`; a connected player is
+  never refused for that bound.
+- **A callback's bad payload is reported once per run, like a net event's.**
+  Every schema refusal used to be a security report, so a client repeating
+  one bad shape was a strike per request with a ban provider.
+- The server console is rate-limited per message, as Discord already was. One
+  message prints at most 20 times per 10 s window and the window prints at most
+  500 lines in all; held copies are counted and said once as the window rolls,
+  so a client tripping the same warning every frame no longer floods the
+  console. At most 512 distinct messages are tracked per window.
 
 ### Security
 
@@ -920,6 +955,22 @@ which is forgotten when that resource stops.
   unknown or foreign item (it was a bare `false`); `ClearRadialItems` removes
   only the caller's own items. cis_libs itself may still remove or clear
   anything.
+- A forged `TriggerEvent('onResourceStop', 'victim')` from another server
+  resource no longer releases the victim's capability slots, net handlers,
+  callbacks, commands, server zones, sync records, hooks or state bags (a
+  forger could then register into the slot the victim held). A stop counts at
+  once when the engine fired it, the resource stopped itself, cis_libs fired it,
+  or the invoker holds `command.stop`; any other invoker's stop counts one tick
+  later, and only if the resource is no longer `started`. Limitation: an
+  untrusted script that stops and restarts a resource in the same tick leaves
+  the old instance's records in place until its next stop.
+- `CommandAdd` no longer takes back an ACE it did not grant: when the restricted
+  group already holds `command.<name>` (the operator's own `add_ace`), cis_libs
+  neither re-writes it nor runs `remove_ace` on it when the command is removed.
+  It also provisions only the groups listed in the new convar
+  `cis_command_ace_groups` (default `group.admin`), so a resource calling
+  `CommandAdd` can no longer have cis_libs grant its command to `group.user`;
+  any other group gets a warning and the exact `add_ace` line to run.
 
 ## [1.0.0] — 2026-10-07
 

@@ -336,7 +336,11 @@ exports('UnregisterCapability', function(slot)
     if not CisRegistry.unregister(slot, resource) then
         audit('capability-release-refused', ('slot=%s caller=%s holder=%s')
             :format(tostring(slot), tostring(resource), tostring(previous)))
-        return false
+        if previous == nil then
+            return false, ('capability %q is not registered'):format(tostring(slot))
+        end
+        return false, ('capability %q is held by %s, not %s; only its holder may release it')
+            :format(tostring(slot), tostring(previous), tostring(resource))
     end
     audit('capability-released', ('slot=%s owner=%s'):format(tostring(slot), tostring(previous)))
     return true
@@ -381,7 +385,8 @@ exports('WaitCapability', function(slot, timeoutMs)
 end)
 
 -- A stopped resource's exports are gone.
-AddEventHandler('onResourceStop', function(resource)
+-- Through CisOnResourceStop (shared/owned.lua), so a forged stop is ignored.
+CisOnResourceStop(function(resource)
     -- The resource's refusal goes with it.
     lastRefusal[resource] = nil
     CisRegistry.forgetDeprecationCaller(resource)
@@ -503,28 +508,30 @@ end)
 
 exports('AddDoorToSystem', function(newDoorData, internal)
     if not CisInvokingAllowed() then
-        return false
+        return false, notAuthorizedReason('AddDoorToSystem')
     end
     return forward('doors', false, 'add', newDoorData, internal)
 end)
 
 exports('AddDoorGroup', function(groupData)
     if not CisInvokingAllowed() then
-        return false
+        return false, notAuthorizedReason('AddDoorGroup')
     end
     return forward('doors', false, 'addGroup', groupData)
 end)
 
 exports('BreakDoor', function(identifier)
     if not CisInvokingAllowed() then
-        return nil, notAuthorizedReason('BreakDoor')
+        -- false, not nil: a nil first value truncates the list at the exports
+        -- boundary and the reason never arrives. nil stays the no-provider answer.
+        return false, notAuthorizedReason('BreakDoor')
     end
     return forward('doors', nil, 'breakDoor', identifier)
 end)
 
 exports('FixDoor', function(identifier)
     if not CisInvokingAllowed() then
-        return nil, notAuthorizedReason('FixDoor')
+        return false, notAuthorizedReason('FixDoor')
     end
     return forward('doors', nil, 'fixDoor', identifier)
 end)

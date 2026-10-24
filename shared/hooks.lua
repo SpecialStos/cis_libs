@@ -113,14 +113,12 @@ end
 
 if type(AddEventHandler) == 'function' then
     AddEventHandler('onResourceStop', function(resource)
-        -- A forged stop from another client script is ignored (shared/owned.lua).
-        if not CisRealStop(resource) then
-            return
-        end
         if type(GetCurrentResourceName) == 'function' and resource == GetCurrentResourceName() then
             return
         end
-        CisHooks.releaseOwner(resource)
+        -- A forged stop is ignored (shared/owned.lua, loaded after this file and
+        -- so looked up at event time).
+        CisWhenRealStop(resource, CisHooks.releaseOwner)
     end)
 end
 

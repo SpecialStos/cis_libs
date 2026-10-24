@@ -141,14 +141,14 @@ return {
             use = 'deprecated since 1.1.0; use the cis_bridge doors API',
             realm = 'server',
             params = { { name = 'identifier', type = 'string|integer', doc = 'the door identifier. Allow-list gated like every other door mutation' } },
-            returns = { { type = 'any, string|nil', why = "the provider's value, and the nil-when-no-provider answer is preserved on purpose rather than normalised to false", doc = "the provider's value; nil when no doors provider is registered, and the nil is preserved on purpose rather than normalised to false; nil plus a reason naming Security.AuthorizedResources when the caller is not on the allow-list" } },
+            returns = { { type = 'any, string|nil', why = "the provider's value, and the nil-when-no-provider answer is preserved on purpose rather than normalised to false", doc = "the provider's value; nil when no doors provider is registered, and the nil is preserved on purpose rather than normalised to false; false plus a reason naming Security.AuthorizedResources when the caller is not on the allow-list" } },
         },
         FixDoor = {
             since = '1.0.0', ['until'] = '2.0.0', stable = true, deprecated = true,
             use = 'deprecated since 1.1.0; use the cis_bridge doors API',
             realm = 'server',
             params = { { name = 'identifier', type = 'string|integer', doc = 'the door identifier. Allow-list gated like every other door mutation' } },
-            returns = { { type = 'any, string|nil', why = "the provider's value, and the nil-when-no-provider answer is preserved on purpose rather than normalised to false", doc = "the provider's value; nil when no doors provider is registered; nil plus a reason when the caller is not on the allow-list" } },
+            returns = { { type = 'any, string|nil', why = "the provider's value, and the nil-when-no-provider answer is preserved on purpose rather than normalised to false", doc = "the provider's value; nil when no doors provider is registered; false plus a reason naming Security.AuthorizedResources when the caller is not on the allow-list" } },
         },
         RequestLockDoors = {
             since = '1.0.0', ['until'] = '2.0.0', stable = true, deprecated = true,
@@ -177,7 +177,7 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.callback.register(name, handler)',
             realm = 'both',
-            params = { server = { { name = 'name', type = 'string', doc = 'a non-empty handler name, the key everything else is filed under' }, { name = 'handler', type = 'function|string|table', doc = 'a function, a callable reference table (a function passed from another resource; released when that resource stops), or a "resource:Export" string; nil fails all three. A later registration of the same name by the SAME resource replaces the earlier one, whatever its kind; a name another resource holds is refused (cis_libs may replace any)' }, { name = 'opts', type = 'table', optional = true, doc = "{ remote = true|false, ace = 'object', schema = { field = { type, min, max, maxLen, optional, finite } }, maxStringLen = n }. remote defaults to TRUE (1.0.0 behaviour); remote = false makes the callback unreachable from any client, which is answered 'unknown' exactly as for a missing name. ace is checked with IsPrincipalAceAllowed('player.<src>', ace) and refused 'denied'. schema checks the FIRST argument and refuses 'bad payload' (and reports the player); its rules are the same as SecureNetOn's, so type may be integer and infinity is refused unless finite = false. maxStringLen replaces the default string cap (Config.CallbackLimits.MaxStringLen, 4096) for this callback; every remote call is capped, keys and values. A malformed option is refused, never ignored" } }, client = { { name = 'name', type = 'string', doc = 'a non-empty handler name; a non-string or "" is refused before anything is stored, and so is a name another resource holds (the owner may replace its own; a name is free again once its owner stops)' }, { name = 'fn', type = 'function|string', doc = 'a callable, or a "resource:Export" string' } } },
+            params = { server = { { name = 'name', type = 'string', doc = 'a non-empty handler name, the key everything else is filed under' }, { name = 'handler', type = 'function|string|table', doc = 'a function, a callable reference table (a function passed from another resource; released when that resource stops), or a "resource:Export" string; nil fails all three. A later registration of the same name by the SAME resource replaces the earlier one, whatever its kind; a name another resource holds is refused (cis_libs may replace any)' }, { name = 'opts', type = 'table', optional = true, doc = "{ remote = true|false, ace = 'object', schema = { field = { type, min, max, maxLen, optional, finite } }, maxStringLen = n }. remote defaults to TRUE (1.0.0 behaviour); remote = false makes the callback unreachable from any client, which is answered 'unknown' exactly as for a missing name. ace is checked with IsPrincipalAceAllowed('player.<src>', ace) and refused 'denied'. schema checks the FIRST argument and refuses 'bad payload' (and reports the player once per run of bad payloads, as SecureNetOn does); its rules are the same as SecureNetOn's and are checked at registration, so type may be integer and infinity is refused unless finite = false. maxStringLen replaces the default string cap (Config.CallbackLimits.MaxStringLen, 4096) for this callback; every remote call is capped, keys and values. A malformed option is refused, never ignored" } }, client = { { name = 'name', type = 'string', doc = 'a non-empty handler name; a non-string or "" is refused before anything is stored, and so is a name another resource holds (the owner may replace its own; a name is free again once its owner stops)' }, { name = 'fn', type = 'function|string', doc = 'a callable, or a "resource:Export" string' } } },
             returns = { server = { { type = 'boolean, string|nil', doc = "true once bound; false plus the reason (also logged) on a refusal" } }, client = { { type = 'boolean, string|nil', doc = 'true once stored; false plus the reason (also logged) on a refusal' } } },
         },
         CallCallback = {
@@ -217,8 +217,8 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.callback.callClient(src, name, cb, ...)',
             realm = 'server',
-            params = { { name = 'name', type = 'string', doc = 'the callback the CLIENT answers' }, { name = 'target', type = 'integer', doc = 'a connected player server id; anything else is refused and nobody is told' }, { name = 'cb', type = 'function', optional = true, doc = 'a consumer-side function, consumed on the consumer side, so it does not cross' }, { name = '...', type = '...', optional = true, variadic = true, doc = 'the unbounded tail; the client caps it at 32 args and answers "too large"' } },
-            returns = { { type = 'string', doc = 'the pending key, an opaque random token. A bad target returns NOTHING and instead calls cb(false, reason)' } },
+            params = { { name = 'name', type = 'string', doc = 'the callback the CLIENT answers' }, { name = 'target', type = 'integer', doc = 'a connected player server id; anything else, or a player who is not connected, is refused before anything is sent' }, { name = 'cb', type = 'function', optional = true, doc = 'a consumer-side function, consumed on the consumer side, so it does not cross' }, { name = '...', type = '...', optional = true, variadic = true, doc = 'the unbounded tail; the client caps it at 32 args and answers "too large"' } },
+            returns = { { type = 'string|false, string|nil', doc = 'the pending key, an opaque random token. A bad or disconnected target answers false plus a reason, and cb (when given) is told too, as cb(false, bad target) or cb(false, not connected)' } },
         },
         AwaitCallbackClient = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -781,7 +781,7 @@ return {
             use = 'Cis.command.add(name, { params, restricted, help }, handler)',
             realm = 'server',
             params = { { name = 'name', type = 'string', doc = 'letters, digits, underscore or hyphen only' }, { name = 'options', type = 'table', doc = "{ params, restricted, help }. params is an array of names, or of { name, help, type, optional } tables: type is 'string' (default), 'number', 'playerId' (a connected id, or 'me') or 'longString' (the rest of the line; must be last); optional params must come last. A line that does not fit is refused and the usage logged. restricted is true or an ACE principal like 'group.admin'" }, { name = 'handler', type = 'function', doc = 'called as (src, args, raw). src is INJECTED and is not a parameter, so no caller can name anyone. args holds the converted values by position AND by param name. A function passed from another resource is accepted, owned by it, and stops running when it stops' } },
-            returns = { { type = 'boolean, string|nil', doc = 'true once registered, or false plus a reason: a name the server already knows (another resource command or a builtin, matched without regard to case) is refused, and so is a re-add that changes the restricted flag. A restricted command is checked by RegisterCommand and again by the handler. When restricted names a group.* principal and cis_libs has been granted command.add_ace, it runs add_ace <group> command.<name> allow itself (never for builtin.*, player.* or identifier.* principals) (and remove_ace on removal); otherwise it prints that exact line. Chat suggestions reach players who join later' } }
+            returns = { { type = 'boolean, string|nil', doc = 'true once registered, or false plus a reason: a name the server already knows (another resource command or a builtin, matched without regard to case) is refused, and so is a re-add that changes the restricted flag. A restricted command is checked by RegisterCommand and again by the handler. When restricted names a group.* principal listed in the convar cis_command_ace_groups (default group.admin) and cis_libs has been granted command.add_ace, it runs add_ace <group> command.<name> allow itself (never for builtin.*, player.* or identifier.* principals) and remove_ace on removal; a group that already holds the ACE is the operator grant and is neither re-granted nor removed; otherwise it prints that exact line. Chat suggestions reach players who join later' } }
         },
         CommandList = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -914,8 +914,8 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.sync.ped / Cis.sync.prop / Cis.sync.vehicle',
             realm = 'server',
-            params = { { name = 'kind', type = 'string', doc = "'prop', 'vehicle' or 'ped' -- never type-guarded, and the branch is on exactly these literals" }, { name = 'data', type = 'table', doc = 'the record. Not type-guarded either: the first hard requirement is data.coords, which raises on a non-table' } },
-            returns = { { type = 'string|nil, string|nil', doc = 'the record id, and a reason when a networked record is refused -- a kind with no server-side creation native, an entity the server could not create, or a removal that overtook the creation. EVERY OTHER REFUSAL IS A BARE NIL (and a logged reason), because a nil first value truncates the return list at the exports boundary' } },
+            params = { { name = 'kind', type = 'string', doc = "'prop', 'vehicle' or 'ped' -- never type-guarded, and the branch is on exactly these literals" }, { name = 'data', type = 'table', doc = 'the record. A non-table, missing or non-finite coords, a bad heading, model, scope, bucket or id are each refused as false plus a reason, never raised' } },
+            returns = { { type = 'string|false, string|nil', doc = 'the record id; on ANY refusal false plus a reason -- a caller off Security.AuthorizedResources, Config.Sync.Enabled = false, a bad field, a kind with no server-side creation native, an entity the server could not create, or a removal that overtook the creation. Never nil first, because a nil first value truncates the return list at the exports boundary' } },
             note = 'A caller-managed `data.id` lives in a namespace of its own: two resources can both use "door1" and both get their own record. A numeric id is converted to its string here. Returns the caller\'s own id, never the namespaced key the client receives. `networked = true` asks the SERVER for one entity, created per kind and placed in the record\'s routing bucket; a vehicle also takes `vehicleType` (automobile, bike, boat, heli, plane, submarine, trailer; default automobile). A kind the server has no creation for is refused with a reason rather than downgraded, and so is an entity the server could not create. A networked entity is streamed by OneSync, never over the sync events; its record rides the entity\'s `cis_sync` state bag, an update that names the same coordinates does not move it, and an entity removed behind the library\'s back is re-created unless `respawn = false`. Client-local records are streamed by distance and re-sent only when their revision changes, one batched event per player per pass. Caller data travels to the client ONLY in `data.clientData` (and a vehicle\'s `props`), together capped at 256 entries and 16 KB of strings; any other field on `data` is server-side and is not sent. An upsert that is still creating its entity holds its id: a second upsert of the same id waits for it, and a remove during it wins.',
         },
         SyncRemove = {
@@ -923,7 +923,7 @@ return {
             use = 'Cis.sync.remove(id)',
             realm = 'server',
             params = { { name = 'id', type = 'string|integer', optional = true, doc = 'the id; a number is stringified at this boundary. Namespaced by the INVOKING RESOURCE, never by the argument' } },
-            returns = { { type = 'boolean, string', doc = "true on success; false always names why -- 'no sync id given', a type message, \"belongs to another resource\", or \"not in this resource's namespace\"" } },
+            returns = { { type = 'boolean, string', doc = "true on success; false always names why -- 'no sync id given', a type message, \"belongs to another resource\", \"not in this resource's namespace\", or a caller off Security.AuthorizedResources" } },
             note = 'Resolves the id in the CALLING resource\'s namespace, so one resource cannot remove another\'s record. A number is accepted and matched against its string. Always answers `false, reason` on a miss, and the reason distinguishes the two misses that mean different things: an id this resource does not hold but another does is refused as another resource\'s, and an id nobody holds names itself.',
         },
         ModuleInfo = {
@@ -946,7 +946,7 @@ return {
             use = 'Cis.sync.list()',
             realm = 'server',
             params = {},
-            returns = { { type = 'CisSyncSummary[], string|nil', doc = "the CALLING resource's own ids, sorted so an entry can go straight back to SyncRemove, and a reason only on the allow-list refusal" } },
+            returns = { { type = 'CisSyncSummary[]|false, string|nil', doc = "the CALLING resource's own ids, sorted so an entry can go straight back to SyncRemove; false plus a reason only on the allow-list refusal" } },
             note = 'The CALLING resource\'s own records and no others -- a list naming another resource\'s records would be a map of every entity on the server. Answers the caller\'s OWN ids rather than the namespaced keys, so an entry can be handed straight back to `Cis.sync.remove(id)`. Sorted by id, so two calls in the same state answer in the same order. Refused with a reason when the resource is not on `Security.AuthorizedResources`. On the client it answers `false, \'server only\'`.',
         },
         SyncClear = {
@@ -954,7 +954,7 @@ return {
             use = 'Cis.sync.clear()',
             realm = 'server',
             params = {},
-            returns = { { type = 'integer|nil, string|nil', doc = 'how many records it took; 0 is an honest answer for a resource that has synced nothing, and a reason only on the allow-list refusal' } },
+            returns = { { type = 'integer|false, string|nil', doc = 'how many records it took; 0 is an honest answer for a resource that has synced nothing; false plus a reason only on the allow-list refusal' } },
             note = 'Takes down every record the CALLING resource owns and answers how many it took; 0 is the honest answer for a resource that has synced nothing, and a reload path calls this unconditionally. Every removal announces itself to each client holding the record, so no client is left holding a prop the server has forgotten. Another resource\'s records are untouched. Refused with a reason when the resource is not on `Security.AuthorizedResources`. On the client it answers `false, \'server only\'`.',
         },
         GetSyncedEntity = {
@@ -1121,7 +1121,7 @@ return {
             use = 'Called by a product on shutdown or handover. Only the slot owner may release it',
             realm = 'server',
             params = { { name = 'slot', type = 'string', doc = 'the slot to release; only its current owner may release it' } },
-            returns = { { type = 'boolean', doc = 'true released; false with NO reason at all when the caller is not the holder' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true released; false plus a reason naming the holder when the caller is not it, or saying the slot is not registered' } },
         },
         -- T9. Exists so START ORDER DOES NOT MATTER: a consumer that starts
         -- before the provider no longer has to poll, retry, or cache a nil it
@@ -1313,8 +1313,8 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.net.on(name, fn, opts) -> true when the event was bound',
             realm = 'server',
-            params = { { name = 'name', type = 'string', doc = 'the net event name, used verbatim with no prefix added' }, { name = 'fn', type = 'function|string|table', doc = 'a function -- including one passed from another resource, which arrives as a callable reference table and is released when that resource stops -- or a "resource:Export" string; anything else registers nothing' }, { name = 'opts', type = 'table', optional = true, doc = 'windowMs and maxHits default to 1000 and 8. Every payload is size-bounded before the schema and the handler: maxArgs (32), maxStringLen (Config.CallbackLimits.MaxStringLen, 4096; keys and values), maxEntries (256, counted across the whole payload) and maxDepth (8) may each be raised or lowered per handler, and a malformed one refuses the registration. schema, if present, is a map of field -> { type, min, max, maxLen, optional, finite } checked against the FIRST payload table before the handler runs; type is a Lua type name or integer (whole, finite, within +-2^53), and a number is refused when NaN, or infinite unless finite = false. An oversized payload or a schema failure is refused, counted as netSchemaRefused and reported' } },
-            returns = { { type = 'boolean', doc = 'true once bound -- and true says nothing about rate limiting, which happens at dispatch. false when the handler cannot be resolved, with a reason naming the resource and export, or when a resource binds another resource export: the owner is always the caller. The rate limit runs first, then the size bound, then the schema. A bad payload is reported once per player and event per run: a run ends after max(5000, 2 * windowMs) ms with no bad payload of that event, so a repeat after a pause is reported again while a flood stays one report' } },
+            params = { { name = 'name', type = 'string', doc = 'the net event name, used verbatim with no prefix added' }, { name = 'fn', type = 'function|string|table', doc = 'a function -- including one passed from another resource, which arrives as a callable reference table and is released when that resource stops -- or a "resource:Export" string; anything else registers nothing' }, { name = 'opts', type = 'table', optional = true, doc = 'windowMs and maxHits default to 1000 and 8. Every payload is size-bounded before the schema and the handler: maxArgs (32), maxStringLen (Config.CallbackLimits.MaxStringLen, 4096; keys and values), maxEntries (256, counted across the whole payload) and maxDepth (8) may each be raised or lowered per handler, and a malformed one refuses the registration. schema, if present, is a map of field -> { type, min, max, maxLen, optional, finite } checked against the FIRST payload table before the handler runs; type is a Lua type name or integer (whole, finite, within +-2^53), and a number is refused when NaN, or infinite unless finite = false. An oversized payload or a schema failure is refused, counted as netSchemaRefused and reported. The schema is checked at registration: a rule that is not a table, a field name that is not a string, an unknown type, a non-number min/max/maxLen or a non-boolean optional/finite refuses the registration. windowMs and maxHits must be finite numbers of at least 1' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true once bound -- and true says nothing about rate limiting, which happens at dispatch. false plus a reason (also logged) on every refusal: a name that is not a non-empty string, opts that are not a table, a malformed limit or schema, a handler that cannot be resolved, with a reason naming the resource and export, or when a resource binds another resource export: the owner is always the caller. The rate limit runs first, then the size bound, then the schema. A bad payload is reported once per player and event per run: a run ends after max(5000, 2 * windowMs) ms with no bad payload of that event, so a repeat after a pause is reported again while a flood stays one report' } },
         },
         SecurityReport = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -1334,8 +1334,8 @@ return {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'no proxy equivalent; a resource may share the library rate limiter',
             realm = 'server',
-            params = { { name = 'src', type = 'integer', doc = 'the bucket owner, and the player id for a public handler' }, { name = 'name', type = 'string', doc = 'the bucket key inside that src; the rate is per (src, name), never shared across names' }, { name = 'windowMs', type = 'integer', optional = true, doc = 'the window in ms, default 1000 -- a fixed window, not a sliding one' }, { name = 'maxHits', type = 'integer', optional = true, doc = 'the hits allowed inside it, default 8' } },
-            returns = { { type = 'boolean', doc = 'true on an allowed hit, and true is not free: it consumes a slot in the (src, name) window. false when the hit exceeds maxHits, or, with a second value cap, when the src holds 256 live buckets and this name is new (expired buckets are evicted first). A string src is the same player as its number' } },
+            params = { { name = 'src', type = 'integer|string', doc = 'the bucket owner, and the player id for a public handler. A key that is not a connected player (a license string, a stale id) is bounded separately, since playerDropped never frees it' }, { name = 'name', type = 'string', doc = 'the bucket key inside that src; the rate is per (src, name), never shared across names' }, { name = 'windowMs', type = 'integer', optional = true, doc = 'the window in ms, default 1000 -- a fixed window, not a sliding one' }, { name = 'maxHits', type = 'integer', optional = true, doc = 'the hits allowed inside it, default 8' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true on an allowed hit, and true is not free: it consumes a slot in the (src, name) window. false with the reason limited when the hit exceeds maxHits; false with the reason cap when the src holds 256 live buckets and this name is new (expired buckets are evicted first), or when the src is not a connected player and 1024 such keys are live (idle ones are swept first; a connected player is never refused for that bound). false plus a reason, never a raise, for a src that is not a finite number or a non-empty string, a name that is not a non-empty string, or a windowMs or maxHits that is not a finite number of at least 1 (maxHits) or above 0 (windowMs). A string src is the same player as its number' } },
         },
         GetLibsPrefix = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -2085,14 +2085,14 @@ return {
         realm = 'both',
         forwardsTo = 'SyncCreate',
         params = { { name = 'data', type = 'CisSyncRecord', doc = 'with kind = "ped"' } },
-        returns = { { type = 'string|nil, string|nil', doc = "the caller's own id, never the namespaced key the client receives. On the client this answers false, \"server only\"" } },
+        returns = { { type = 'string|false, string|nil', doc = "the caller's own id, never the namespaced key the client receives; false plus a reason on a refusal. On the client this answers false, \"server only\"" } },
     },
     ['Cis.sync.prop'] = {
         since = '1.0.0',
         realm = 'both',
         forwardsTo = 'SyncCreate',
         params = { { name = 'data', type = 'CisSyncRecord', doc = 'with kind = "prop"' } },
-        returns = { { type = 'string|nil, string|nil', doc = "the caller's own id. On the client this answers false, \"server only\"" } },
+        returns = { { type = 'string|false, string|nil', doc = "the caller's own id; false plus a reason on a refusal. On the client this answers false, \"server only\"" } },
     },
     ['Cis.sync.remove'] = {
         since = '1.0.0',
@@ -2106,7 +2106,7 @@ return {
         realm = 'both',
         forwardsTo = 'SyncCreate',
         params = { { name = 'data', type = 'CisSyncRecord', doc = 'with kind = "vehicle"; vehicleType defaults to automobile' } },
-        returns = { { type = 'string|nil, string|nil', doc = "the caller's own id. On the client this answers false, \"server only\"" } },
+        returns = { { type = 'string|false, string|nil', doc = "the caller's own id; false plus a reason on a refusal. On the client this answers false, \"server only\"" } },
     },
     ['Cis.target.add'] = {
         since = '1.0.0',

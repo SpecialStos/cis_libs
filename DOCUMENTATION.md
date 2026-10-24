@@ -139,6 +139,7 @@ back to what `SetConfig` supplied when that convar is unset or blank:
 | `cis_cb_max_inflight` | `Config.CallbackLimits.MaxInFlight` | 8 |
 | `cis_cb_max_string_len` | `Config.CallbackLimits.MaxStringLen` | 4096 |
 | `cis_check_version` | `Config.CheckVersion` (`true` / `false`) | unset |
+| `cis_command_ace_groups` | the groups `CommandAdd` may write `add_ace` for (comma or space separated); a group the principal already holds the ACE for is never re-granted or removed | `group.admin` |
 
 Precedence for the posture, in order:
 
@@ -817,7 +818,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `AwaitCallbackClient` | server | `(name, target, ...)` | boolean, any | 1.0.0 | Cis.callback.awaitClient(src, name, ...) |
 | `BreakDoor` | server | `(identifier)` | any, string\|nil | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge doors API |
 | `CallCallback` | both | `(name, cb?, ...)` | nil | 1.0.0 | Cis.callback.call(name, cb, ...) |
-| `CallCallbackClient` | server | `(name, target, cb?, ...)` | string | 1.0.0 | Cis.callback.callClient(src, name, cb, ...) |
+| `CallCallbackClient` | server | `(name, target, cb?, ...)` | string\|false, string\|nil | 1.0.0 | Cis.callback.callClient(src, name, cb, ...) |
 | `CancelProgress` | client | `()` | boolean | 1.1.0 | exports.cis_libs:CancelProgress() |
 | `CancelSkillCheck` | client | `()` | boolean | 1.1.0 | exports.cis_libs:CancelSkillCheck() |
 | `ClearRadialItems` | client | `()` | boolean | 1.1.0 | exports.cis_libs:ClearRadialItems() |
@@ -935,7 +936,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `PublishJobUpdate` | server | `(job, src?)` | boolean, string | 1.0.0 | Called by cis_core or any bridge target when a player changes job. Fires cis_libs:jobUpdated, so the event name stays owned by this library |
 | `PublishPlayerLoaded` | server | `(job, src?)` | boolean, string\|nil | 1.0.0 | Called by cis_core or any bridge target when a player object exists. Fires cis_libs:playerLoaded |
 | `RandomFloat` | client | `(lower, greater)` | number | 1.0.0 | no proxy equivalent |
-| `RateOk` | server | `(src, name, windowMs?, maxHits?)` | boolean | 1.0.0 | no proxy equivalent; a resource may share the library rate limiter |
+| `RateOk` | server | `(src, name, windowMs?, maxHits?)` | boolean, string\|nil | 1.0.0 | no proxy equivalent; a resource may share the library rate limiter |
 | `RaycastCamera` | client | `(flags, ignore, distance?, timeoutMs?)` | boolean\|nil, integer\|nil, vector3\|nil, vector3\|nil, integer\|nil | 1.0.0 | Cis.raycast.camera(flags, ignore, distance, timeoutMs) |
 | `RaycastFromCoords` | client | `(origin, target, flags?, ignore?, timeoutMs?)` | boolean\|nil, integer\|nil, vector3\|nil, vector3\|nil, integer\|nil | 1.0.0 | Cis.raycast.fromCoords(origin, target, flags, ignore, timeoutMs) |
 | `ReadyState` | both | `()` | boolean, boolean, string\|nil | 1.0.0 | Cis.isReady and Cis.isFailed, which read through to this in a consumer |
@@ -957,7 +958,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `RequestUnlockDoors` | client | `(identifier)` | any, string\|nil | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge doors API |
 | `Round` | client | `(num, numDecimalPlaces?)` | number | 1.0.0 | no proxy equivalent; math round to n places |
 | `Scaleform` | client | `(name, timeout?)` | string\|nil, integer\|nil, string\|nil | 1.0.0 | Cis.streaming.scaleform(name, timeout) |
-| `SecureNetOn` | server | `(name, fn, opts?)` | boolean | 1.0.0 | Cis.net.on(name, fn, opts) -> true when the event was bound |
+| `SecureNetOn` | server | `(name, fn, opts?)` | boolean, string\|nil | 1.0.0 | Cis.net.on(name, fn, opts) -> true when the event was bound |
 | `SecurityReport` | server | `(src, reason)` | boolean | 1.0.0 | Cis.security.report(src, reason) |
 | `SendDiscordLog` | server | `(webhookURL, title, message, color, ping)` | any | 1.0.0 | Cis.log.info with a discordType; no proxy equivalent for a raw webhook push |
 | `ServerZoneBox` | server | `(center, size, opts?)` | integer\|false, string\|nil | 1.0.0 | Cis.zones.server.box(center, size, opts) |
@@ -979,9 +980,9 @@ Generated from `api.lua`. Do not edit between the markers.
 | `SkillCheckActive` | client | `()` | boolean | 1.1.0 | exports.cis_libs:SkillCheckActive() |
 | `StatebagOnEntity` | both | `(key, handler, timeoutMs?)` | integer\|nil, string\|nil | 1.0.0 | Cis.statebag.onEntity(key, handler, timeoutMs) |
 | `StatebagOnPlayer` | both | `(key, handler, timeoutMs?)` | integer\|nil, string\|nil | 1.0.0 | Cis.statebag.onPlayer(key, handler, timeoutMs) |
-| `SyncClear` | server | `()` | integer\|nil, string\|nil | 1.0.0 | Cis.sync.clear() |
-| `SyncCreate` | server | `(kind, data)` | string\|nil, string\|nil | 1.0.0 | Cis.sync.ped / Cis.sync.prop / Cis.sync.vehicle |
-| `SyncList` | server | `()` | CisSyncSummary[], string\|nil | 1.0.0 | Cis.sync.list() |
+| `SyncClear` | server | `()` | integer\|false, string\|nil | 1.0.0 | Cis.sync.clear() |
+| `SyncCreate` | server | `(kind, data)` | string\|false, string\|nil | 1.0.0 | Cis.sync.ped / Cis.sync.prop / Cis.sync.vehicle |
+| `SyncList` | server | `()` | CisSyncSummary[]\|false, string\|nil | 1.0.0 | Cis.sync.list() |
 | `SyncRemove` | server | `(id?)` | boolean, string | 1.0.0 | Cis.sync.remove(id) |
 | `TargetAvailable` | client | `()` | boolean | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge target API |
 | `TargetExists` | client | `(name)` | boolean | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge target API |
@@ -998,7 +999,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `UiTextUIIsOpen` | client | `()` | boolean | 1.0.0 | Cis.ui.textUI.isOpen() |
 | `UiTextUIShow` | client | `(text, opts?)` | boolean, string\|nil | 1.0.0 | Cis.ui.textUI.show(text, opts) |
 | `UnlockDoors` | server | `(identifier)` | integer, string\|nil | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge doors API |
-| `UnregisterCapability` | server | `(slot)` | boolean | 1.0.0 | Called by a product on shutdown or handover. Only the slot owner may release it |
+| `UnregisterCapability` | server | `(slot)` | boolean, string\|nil | 1.0.0 | Called by a product on shutdown or handover. Only the slot owner may release it |
 | `UpdateTarget` | client | `(name, newOptions?)` | boolean, string | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge target API |
 | `WaitCapability` | server | `(slot, timeoutMs?)` | boolean, string | 1.0.0 | Waits up to timeoutMs for a capability slot to be filled. Returns true and the owner, or nil and a reason naming the slot. No proxy equivalent -- a consumer waits from its own resource. |
 | `WaitReady` | both | `(timeout?)` | boolean | 1.0.0 | Cis.ready(cb, timeout) or Cis.wait(timeout) |
@@ -1116,10 +1117,10 @@ Generated from `api.lua`. Do not edit between the markers.
 | `Cis.sync.list` | both | `()` | CisSyncSummary[]\|false, string | 1.0.0 |  |
 | `Cis.sync.onDespawn` | both | `(fn)` | boolean, string | 1.0.0 |  |
 | `Cis.sync.onSpawn` | both | `(fn)` | boolean, string | 1.0.0 |  |
-| `Cis.sync.ped` | both | `(data)` | string\|nil, string\|nil | 1.0.0 |  |
-| `Cis.sync.prop` | both | `(data)` | string\|nil, string\|nil | 1.0.0 |  |
+| `Cis.sync.ped` | both | `(data)` | string\|false, string\|nil | 1.0.0 |  |
+| `Cis.sync.prop` | both | `(data)` | string\|false, string\|nil | 1.0.0 |  |
 | `Cis.sync.remove` | both | `(id)` | boolean, string | 1.0.0 |  |
-| `Cis.sync.vehicle` | both | `(data)` | string\|nil, string\|nil | 1.0.0 |  |
+| `Cis.sync.vehicle` | both | `(data)` | string\|false, string\|nil | 1.0.0 |  |
 | `Cis.target.add` | client | `(zoneType, name, coords, size, options?)` | boolean, string | 1.0.0 | **deprecated** |
 | `Cis.target.exists` | client | `(name)` | boolean | 1.0.0 | **deprecated** |
 | `Cis.target.remove` | client | `(name, isPed?)` | boolean, string | 1.0.0 | **deprecated** |
@@ -1261,13 +1262,18 @@ Live harness: `test/LIVE.md`. Counts are not repeated here.
   call is another crossing. Zones, points and keybinds made through `init.lua`
   avoid that by running in the caller (§5.2); hooks and callbacks still cross.
 - Networked entities are created and deleted on the server.
+- A server resource stop from a script without `command.stop` is honoured one
+  tick late, once the resource is no longer started; a stop and restart in the
+  same tick keeps the old records until the next stop.
 - This resource writes no files. Logs are console, the in-memory audit ring,
   and an optional discord capability.
+- Console lines are rate-limited: one message prints at most 20 times per 10 s
+  and 500 lines in all; the rest are counted on one line as the window rolls.
 - Live numbers (assertion counts, soak heap) belong in dated result JSON, not
   in this prose.
 - A refusal whose first return is `nil` loses its reason at the exports
-  boundary. Mutating APIs that can refuse should return `false, reason`.
-  `SyncCreate` still returns bare `nil` on several refusals.
+  boundary, so every server export that can refuse answers `false, reason`.
+  The deprecated door exports keep `nil` for "no doors provider", by contract.
 
 ---
 

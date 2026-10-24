@@ -89,9 +89,13 @@ local function readOptions(name, opts)
         return nil, ("RegisterCallback %s: opts.ace must be an ACE object string like 'cis.admin', got %s")
             :format(name, type(opts.ace))
     end
-    if opts.schema ~= nil and type(opts.schema) ~= 'table' then
-        return nil, ('RegisterCallback %s: opts.schema must be a map of field -> { type, min, max, maxLen, optional }, got %s')
-            :format(name, type(opts.schema))
+    if opts.schema ~= nil then
+        -- Checked here, not at the first request: a rule the checker cannot read
+        -- refused every payload, and every refusal is a security report.
+        local schemaOk, schemaWhy = CisValidateNetSchema(opts.schema)
+        if not schemaOk then
+            return nil, ('RegisterCallback %s: opts.%s'):format(name, schemaWhy)
+        end
     end
     local maxLen = opts.maxStringLen
     if maxLen ~= nil and (type(maxLen) ~= 'number' or maxLen ~= maxLen or maxLen < 1) then
@@ -161,7 +165,8 @@ function CisRegisterCallback(name, handler, opts)
 end
 
 -- A CONSUMER THAT STOPS TAKES ITS CALLBACKS WITH IT ().
-AddEventHandler('onResourceStop', function(resource)
+-- Through CisOnResourceStop (shared/owned.lua), so a forged stop is ignored.
+CisOnResourceStop(function(resource)
     if resource == GetCurrentResourceName() then
         return
     end
@@ -326,8 +331,9 @@ RegisterNetEvent('cis_libs:cb', function(name, key, ...)
     if entry.schema then
         local schemaOk, schemaWhy = CisCheckNetSchema(entry.schema, args[1])
         if not schemaOk then
-            CisDiagnostics.Inc(CisDiagnostics.NAMES.NET_SCHEMA_REFUSED)
-            CisSecurityReport(src, ('bad callback payload %s: %s'):format(tostring(name), tostring(schemaWhy)))
+            -- ONE REPORT PER RUN, like a net event's: every refusal used to be a
+            -- report, so a client repeating one bad shape was a strike per request.
+            CisReportBadPayload(src, name, schemaWhy, limits.windowMs, 'callback')
             answer(src, key, false, 'bad payload')
             return
         end
@@ -446,13 +452,24 @@ CreateThread(CisLoopGuard.Run('server.callback.sweep', 1000, function()
     end)
 end))
 
+-- A refusal is told to cb AND answered as `false, reason`: it used to return
+-- nothing, so a caller with no cb could not tell a refusal from a send. A player
+-- who is not connected is refused here too, as AwaitCallbackClient refuses one,
+-- rather than parking a pending key that can only time out.
 local function askClient(name, target, cb, ...)
     if type(target) ~= 'number' or target <= 0 then
         Logging.Error('Cis.callback.callClient needs a numeric target server id')
         if CisCallable(cb) then
             cb(false, 'bad target')
         end
-        return
+        return false, ('callback %q: target must be a player id, got %s')
+            :format(tostring(name), tostring(target))
+    end
+    if not GetPlayerName(target) then
+        if CisCallable(cb) then
+            cb(false, 'not connected')
+        end
+        return false, ('callback %q: player %d is not connected'):format(tostring(name), target)
     end
     if cb ~= nil and not CisCallable(cb) then
         cb = nil

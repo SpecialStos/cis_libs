@@ -19,7 +19,7 @@ local Colors = {
     white = '^7',
 }
 
--- DISCORD IS DEDUPED AND RATE-LIMITED; THE CONSOLE IS NOT. A webhook is a remote
+-- DISCORD IS DEDUPED AND RATE-LIMITED. A webhook is a remote
 -- API with its own limit, and a log line repeated every second -- a flood report,
 -- a handler raising on every event -- used to be one post per line until Discord
 -- answered 429 and dropped the lines that mattered with the rest. Two rules:
@@ -92,6 +92,79 @@ function Logging.DiscordAdmit(channel, text)
     return text
 end
 
+-- THE CONSOLE IS RATE-LIMITED PER MESSAGE. One client sending a bad payload a
+-- frame, or a handler raising on every event, printed one line each time, and
+-- a console scrolling thousands of identical lines a second buries every other
+-- line and costs a server frame to write. Within each CONSOLE_WINDOW_MS:
+--   * the same message (its first CONSOLE_KEY_LEN characters) prints at most
+--     CONSOLE_PER_KEY times;
+--   * all messages together print at most CONSOLE_PER_WINDOW lines;
+--   * at most CONSOLE_KEY_CAP distinct messages are tracked; the rest share one
+--     overflow count, so the table cannot grow with the attacker's input.
+-- What is held back is never silent: as the window rolls, each held message
+-- prints ONE line saying how many copies were suppressed (at most
+-- CONSOLE_REPORT_LINES of those, then one line for the rest). Discord is
+-- decided separately, below; a held console line can still be forwarded.
+local CONSOLE_WINDOW_MS = 10000
+local CONSOLE_PER_KEY = 20
+local CONSOLE_PER_WINDOW = 500
+local CONSOLE_KEY_CAP = 512
+local CONSOLE_KEY_LEN = 200
+local CONSOLE_REPORT_LINES = 20
+local consoleWindow = { started = nil, printed = 0, keys = {}, keyCount = 0, overflow = 0 }
+
+local function rollConsoleWindow(now)
+    local reported, rest = 0, consoleWindow.overflow
+    for key, entry in pairs(consoleWindow.keys) do
+        if entry.held > 0 then
+            if reported < CONSOLE_REPORT_LINES then
+                reported = reported + 1
+                print(('[cis_libs] [WARN] console: %d more cop%s of this line suppressed in the last %ds: %s')
+                    :format(entry.held, entry.held == 1 and 'y' or 'ies', CONSOLE_WINDOW_MS // 1000, key))
+            else
+                rest = rest + entry.held
+            end
+        end
+    end
+    if rest > 0 then
+        print(('[cis_libs] [WARN] console: %d other line(s) suppressed in the last %ds (over %d per message or %d in all)')
+            :format(rest, CONSOLE_WINDOW_MS // 1000, CONSOLE_PER_KEY, CONSOLE_PER_WINDOW))
+    end
+    consoleWindow.started = now
+    consoleWindow.printed = 0
+    consoleWindow.keys = {}
+    consoleWindow.keyCount = 0
+    consoleWindow.overflow = 0
+end
+
+--- Whether a console line may print now. A held line is counted, not lost.
+--- @return boolean
+function Logging.ConsoleAdmit(text)
+    local now = nowMs()
+    if not consoleWindow.started or now - consoleWindow.started >= CONSOLE_WINDOW_MS
+        or now < consoleWindow.started then
+        rollConsoleWindow(now)
+    end
+    local key = tostring(text):sub(1, CONSOLE_KEY_LEN)
+    local entry = consoleWindow.keys[key]
+    if not entry then
+        if consoleWindow.keyCount >= CONSOLE_KEY_CAP then
+            consoleWindow.overflow = consoleWindow.overflow + 1
+            return false
+        end
+        entry = { printed = 0, held = 0 }
+        consoleWindow.keys[key] = entry
+        consoleWindow.keyCount = consoleWindow.keyCount + 1
+    end
+    if entry.printed >= CONSOLE_PER_KEY or consoleWindow.printed >= CONSOLE_PER_WINDOW then
+        entry.held = entry.held + 1
+        return false
+    end
+    entry.printed = entry.printed + 1
+    consoleWindow.printed = consoleWindow.printed + 1
+    return true
+end
+
 local function debugEnabled()
     -- Read per call rather than captured at load, so turning debug on from the console
     return Config and Config.Printing and Config.Printing.Debug
@@ -116,8 +189,10 @@ function Logging.Log(message, level, discordType, errorInfo)
         color = Colors.green
     end
 
-    -- Console output is unconditional and happens BEFORE every Discord check.
-    print(('%s[cis_libs] [%s] %s%s'):format(color, tag, tostring(message), Colors.reset))
+    -- Console output happens BEFORE every Discord check, rate-limited per message.
+    if Logging.ConsoleAdmit(tag .. ' ' .. tostring(message)) then
+        print(('%s[cis_libs] [%s] %s%s'):format(color, tag, tostring(message), Colors.reset))
+    end
 
     if not (Config and Config.Printing and Config.Printing.UseDiscordLogs) then
         return

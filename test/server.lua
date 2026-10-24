@@ -59,9 +59,9 @@ local function newEnv(opts)
         'SetNetworkedEntityLocallyVisible', 'SetNetworkedEntityLocallyInvisible',
         'TriggerLatentClientEvent', 'FreezeEntityPosition', 'CreateObjectNoOffset',
         'CreateVehicleServerSetter', 'CreatePed', 'SetEntityRoutingBucket', 'SetEntityOrphanMode',
-        'promise', 'Citizen', 'collectgarbage', 'SetTimeout',
+        'promise', 'Citizen', 'collectgarbage', 'SetTimeout', 'IsDuplicityVersion',
     }) do
-        env.saved[#env.saved + 1] = { name = name, value = rawget(_G, name) }
+        env.saved[#env.saved + 1] = { name = name, value = rawget(_ENV, name) }
     end
 
     function CreateThread(fn)
@@ -107,6 +107,8 @@ local function newEnv(opts)
     end
     function GetGameTimer() return env.clock end
     function GetCurrentResourceName() return 'cis_libs' end
+    -- The server realm: shared code that branches on it must take the server path.
+    function IsDuplicityVersion() return true end
     function GetInvokingResource() return env.invoking end
     function GetResourceState() return 'missing' end
     -- SRC-AWARE, because a stub that answers a name for every id makes "is this
@@ -437,13 +439,16 @@ local function newEnv(opts)
     })
     env.saved[#env.saved + 1] = { name = '__metatable', value = getmetatable(_G) }
 
+    -- _ENV, not _G, as in test/client.lua: under test/run.lua a suite's globals
+    -- live in its own environment and _G is the driver's, so a stub saved from
+    -- and restored to _G (S7's GetConvar) outlived its block there.
     function env.reset()
         for i = #env.saved, 1, -1 do
             local entry = env.saved[i]
             if entry.name == '__metatable' then
                 setmetatable(_G, entry.value)
             else
-                _G[entry.name] = entry.value
+                _ENV[entry.name] = entry.value
             end
         end
         env.saved = {}
@@ -543,7 +548,7 @@ local function newEnv(opts)
     -- code actually calls. A stub that encodes nothing in particular is
     -- honest: the test cares that a table was serialisable, not that the
     -- serialiser matches FiveM's byte for byte.
-    env.saved[#env.saved + 1] = { name = 'json', value = rawget(_G, 'json') }
+    env.saved[#env.saved + 1] = { name = 'json', value = rawget(_ENV, 'json') }
     json = {
         encode = function(t)
             local parts = {}
@@ -587,10 +592,10 @@ end
 -- because almost every scenario here wants the same two files in the manifest's
 -- order: security.lua decides the allow-list, sync.lua asks it.
 local function loadSync(env)
-    env.saved[#env.saved + 1] = { name = 'Config', value = rawget(_G, 'Config') }
-    env.saved[#env.saved + 1] = { name = 'Security', value = rawget(_G, 'Security') }
-    env.saved[#env.saved + 1] = { name = 'CisInvokingAllowed', value = rawget(_G, 'CisInvokingAllowed') }
-    env.saved[#env.saved + 1] = { name = 'CisSyncEnabled', value = rawget(_G, 'CisSyncEnabled') }
+    env.saved[#env.saved + 1] = { name = 'Config', value = rawget(_ENV, 'Config') }
+    env.saved[#env.saved + 1] = { name = 'Security', value = rawget(_ENV, 'Security') }
+    env.saved[#env.saved + 1] = { name = 'CisInvokingAllowed', value = rawget(_ENV, 'CisInvokingAllowed') }
+    env.saved[#env.saved + 1] = { name = 'CisSyncEnabled', value = rawget(_ENV, 'CisSyncEnabled') }
     Config = CisDefaults.config()
     Security = CisDefaults.security()
     -- Default posture for these tests is permissive, so the allow-list is not
@@ -944,7 +949,7 @@ do
         coords = { x = 0.0, y = 0.0, z = 0.0 },
         networked = true,
     })
-    check(id == nil and type(why) == 'string' and why ~= '',
+    check(id == false and type(why) == 'string' and why ~= '',
         ('a failed networked spawn is refused with a reason (%s)'):format(tostring(why)))
     env.tick()
     check(#env.sentTo(1, 'cis_libs:client:syncUpsert') == 0,
@@ -1010,9 +1015,9 @@ end
 do
     local env = newEnv({})
     loadSync(env)
-    check(env.EXPORTS.SyncCreate('prop', { model = 'prop_barrier_05a' }) == nil,
+    check(env.EXPORTS.SyncCreate('prop', { model = 'prop_barrier_05a' }) == false,
         'a record with no coords is refused')
-    check(env.EXPORTS.SyncCreate('prop', { model = 'x', coords = { y = 1.0 } }) == nil,
+    check(env.EXPORTS.SyncCreate('prop', { model = 'x', coords = { y = 1.0 } }) == false,
         'a record missing an x is refused')
     env.reset()
 end
@@ -1176,8 +1181,8 @@ do
     -- survived from an earlier suite and there is nothing here to capture. What
     -- is under test is what security.lua REPORTS, not how the logger prints it.
     local logged = {}
-    env.saved[#env.saved + 1] = { name = 'Logging', value = rawget(_G, 'Logging') }
-    env.saved[#env.saved + 1] = { name = 'CisLog', value = rawget(_G, 'CisLog') }
+    env.saved[#env.saved + 1] = { name = 'Logging', value = rawget(_ENV, 'Logging') }
+    env.saved[#env.saved + 1] = { name = 'CisLog', value = rawget(_ENV, 'CisLog') }
     Logging = setmetatable({}, {
         __index = function(_, key)
             return function(message)
@@ -1252,11 +1257,11 @@ do
         cis_needs_db = 'database',
         cis_typo_slot = 'databse',
     }
-    env.saved[#env.saved + 1] = { name = 'GetNumResources', value = rawget(_G, 'GetNumResources') }
-    env.saved[#env.saved + 1] = { name = 'GetResourceByFindIndex', value = rawget(_G, 'GetResourceByFindIndex') }
-    env.saved[#env.saved + 1] = { name = 'GetResourceMetadata', value = rawget(_G, 'GetResourceMetadata') }
-    env.saved[#env.saved + 1] = { name = 'GetResourceState', value = rawget(_G, 'GetResourceState') }
-    env.saved[#env.saved + 1] = { name = 'SetTimeout', value = rawget(_G, 'SetTimeout') }
+    env.saved[#env.saved + 1] = { name = 'GetNumResources', value = rawget(_ENV, 'GetNumResources') }
+    env.saved[#env.saved + 1] = { name = 'GetResourceByFindIndex', value = rawget(_ENV, 'GetResourceByFindIndex') }
+    env.saved[#env.saved + 1] = { name = 'GetResourceMetadata', value = rawget(_ENV, 'GetResourceMetadata') }
+    env.saved[#env.saved + 1] = { name = 'GetResourceState', value = rawget(_ENV, 'GetResourceState') }
+    env.saved[#env.saved + 1] = { name = 'SetTimeout', value = rawget(_ENV, 'SetTimeout') }
 
     GetNumResources = function() return #RESOURCES end
     GetResourceByFindIndex = function(i) return RESOURCES[i + 1] end
@@ -1369,7 +1374,7 @@ do
     Config = CisDefaults.config()
     Security = CisDefaults.security()
     local warned = {}
-    env.saved[#env.saved + 1] = { name = 'CisLog', value = rawget(_G, 'CisLog') }
+    env.saved[#env.saved + 1] = { name = 'CisLog', value = rawget(_ENV, 'CisLog') }
     CisLog = function(level, message, channel)
         warned[#warned + 1] = { level = level, message = message, channel = channel }
     end
@@ -1392,12 +1397,12 @@ do
     Config = CisDefaults.config()
     Security = CisDefaults.security()
     local logged = {}
-    env.saved[#env.saved + 1] = { name = 'CisLog', value = rawget(_G, 'CisLog') }
+    env.saved[#env.saved + 1] = { name = 'CisLog', value = rawget(_ENV, 'CisLog') }
     CisLog = function(level, message, channel)
         logged[#logged + 1] = { level = level, message = message, channel = channel }
     end
     local reported = {}
-    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_G, 'CisSecurityReport') }
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_ENV, 'CisSecurityReport') }
 
     exports.cis_shop = { OnBuy = function() end }
     loadModule('server/security.lua')
@@ -1560,7 +1565,7 @@ do
     exports.thief = { Take = function() end }
     loadModule('server/security.lua')
     local reported = 0
-    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_G, 'CisSecurityReport') }
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_ENV, 'CisSecurityReport') }
     function CisSecurityReport() reported = reported + 1; return true end
 
     env.invoking = 'bank'
@@ -1603,7 +1608,7 @@ do
     exports.cis_big = { OnEv = function() hits = hits + 1 end }
     loadModule('server/security.lua')
     local reasons = {}
-    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_G, 'CisSecurityReport') }
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_ENV, 'CisSecurityReport') }
     function CisSecurityReport(_, why) reasons[#reasons + 1] = tostring(why); return true end
 
     env.invoking = 'cis_big'
@@ -1718,7 +1723,7 @@ do
     exports.bank = { Withdraw = function() end }
     loadModule('server/security.lua')
     local reported = 0
-    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_G, 'CisSecurityReport') }
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_ENV, 'CisSecurityReport') }
     function CisSecurityReport() reported = reported + 1; return true end
     env.invoking = 'bank'
     CisNetOn('bank:pay', 'bank:Withdraw', {
@@ -1754,7 +1759,7 @@ do
     exports.cis_shop = { OnBuy = function() end }
     loadModule('server/security.lua')
     local reported = 0
-    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_G, 'CisSecurityReport') }
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_ENV, 'CisSecurityReport') }
     function CisSecurityReport() reported = reported + 1; return true end
 
     for i = 1, 256 do CisRateOk(3, 'dyn:' .. i, 1000, 8) end
@@ -1914,7 +1919,7 @@ end
 -- The test drives the REAL handler through the REAL net event, ten times in one
 -- window, and counts how many reached the callback.
 do
-    local env = newEnv({})
+    local env = newEnv({ players = { [7] = {} } })
     Config = CisDefaults.config()
     Security = CisDefaults.security()
     loadModule('server/security.lua')
@@ -2366,7 +2371,7 @@ end
 do
     local env = newEnv({})
     local logged = {}
-    env.saved[#env.saved + 1] = { name = 'Logging', value = rawget(_G, 'Logging') }
+    env.saved[#env.saved + 1] = { name = 'Logging', value = rawget(_ENV, 'Logging') }
     Logging = setmetatable({}, {
         __index = function(_, key)
             return function(message)
@@ -2922,7 +2927,7 @@ do
         local made = env.EXPORTS.SyncCreate('prop', {
             id = 'bad', model = 'prop_barrel_01', coords = bad,
         })
-        check(made == nil,
+        check(made == false,
             ('4.2: non-finite coords are refused (%s,%s,%s)')
                 :format(tostring(bad.x), tostring(bad.y), tostring(bad.z)))
     end
@@ -2930,7 +2935,7 @@ do
     -- AND A MISSING ONE IS STILL REFUSED, with the reason naming the key.
     local before = #env.lines
     local none = env.EXPORTS.SyncCreate('prop', { id = 'none', model = 'prop_barrel_01' })
-    check(none == nil, '4.2: a record with no coords at all is refused')
+    check(none == false, '4.2: a record with no coords at all is refused')
     local saidCoords = false
     for i = before, #env.lines do
         if tostring(env.lines[i]):lower():find('coords', 1, true) then saidCoords = true end
@@ -3063,7 +3068,7 @@ do
     local withNul = as('res_a', 'prop', {
         id = 'a\0b', model = 'prop_barrel_01', coords = { x = 50.0, y = 0.0, z = 0.0 },
     })
-    check(withNul == nil, '4.3: an id containing a NUL is refused')
+    check(withNul == false, '4.3: an id containing a NUL is refused')
     local namedIt = false
     for i = beforeNul, #env.lines do
         local line = tostring(env.lines[i]):lower()
@@ -3472,7 +3477,7 @@ do
         coords = { x = 0.0, y = 0.0, z = 0.0 },
         networked = true,
     })
-    check(made == nil,
+    check(made == false,
         '4.5: an unknown kind refuses networked creation rather than pretending')
     check(type(why) == 'string' and why ~= '',
         ('4.5: and answers with a reason (%s)'):format(tostring(why)))
@@ -4208,7 +4213,7 @@ do
     function CisInvokingAllowed() return false end
     local list, why = env.EXPORTS.SyncList()
     local cleared = env.EXPORTS.SyncClear()
-    check(list == nil and cleared == nil,
+    check(list == false and cleared == false,
         '4.10c: an un-authorised resource gets no list and no clear')
     check(type(why) == 'string' and why:find('not', 1, true) ~= nil,
         ('4.10c: and the refusal says why (got %s)'):format(tostring(why)))
@@ -4610,7 +4615,7 @@ do
     DoesEntityExist = realExists
     check(removed and removed[1] == true,
         '4.15: a remove during the creation is accepted, not answered "no such id"')
-    check(made == nil, '4.15: and the creation it overtook does not come back as a record')
+    check(made == false, '4.15: and the creation it overtook does not come back as a record')
     local list = env.EXPORTS.SyncList()
     check(#list == 0, '4.15: nothing is left in the list')
     local created = callsNamed(env, 'CreateObjectNoOffset')
@@ -4675,7 +4680,7 @@ do
         id = 'never', model = 'prop_barrel_01', coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = true,
     })
     DoesEntityExist = realExists
-    check(made == nil, '4.15: an entity that never exists is refused')
+    check(made == false, '4.15: an entity that never exists is refused')
     check(waits > 0 and waits <= 400,
         ('4.15: after ~5000 ms of frames, not 5000 frames (%d waits)'):format(waits))
     env.reset()
@@ -4877,7 +4882,7 @@ do
         local made = env.EXPORTS.SyncCreate('prop', {
             id = 'scoped', model = 'prop_barrel_01', coords = { x = 0.0, y = 0.0, z = 0.0 }, scope = bad,
         })
-        check(made == nil, ('4.19: scope %s is refused'):format(tostring(bad)))
+        check(made == false, ('4.19: scope %s is refused'):format(tostring(bad)))
     end
     env.reset()
 end
@@ -4960,14 +4965,14 @@ end
 do
     local env = newEnv({ players = {}, netOk = true })
     loadSync(env)
-    env.saved[#env.saved + 1] = { name = 'DoesEntityExist', value = rawget(_G, 'DoesEntityExist') }
-    env.saved[#env.saved + 1] = { name = 'DeleteEntity', value = rawget(_G, 'DeleteEntity') }
+    env.saved[#env.saved + 1] = { name = 'DoesEntityExist', value = rawget(_ENV, 'DoesEntityExist') }
+    env.saved[#env.saved + 1] = { name = 'DeleteEntity', value = rawget(_ENV, 'DeleteEntity') }
     local deleted = {}
     function DoesEntityExist() return false end
     function DeleteEntity(e) deleted[#deleted + 1] = e end
     local made = env.EXPORTS.SyncCreate('prop', { id = 'ghost', model = 'prop_gate',
         coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = true })
-    check(made == nil and #deleted == 1,
+    check(made == false and #deleted == 1,
         ('4.20: a spawn that never comes into existence deletes its handle (%d deletes)'):format(#deleted))
     env.reset()
 end
@@ -4981,7 +4986,7 @@ end
 --   * a box checked only its x size, and a NaN centre was accepted.
 local function zonesEnv(players)
     local env = newEnv({ players = players })
-    env.saved[#env.saved + 1] = { name = 'CisServerZoneBox', value = rawget(_G, 'CisServerZoneBox') }
+    env.saved[#env.saved + 1] = { name = 'CisServerZoneBox', value = rawget(_ENV, 'CisServerZoneBox') }
     env.events = {}
     function TriggerEvent(name, ...)
         env.events[#env.events + 1] = { name = name, args = table.pack(...) }
@@ -5263,11 +5268,11 @@ do
     Config = CisDefaults.config()
     Security = CisDefaults.security()
     local logged = {}
-    env.saved[#env.saved + 1] = { name = 'CisLog', value = rawget(_G, 'CisLog') }
+    env.saved[#env.saved + 1] = { name = 'CisLog', value = rawget(_ENV, 'CisLog') }
     CisLog = function(level, message, channel)
         logged[#logged + 1] = { level = level, message = message, channel = channel }
     end
-    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_G, 'CisSecurityReport') }
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_ENV, 'CisSecurityReport') }
     exports.cis_shop = { OnBuy = function() end }
     loadModule('server/security.lua')
     local reported = {}
@@ -5316,7 +5321,7 @@ do
     Config = CisDefaults.config()
     Config.Printing.UseDiscordLogs = true
     Security = CisDefaults.security()
-    env.saved[#env.saved + 1] = { name = 'DiscordConfig', value = rawget(_G, 'DiscordConfig') }
+    env.saved[#env.saved + 1] = { name = 'DiscordConfig', value = rawget(_ENV, 'DiscordConfig') }
     DiscordConfig = { DiscordLogsLinks = { MasterLogs = 'm', CheatingLogs = 'c', ErrorLogs = 'e' } }
     local posts = {}
     CisRegistry.register('discord', function(method, _, _, message)
@@ -5376,7 +5381,7 @@ end
 do
     local env = newEnv({})
     env.convars = { cis_authorized_resources = 'cis_core, cis_keys' }
-    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_G, 'GetConvar') }
+    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_ENV, 'GetConvar') }
     function GetConvar(name, default) return env.convars[name] or default end
     Config = CisDefaults.config()
     Security = CisDefaults.security()
@@ -5459,7 +5464,7 @@ end
 do
     local env = newEnv({})
     local dropped = {}
-    env.saved[#env.saved + 1] = { name = 'DropPlayer', value = rawget(_G, 'DropPlayer') }
+    env.saved[#env.saved + 1] = { name = 'DropPlayer', value = rawget(_ENV, 'DropPlayer') }
     function DropPlayer(src) dropped[#dropped + 1] = src end
     env.players[7] = true
     Config = CisDefaults.config()
@@ -5643,7 +5648,7 @@ do
         'CB2: and still answers server-side callers')
 
     -- ACE.
-    env.saved[#env.saved + 1] = { name = 'IsPrincipalAceAllowed', value = rawget(_G, 'IsPrincipalAceAllowed') }
+    env.saved[#env.saved + 1] = { name = 'IsPrincipalAceAllowed', value = rawget(_ENV, 'IsPrincipalAceAllowed') }
     local asked
     function IsPrincipalAceAllowed(principal, object)
         asked = principal .. ' ' .. object
@@ -5735,7 +5740,7 @@ end
 
 -- ============================ CB4. replies, handlers and funcrefs
 do
-    local env = callbackEnv({})
+    local env = callbackEnv({ players = { [9] = {} } })
 
     -- A closure another resource passes to CallCallback arrives as a callable
     -- reference table; type() == 'function' refused every one of them.
@@ -5948,7 +5953,7 @@ end
 -- ============================ P4. the operator can name the config supplier
 do
     local env = newEnv({})
-    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_G, 'GetConvar') }
+    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_ENV, 'GetConvar') }
     function GetConvar(name, default)
         if name == 'cis_config_supplier' then return 'cis_core' end
         return default
@@ -5982,7 +5987,7 @@ local function commandEnv(opts)
     -- GET_REGISTERED_COMMANDS as the server answers it: what this harness
     -- registered (under cis_libs), a builtin with no resource, and a command
     -- another resource owns.
-    env.saved[#env.saved + 1] = { name = 'GetRegisteredCommands', value = rawget(_G, 'GetRegisteredCommands') }
+    env.saved[#env.saved + 1] = { name = 'GetRegisteredCommands', value = rawget(_ENV, 'GetRegisteredCommands') }
     env.foreign = { add_principal = '', setjob = 'jobs' }
     function GetRegisteredCommands()
         local out = {}
@@ -5994,11 +5999,11 @@ local function commandEnv(opts)
         end
         return out
     end
-    env.saved[#env.saved + 1] = { name = 'IsPrincipalAceAllowed', value = rawget(_G, 'IsPrincipalAceAllowed') }
+    env.saved[#env.saved + 1] = { name = 'IsPrincipalAceAllowed', value = rawget(_ENV, 'IsPrincipalAceAllowed') }
     function IsPrincipalAceAllowed(principal, object)
         return env.aceGrants[principal .. ' ' .. object] == true
     end
-    env.saved[#env.saved + 1] = { name = 'ExecuteCommand', value = rawget(_G, 'ExecuteCommand') }
+    env.saved[#env.saved + 1] = { name = 'ExecuteCommand', value = rawget(_ENV, 'ExecuteCommand') }
     function ExecuteCommand(line) env.executed[#env.executed + 1] = line end
     function GetResourceState(name)
         if name == 'chat' then return env.chatStarted and 'started' or 'missing' end
@@ -6095,9 +6100,15 @@ do
     env.reset()
 end
 
--- K5. A restricted group is provisioned when cis_libs may run add_ace.
+-- K5. A restricted group is provisioned when cis_libs may run add_ace and the
+-- operator lists it in cis_command_ace_groups.
 do
     local env = commandEnv({})
+    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_ENV, 'GetConvar') }
+    function GetConvar(name, default)
+        if name == 'cis_command_ace_groups' then return 'group.mod' end
+        return default
+    end
     exports.CommandAdd('cis_nogrant', { restricted = 'group.mod' }, function() end)
     check(#env.executed == 0, 'K5: without the add_ace grant nothing is executed')
 
@@ -6190,12 +6201,12 @@ local function versionRun(current, latest, supplier)
     Config.__owner = 'cis_libs'
     Security = CisDefaults.security()
     env.http = {}
-    env.saved[#env.saved + 1] = { name = 'PerformHttpRequest', value = rawget(_G, 'PerformHttpRequest') }
+    env.saved[#env.saved + 1] = { name = 'PerformHttpRequest', value = rawget(_ENV, 'PerformHttpRequest') }
     function PerformHttpRequest(url, cb)
         env.http[#env.http + 1] = url
         cb(200, latest .. '\nnotes')
     end
-    env.saved[#env.saved + 1] = { name = 'GetResourceMetadata', value = rawget(_G, 'GetResourceMetadata') }
+    env.saved[#env.saved + 1] = { name = 'GetResourceMetadata', value = rawget(_ENV, 'GetResourceMetadata') }
     function GetResourceMetadata(_, key) return key == 'version' and current or nil end
     loadModule('server/version.lua')
     -- The thread starts BEFORE the supplier: the supplier's SetConfig lands on
@@ -6300,7 +6311,7 @@ end
 -- server that was.
 do
     local env = newEnv({})
-    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_G, 'GetConvar') }
+    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_ENV, 'GetConvar') }
     function GetConvar(name, default)
         if name == 'cis_authorized_resources' then return 'cis_core' end
         return default
@@ -6314,6 +6325,425 @@ do
     local summary = env.EXPORTS.GetConfigSummary()
     check(summary and summary.allowListConfigured == true,
         'S7: a convar-pinned allow-list is reported as configured')
+    env.reset()
+end
+
+-- ============================ W2a. net bindings and the limiter fail closed on bad input
+--
+-- A schema that was a string kicked every player who sent the event, a NaN
+-- window never rolled, maxHits 0 let the first hit through, and a nil name or a
+-- nil src raised inside cis_libs instead of answering.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    local fn = function() end
+    local function refused(label, name, opts)
+        local ok, res, why = pcall(CisNetOn, name, fn, opts)
+        check(ok, ('W2a: %s does not raise (%s)'):format(label, tostring(res)))
+        check(res == false and type(why) == 'string' and why ~= '',
+            ('W2a: %s is refused with a reason (%s, %s)'):format(label, tostring(res), tostring(why)))
+    end
+    refused('a string schema', 'w2a:one', { schema = 'amount' })
+    refused('a schema rule that is not a table', 'w2a:one', { schema = { amount = 'number' } })
+    refused('a schema rule with an unknown type', 'w2a:one', { schema = { amount = { type = 'int' } } })
+    refused('a schema rule with a string min', 'w2a:one', { schema = { amount = { type = 'number', min = '1' } } })
+    refused('a NaN windowMs', 'w2a:one', { windowMs = 0 / 0 })
+    refused('an infinite windowMs', 'w2a:one', { windowMs = math.huge })
+    refused('a string windowMs', 'w2a:one', { windowMs = '1000' })
+    refused('maxHits 0', 'w2a:one', { maxHits = 0 })
+    refused('a NaN maxHits', 'w2a:one', { maxHits = 0 / 0 })
+    refused('a nil name', nil, {})
+    refused('an empty name', '', {})
+    refused('opts that are not a table', 'w2a:one', 'fast')
+    local okRef, refRes, refWhy = pcall(CisNetOn, 'w2a:one', 42, {})
+    check(okRef and refRes == false and type(refWhy) == 'string', 'W2a: a non-callable handler says why')
+    check(CisNetOn('w2a:good', fn, { windowMs = 500, maxHits = 2,
+        schema = { amount = { type = 'integer', min = 1, optional = true }, pos = { type = 'vector3' } } }) == true,
+        'W2a: a well-formed binding still registers')
+
+    -- RateOk: a bad src or name is an answer, not a raise.
+    for _, case in ipairs({
+        { 'a nil src', nil, 'k' }, { 'a NaN src', 0 / 0, 'k' }, { 'an infinite src', math.huge, 'k' },
+        { 'an empty src', '', 'k' }, { 'a table src', {}, 'k' }, { 'a nil name', 1, nil },
+    }) do
+        local ok, res, why = pcall(CisRateOk, case[2], case[3], 1000, 8)
+        check(ok and res == false and type(why) == 'string',
+            ('W2a: RateOk with %s is refused with a reason (%s, %s, %s)'):format(case[1], tostring(ok), tostring(res), tostring(why)))
+    end
+    local okW, resW = pcall(CisRateOk, 1, 'w2a:nanwin', 0 / 0, 8)
+    check(okW and resW == false, 'W2a: RateOk with a NaN window is refused')
+    local okZ, resZ = pcall(CisRateOk, 1, 'w2a:zero', 1000, 0)
+    check(okZ and resZ == false, 'W2a: RateOk with maxHits 0 refuses the first hit too')
+    local okE, resE = pcall(env.EXPORTS.RateOk, nil, 'k')
+    check(okE and resE == false, 'W2a: the RateOk export answers false for a nil src')
+
+    -- Keys that are not connected players are never freed by playerDropped, so
+    -- they are bounded on their own: idle ones are swept, live ones are capped.
+    local probe = function()
+        return CisDiagnostics.Collect('server').probes.rateBuckets
+    end
+    for i = 1, 3000 do CisRateOk('license:' .. i, 'buy', 1000, 8) end
+    local live = probe()
+    check(live and live.nonPlayer and live.nonPlayer <= live.nonPlayerCap,
+        ('W2a: live non-player keys stop at the cap (%s of %s)'):format(tostring(live and live.nonPlayer),
+            tostring(live and live.nonPlayerCap)))
+    env.clock = env.clock + 61000
+    CisRateOk('license:late', 'buy', 1000, 8)
+    local swept = probe()
+    check(swept and swept.nonPlayer == 1,
+        ('W2a: idle non-player keys are swept (%s left)'):format(tostring(swept and swept.nonPlayer)))
+    -- A connected player is never refused because the non-player keys are full.
+    env.players[5] = true
+    for i = 1, 3000 do CisRateOk('steam:' .. i, 'buy', 1000, 8) end
+    check(CisRateOk(5, 'buy', 1000, 8) == true, 'W2a: a player still gets a bucket when non-player keys are full')
+    env.reset()
+end
+
+-- ============================ W2a2. a callback schema is checked when it is registered
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+    loadModule('server/callback.lua')
+    local ok, why = env.EXPORTS.RegisterCallback('w2a:cb', function() end, { schema = { amount = 'number' } })
+    check(ok == false and type(why) == 'string' and why:find('schema.amount', 1, true) ~= nil,
+        ('W2a2: a callback schema rule that is not a table is refused (%s, %s)'):format(tostring(ok), tostring(why)))
+    check(env.EXPORTS.RegisterCallback('w2a:cb2', function() end, { schema = { amount = { type = 'integer' } } }) == true,
+        'W2a2: a well-formed callback schema still registers')
+    env.reset()
+end
+
+-- ============================ W2b. a callback schema failure is one report per run
+--
+-- A net event's bad payload was latched (one report per player and event per
+-- run); a callback's was reported on EVERY request, so a client sending a bad
+-- shape once a second was a report -- and, with a ban provider, a strike --
+-- every second.
+do
+    local env = callbackEnv({ players = { [3] = true } })
+    local reports = 0
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_ENV, 'CisSecurityReport') }
+    function CisSecurityReport() reports = reports + 1; return true end
+    check(env.EXPORTS.RegisterCallback('w2b:shaped', function() return 'ok' end,
+        { schema = { amount = { type = 'number' } } }) == true, 'W2b: a schema-checked callback registers')
+    for i = 1, 10 do
+        env.emit('cis_libs:cb', 3, 'w2b:shaped', i, { amount = 'x' })
+        env.clock = env.clock + 300
+    end
+    check(env.lastReply(3) and env.lastReply(3)[3] == 'bad payload', 'W2b: every bad payload is still refused')
+    check(reports == 1, ('W2b: a run of bad callback payloads is one report (got %d)'):format(reports))
+    env.clock = env.clock + 10000
+    env.emit('cis_libs:cb', 3, 'w2b:shaped', 99, { amount = 'x' })
+    check(reports == 2, ('W2b: a bad payload after a quiet interval is a new strike (got %d)'):format(reports))
+    -- The latch is per player: a second player's first bad payload is reported.
+    env.players[4] = true
+    env.emit('cis_libs:cb', 4, 'w2b:shaped', 1, { amount = 'x' })
+    check(reports == 3, ('W2b: the latch is per player (got %d)'):format(reports))
+    env.reset()
+end
+
+-- ============================ W2c. every refusal is false plus a reason
+--
+-- A refusal answered nil (which truncates the return list at the exports
+-- boundary, so the reason never arrived), a bare false, or nothing at all. A
+-- consumer could not tell "refused" from "no provider" from "not sent", and the
+-- console was the only place the reason went.
+do
+    local env = newEnv({ players = { [5] = {} } })
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    Security.AuthorizedResources = { 'cis_keys' }
+    loadModule('server/security.lua')
+    loadModule('server/player.lua')
+    loadModule('server/proxy.lua')
+    local calls = 0
+    CisRegistry.register('doors', function() calls = calls + 1; return true end)
+    env.invoking = 'cis_evil'
+    for _, name in ipairs({ 'AddDoorToSystem', 'AddDoorGroup', 'BreakDoor', 'FixDoor' }) do
+        local okCall, value, why = pcall(env.EXPORTS[name], { id = 'bank_vault' })
+        check(okCall and value == false and tostring(why):find('AuthorizedResources', 1, true) ~= nil,
+            ('W2c: %s off the allow-list is false plus a reason (got %s, %s)')
+                :format(name, tostring(value), tostring(why)))
+    end
+    check(calls == 0, 'W2c: and no door call reached the provider')
+    CisRegistry.unregister('doors')
+
+    -- Releasing a slot this resource does not hold names the holder.
+    env.invoking = 'cis_keys'
+    check(env.EXPORTS.RegisterCapability('doors', function() return true end) == true,
+        'W2c: a slot registers for the release test')
+    env.invoking = 'cis_other'
+    local released, releaseWhy = env.EXPORTS.UnregisterCapability('doors')
+    check(released == false and tostring(releaseWhy):find('cis_keys', 1, true) ~= nil,
+        ('W2c: releasing another resource\'s slot is false plus a reason naming the holder (got %s, %s)')
+            :format(tostring(released), tostring(releaseWhy)))
+    local none, noneWhy = env.EXPORTS.UnregisterCapability('w2c_never')
+    check(none == false and type(noneWhy) == 'string' and noneWhy ~= '',
+        ('W2c: releasing a slot nobody holds is false plus a reason (got %s, %s)')
+            :format(tostring(none), tostring(noneWhy)))
+    env.invoking = 'cis_keys'
+    check(env.EXPORTS.UnregisterCapability('doors') == true, 'W2c: the holder still releases its slot')
+    env.reset()
+end
+
+do
+    local env = newEnv({ players = { [1] = { coords = { x = 5.0, y = 0.0, z = 0.0 } } } })
+    loadSync(env)
+    local function refused(label, made, why)
+        check(made == false and type(why) == 'string' and why ~= '',
+            ('W2c: SyncCreate %s is false plus a reason (got %s, %s)')
+                :format(label, tostring(made), tostring(why)))
+    end
+    refused('with no coords', env.EXPORTS.SyncCreate('prop', { model = 'x' }))
+    refused('with a non-table', env.EXPORTS.SyncCreate('prop', 'nope'))
+    refused('with a bad scope', env.EXPORTS.SyncCreate('prop',
+        { model = 'x', coords = { x = 0.0, y = 0.0, z = 0.0 }, scope = -1 }))
+    function CisSyncEnabled() return false end
+    local off, offWhy = env.EXPORTS.SyncCreate('prop', { model = 'x', coords = { x = 0.0, y = 0.0, z = 0.0 } })
+    refused('with sync disabled', off, offWhy)
+    check(tostring(offWhy):find('Enabled', 1, true) ~= nil, 'W2c: and the reason names Config.Sync.Enabled')
+    function CisSyncEnabled() return true end
+    check(env.EXPORTS.SyncCreate('prop', { id = 'w2c', model = 'x', coords = { x = 0.0, y = 0.0, z = 0.0 } }) == 'w2c',
+        'W2c: a good record is still created')
+    function CisInvokingAllowed() return false end
+    local denied, deniedWhy = env.EXPORTS.SyncCreate('prop', { model = 'x', coords = { x = 0.0, y = 0.0, z = 0.0 } })
+    refused('off the allow-list', denied, deniedWhy)
+    check(tostring(deniedWhy):find('AuthorizedResources', 1, true) ~= nil,
+        'W2c: and the reason names Security.AuthorizedResources')
+    local list, listWhy = env.EXPORTS.SyncList()
+    check(list == false and tostring(listWhy):find('AuthorizedResources', 1, true) ~= nil,
+        ('W2c: SyncList off the allow-list is false plus a reason (got %s, %s)'):format(tostring(list), tostring(listWhy)))
+    local cleared, clearWhy = env.EXPORTS.SyncClear()
+    check(cleared == false and tostring(clearWhy):find('AuthorizedResources', 1, true) ~= nil,
+        ('W2c: SyncClear off the allow-list is false plus a reason (got %s, %s)'):format(tostring(cleared), tostring(clearWhy)))
+    local removed, removeWhy = env.EXPORTS.SyncRemove('w2c')
+    check(removed == false and tostring(removeWhy):find('AuthorizedResources', 1, true) ~= nil,
+        ('W2c: SyncRemove off the allow-list is false plus a reason (got %s, %s)'):format(tostring(removed), tostring(removeWhy)))
+    env.reset()
+end
+
+do
+    local env = callbackEnv({ players = { [7] = true } })
+    local told = {}
+    local key, why = env.EXPORTS.CallCallbackClient('w2c:cb', 'nobody', function(ok, reason)
+        told[#told + 1] = { ok, reason }
+    end)
+    check(key == false and tostring(why):find('target', 1, true) ~= nil,
+        ('W2c: CallCallbackClient with a bad target is false plus a reason (got %s, %s)'):format(tostring(key), tostring(why)))
+    check(#told == 1 and told[1][1] == false, 'W2c: and the consumer callback is still told')
+    local gone, goneWhy = env.EXPORTS.CallCallbackClient('w2c:cb', 42, function(ok, reason)
+        told[#told + 1] = { ok, reason }
+    end)
+    check(gone == false and tostring(goneWhy):find('not connected', 1, true) ~= nil,
+        ('W2c: CallCallbackClient to a disconnected player is false plus a reason (got %s, %s)'):format(tostring(gone), tostring(goneWhy)))
+    check(#told == 2 and told[2][1] == false, 'W2c: and its callback is told too')
+    check(#env.sentTo(42, 'cis_libs:cb') == 0, 'W2c: and nothing was sent to the absent player')
+    check(type(env.EXPORTS.CallCallbackClient('w2c:cb', 7, function() end)) == 'string',
+        'W2c: a connected player still gets a pending key')
+    env.reset()
+end
+
+-- ============================ W2d. the console is rate-limited per message
+--
+-- Discord was deduped and rate-limited; the console printed every line. One
+-- client tripping the same warning every frame scrolled thousands of identical
+-- lines a second, burying everything else. Now each message prints at most 20
+-- times per 10 s window, and what is held back is counted on the next roll.
+do
+    local env = newEnv({})
+    local function count(needle)
+        local n = 0
+        for _, line in ipairs(env.lines) do
+            if tostring(line):find(needle, 1, true) then n = n + 1 end
+        end
+        return n
+    end
+    for _ = 1, 50 do Logging.Info('w2d flood line') end
+    check(count('w2d flood line') == 20,
+        ('W2d: one message prints at most 20 times a window (got %d)'):format(count('w2d flood line')))
+    Logging.Info('w2d other line')
+    check(count('w2d other line') == 1, 'W2d: a different message still prints')
+    env.clock = env.clock + 10000
+    Logging.Info('w2d after the roll')
+    local summary = nil
+    for _, line in ipairs(env.lines) do
+        if tostring(line):find('30 more copies', 1, true) and tostring(line):find('w2d flood line', 1, true) then
+            summary = line
+        end
+    end
+    check(summary ~= nil, 'W2d: the roll says how many copies were suppressed, naming the line')
+    check(count('w2d after the roll') == 1, 'W2d: the next window prints again')
+
+    -- Many distinct lines: the window prints at most 500 in all, and the rest
+    -- are counted rather than lost.
+    env.clock = env.clock + 10000
+    Logging.Info('w2d reset')
+    local before = count('w2d distinct ')
+    for i = 1, 600 do Logging.Info('w2d distinct ' .. i) end
+    check(count('w2d distinct ') - before == 499,
+        ('W2d: a window prints at most 500 lines in all (got %d)'):format(count('w2d distinct ') - before))
+    env.clock = env.clock + 10000
+    Logging.Info('w2d end')
+    check(count('other line(s) suppressed') == 1, 'W2d: the lines held past the report limit are counted on one line')
+    env.reset()
+end
+
+-- ============================ W2e. a forged onResourceStop does not release a victim
+--
+-- onResourceStop is an ordinary event. Any server resource could
+-- TriggerEvent('onResourceStop', 'victim') and have the victim's capability
+-- slots, net handlers, callbacks, commands, zones and sync records released --
+-- then claim the slot the victim held. A stop now counts at once only when the
+-- engine fired it (no invoker), the resource stopped itself, cis_libs fired it,
+-- or the invoker holds command.stop; otherwise it counts one tick later, and
+-- only if the named resource is really no longer started.
+do
+    local function scenario(invoker, state, aceAllowed)
+        local env = newEnv({})
+        env.saved[#env.saved + 1] = { name = 'IsPrincipalAceAllowed', value = rawget(_ENV, 'IsPrincipalAceAllowed') }
+        env.saved[#env.saved + 1] = { name = 'GetResourceState', value = rawget(_ENV, 'GetResourceState') }
+        Config = CisDefaults.config()
+        Security = CisDefaults.security()
+        Security.AuthorizedResources = { 'w2e_victim' }
+        loadModule('server/security.lua')
+        loadModule('server/proxy.lua')
+        loadModule('server/callback.lua')
+        env.invoking = 'w2e_victim'
+        env.EXPORTS.RegisterCapability('doors', function() return true end)
+        env.EXPORTS.SecureNetOn('w2e:evt', function() end)
+        local aceAsked = nil
+        function IsPrincipalAceAllowed(principal, object)
+            aceAsked = principal .. ' ' .. object
+            return aceAllowed == true
+        end
+        function GetResourceState() return state end
+        env.invoking = invoker
+        env.fire('onResourceStop', 'w2e_victim')
+        local probes = CisDiagnostics.Collect('server').probes
+        local out = {
+            slot = CisRegistry.owner('doors'),
+            net = (probes.netHandlers.byOwner or {}).w2e_victim or 0,
+            aceAsked = aceAsked,
+        }
+        CisRegistry.unregister('doors')
+        env.reset()
+        return out
+    end
+
+    local forged = scenario('w2e_attacker', 'started', false)
+    check(forged.slot == 'w2e_victim',
+        ('W2e: a forged stop of a running resource keeps its capability slot (owner %s)'):format(tostring(forged.slot)))
+    check(forged.net == 1,
+        ('W2e: and keeps its net handler (got %d)'):format(forged.net))
+    check(forged.aceAsked == 'resource.w2e_attacker command.stop',
+        ('W2e: the invoker\'s command.stop ACE was asked (got %s)'):format(tostring(forged.aceAsked)))
+
+    local engine = scenario(nil, 'started', false)
+    check(engine.slot == nil and engine.net == 0, 'W2e: an engine stop (no invoker) still releases at once')
+    local own = scenario('w2e_victim', 'started', false)
+    check(own.slot == nil and own.net == 0, 'W2e: a resource stopping itself still releases')
+    local scripted = scenario('w2e_attacker', 'stopped', false)
+    check(scripted.slot == nil and scripted.net == 0,
+        'W2e: a script stop that really stopped the resource releases on the next tick')
+    local trusted = scenario('monitor', 'started', true)
+    check(trusted.slot == nil and trusted.net == 0,
+        'W2e: an invoker holding command.stop (txAdmin restarting) releases at once')
+end
+
+do
+    local env = newEnv({ players = { [1] = { coords = { x = 5.0, y = 0.0, z = 0.0 } } } })
+    env.saved[#env.saved + 1] = { name = 'GetResourceState', value = rawget(_ENV, 'GetResourceState') }
+    env.saved[#env.saved + 1] = { name = 'IsPrincipalAceAllowed', value = rawget(_ENV, 'IsPrincipalAceAllowed') }
+    loadSync(env)
+    function IsPrincipalAceAllowed() return false end
+    env.invoking = 'w2e_victim'
+    env.EXPORTS.SyncCreate('prop', { id = 'w2e', model = 'x', coords = { x = 0.0, y = 0.0, z = 0.0 } })
+    function GetResourceState() return 'started' end
+    env.invoking = 'w2e_attacker'
+    env.fire('onResourceStop', 'w2e_victim')
+    env.invoking = 'w2e_victim'
+    local list = env.EXPORTS.SyncList()
+    check(type(list) == 'table' and #list == 1, 'W2e: a forged stop leaves the victim\'s sync records in place')
+    function GetResourceState() return 'stopped' end
+    env.invoking = 'w2e_attacker'
+    env.fire('onResourceStop', 'w2e_victim')
+    env.invoking = 'w2e_victim'
+    list = env.EXPORTS.SyncList()
+    check(type(list) == 'table' and #list == 0, 'W2e: a real stop still takes them down')
+    env.reset()
+end
+
+-- ============================ W2f. cis_libs never takes back an ACE it did not grant
+--
+-- (a) An operator who had already written `add_ace group.admin command.x allow`
+-- lost it when the command was removed: cis_libs "provisioned" over the
+-- existing grant and then ran remove_ace on it. (b) Any group.* principal was
+-- provisioned, so a CommandAdd caller could have cis_libs grant a command to
+-- group.user (on many servers, every player). Only groups the operator lists
+-- in cis_command_ace_groups (default group.admin) are provisioned now.
+do
+    local env = commandEnv({})
+    env.aceGrants['resource.cis_libs command.add_ace'] = true
+    env.aceGrants['group.admin command.cis_pre'] = true
+    check(exports.CommandAdd('cis_pre', { restricted = 'group.admin' }, function() end) == true,
+        'W2f: a command whose ACE the operator already granted registers')
+    exports.CommandRemove('cis_pre')
+    check(#env.executed == 0,
+        ('W2f: an existing grant is neither re-granted nor removed (%s)'):format(tostring(env.executed[1])))
+
+    exports.CommandAdd('cis_usercmd', { restricted = 'group.user' }, function() end)
+    check(#env.executed == 0,
+        ('W2f: a group off cis_command_ace_groups is not provisioned (%s)'):format(tostring(env.executed[1])))
+
+    exports.CommandAdd('cis_admincmd', { restricted = 'group.admin' }, function() end)
+    check(env.executed[1] == 'add_ace group.admin command.cis_admincmd allow',
+        ('W2f: group.admin is provisioned by default (%s)'):format(tostring(env.executed[1])))
+
+    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_ENV, 'GetConvar') }
+    function GetConvar(name, default)
+        if name == 'cis_command_ace_groups' then return 'group.admin, group.user' end
+        return default
+    end
+    exports.CommandAdd('cis_usercmd2', { restricted = 'group.user' }, function() end)
+    check(env.executed[2] == 'add_ace group.user command.cis_usercmd2 allow',
+        ('W2f: a group the operator lists is provisioned (%s)'):format(tostring(env.executed[2])))
+    env.reset()
+end
+
+-- ============================ W2g. a dropped player's bad-payload ledger goes with them
+--
+-- playerDropped clears schemaReported[src]; nothing checked it (M382 survived).
+-- Server ids are reused, so a ledger kept past the drop would mute the first
+-- bad payload of whoever connects next on that id.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    exports.bank = { Withdraw = function() end }
+    loadModule('server/security.lua')
+    local reported = 0
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_ENV, 'CisSecurityReport') }
+    function CisSecurityReport() reported = reported + 1; return true end
+    env.invoking = 'bank'
+    CisNetOn('bank:w2g', 'bank:Withdraw', {
+        schema = { amount = { type = 'number', min = 1, max = 1000 } }, maxHits = 50,
+    })
+    env.emit('bank:w2g', 9, { amount = 'lots' })
+    env.clock = env.clock + 100
+    env.emit('bank:w2g', 9, { amount = 'lots' })
+    check(reported == 1, ('W2g: two bad payloads in one run are one report (reports=%d)'):format(reported))
+    local savedSource = rawget(_ENV, 'source')
+    source = 9
+    env.fire('playerDropped', 'quit')
+    source = savedSource
+    env.clock = env.clock + 100
+    env.emit('bank:w2g', 9, { amount = 'lots' })
+    check(reported == 2,
+        ('W2g: after src 9 drops, a bad payload from src 9 is reported again at once (reports=%d)'):format(reported))
     env.reset()
 end
 

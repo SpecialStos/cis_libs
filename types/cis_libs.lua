@@ -827,7 +827,7 @@ function AwaitCallbackClient(name, target, ...) end
 ---@deprecated
 --- deprecated since 1.1.0; use the cis_bridge doors API
 ---@param identifier string|integer #the door identifier. Allow-list gated like every other door mutation
----@return any, string|nil #the provider's value; nil when no doors provider is registered, and the nil is preserved on purpose rather than normalised to false; nil plus a reason naming Security.AuthorizedResources when the caller is not on the allow-list 
+---@return any, string|nil #the provider's value; nil when no doors provider is registered, and the nil is preserved on purpose rather than normalised to false; false plus a reason naming Security.AuthorizedResources when the caller is not on the allow-list 
 -- Why `any`: the provider's value, and the nil-when-no-provider answer is preserved on purpose rather than normalised to false
 --- realm: server
 function BreakDoor(identifier) end
@@ -848,10 +848,10 @@ function CallCallback.client(name, cb, ...) end
 
 --- Cis.callback.callClient(src, name, cb, ...)
 ---@param name string #the callback the CLIENT answers
----@param target integer #a connected player server id; anything else is refused and nobody is told
+---@param target integer #a connected player server id; anything else, or a player who is not connected, is refused before anything is sent
 ---@param cb? function #a consumer-side function, consumed on the consumer side, so it does not cross
 ---@param ... ... #the unbounded tail; the client caps it at 32 args and answers "too large"
----@return string #the pending key, an opaque random token. A bad target returns NOTHING and instead calls cb(false, reason)
+---@return string|false, string|nil #the pending key, an opaque random token. A bad or disconnected target answers false plus a reason, and cb (when given) is told too, as cb(false, bad target) or cb(false, not connected)
 --- realm: server
 function CallCallbackClient(name, target, cb, ...) end
 
@@ -920,7 +920,7 @@ function ClosestVehicle(coords, maxDistance, filter, opts) end
 ---@param name string #letters, digits, underscore or hyphen only
 ---@param options table #{ params, restricted, help }. params is an array of names, or of { name, help, type, optional } tables: type is 'string' (default), 'number', 'playerId' (a connected id, or 'me') or 'longString' (the rest of the line; must be last); optional params must come last. A line that does not fit is refused and the usage logged. restricted is true or an ACE principal like 'group.admin'
 ---@param handler function #called as (src, args, raw). src is INJECTED and is not a parameter, so no caller can name anyone. args holds the converted values by position AND by param name. A function passed from another resource is accepted, owned by it, and stops running when it stops
----@return boolean, string|nil #true once registered, or false plus a reason: a name the server already knows (another resource command or a builtin, matched without regard to case) is refused, and so is a re-add that changes the restricted flag. A restricted command is checked by RegisterCommand and again by the handler. When restricted names a group.* principal and cis_libs has been granted command.add_ace, it runs add_ace <group> command.<name> allow itself (never for builtin.*, player.* or identifier.* principals) (and remove_ace on removal); otherwise it prints that exact line. Chat suggestions reach players who join later
+---@return boolean, string|nil #true once registered, or false plus a reason: a name the server already knows (another resource command or a builtin, matched without regard to case) is refused, and so is a re-add that changes the restricted flag. A restricted command is checked by RegisterCommand and again by the handler. When restricted names a group.* principal listed in the convar cis_command_ace_groups (default group.admin) and cis_libs has been granted command.add_ace, it runs add_ace <group> command.<name> allow itself (never for builtin.*, player.* or identifier.* principals) and remove_ace on removal; a group that already holds the ACE is the operator grant and is neither re-granted nor removed; otherwise it prints that exact line. Chat suggestions reach players who join later
 --- realm: server
 function CommandAdd(name, options, handler) end
 
@@ -1082,7 +1082,7 @@ function DrawText3D(x, y, z, text, settings) end
 ---@deprecated
 --- deprecated since 1.1.0; use the cis_bridge doors API
 ---@param identifier string|integer #the door identifier. Allow-list gated like every other door mutation
----@return any, string|nil #the provider's value; nil when no doors provider is registered; nil plus a reason when the caller is not on the allow-list 
+---@return any, string|nil #the provider's value; nil when no doors provider is registered; false plus a reason naming Security.AuthorizedResources when the caller is not on the allow-list 
 -- Why `any`: the provider's value, and the nil-when-no-provider answer is preserved on purpose rather than normalised to false
 --- realm: server
 function FixDoor(identifier) end
@@ -1692,11 +1692,11 @@ function PublishPlayerLoaded(job, src) end
 function RandomFloat(lower, greater) end
 
 --- no proxy equivalent; a resource may share the library rate limiter
----@param src integer #the bucket owner, and the player id for a public handler
+---@param src integer|string #the bucket owner, and the player id for a public handler. A key that is not a connected player (a license string, a stale id) is bounded separately, since playerDropped never frees it
 ---@param name string #the bucket key inside that src; the rate is per (src, name), never shared across names
 ---@param windowMs? integer #the window in ms, default 1000 -- a fixed window, not a sliding one
 ---@param maxHits? integer #the hits allowed inside it, default 8
----@return boolean #true on an allowed hit, and true is not free: it consumes a slot in the (src, name) window. false when the hit exceeds maxHits, or, with a second value cap, when the src holds 256 live buckets and this name is new (expired buckets are evicted first). A string src is the same player as its number
+---@return boolean, string|nil #true on an allowed hit, and true is not free: it consumes a slot in the (src, name) window. false with the reason limited when the hit exceeds maxHits; false with the reason cap when the src holds 256 live buckets and this name is new (expired buckets are evicted first), or when the src is not a connected player and 1024 such keys are live (idle ones are swept first; a connected player is never refused for that bound). false plus a reason, never a raise, for a src that is not a finite number or a non-empty string, a name that is not a non-empty string, or a windowMs or maxHits that is not a finite number of at least 1 (maxHits) or above 0 (windowMs). A string src is the same player as its number
 --- realm: server
 function RateOk(src, name, windowMs, maxHits) end
 
@@ -1727,7 +1727,7 @@ function ReadyState() end
 ---@overload fun(...)
   ---@param name string #a non-empty handler name, the key everything else is filed under
   ---@param handler function|string|table #a function, a callable reference table (a function passed from another resource; released when that resource stops), or a "resource:Export" string; nil fails all three. A later registration of the same name by the SAME resource replaces the earlier one, whatever its kind; a name another resource holds is refused (cis_libs may replace any)
-  ---@param opts? table #{ remote = true|false, ace = 'object', schema = { field = { type, min, max, maxLen, optional, finite } }, maxStringLen = n }. remote defaults to TRUE (1.0.0 behaviour); remote = false makes the callback unreachable from any client, which is answered 'unknown' exactly as for a missing name. ace is checked with IsPrincipalAceAllowed('player.<src>', ace) and refused 'denied'. schema checks the FIRST argument and refuses 'bad payload' (and reports the player); its rules are the same as SecureNetOn's, so type may be integer and infinity is refused unless finite = false. maxStringLen replaces the default string cap (Config.CallbackLimits.MaxStringLen, 4096) for this callback; every remote call is capped, keys and values. A malformed option is refused, never ignored
+  ---@param opts? table #{ remote = true|false, ace = 'object', schema = { field = { type, min, max, maxLen, optional, finite } }, maxStringLen = n }. remote defaults to TRUE (1.0.0 behaviour); remote = false makes the callback unreachable from any client, which is answered 'unknown' exactly as for a missing name. ace is checked with IsPrincipalAceAllowed('player.<src>', ace) and refused 'denied'. schema checks the FIRST argument and refuses 'bad payload' (and reports the player once per run of bad payloads, as SecureNetOn does); its rules are the same as SecureNetOn's and are checked at registration, so type may be integer and infinity is refused unless finite = false. maxStringLen replaces the default string cap (Config.CallbackLimits.MaxStringLen, 4096) for this callback; every remote call is capped, keys and values. A malformed option is refused, never ignored
   ---@return boolean, string|nil #true once bound; false plus the reason (also logged) on a refusal
 ---@overload
   ---@param name string #a non-empty handler name; a non-string or "" is refused before anything is stored, and so is a name another resource holds (the owner may replace its own; a name is free again once its owner stops)
@@ -1860,8 +1860,8 @@ function Scaleform(name, timeout) end
 --- Cis.net.on(name, fn, opts) -> true when the event was bound
 ---@param name string #the net event name, used verbatim with no prefix added
 ---@param fn function|string|table #a function -- including one passed from another resource, which arrives as a callable reference table and is released when that resource stops -- or a "resource:Export" string; anything else registers nothing
----@param opts? table #windowMs and maxHits default to 1000 and 8. Every payload is size-bounded before the schema and the handler: maxArgs (32), maxStringLen (Config.CallbackLimits.MaxStringLen, 4096; keys and values), maxEntries (256, counted across the whole payload) and maxDepth (8) may each be raised or lowered per handler, and a malformed one refuses the registration. schema, if present, is a map of field -> { type, min, max, maxLen, optional, finite } checked against the FIRST payload table before the handler runs; type is a Lua type name or integer (whole, finite, within +-2^53), and a number is refused when NaN, or infinite unless finite = false. An oversized payload or a schema failure is refused, counted as netSchemaRefused and reported
----@return boolean #true once bound -- and true says nothing about rate limiting, which happens at dispatch. false when the handler cannot be resolved, with a reason naming the resource and export, or when a resource binds another resource export: the owner is always the caller. The rate limit runs first, then the size bound, then the schema. A bad payload is reported once per player and event per run: a run ends after max(5000, 2 * windowMs) ms with no bad payload of that event, so a repeat after a pause is reported again while a flood stays one report
+---@param opts? table #windowMs and maxHits default to 1000 and 8. Every payload is size-bounded before the schema and the handler: maxArgs (32), maxStringLen (Config.CallbackLimits.MaxStringLen, 4096; keys and values), maxEntries (256, counted across the whole payload) and maxDepth (8) may each be raised or lowered per handler, and a malformed one refuses the registration. schema, if present, is a map of field -> { type, min, max, maxLen, optional, finite } checked against the FIRST payload table before the handler runs; type is a Lua type name or integer (whole, finite, within +-2^53), and a number is refused when NaN, or infinite unless finite = false. An oversized payload or a schema failure is refused, counted as netSchemaRefused and reported. The schema is checked at registration: a rule that is not a table, a field name that is not a string, an unknown type, a non-number min/max/maxLen or a non-boolean optional/finite refuses the registration. windowMs and maxHits must be finite numbers of at least 1
+---@return boolean, string|nil #true once bound -- and true says nothing about rate limiting, which happens at dispatch. false plus a reason (also logged) on every refusal: a name that is not a non-empty string, opts that are not a table, a malformed limit or schema, a handler that cannot be resolved, with a reason naming the resource and export, or when a resource binds another resource export: the owner is always the caller. The rate limit runs first, then the size bound, then the schema. A bad payload is reported once per player and event per run: a run ends after max(5000, 2 * windowMs) ms with no bad payload of that event, so a repeat after a pause is reported again while a flood stays one report
 --- realm: server
 function SecureNetOn(name, fn, opts) end
 
@@ -2016,25 +2016,25 @@ function StatebagOnEntity(key, handler, timeoutMs) end
 function StatebagOnPlayer(key, handler, timeoutMs) end
 
 --- Cis.sync.clear()
----@return integer|nil, string|nil #how many records it took; 0 is an honest answer for a resource that has synced nothing, and a reason only on the allow-list refusal
+---@return integer|false, string|nil #how many records it took; 0 is an honest answer for a resource that has synced nothing; false plus a reason only on the allow-list refusal
 --- realm: server
 function SyncClear() end
 
 --- Cis.sync.ped / Cis.sync.prop / Cis.sync.vehicle
 ---@param kind string #'prop', 'vehicle' or 'ped' -- never type-guarded, and the branch is on exactly these literals
----@param data table #the record. Not type-guarded either: the first hard requirement is data.coords, which raises on a non-table
----@return string|nil, string|nil #the record id, and a reason when a networked record is refused -- a kind with no server-side creation native, an entity the server could not create, or a removal that overtook the creation. EVERY OTHER REFUSAL IS A BARE NIL (and a logged reason), because a nil first value truncates the return list at the exports boundary
+---@param data table #the record. A non-table, missing or non-finite coords, a bad heading, model, scope, bucket or id are each refused as false plus a reason, never raised
+---@return string|false, string|nil #the record id; on ANY refusal false plus a reason -- a caller off Security.AuthorizedResources, Config.Sync.Enabled = false, a bad field, a kind with no server-side creation native, an entity the server could not create, or a removal that overtook the creation. Never nil first, because a nil first value truncates the return list at the exports boundary
 --- realm: server
 function SyncCreate(kind, data) end
 
 --- Cis.sync.list()
----@return CisSyncSummary[], string|nil #the CALLING resource's own ids, sorted so an entry can go straight back to SyncRemove, and a reason only on the allow-list refusal
+---@return CisSyncSummary[]|false, string|nil #the CALLING resource's own ids, sorted so an entry can go straight back to SyncRemove; false plus a reason only on the allow-list refusal
 --- realm: server
 function SyncList() end
 
 --- Cis.sync.remove(id)
 ---@param id? string|integer #the id; a number is stringified at this boundary. Namespaced by the INVOKING RESOURCE, never by the argument
----@return boolean, string #true on success; false always names why -- 'no sync id given', a type message, "belongs to another resource", or "not in this resource's namespace"
+---@return boolean, string #true on success; false always names why -- 'no sync id given', a type message, "belongs to another resource", "not in this resource's namespace", or a caller off Security.AuthorizedResources
 --- realm: server
 function SyncRemove(id) end
 
@@ -2148,7 +2148,7 @@ function UnlockDoors(identifier) end
 
 --- Called by a product on shutdown or handover. Only the slot owner may release it
 ---@param slot string #the slot to release; only its current owner may release it
----@return boolean #true released; false with NO reason at all when the caller is not the holder
+---@return boolean, string|nil #true released; false plus a reason naming the holder when the caller is not it, or saying the slot is not registered
 --- realm: server
 function UnregisterCapability(slot) end
 
@@ -2974,7 +2974,7 @@ function Cis.sync.onSpawn(fn) end
 ---@field realm "both"
 ---@field forwardsTo string SyncCreate
 ---@param data CisSyncRecord #with kind = "ped"
----@return string|nil, string|nil #the caller's own id, never the namespaced key the client receives. On the client this answers false, "server only"
+---@return string|false, string|nil #the caller's own id, never the namespaced key the client receives; false plus a reason on a refusal. On the client this answers false, "server only"
 function Cis.sync.ped(data) end
 
 ---@class Cis.sync.prop
@@ -2982,7 +2982,7 @@ function Cis.sync.ped(data) end
 ---@field realm "both"
 ---@field forwardsTo string SyncCreate
 ---@param data CisSyncRecord #with kind = "prop"
----@return string|nil, string|nil #the caller's own id. On the client this answers false, "server only"
+---@return string|false, string|nil #the caller's own id; false plus a reason on a refusal. On the client this answers false, "server only"
 function Cis.sync.prop(data) end
 
 ---@class Cis.sync.remove
@@ -2998,7 +2998,7 @@ function Cis.sync.remove(id) end
 ---@field realm "both"
 ---@field forwardsTo string SyncCreate
 ---@param data CisSyncRecord #with kind = "vehicle"; vehicleType defaults to automobile
----@return string|nil, string|nil #the caller's own id. On the client this answers false, "server only"
+---@return string|false, string|nil #the caller's own id; false plus a reason on a refusal. On the client this answers false, "server only"
 function Cis.sync.vehicle(data) end
 
 ---@class Cis.target.add

@@ -4731,6 +4731,216 @@
       "find": "    if v ~= v then return 0 end\n    if v < 0 then return 0 end",
       "replace": "    if v < 0 then return 0 end",
       "why": "clamp01(NaN) answers NaN, which a smoothstep or lerp then spreads."
+    },
+    {
+      "id": "M760",
+      "file": "server/security.lua",
+      "find": "    if opts.schema ~= nil then\n        local schemaOk, schemaWhy = validateNetSchema(opts.schema)",
+      "replace": "    if false then\n        local schemaOk, schemaWhy = validateNetSchema(opts.schema)",
+      "why": "A net binding whose schema the checker cannot read (a string, a rule that is not a table, an unknown type) refused and reported every payload, kicking every player who sent the event; it must be refused at registration."
+    },
+    {
+      "id": "M761",
+      "file": "server/security.lua",
+      "find": "(type(value) ~= 'number' or value ~= value or value == math.huge or value < 1) then\n            return false, ('Cis.net.on(\"%s\"): opts.%s must be a finite number of at least 1",
+      "replace": "(type(value) ~= 'number' or value < 1) then\n            return false, ('Cis.net.on(\"%s\"): opts.%s must be a finite number of at least 1",
+      "why": "A NaN or infinite windowMs/maxHits on a net binding built a limiter window that never rolled; registration must refuse it."
+    },
+    {
+      "id": "M762",
+      "file": "server/security.lua",
+      "find": "    elseif type(src) ~= 'string' or src == '' then",
+      "replace": "    elseif false then",
+      "why": "RateOk with a nil or empty src raised inside cis_libs (table index is nil) instead of answering false, reason."
+    },
+    {
+      "id": "M763",
+      "file": "server/security.lua",
+      "find": "    if nonPlayerCount >= NONPLAYER_SRC_CAP then\n        return nil, 'cap'",
+      "replace": "    if false then\n        return nil, 'cap'",
+      "why": "Rate keys that are not connected players are never freed by playerDropped; without the cap a consumer's dynamic keys grow the table for the life of cis_libs."
+    },
+    {
+      "id": "M764",
+      "file": "server/security.lua",
+      "find": "        if not live then\n            nonPlayer[key] = nil",
+      "replace": "        if false then\n            nonPlayer[key] = nil",
+      "why": "Idle non-player rate keys must be swept, or the cap fills once and every new non-player key is refused for the session."
+    },
+    {
+      "id": "M765",
+      "file": "server/security.lua",
+      "find": "    if type(name) ~= 'string' or name == '' then\n        return refuseNet(",
+      "replace": "    if false then\n        return refuseNet(",
+      "why": "CisNetOn with a nil name raised (table index is nil) at the binding store instead of answering false, reason."
+    },
+    {
+      "id": "M766",
+      "file": "server/callback.lua",
+      "find": "        local schemaOk, schemaWhy = CisValidateNetSchema(opts.schema)\n        if not schemaOk then",
+      "replace": "        local schemaOk, schemaWhy = CisValidateNetSchema(opts.schema)\n        if false then",
+      "why": "A callback schema the checker cannot read refused every request with a security report; it must be refused at registration."
+    },
+    {
+      "id": "M767",
+      "file": "server/security.lua",
+      "find": "not isFinite(maxHits) or maxHits < 1 then",
+      "replace": "not isFinite(maxHits) then",
+      "why": "RateOk with maxHits 0 let the first hit of every window through, because a new bucket never compared against the limit."
+    },
+    {
+      "id": "M768",
+      "file": "server/callback.lua",
+      "find": "            CisReportBadPayload(src, name, schemaWhy, limits.windowMs, 'callback')",
+      "replace": "            CisSecurityReport(src, 'bad callback payload ' .. tostring(name))",
+      "why": "A callback schema failure was a security report on every request, so a client repeating one bad shape was a strike per request; it must share the net event's one-report-per-run latch."
+    },
+    {
+      "id": "M769",
+      "file": "server/proxy.lua",
+      "find": "        return false, notAuthorizedReason('AddDoorToSystem')",
+      "replace": "        return false",
+      "why": "AddDoorToSystem refused a resource off the allow-list with a bare false, so the caller could not tell a refusal from a missing doors provider."
+    },
+    {
+      "id": "M770",
+      "file": "server/proxy.lua",
+      "find": "        return false, notAuthorizedReason('BreakDoor')",
+      "replace": "        return nil, notAuthorizedReason('BreakDoor')",
+      "why": "BreakDoor answered its allow-list refusal as nil plus a reason; a nil first value truncates the list at the exports boundary, so the reason never arrived."
+    },
+    {
+      "id": "M771",
+      "file": "server/proxy.lua",
+      "find": "        return false, ('capability %q is held by %s, not %s; only its holder may release it')",
+      "replace": "        do return false end\n        return false, ('capability %q is held by %s, not %s; only its holder may release it')",
+      "why": "UnregisterCapability refused a non-holder with a bare false and no reason naming the holder."
+    },
+    {
+      "id": "M772",
+      "file": "server/sync.lua",
+      "find": "    Logging.Error(('Cis.sync.%s rejected: %s'):format(tostring(kind), why))\n    return false, why",
+      "replace": "    Logging.Error(('Cis.sync.%s rejected: %s'):format(tostring(kind), why))\n    return nil",
+      "why": "Every SyncCreate validation refusal returned nil, so the logged reason never reached the caller."
+    },
+    {
+      "id": "M773",
+      "file": "server/sync.lua",
+      "find": "        return notAllowed('SyncCreate')",
+      "replace": "        return nil",
+      "why": "SyncCreate from a resource off the allow-list returned a bare nil with no reason."
+    },
+    {
+      "id": "M774",
+      "file": "server/sync.lua",
+      "find": "        return false, SYNC_DISABLED",
+      "replace": "        return nil",
+      "why": "SyncCreate with Config.Sync.Enabled = false returned a bare nil, indistinguishable from any other failure."
+    },
+    {
+      "id": "M775",
+      "file": "server/sync.lua",
+      "find": "        return notAllowed('SyncList')",
+      "replace": "        return nil, 'this resource is not in Security.AuthorizedResources'",
+      "why": "SyncList answered its allow-list refusal as nil plus a reason, which the exports boundary truncates to nil."
+    },
+    {
+      "id": "M776",
+      "file": "server/sync.lua",
+      "find": "        return notAllowed('SyncRemove')",
+      "replace": "        return false",
+      "why": "SyncRemove from a resource off the allow-list returned a bare false with no reason."
+    },
+    {
+      "id": "M777",
+      "file": "server/callback.lua",
+      "find": "        return false, ('callback %q: target must be a player id, got %s')\n            :format(tostring(name), tostring(target))\n    end\n    if not GetPlayerName(target) then",
+      "replace": "        return\n    end\n    if not GetPlayerName(target) then",
+      "why": "CallCallbackClient with a bad target returned nothing, so a caller with no cb could not tell a refusal from a send."
+    },
+    {
+      "id": "M778",
+      "file": "server/callback.lua",
+      "find": "    if not GetPlayerName(target) then\n        if CisCallable(cb) then\n            cb(false, 'not connected')",
+      "replace": "    if false then\n        if CisCallable(cb) then\n            cb(false, 'not connected')",
+      "why": "CallCallbackClient to a disconnected player sent the event and parked a pending key that could only time out."
+    },
+    {
+      "id": "M779",
+      "file": "server/logging.lua",
+      "find": "    if entry.printed >= CONSOLE_PER_KEY or consoleWindow.printed >= CONSOLE_PER_WINDOW then",
+      "replace": "    if consoleWindow.printed >= CONSOLE_PER_WINDOW then",
+      "why": "The console printed every copy of a repeated line, so one client tripping the same warning each frame flooded the console."
+    },
+    {
+      "id": "M780",
+      "file": "server/logging.lua",
+      "find": "    if entry.printed >= CONSOLE_PER_KEY or consoleWindow.printed >= CONSOLE_PER_WINDOW then",
+      "replace": "    if entry.printed >= CONSOLE_PER_KEY then",
+      "why": "Without a per-window total, a flood of distinct lines (one per player, per id) still printed without bound."
+    },
+    {
+      "id": "M781",
+      "file": "server/logging.lua",
+      "find": "        if entry.held > 0 then",
+      "replace": "        if false then",
+      "why": "Suppressed console lines must be counted and said on the window roll, never dropped silently."
+    },
+    {
+      "id": "M782",
+      "file": "shared/owned.lua",
+      "find": "        if GetResourceState(resource) ~= 'started' then",
+      "replace": "        if true then",
+      "why": "A forged TriggerEvent('onResourceStop', victim) from any server resource released the victim's capability slots, net handlers and records; a stop from an untrusted invoker must count only once the resource is really no longer started."
+    },
+    {
+      "id": "M783",
+      "file": "server/sync.lua",
+      "find": "CisOnResourceStop(function(resource)",
+      "replace": "AddEventHandler('onResourceStop', function(resource)",
+      "why": "A forged onResourceStop took down every sync record of a running resource."
+    },
+    {
+      "id": "M784",
+      "file": "server/proxy.lua",
+      "find": "CisOnResourceStop(function(resource)",
+      "replace": "AddEventHandler('onResourceStop', function(resource)",
+      "why": "A forged onResourceStop released a running resource's capability slot, so the forger could register into it."
+    },
+    {
+      "id": "M785",
+      "file": "server/security.lua",
+      "find": "CisOnResourceStop(function(resource)",
+      "replace": "AddEventHandler('onResourceStop', function(resource)",
+      "why": "A forged onResourceStop unbound a running resource's net handlers."
+    },
+    {
+      "id": "M786",
+      "file": "shared/owned.lua",
+      "find": "    return ok and allowed == true",
+      "replace": "    return false",
+      "why": "A stop by an invoker holding command.stop (txAdmin restarting a resource) must release at once, not wait on a state check a same-tick restart defeats."
+    },
+    {
+      "id": "M787",
+      "file": "server/command.lua",
+      "find": "    if ok and held == true then\n        return false, 'granted'",
+      "replace": "    if false then\n        return false, 'granted'",
+      "why": "A grant the operator already wrote must not be marked provisioned, or CommandRemove runs remove_ace on it and takes the operator's own access away."
+    },
+    {
+      "id": "M788",
+      "file": "server/command.lua",
+      "find": "    if not aceGroupListed(entry.restricted) then\n        return false, 'unlisted'",
+      "replace": "    if false then\n        return false, 'unlisted'",
+      "why": "Any CommandAdd caller could otherwise have cis_libs grant its command to group.user; only groups on cis_command_ace_groups are provisioned."
+    },
+    {
+      "id": "M789",
+      "file": "server/command.lua",
+      "find": "    local list = 'group.admin'\n",
+      "replace": "    local list = ''\n",
+      "why": "With the convar unset, group.admin is still provisioned; an empty default would silently stop every grant that worked before."
     }
   ]
 }

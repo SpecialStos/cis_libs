@@ -7,7 +7,9 @@
 -- operator has given cis_libs the right to run `add_ace`
 -- (`add_ace resource.cis_libs command.add_ace allow`), cis_libs provisions
 -- `add_ace <group> command.<name> allow` itself, and takes it back with
--- `remove_ace` when the command goes. Without that grant nothing is executed:
+-- `remove_ace` when the command goes. Only groups listed in the convar
+-- `cis_command_ace_groups` (default group.admin) are provisioned, and a grant
+-- the group already holds is the operator's: never re-written, never removed. Without that grant nothing is executed:
 -- the exact `add_ace` line is printed once at registration and again on every
 -- refusal, because a command that silently never runs is the worst outcome
 -- available and an operator has no way to guess why.
@@ -216,9 +218,41 @@ local function provisionableGroup(restricted)
     return type(restricted) == 'string' and restricted:match('^group%.[%w_%-]+$') ~= nil
 end
 
+-- ONLY THE GROUPS THE OPERATOR NAMED. Any resource can call CommandAdd, so
+-- without a list it could have cis_libs grant its command to group.user (on many
+-- servers, every player). The convar `cis_command_ace_groups` lists the groups
+-- cis_libs may write grants for, comma or space separated; unset, it is
+-- group.admin alone. Any other group is left to the operator's own add_ace.
+local function aceGroupListed(group)
+    local list = 'group.admin'
+    if type(GetConvar) == 'function' then
+        local ok, value = pcall(GetConvar, 'cis_command_ace_groups', '')
+        if ok and type(value) == 'string' and value:match('%S') then
+            list = value
+        end
+    end
+    for name in list:gmatch('[^,%s]+') do
+        if name == group then
+            return true
+        end
+    end
+    return false
+end
+
+-- Returns (provisioned, reason). reason 'granted' means the principal already
+-- holds the ACE: the operator's own grant, which cis_libs neither re-writes nor
+-- takes back with remove_ace when the command goes. 'unlisted' means the group
+-- is not on cis_command_ace_groups.
 local function provisionAce(entry)
     if not provisionableGroup(entry.restricted) or type(ExecuteCommand) ~= 'function' then
         return false
+    end
+    local ok, held = pcall(IsPrincipalAceAllowed, entry.restricted, 'command.' .. entry.name)
+    if ok and held == true then
+        return false, 'granted'
+    end
+    if not aceGroupListed(entry.restricted) then
+        return false, 'unlisted'
     end
     local self = 'resource.' .. GetCurrentResourceName()
     if not IsPrincipalAceAllowed(self, 'command.add_ace') then
@@ -424,12 +458,17 @@ function CisCommandAdd(name, options, handler)
     end
 
     if restricted then
-        entry.provisioned = provisionAce(entry)
+        local provisioned, why = provisionAce(entry)
+        entry.provisioned = provisioned
         if not entry.provisioned and CisLog and type(restricted) == 'string' and not provisionableGroup(restricted) then
             CisLog('warn', ('cis_libs: %q names %s, which is not a group; cis_libs grants only group.* principals')
                 :format(name, restricted))
         end
-        if not entry.provisioned and CisLog then
+        if why == 'unlisted' and CisLog then
+            CisLog('warn', ('cis_libs: %q names %s, which is not in the convar cis_command_ace_groups; cis_libs did not grant it')
+                :format(name, restricted))
+        end
+        if not entry.provisioned and why ~= 'granted' and CisLog then
             CisLog('info', ('cis_libs: %q is restricted. Grant it with: add_ace %s command.%s allow')
                 :format(name, aceGroup(entry), name))
         end
@@ -464,7 +503,8 @@ end)
 
 -- A resource that stops takes its commands with it: the platform keeps the
 -- closure, but it finds no entry and runs nothing.
-AddEventHandler('onResourceStop', function(resource)
+-- Through CisOnResourceStop (shared/owned.lua), so a forged stop is ignored.
+CisOnResourceStop(function(resource)
     if resource == GetCurrentResourceName() then
         return
     end
