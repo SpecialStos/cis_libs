@@ -1069,8 +1069,8 @@
     {
       "id": "M159",
       "file": "server/callback.lua",
-      "find": "    if not payloadWithinLimits(packed, MAX_CALLBACK_ARGS, CisCallbackLimits().maxStringLen) then\n",
-      "replace": "    if false then\n",
+      "find": "    elseif not payloadWithinLimits(packed, MAX_CALLBACK_ARGS, CisCallbackLimits().maxStringLen) then\n",
+      "replace": "    elseif false then\n",
       "why": "Accept any reply payload. A client's answer to a server callback is client data like any request, and an unbounded one is handed straight to the waiting server code."
     },
     {
@@ -2280,7 +2280,7 @@
     {
       "id": "M332",
       "file": "init.lua",
-      "find": "        if resource ~= RESOURCE or #replayOrder == 0 then\n            return\n        end",
+      "find": "        if #replayOrder == 0 then\n            return\n        end",
       "replace": "        if true then\n            return\n        end",
       "why": "Never replay. Every callback, target, sync hook and watcher a consumer made is gone after a cis_libs restart."
     },
@@ -2942,8 +2942,8 @@
       "id": "M426",
       "file": "web/js/app.js",
       "check": "web",
-      "find": "    if (!e.repeat) post('escape', {})",
-      "replace": "    post('escape', {})",
+      "find": "    if (!e.repeat) post('escape', { token: session })",
+      "replace": "    post('escape', { token: session })",
       "why": "Report every key repeat of a held Escape. One press closes every layer."
     },
     {
@@ -4212,6 +4212,70 @@
       "find": "'pressKey', 'lang',",
       "replace": "'pressKey',",
       "why": "SetUiLocale drops lang, so the page language can never be set."
+    },
+    {
+      "id": "M830",
+      "file": "tools/mutate.js",
+      "check": "tools",
+      "find": "  if (NO_INTERPRETER.test(run.out || '')) {",
+      "replace": "  if (false) {",
+      "why": "A mutation gate that exited because the Lua 5.4 interpreter is missing counts as killed: every lua54 row passes in a CI job with no interpreter."
+    },
+    {
+      "id": "M831",
+      "file": "test/suite-verdict.js",
+      "check": "tools",
+      "find": " && /passed=\\d+/.test(summary) && count > 0",
+      "replace": " && /passed=\\d+/.test(summary)",
+      "why": "A suite that prints a summary of passed=0 and exits 0 passes the fengari driver, so an early exit that ran nothing reads as green."
+    },
+    {
+      "id": "M832",
+      "file": "tools/validate-api.js",
+      "check": "api-selftest",
+      "find": "compareSemver(meta.until, meta.since) < 0",
+      "replace": "meta.until < meta.since",
+      "why": "Compare until and since as strings, so '9.0.0' sorts after '10.0.0' and an until that is before its since passes."
+    },
+    {
+      "id": "M833",
+      "file": "tools/validate-api.js",
+      "check": "api-selftest",
+      "find": "sinceCeiling !== null &&\n        compareSemver(meta.since, sinceCeiling) > 0) {",
+      "replace": "false) {",
+      "why": "An export may carry a since newer than the product version: no rule fails an entry that claims a release that does not exist."
+    },
+    {
+      "id": "M834",
+      "file": "tools/validate-api.js",
+      "check": "api-selftest",
+      "find": "} else if (sinceCeiling !== null && compareSemver(meta.since, sinceCeiling) > 0) {",
+      "replace": "} else if (false) {",
+      "why": "An event may carry a since newer than the product version: the since ceiling covers exports only."
+    },
+    {
+      "id": "M835",
+      "file": "tools/validate-api.js",
+      "check": "api-selftest",
+      "find": "compareSemver(manifest.unreleased, manifest.version) <= 0",
+      "replace": "false",
+      "why": "An unreleased field that is not ahead of version stays after the release it named has shipped, and keeps raising the since ceiling for good."
+    },
+    {
+      "id": "M836",
+      "file": "tools/validate-api.js",
+      "check": "api",
+      "find": "        sinceCeiling = manifest.unreleased\n",
+      "replace": "",
+      "why": "The unreleased field does not raise the since ceiling, so the entries added for the next release fail the validator."
+    },
+    {
+      "id": "M837",
+      "file": "tools/validate-api.js",
+      "check": "api-selftest",
+      "find": "return x[i] < y[i] ? -1 : 1",
+      "replace": "return String(x[i]) < String(y[i]) ? -1 : 1",
+      "why": "Compare each version component as text, so 9 sorts after 10 and a numeric ordering of releases is wrong at two digits."
     }
   ]
 }

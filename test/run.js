@@ -17,6 +17,7 @@
 // suite that dies is a suite that reports.
 const { spawnSync } = require('child_process')
 const path = require('path')
+const { judge } = require('./suite-verdict')
 
 const SUITES = [
   ['test/run.lua', 'registry and core'],
@@ -38,32 +39,7 @@ for (const [file, what] of SUITES) {
   const r = spawnSync(process.execPath, [runner, file], { encoding: 'utf8' })
   const out = `${r.stdout || ''}${r.stderr || ''}`
   process.stdout.write(out)
-
-  // A suite reports its own line. Three things are consulted, because trusting
-  // any one of them is how a suite "passes" having never run:
-  //
-  //   * the exit status -- a suite that throws prints no summary at all;
-  //   * the summary line -- the suite's own count;
-  //   * EVERY `FAIL` line in the output, counted independently.
-  //
-  // The third is not redundant. A suite writes its summary with io.write and its
-  // failures with io.stderr:write, so a failure that happens after the summary
-  // is printed is counted in neither. That is exactly the "silent exit is
-  // indistinguishable from a pass" failure this rewrite exists to remove, and it
-  // was reproduced deliberately: appending `expect(false)` to the end of
-  // modules.lua printed "module tests: passed=326 failed=0" and exited 0, with
-  // the FAIL sitting on stderr underneath it. A runner that only reads the
-  // summary would have passed that run.
-  const summary = out.split(/\r?\n/).find(l => /passed=\d+/.test(l)) || ''
-  const fails = (out.match(/^FAIL/gm) || []).length
-  const crashed = r.status !== 0
-  const reportedFail = /failed=[1-9]/.test(summary)
-  const ok = !crashed && !reportedFail && fails === 0 && /passed=\d+/.test(summary)
-
-  let count = 0
-  const m = /passed=(\d+)/.exec(summary)
-  if (m) count = Number(m[1])
-  results.push({ file, what, ok, count, fails, crashed, status: r.status, summary: summary.trim() })
+  results.push({ file, what, ...judge(out, r.status) })
 }
 
 console.log('\n===== per-suite summary =====')

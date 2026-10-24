@@ -32,6 +32,12 @@ return {
     -- name or signature changed -- that was the constraint the split was
     -- designed around, and it is the reason a 1.0 consumer needs no edit.
     version = '1.0.0',
+    -- The release this branch ships as (docs/V1.md D7). The three version strings
+    -- above stay at the current release until the bump, while new entries already
+    -- say `since = '1.1.0'`. The validator allows a `since` up to this number and
+    -- no further, and fails when it is not ahead of `version`: at the bump, set
+    -- `version` to this number and DELETE this line.
+    unreleased = '1.1.0',
     -- Contract major. Bumped only by a breaking change. An older consumer
     -- pinned to a prior major gets an explicit
     -- typed refusal, never a silently wrong answer.
@@ -1171,9 +1177,9 @@ return {
         },
         SetDropPlayerHandler = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Called by whoever ships the config, with "resource:Export". A FUNCTION cannot be sent across the boundary, which is why this exists',
+            use = 'Called by whoever ships the config, with "resource:Export". Name the export rather than passing a function: a function arrives as a funcref that raises once its resource stops or restarts, and the name resolves again after the restart',
             realm = 'server',
-            params = { { name = 'provider', type = 'string', doc = 'a "resource:Export" string in the same form RegisterCapability takes, for the same reason: a function cannot cross the boundary' } },
+            params = { { name = 'provider', type = 'string', doc = 'a "resource:Export" string in the same form RegisterCapability takes, for the same reason: a function arrives as a funcref that dies with its resource, and the name still resolves after a restart' } },
             returns = { { type = 'boolean, string', doc = 'the raw result of the registry register: true, or false plus a reason. Allow-list gated: a caller off Security.AuthorizedResources is refused before the slot is touched, because the first caller takes it' } },
         },
         PublishJobUpdate = {

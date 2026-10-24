@@ -167,6 +167,22 @@ check('mutate: a clean exit is a survivor candidate', () => {
   assert.strictEqual(mutate.classify({ code: 0, out: 'suite server failed=0\n' }).state, 'passed')
 })
 
+check('mutate: a gate that could not find its interpreter is not a kill', () => {
+  // tools/run-lua54.js under CI with no Lua 5.4 installed. The line starts with
+  // FAIL, so without its own rule it reads as a caught defect, and every
+  // `check: lua54` row would be killed whatever the mutation did.
+  const out = 'FAIL no Lua 5.4 interpreter found (set LUAC_LUA54, or install lua5.4). CI is set, so the Lua 5.4 suites are required, not optional.\n'
+  assert.strictEqual(mutate.classify({ code: 1, out }).state, 'error')
+  // A suite failure that merely mentions Lua 5.4 stays a kill.
+  assert.strictEqual(mutate.classify({ code: 1, out: 'FAIL(server): the Lua 5.4 driver passed a broken suite\n' }).state, 'failed')
+})
+
+check('mutate: every check name a row uses is known', () => {
+  const spec = JSON.parse(fs.readFileSync(path.join(root, 'test', 'mutations.json'), 'utf8'))
+  const names = new Set(spec.mutations.map(m => m.check).filter(Boolean))
+  assert.deepStrictEqual([...names].filter(n => !mutate.CHECKS[n]), [])
+})
+
 check('mutate: duplicate ids are found', () => {
   assert.deepStrictEqual(mutate.duplicateIds([{ id: 'M1' }, { id: 'M2' }, { id: 'M1' }]), ['M1'])
   assert.deepStrictEqual(mutate.duplicateIds([{ id: 'M1' }, { id: 'M2' }]), [])
@@ -175,6 +191,29 @@ check('mutate: duplicate ids are found', () => {
 check('mutate: test/mutations.json has no duplicate id', () => {
   const spec = JSON.parse(fs.readFileSync(path.join(root, 'test', 'mutations.json'), 'utf8'))
   assert.deepStrictEqual(mutate.duplicateIds(spec.mutations), [])
+})
+
+// ---------------------------------------------------------- suite-verdict.js
+const { judge } = require('../test/suite-verdict.js')
+
+check('verdict: a clean suite passes', () => {
+  const v = judge('module tests: passed=326 failed=0\n', 0)
+  assert.strictEqual(v.ok, true)
+  assert.strictEqual(v.count, 326)
+})
+
+check('verdict: a suite that ran no assertion is not a pass', () => {
+  // The fengari driver used to accept this: exit 0, a summary, passed=0.
+  const v = judge('module tests: passed=0 failed=0\n', 0)
+  assert.strictEqual(v.ok, false)
+  assert.strictEqual(v.count, 0)
+})
+
+check('verdict: no summary, a crash, a reported failure, or a late FAIL line is not a pass', () => {
+  assert.strictEqual(judge('', 0).ok, false)
+  assert.strictEqual(judge('module tests: passed=10 failed=0\n', 1).ok, false)
+  assert.strictEqual(judge('module tests: passed=10 failed=2\n', 0).ok, false)
+  assert.strictEqual(judge('module tests: passed=10 failed=0\nFAIL after the summary\n', 0).ok, false)
 })
 
 process.stdout.write(`\ntools-selftest: ${pass} passed, ${fail} failed\n`)

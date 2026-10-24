@@ -127,6 +127,7 @@ caller VM does not collect cis_libs.
 ## Docs
 
 - [DOCUMENTATION.md](DOCUMENTATION.md) — how it works, generated signatures
+- [docs/MIGRATING-FROM-OX_LIB.md](docs/MIGRATING-FROM-OX_LIB.md) — ox_lib calls mapped to cis_libs
 - [CHANGELOG.md](CHANGELOG.md)
 - [LICENSE.md](LICENSE.md)
 - [test/LIVE.md](test/LIVE.md) — live run ids

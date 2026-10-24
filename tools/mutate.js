@@ -41,6 +41,19 @@ function duplicateIds(rows) {
 // (TAP) and its spec reporter's `✖ name` / `ℹ fail N` lines.
 const TEST_FAILURE = /(^|\n)\s*(FAIL|not ok)\b|FAIL\(|failed=[1-9]|\[E\d+\]|# fail [1-9]|\u2139 fail [1-9]|\u2716 /
 
+// The second gate a row may name (see main()). 'tools' is the repository's own
+// tool self-test: tools/*.js and the suite driver are code no Lua suite runs.
+const CHECKS = {
+  web: ['test/web/run.mjs'],
+  lua54: ['tools/run-lua54.js'],
+  api: ['tools/validate-api.js', '--api', 'api.lua', '--resource', '.'],
+  // The validator's own fixtures (test/api/broken): rules the real manifest never trips.
+  'api-selftest': ['tools/validate-api.js', '--selftest'],
+  tools: ['test/tools-selftest.js'],
+}
+
+const NO_INTERPRETER = /no Lua 5\.4 interpreter found/
+
 // A non-zero exit is only evidence that a mutation was caught when the gate says
 // it found a failure. A spawn error (the runner could not start), a signal or
 // timeout, or a crash before any test ran (a missing module, a syntax error in
@@ -55,6 +68,12 @@ function classify(run) {
     return { state: 'error', detail: `no exit code (${run.signal || 'killed by a signal'})` }
   }
   if (run.code === 0) return { state: 'passed' }
+  // tools/run-lua54.js prints `FAIL no Lua 5.4 interpreter found` under CI when
+  // the interpreter is missing. That line matches TEST_FAILURE, but it says
+  // nothing about the mutation: every `lua54` row would count as killed.
+  if (NO_INTERPRETER.test(run.out || '')) {
+    return { state: 'error', detail: 'the gate could not run: no Lua 5.4 interpreter found' }
+  }
   if (TEST_FAILURE.test(run.out || '')) return { state: 'failed' }
   const last = String(run.out || '').trim().split('\n').pop().slice(0, 100)
   return { state: 'error', detail: `exit ${run.code} with no test failure in the output: ${last}` }
@@ -167,11 +186,6 @@ function main() {
         // that stops early, counts that differ from fengari) never run here
         // otherwise, because the suite above is the fengari one.
         if (m.check) {
-          const CHECKS = {
-            web: ['test/web/run.mjs'],
-            lua54: ['tools/run-lua54.js'],
-            api: ['tools/validate-api.js', '--api', 'api.lua', '--resource', '.'],
-          }
           const args = CHECKS[m.check]
           if (!args) throw new Error(`${m.id}: unknown check '${m.check}'`)
           const c = spawnSync(process.execPath, args, {
@@ -246,4 +260,4 @@ function main() {
 
 if (require.main === module) main()
 
-module.exports = { classify, duplicateIds }
+module.exports = { classify, duplicateIds, CHECKS }

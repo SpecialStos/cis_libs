@@ -29,6 +29,18 @@ const lualib = fengari.lualib
 const toLua = fengari.to_luastring
 
 const SEMVER = /^\d+\.\d+\.\d+$/
+
+// MAJOR.MINOR.PATCH compared as numbers: -1, 0 or 1. Both arguments must match
+// SEMVER. Compared as strings '10.0.0' sorts before '9.0.0', so a check built
+// on `<` goes wrong exactly when a component reaches two digits.
+function compareSemver(a, b) {
+  const x = a.split('.').map(Number)
+  const y = b.split('.').map(Number)
+  for (let i = 0; i < 3; i++) {
+    if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1
+  }
+  return 0
+}
 const SIGNATURE_RE = /^\(([^)]*)\)$/
 
 // ------------------------------------------------------------------ findings
@@ -192,6 +204,9 @@ function validate(manifest, surface, opts = {}) {
   if (typeof manifest.name !== 'string' || manifest.name === '') {
     r.add('E001', 'name', 'must be a non-empty string')
   }
+  // The newest `since` an entry may carry: the product version, raised by an
+  // `unreleased` field (see below).
+  let sinceCeiling = null
   if (typeof manifest.version !== 'string' || !SEMVER.test(manifest.version)) {
     r.add('E001', 'version', `must be a MAJOR.MINOR.PATCH string (got ${JSON.stringify(manifest.version)})`)
   } else {
@@ -216,6 +231,24 @@ function validate(manifest, surface, opts = {}) {
     const pkg = readPackageVersion(REPO_ROOT)
     if (pkg && pkg !== manifest.version) {
       r.add('E001', 'version', `is ${manifest.version} here but ${pkg} in package.json`)
+    }
+
+    // An entry cannot be `since` a release that does not exist yet. The product
+    // version is bumped at release (docs/V1.md D7), so work on the way to the
+    // next release carries that release's number in `since` while the three
+    // version strings still say the current one. `unreleased` names that next
+    // release: it raises the ceiling, it must be ahead of `version`, and it
+    // goes when the version is bumped. Without it the ceiling is `version`.
+    sinceCeiling = manifest.version
+    if (manifest.unreleased !== undefined) {
+      if (typeof manifest.unreleased !== 'string' || !SEMVER.test(manifest.unreleased)) {
+        r.add('E014', 'unreleased', `must be a MAJOR.MINOR.PATCH string (got ${JSON.stringify(manifest.unreleased)})`)
+      } else if (compareSemver(manifest.unreleased, manifest.version) <= 0) {
+        r.add('E014', 'unreleased',
+          `(${manifest.unreleased}) is not ahead of version (${manifest.version}); the release it named has shipped, so remove it`)
+      } else {
+        sinceCeiling = manifest.unreleased
+      }
     }
   }
   if (!Number.isInteger(manifest.api)) {
@@ -254,10 +287,14 @@ function validate(manifest, surface, opts = {}) {
     if (typeof meta.since !== 'string' || !SEMVER.test(meta.since)) {
       r.add('E010', `${where}.since`, `is required and must be MAJOR.MINOR.PATCH (got ${JSON.stringify(meta.since)})`)
     }
+    if (typeof meta.since === 'string' && SEMVER.test(meta.since) && sinceCeiling !== null &&
+        compareSemver(meta.since, sinceCeiling) > 0) {
+      r.add('E014', `${where}.since`, `(${meta.since}) is after the product version (${sinceCeiling})`)
+    }
     if (meta.until !== false && meta.until !== undefined) {
       if (typeof meta.until !== 'string' || !SEMVER.test(meta.until)) {
         r.add('E011', `${where}.until`, `must be false or a MAJOR.MINOR.PATCH string (got ${JSON.stringify(meta.until)})`)
-      } else if (SEMVER.test(meta.since || '') && meta.until < meta.since) {
+      } else if (SEMVER.test(meta.since || '') && compareSemver(meta.until, meta.since) < 0) {
         r.add('E011', `${where}.until`, `(${meta.until}) is before since (${meta.since})`)
       }
     }
@@ -331,6 +368,8 @@ function validate(manifest, surface, opts = {}) {
       const where = `events['${name}']`
       if (typeof meta.since !== 'string' || !SEMVER.test(meta.since)) {
         r.add('E040', `${where}.since`, `is required and must be MAJOR.MINOR.PATCH (got ${JSON.stringify(meta.since)})`)
+      } else if (sinceCeiling !== null && compareSemver(meta.since, sinceCeiling) > 0) {
+        r.add('E014', `${where}.since`, `(${meta.since}) is after the product version (${sinceCeiling})`)
       }
       if (typeof meta.payload !== 'string' || meta.payload === '') {
         r.add('E040', `${where}.payload`, 'must be a non-empty string describing the arguments')

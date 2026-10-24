@@ -4214,7 +4214,12 @@ end
                 .. '(50 passes: %d, 450 passes: %d) -- no table per pass'):format(
                 math.floor(long - short), math.floor(short), math.floor(long)))
     else
-        check(true, '19: (heap growth is measured under lua5.4; fengari has no collectgarbage)')
+        -- Not a placeholder: the measurement may be skipped only where the
+        -- runtime cannot count a heap (fengari reports Lua 5.3). A real Lua 5.4
+        -- that reaches this branch has lost collectgarbage, and the heap check
+        -- above would silently stop running.
+        check(_VERSION ~= 'Lua 5.4',
+            ('19: heap growth is skipped only where collectgarbage cannot count (%s)'):format(tostring(_VERSION)))
     end
 
     -- THE THREAD ENDS WITH THE LAST ZONE, and the next zone starts a new one.

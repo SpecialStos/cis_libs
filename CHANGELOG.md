@@ -47,12 +47,6 @@ Check these first; each is a line under **Changed** or **Deprecated**.
   left out now keeps its default. Each supply starts from fresh defaults, so a
   second supply still replaces the first one's allow-list. A supplier that
   wants kicks off says `DropPlayer = false`.
-- **A local zone event from another resource must carry that resource's
-  prefix.** With `local = true`, a zone created by `shop` may only fire
-  `shop:...` events. Before, any resource could have cis_libs fire
-  `cis_libs:cache` or `onResourceStop` locally with cis_libs as the
-  invoker, which the cache mirror and the stop guard both trust. Event names
-  are now strings of 1 to 128 bytes.
 - **`local` must be exactly `true`, and it now applies to all three zone
   events.** It used to switch only when `insideEvent` was set, so a zone
   with only `onEnterEvent` and `local = true` sent a server event.
@@ -60,35 +54,14 @@ Check these first; each is a line under **Changed** or **Deprecated**.
   points or a non-finite or inverted `minZ`/`maxZ`, a box with a
   non-positive axis or a non-finite heading, and a sphere with a
   non-positive radius. Zones and points must lie within 100 km of the origin.
-- **`HookRemove` only removes the caller's own hooks** (cis_libs may remove
-  any). Hook ids count up from 1, so a loop could strip every veto.
 - **Streaming timeouts must be 0 to 600000 ms.** NaN, infinity, a negative
   or a non-number is refused before anything is requested.
 
-- **`CommandAdd` refuses a name the server already knows**, another
-  resource's command or a builtin (matched without regard to case), and a
-  re-add that changes `restricted`. cis_libs provisions `add_ace` only for
-  `group.*` principals; `builtin.everyone`, `player.*` and `identifier.*` are
-  printed for the operator instead.
-- **A net event's owner is always the caller.** `SecureNetOn` refuses a
-  resource that binds another resource's export (`'bank:Withdraw'` from
-  `thief`). The rate limit runs before the schema, and a bad payload is
-  reported once per player and event per run of them, not once per event.
-- **Net event payloads are size-bounded, like callbacks.** Before the schema
-  and the handler, `SecureNetOn` refuses more than 32 arguments, a string
-  (key or value) longer than `Config.CallbackLimits.MaxStringLen` (4096),
-  more than 256 table entries across the payload, or nesting deeper than 8.
-  A handler may set its own `maxArgs`, `maxStringLen`, `maxEntries` and
-  `maxDepth`; a malformed one refuses the registration. An oversized
-  payload is counted as `netSchemaRefused` and reported like a schema
-  failure. Callbacks and net events share the one walker.
 - **The payload schema refuses infinity and can say `integer`.** A
   `number` that is +inf or -inf is refused unless the rule sets
   `finite = false`; NaN is always refused. `type = 'integer'` accepts a
   whole, finite number within +-2^53 (`3.0` counts). This applies to
   `SecureNetOn` and `RegisterCallback` schemas alike.
-- **Server callback names are owned.** `RegisterCallback` refuses a name
-  another resource holds (cis_libs may replace any).
 - **The rate limiter evicts expired buckets** instead of refusing every new
   name once a player holds 256, and a refusal at that cap is never escalated
   to a report or a kick. `RateOk` answers `false, 'cap'` for it. A string
@@ -142,9 +115,6 @@ Check these first; each is a line under **Changed** or **Deprecated**.
   `cis_allow_any_resource`, `cis_config_supplier`, `cis_check_version` and the
   `cis_cb_*` callback limits outrank `SetConfig`; a `convar_category` shows
   them in txAdmin. Without convars, `SetConfig` behaves as before.
-- **Door mutators (`BreakDoor`, `FixDoor`, `LockDoors`, `UnlockDoors`),
-  `PublishPlayerLoaded` and `SetDropPlayerHandler` are allow-list gated**, like
-  their siblings. A refusal keeps the old return shape plus a reason.
 - **`RegisterCallback` answers `false, reason`** on refusal (was a bare
   `false`) and takes `opts = { remote, ace, schema, maxStringLen }`. Every
   remote call's strings are capped (default 4096).
@@ -161,9 +131,6 @@ Check these first; each is a line under **Changed** or **Deprecated**.
   the payload is held and answered `true, 'held until ...'`, then filed or
   refused. First-come slots let any resource that started first own `ui`,
   `target`, `framework` or `security` for every consumer.
-- **Pending callback keys are opaque string tokens** (a counter plus 60
-  random bits), on both realms. `CallCallbackClient` / `Cis.callback.callClient`
-  return one where they returned an integer; it is only ever echoed back.
 - **Server zones belong to one routing bucket** (`opts.bucket`, default 0).
 - **World queries exclude the local player** (and player peds from ped
   queries) unless `opts.includeSelf` / `opts.includePlayers`.
@@ -188,9 +155,6 @@ Check these first; each is a line under **Changed** or **Deprecated**.
 - **`SkillCheck` is judged in Lua.** Lua places each zone, owns the clock and
   reads the keys; the page only draws. A press seen one frame late still
   counts (up to 34 ms); a round with no press fails once the needle passes.
-- **NUI ids and tokens are opaque strings** (a counter plus 60 random bits).
-  Any frame can post to `https://cis_libs/<callback>`, and ids counted from 1,
-  so another resource's page could answer an open dialog.
 - **An icon name that is not a built-in draws nothing** (and is logged once)
   where it drew the word. The built-in set is 63 icons, and about a hundred
   more Font Awesome names used by ox_lib callers (`home`, `cog`,
@@ -231,9 +195,6 @@ Check these first; each is a line under **Changed** or **Deprecated**.
   `nil, reason`.
 - **`GetClosestPoint` answers the caller's own nearest point**, as
   `GetAllPoints` already did; cis_libs still sees every point.
-- **`KeybindAdd` refuses a name whose `+name` command another resource
-  registered** (or a builtin, in any case). Each consumer's engine only saw
-  its own bindings, so two resources could both bind `menu`.
 - **`RaycastCamera` refuses a distance that is infinite or over 100 km**, and
   `RaycastFromCoords` refuses a NaN or infinite origin or target.
 - **`CisRandom` with a generator or a function raises for the 64-bit integer
@@ -493,15 +454,6 @@ which is forgotten when that resource stops.
 - The restrictive-posture warning printed
   `Security.AuthorizedResources is empty` twice in a row, as the reason and
   again in the explanation. It prints it once.
-- **A forged `onResourceStart` replayed a consumer's records.** Any script can
-  fire `onResourceStart` with `'cis_libs'` as its argument. Before, each
-  consumer then re-registered every capability, net handler and hook onto the
-  running cis_libs. Now a replay needs a real cis_libs stop first, and both the
-  stop and the start must come from the engine. One real stop allows one replay.
-- **A callback request's key was echoed back unbounded.** `cis_libs:cb` sent
-  the client's key straight back in its reply, so a 32 KiB key came back as
-  32 KiB. A key must now be a number, nil or a string of at most 64
-  characters; any other key gets no reply.
 - **Security: a bad net payload is reported again after a pause.** The
   report was once per player and event for the whole connection, so a
   security provider that bans after N strikes never saw strike two. A run
@@ -543,13 +495,6 @@ which is forgotten when that resource stops.
   exits early or runs no assertion, and compares each suite's assertion
   count with the fengari run. `tools/mutate.js` gained a `lua54` check.
 
-- **Exploitable:** with the documented `add_ace resource.cis_libs
-  command.add_ace allow` grant, any resource could have cis_libs run
-  `add_ace builtin.everyone command.<any> allow`, opening another resource's
-  admin command, or a builtin, to every player.
-- **Exploitable:** any resource could replace another's net binding by naming
-  that resource in a `'resource:export'` string, stripping its schema and
-  rate limit; and could replace another's server callback by name.
 - A `'resource:export'` callback whose export was missing raised past the
   in-flight release: after eight such requests the player got `busy` from
   every callback until they reconnected. The lookup is guarded, the slot is
@@ -583,45 +528,6 @@ which is forgotten when that resource stops.
   fractional streaming or raycast timeout raised on `%d`.
 - The point pass allocated a closure on every discovery refresh; its grid
   visitor is now file-level, like the zone visitor.
-- **Exploitable:** a net event handler was registered again on every consumer
-  restart, so one client event ran N+1 times. The rate limiter counted window
-  rolls as buckets and locked active players out of new events for the
-  session.
-- **Exploitable:** any client resource could forge the client's
-  `cis_libs:cb`, `cis_libs:cb:res` and `cis_libs:client:syncBatch` with a
-  local `TriggerEvent`: run a consumer's client callback with its own
-  arguments, answer every in-flight `Cis.callback.await` (keys counted from 1)
-  with its own data, and spawn or delete synced entities. All three now
-  require a server `source`, and the batch number must be an integer in
-  1..2^31-1, so one forged batch can no longer pin a key above every real one.
-- **Exploitable:** `TriggerEvent('onResourceStop', 'victim')` from any
-  client script released the victim's zones, points, keybinds (for the
-  session), targets, client callbacks, cache listeners, near watchers,
-  statebag watchers, hooks, NUI focus and capability slots, and destroyed a
-  consumer's DUIs and scaleforms; naming `cis_libs` despawned every synced
-  entity. Every client stop handler (16, plus the consumer-side ones in
-  `init.lua` and the cache mirror) now ignores a stop that another script
-  triggered: a real one has no script below the handler, so
-  `GetInvokingResource()` is nil. `GetResourceState(name) == 'stopping'`
-  cannot tell them apart — FiveM still reports `started` during the event.
-  Server handlers are unchanged: a txAdmin restart arrives from a script.
-- Any client resource could take over another's client callback name
-  (`RegisterCallback` replaced it) and remove any resource's near watcher
-  (`RemoveNearWatcher` had no owner check, and ids count from 1). Both now
-  refuse a foreign owner with `false, reason`; the client `RegisterCallback`
-  returns its reason on every refusal (was a bare `false`).
-- **Exploitable:** any resource's page could drive the cis_libs NUI. A
-  `postMessage` into its frame drew a fake dialog or stopped a skill check (the
-  page now takes messages only from the NUI root), and a fetch could confirm
-  an alert, pick a context or radial option, fill an input dialog or pass a
-  skill check by counting ids from 1.
-- **Exploitable:** the NUI's `escape` and `ready` callbacks carried no token,
-  so any frame could cancel the top dialog through `escape`, or reset and
-  close every open component through `ready`. The page now gets a session
-  token from Lua in a handshake (a tokenless `ready` is answered with a
-  `hello` only the cis_libs page receives, and only the `ready` that echoes
-  it is acted on), and every Escape carries it. A page that has loaded
-  ignores a later `hello`, so a forged `ready` cannot make it reset.
 - Every centred NUI panel (top and bottom toasts, centred text UI, progress,
   skill check) sat half its size off centre in FiveM: the standalone
   `translate` / `rotate` properties are Chromium 104, and CEF is 103. They are
@@ -777,6 +683,17 @@ which is forgotten when that resource stops.
 - The page bundle test rejects a root-absolute or remote path in index.html
   (its rule let `/style.css` through) and fails on any `backdrop-filter`
   (NUI-N3).
+- **Tooling.** The mutation gate no longer counts a `lua54` row as killed when
+  the Lua 5.4 interpreter is missing (it reports an error), and the CI `mutate`
+  job installs `lua5.4`. Rows M159, M332 and M426 are re-anchored. The suite
+  driver fails a suite that ran no assertion (`passed=0`). `validate-api` compares
+  versions numerically and refuses a `since` above the package version (E014);
+  `api.lua` names the next release in `unreleased` so the entries that say
+  `since = '1.1.0'` stay valid before the version bump. A vacuous `check(true)`
+  in the contracts suite is a real assertion. The hooks documentation says a
+  hook takes a callable or a `'resource:Export'` string, never an event name.
+- Added `docs/MIGRATING-FROM-OX_LIB.md`, mapping ox_lib calls to the `api.lua`
+  entries that do the same job.
 
 ### Security
 
@@ -803,6 +720,100 @@ which is forgotten when that resource stops.
   limited** (10 per kind per 10 s; the dropped count is logged once the window
   ends), with control characters collapsed. Any frame could post forged or
   endless lines into the client log (NUI-N2).
+- **A local zone event from another resource must carry that resource's
+  prefix.** With `local = true`, a zone created by `shop` may only fire
+  `shop:...` events. Before, any resource could have cis_libs fire
+  `cis_libs:cache` or `onResourceStop` locally with cis_libs as the
+  invoker, which the cache mirror and the stop guard both trust. Event names
+  are now strings of 1 to 128 bytes.
+- **`HookRemove` only removes the caller's own hooks** (cis_libs may remove
+  any). Hook ids count up from 1, so a loop could strip every veto.
+- **A net event's owner is always the caller.** `SecureNetOn` refuses a
+  resource that binds another resource's export (`'bank:Withdraw'` from
+  `thief`). The rate limit runs before the schema, and a bad payload is
+  reported once per player and event per run of them, not once per event.
+- **Net event payloads are size-bounded, like callbacks.** Before the schema
+  and the handler, `SecureNetOn` refuses more than 32 arguments, a string
+  (key or value) longer than `Config.CallbackLimits.MaxStringLen` (4096),
+  more than 256 table entries across the payload, or nesting deeper than 8.
+  A handler may set its own `maxArgs`, `maxStringLen`, `maxEntries` and
+  `maxDepth`; a malformed one refuses the registration. An oversized
+  payload is counted as `netSchemaRefused` and reported like a schema
+  failure. Callbacks and net events share the one walker.
+- **Server callback names are owned.** `RegisterCallback` refuses a name
+  another resource holds (cis_libs may replace any).
+- **`CommandAdd` refuses a name the server already knows**, another
+  resource's command or a builtin (matched without regard to case), and a
+  re-add that changes `restricted`. cis_libs provisions `add_ace` only for
+  `group.*` principals; `builtin.everyone`, `player.*` and `identifier.*` are
+  printed for the operator instead.
+- **Door mutators (`BreakDoor`, `FixDoor`, `LockDoors`, `UnlockDoors`),
+  `PublishPlayerLoaded` and `SetDropPlayerHandler` are allow-list gated**, like
+  their siblings. A refusal keeps the old return shape plus a reason.
+- **`KeybindAdd` refuses a name whose `+name` command another resource
+  registered** (or a builtin, in any case). Each consumer's engine only saw
+  its own bindings, so two resources could both bind `menu`.
+- **NUI ids and tokens are opaque strings** (a counter plus 60 random bits).
+  Any frame can post to `https://cis_libs/<callback>`, and ids counted from 1,
+  so another resource's page could answer an open dialog.
+- **Pending callback keys are opaque string tokens** (a counter plus 60
+  random bits), on both realms. `CallCallbackClient` / `Cis.callback.callClient`
+  return one where they returned an integer; it is only ever echoed back.
+- **A forged `onResourceStart` replayed a consumer's records.** Any script can
+  fire `onResourceStart` with `'cis_libs'` as its argument. Before, each
+  consumer then re-registered every capability, net handler and hook onto the
+  running cis_libs. Now a replay needs a real cis_libs stop first, and both the
+  stop and the start must come from the engine. One real stop allows one replay.
+- **A callback request's key was echoed back unbounded.** `cis_libs:cb` sent
+  the client's key straight back in its reply, so a 32 KiB key came back as
+  32 KiB. A key must now be a number, nil or a string of at most 64
+  characters; any other key gets no reply.
+- **Exploitable:** with the documented `add_ace resource.cis_libs
+  command.add_ace allow` grant, any resource could have cis_libs run
+  `add_ace builtin.everyone command.<any> allow`, opening another resource's
+  admin command, or a builtin, to every player.
+- **Exploitable:** any resource could replace another's net binding by naming
+  that resource in a `'resource:export'` string, stripping its schema and
+  rate limit; and could replace another's server callback by name.
+- **Exploitable:** a net event handler was registered again on every consumer
+  restart, so one client event ran N+1 times. The rate limiter counted window
+  rolls as buckets and locked active players out of new events for the
+  session.
+- **Exploitable:** any client resource could forge the client's
+  `cis_libs:cb`, `cis_libs:cb:res` and `cis_libs:client:syncBatch` with a
+  local `TriggerEvent`: run a consumer's client callback with its own
+  arguments, answer every in-flight `Cis.callback.await` (keys counted from 1)
+  with its own data, and spawn or delete synced entities. All three now
+  require a server `source`, and the batch number must be an integer in
+  1..2^31-1, so one forged batch can no longer pin a key above every real one.
+- **Exploitable:** `TriggerEvent('onResourceStop', 'victim')` from any
+  client script released the victim's zones, points, keybinds (for the
+  session), targets, client callbacks, cache listeners, near watchers,
+  statebag watchers, hooks, NUI focus and capability slots, and destroyed a
+  consumer's DUIs and scaleforms; naming `cis_libs` despawned every synced
+  entity. Every client stop handler (16, plus the consumer-side ones in
+  `init.lua` and the cache mirror) now ignores a stop that another script
+  triggered: a real one has no script below the handler, so
+  `GetInvokingResource()` is nil. `GetResourceState(name) == 'stopping'`
+  cannot tell them apart — FiveM still reports `started` during the event.
+  Server handlers are unchanged: a txAdmin restart arrives from a script.
+- Any client resource could take over another's client callback name
+  (`RegisterCallback` replaced it) and remove any resource's near watcher
+  (`RemoveNearWatcher` had no owner check, and ids count from 1). Both now
+  refuse a foreign owner with `false, reason`; the client `RegisterCallback`
+  returns its reason on every refusal (was a bare `false`).
+- **Exploitable:** any resource's page could drive the cis_libs NUI. A
+  `postMessage` into its frame drew a fake dialog or stopped a skill check (the
+  page now takes messages only from the NUI root), and a fetch could confirm
+  an alert, pick a context or radial option, fill an input dialog or pass a
+  skill check by counting ids from 1.
+- **Exploitable:** the NUI's `escape` and `ready` callbacks carried no token,
+  so any frame could cancel the top dialog through `escape`, or reset and
+  close every open component through `ready`. The page now gets a session
+  token from Lua in a handshake (a tokenless `ready` is answered with a
+  `hello` only the cis_libs page receives, and only the `ready` that echoes
+  it is acted on), and every Escape carries it. A page that has loaded
+  ignores a later `hello`, so a forged `ready` cannot make it reset.
 
 ## [1.0.0] — 2026-10-07
 
