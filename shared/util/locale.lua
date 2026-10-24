@@ -148,13 +148,15 @@ function M.has(key)
     return state.phrases[key] ~= nil
 end
 
-local function fill(args)
+-- escape doubles each % so the later string.format prints the value as it is.
+local function fill(args, escape)
     return function(name)
         local v = args[name]
         if v == nil then
             return nil
         end
-        return tostring(v)
+        v = tostring(v)
+        return escape and v:gsub('%%', '%%%%') or v
     end
 end
 
@@ -175,17 +177,19 @@ function M.t(key, ...)
     end
     local first = ...
     local from = 1
+    local filled = phrase
     if type(first) == 'table' then
+        -- Values are escaped for the string.format below; the plain fill is the
+        -- fallback when that format fails.
+        filled = (phrase:gsub('%${([%w_%.%-]+)}', fill(first, true)))
         phrase = (phrase:gsub('%${([%w_%.%-]+)}', fill(first)))
         from = 2
     end
-    if nargs >= from then
-        local ok, formatted = pcall(string.format, phrase, select(from, ...))
-        if ok then
-            return formatted
-        end
-        warnOnce(key .. '#format', ('the phrase for %q does not fit its arguments: %s'):format(key, tostring(formatted)))
+    local ok, formatted = pcall(string.format, filled, select(from, ...))
+    if ok then
+        return formatted
     end
+    warnOnce(key .. '#format', ('the phrase for %q does not fit its arguments: %s'):format(key, tostring(formatted)))
     return phrase
 end
 

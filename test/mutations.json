@@ -3382,6 +3382,62 @@
       "find": "        if depth > MAX_COPY_DEPTH then",
       "replace": "        if false then",
       "why": "defaults has no depth limit, so a 300k-level table overflows the stack in its copy."
+    },
+    {
+      "id": "M515",
+      "file": "shared/algo/rate.lua",
+      "find": "            idle = r.windowSec + r.sliceSec",
+      "replace": "            idle = r.windowSec",
+      "why": "prune frees a sliding key after one window, while its oldest slice still weighs on the limiter for one slice more."
+    },
+    {
+      "id": "M516",
+      "file": "shared/algo/window.lua",
+      "find": "        if late >= ringSize then",
+      "replace": "        if false then",
+      "why": "A sample older than the whole ring is not refused, so it lands in a slot that holds a newer bucket."
+    },
+    {
+      "id": "M517",
+      "file": "shared/algo/window.lua",
+      "find": "    if late then i = (i - 1 - late) % ringSize + 1 end",
+      "replace": "",
+      "why": "A late sample is added to the newest bucket instead of its own."
+    },
+    {
+      "id": "M518",
+      "file": "shared/algo/window.lua",
+      "find": "    elseif bucketIndex < entry.lastBucket then",
+      "replace": "    elseif false then",
+      "why": "A late sample moves lastBucket backwards again, so the newest bucket is relabelled old and its live samples read as expired."
+    },
+    {
+      "id": "M519",
+      "file": "shared/util/mathx.lua",
+      "find": "    if a == math.huge or a == -math.huge or b == math.huge or b == -math.huge then",
+      "replace": "    if false then",
+      "why": "approx scales the tolerance by an infinity, so an infinity equals a huge finite number and its own opposite."
+    },
+    {
+      "id": "M520",
+      "file": "shared/util/mathx.lua",
+      "find": "    a, b = a + 0.0, b + 0.0",
+      "replace": "",
+      "why": "approx subtracts integers in integer arithmetic again, so maxinteger and -1 wrap to a tiny difference and compare equal."
+    },
+    {
+      "id": "M521",
+      "file": "shared/util/locale.lua",
+      "find": "        return escape and v:gsub(%%, %%%%) or v",
+      "replace": "        return v",
+      "why": "A named value holding % is handed to string.format raw, so it eats the positional arguments or raises."
+    },
+    {
+      "id": "M522",
+      "file": "shared/util/locale.lua",
+      "find": "    if ok then\n        return formatted\n    end\n    warnOnce(key .. #format",
+      "replace": "    if ok and nargs >= from then\n        return formatted\n    end\n    warnOnce(key .. #format",
+      "why": "A table with no positional argument skips string.format, so %% stays doubled there but collapses beside a positional argument."
     }
   ]
 }

@@ -267,7 +267,7 @@ end
 ---@param key any
 ---@param value number  non-numeric values and NaN are IGNORED rather than
 ---@param now number
----@return boolean  whether the sample was recorded
+---@return boolean  whether the sample was recorded; false for one older than the whole window
 function M.record(stats, key, value, now)
     if type(value) ~= 'number' or value ~= value then
         return false
@@ -302,9 +302,18 @@ function M.record(stats, key, value, now)
         entry.lasts[i] = nil
     end
 
+    -- How many buckets behind the newest this sample is, when it is late.
+    local late
     if entry.lastBucket == nil then
         entry.lastBucket = bucketIndex
         entry.idx = 1
+    elseif bucketIndex < entry.lastBucket then
+        -- The newest bucket stays the newest: moving lastBucket back would relabel
+        -- the ring, and every live sample in it would read as expired.
+        late = entry.lastBucket - bucketIndex
+        if late >= ringSize then
+            return false
+        end
     elseif bucketIndex ~= entry.lastBucket then
         local steps = bucketIndex - entry.lastBucket
         if steps >= ringSize then
@@ -323,6 +332,7 @@ function M.record(stats, key, value, now)
     end
 
     local i = entry.idx
+    if late then i = (i - 1 - late) % ringSize + 1 end
     entry.sums[i] = (entry.sums[i] or 0) + value
     entry.counts[i] = (entry.counts[i] or 0) + 1
     local mn, mx = entry.mins[i], entry.maxs[i]

@@ -130,6 +130,12 @@ function M.approx(a, b, epsilon)
     if a == b then
         return true
     end
+    -- Unequal and either side infinite: the tolerance would scale to infinity too.
+    if a == math.huge or a == -math.huge or b == math.huge or b == -math.huge then
+        return false
+    end
+    -- In floats: integer arithmetic wraps, and math.abs(math.mininteger) with it.
+    a, b = a + 0.0, b + 0.0
     local eps = epsilon or 1e-9
     local scale = math.max(1, math.abs(a), math.abs(b))
     return math.abs(a - b) <= eps * scale

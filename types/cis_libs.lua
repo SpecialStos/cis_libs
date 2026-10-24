@@ -270,7 +270,7 @@ local CisKeybindOptions = {}
 local CisLRU = {}
 
 ---@class CisLocale
--- The table Cis.require('locale') returns. Translations from the CALLING resource's locales/<lang>.json, language from the replicated convar cis:locale else en, with en as the fallback file and the fallback per key. t(key, ...) fills ${name} from a table and %s positionally; a missing key answers the key and warns once.
+-- The table Cis.require('locale') returns. Translations from the CALLING resource's locales/<lang>.json, language from the replicated convar cis:locale else en, with en as the fallback file and the fallback per key. t(key, ...) fills ${name} from a table and %s positionally; a % inside a named value prints as it is, and %% prints as one % whenever any argument is given; a missing key answers the key and warns once.
 ---@field load fun(lang?: string): string|nil, string|nil # Load a language from the calling resource's locales folder.
 ---@field set fun(lang: string): string|nil, string|nil # Switch language; the same as load(lang).
 ---@field getLanguage fun(): string|nil # The language in use.

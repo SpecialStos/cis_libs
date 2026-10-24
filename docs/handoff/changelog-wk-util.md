@@ -22,9 +22,25 @@ re-audit numbers in `reaudit-modules.md`.
   the stack overflowed.
 - **`validate.defaults` returns `nil, why` for a cyclic table or one nested
   deeper than 64 levels** (A-M8). It used to raise a stack overflow.
+- **`locale.t` fills named values after formatting, not before** (A-M9). A
+  `%` inside a `${name}` value now prints as it is and no longer shifts the
+  positional arguments or raises. `%%` is now one `%` whenever any argument
+  is given, including a table alone; with no argument the phrase is returned
+  verbatim, as before. When the phrase does not fit its arguments the name-filled
+  phrase is returned, with the values unescaped, and the warning is logged once.
+- **`rate.prune` keeps a sliding limiter for its window plus one slice by
+  default** (A-M5), so a key the ring still blocks is no longer freed early.
+- **`window.record` accepts a sample older than the newest one** (A-M6). It
+  is added to its own bucket and returns false only when it is older than the
+  whole window.
 
 ### Fixed
 
 - `mathx.round(0.49999999999999994)` returned 1; it returns 0. The result
   of `round(1.5, 400)` was NaN and `round(1e308, 1)` was infinity; both
   return the value (A-M2).
+- `mathx.approx` no longer calls an infinity equal to a huge finite number or
+  to its opposite, and compares integers as floats so `approx(maxinteger, -1)`
+  is false instead of wrapping to a tiny difference (A-M3).
+- A late `window.record` no longer moves the newest bucket backwards, which
+  made live samples read as expired (A-M6).

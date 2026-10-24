@@ -343,6 +343,9 @@ function M.prune(r, now, idleSec)
     if type(idle) ~= 'number' or idle ~= idle or idle <= 0 then
         if r.kind == 'token' then
             idle = r.capacity / r.refillPerSec
+        elseif r.kind == 'sliding' then
+            -- The ring weights its oldest slice for one slice past the window.
+            idle = r.windowSec + r.sliceSec
         else
             idle = r.windowSec
         end

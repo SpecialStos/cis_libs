@@ -398,6 +398,12 @@ do
     expect(mid.x == 5 and mid.y == 10, 'mathx: lerp works on a vector type (FiveM vector2/3/4)')
     expect(X.approx(0.1 + 0.2, 0.3) and not X.approx(1, 1.001) and X.approx(1e20, 1e20 + 1e5)
         and not X.approx(0 / 0, 0 / 0) and X.approx(math.huge, math.huge), 'mathx: approx scales with magnitude, NaN is never equal')
+    -- An infinity scaled the tolerance to infinity, and integers subtracted in
+    -- integer arithmetic, where maxinteger - (-1) wraps to a tiny number.
+    expect(not X.approx(math.huge, 1e308) and not X.approx(math.huge, -math.huge) and not X.approx(-math.huge, 5)
+        and X.approx(-math.huge, -math.huge), 'mathx: approx never calls an infinity equal to a finite number or to its opposite')
+    expect(not X.approx(math.maxinteger, -1) and not X.approx(math.mininteger, 1) and X.approx(math.maxinteger, math.maxinteger)
+        and X.approx(3, 3.0000000001), 'mathx: approx does not let a wrapped integer difference pass')
     expect(X.toHex(255) == 'ff' and X.toHex(255, { upper = true, width = 4, prefix = '0x' }) == '0x00FF'
         and X.toHex(-16) == '-10' and X.toHex(0) == '0', 'mathx: toHex with options and sign')
     expect(X.toHex(1.5) == nil and X.toHex(2 ^ 53) == nil, 'mathx: toHex refuses a fraction and 2^53')
@@ -587,7 +593,7 @@ do
     GetCurrentResourceName = function() return 'shop' end -- luacheck: ignore 121
     local decoded = {
         EN = { greet = 'Hello ${name}', shop = { price = 'Costs $%s', both = '${who} paid %s', only = 'en only' },
-            n = 5, count = '%d items' },
+            n = 5, count = '%d items', pct = 'Hi ${name}: %s', half = '${name}: 50%% off' },
         PT = { greet = 'Ola ${name}', shop = { price = 'Custa R$%s' } },
     }
     json = { decode = function(text) -- luacheck: ignore 121
@@ -610,6 +616,13 @@ do
     expect(L.t('shop.only') == 'en only', 'locale: a key missing from the language falls back to English')
     expect(L.t('shop.both', { who = 'Bo' }, 9) == 'Bo paid 9', 'locale: a table then positional arguments')
     expect(L.t('n') == '5', 'locale: a number phrase becomes text')
+    -- ${name} was filled first and the result went through string.format, so a
+    -- value holding '%' broke the positional arguments, and '%%' collapsed only
+    -- when a positional argument came with the table.
+    expect(L.t('pct', { name = '50%' }, 'x') == 'Hi 50%: x' and L.t('pct', { name = '100%s' }, 'x') == 'Hi 100%s: x',
+        'locale: a named value holding % is printed as it is and leaves the positional arguments alone')
+    expect(L.t('half', { name = 'A' }) == 'A: 50% off' and L.t('half', { name = 'A' }, 1) == 'A: 50% off',
+        'locale: %% is one % with a table alone and with a table plus positional arguments')
 
     capture()
     local miss1 = L.t('nope.key')

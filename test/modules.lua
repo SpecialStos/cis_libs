@@ -2382,6 +2382,44 @@ do
     expect(okD and filled ~= nil and filled.a.x == 1 and filled.b.x == 1, 'validate: a table shared by two keys is not a cycle')
 end
 
+-- ----------------------------- rate: prune keeps a key the sliding window blocks
+do
+    local R = CisRate
+    -- The default idle time was one window, but the ring still weights the oldest
+    -- slice for one slice more: with 10 per 10 s, a prune at t = 10 freed a key
+    -- that is blocked until t = 11 and let 10 more hits through.
+    local lim = R.newSliding({ limit = 10, windowSec = 10 })
+    for _ = 1, 10 do R.allow(lim, 'k', 0) end
+    expect(R.prune(lim, 10) == 0 and R.count(lim) == 1, 'rate: prune at exactly one window keeps a key the sliding limiter still blocks')
+    expect(R.allow(lim, 'k', 10) == false, 'rate: and that key is still refused at t = 10')
+    local lim2 = R.newSliding({ limit = 10, windowSec = 10 })
+    for _ = 1, 10 do R.allow(lim2, 'k', 0) end
+    expect(R.prune(lim2, 11) == 1 and R.count(lim2) == 0, 'rate: prune one slice later reclaims it')
+    expect(R.allow(lim2, 'k', 11) == true, 'rate: and the key has its full allowance after that')
+    local fixed = R.newFixed({ limit = 1, windowSec = 10 })
+    R.allow(fixed, 'k', 0)
+    expect(R.prune(fixed, 10) == 1, 'rate: a fixed window is still reclaimed after one window')
+end
+
+-- ------------------------- window: a sample older than the newest keeps the rest
+do
+    local W = CisWindow
+    -- record moved lastBucket back to the late sample's bucket without moving the
+    -- ring, so the newest bucket was relabelled as old and read as expired.
+    local st = W.newStats(10, 1)
+    W.record(st, 'k', 7, 100)
+    expect(W.record(st, 'k', 3, 95) == true, 'window: a late sample inside the window is recorded')
+    expect(W.samples(st, 'k', 100) == 2 and W.read(st, 'k', 100).sum == 10, 'window: and both samples are live')
+    expect(W.samples(st, 'k', 106) == 1 and W.read(st, 'k', 106).sum == 7,
+        'window: the newest sample outlives the late one: at t = 106 only the t = 100 sample is left')
+    expect(W.samples(st, 'k', 108) == 1, 'window: and it stays live until its own bucket expires')
+    expect(W.record(st, 'k', 1, 50) == false and W.samples(st, 'k', 100) == 2,
+        'window: a sample older than the whole ring is refused and changes nothing')
+    W.record(st, 'k', 5, 101)
+    expect(W.samples(st, 'k', 101) == 3 and W.samples(st, 'k', 106) == 2,
+        'window: and the cursor still advances normally after a late sample')
+end
+
 -- ------------------------------------------------- id: uuid takes a generator
 do
     local Id = CisId
