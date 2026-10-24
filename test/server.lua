@@ -61,7 +61,7 @@ local function newEnv(opts)
         'CreateVehicleServerSetter', 'CreatePed', 'SetEntityRoutingBucket', 'SetEntityOrphanMode',
         'promise', 'Citizen', 'collectgarbage', 'SetTimeout', 'IsDuplicityVersion',
     }) do
-        env.saved[#env.saved + 1] = { name = name, value = rawget(_G, name) }
+        env.saved[#env.saved + 1] = { name = name, value = rawget(_ENV, name) }
     end
 
     function CreateThread(fn)
@@ -439,13 +439,16 @@ local function newEnv(opts)
     })
     env.saved[#env.saved + 1] = { name = '__metatable', value = getmetatable(_G) }
 
+    -- _ENV, not _G, as in test/client.lua: under test/run.lua a suite's globals
+    -- live in its own environment and _G is the driver's, so a stub saved from
+    -- and restored to _G (S7's GetConvar) outlived its block there.
     function env.reset()
         for i = #env.saved, 1, -1 do
             local entry = env.saved[i]
             if entry.name == '__metatable' then
                 setmetatable(_G, entry.value)
             else
-                _G[entry.name] = entry.value
+                _ENV[entry.name] = entry.value
             end
         end
         env.saved = {}
@@ -545,7 +548,7 @@ local function newEnv(opts)
     -- code actually calls. A stub that encodes nothing in particular is
     -- honest: the test cares that a table was serialisable, not that the
     -- serialiser matches FiveM's byte for byte.
-    env.saved[#env.saved + 1] = { name = 'json', value = rawget(_G, 'json') }
+    env.saved[#env.saved + 1] = { name = 'json', value = rawget(_ENV, 'json') }
     json = {
         encode = function(t)
             local parts = {}
@@ -589,10 +592,10 @@ end
 -- because almost every scenario here wants the same two files in the manifest's
 -- order: security.lua decides the allow-list, sync.lua asks it.
 local function loadSync(env)
-    env.saved[#env.saved + 1] = { name = 'Config', value = rawget(_G, 'Config') }
-    env.saved[#env.saved + 1] = { name = 'Security', value = rawget(_G, 'Security') }
-    env.saved[#env.saved + 1] = { name = 'CisInvokingAllowed', value = rawget(_G, 'CisInvokingAllowed') }
-    env.saved[#env.saved + 1] = { name = 'CisSyncEnabled', value = rawget(_G, 'CisSyncEnabled') }
+    env.saved[#env.saved + 1] = { name = 'Config', value = rawget(_ENV, 'Config') }
+    env.saved[#env.saved + 1] = { name = 'Security', value = rawget(_ENV, 'Security') }
+    env.saved[#env.saved + 1] = { name = 'CisInvokingAllowed', value = rawget(_ENV, 'CisInvokingAllowed') }
+    env.saved[#env.saved + 1] = { name = 'CisSyncEnabled', value = rawget(_ENV, 'CisSyncEnabled') }
     Config = CisDefaults.config()
     Security = CisDefaults.security()
     -- Default posture for these tests is permissive, so the allow-list is not
@@ -1178,8 +1181,8 @@ do
     -- survived from an earlier suite and there is nothing here to capture. What
     -- is under test is what security.lua REPORTS, not how the logger prints it.
     local logged = {}
-    env.saved[#env.saved + 1] = { name = 'Logging', value = rawget(_G, 'Logging') }
-    env.saved[#env.saved + 1] = { name = 'CisLog', value = rawget(_G, 'CisLog') }
+    env.saved[#env.saved + 1] = { name = 'Logging', value = rawget(_ENV, 'Logging') }
+    env.saved[#env.saved + 1] = { name = 'CisLog', value = rawget(_ENV, 'CisLog') }
     Logging = setmetatable({}, {
         __index = function(_, key)
             return function(message)
@@ -1254,11 +1257,11 @@ do
         cis_needs_db = 'database',
         cis_typo_slot = 'databse',
     }
-    env.saved[#env.saved + 1] = { name = 'GetNumResources', value = rawget(_G, 'GetNumResources') }
-    env.saved[#env.saved + 1] = { name = 'GetResourceByFindIndex', value = rawget(_G, 'GetResourceByFindIndex') }
-    env.saved[#env.saved + 1] = { name = 'GetResourceMetadata', value = rawget(_G, 'GetResourceMetadata') }
-    env.saved[#env.saved + 1] = { name = 'GetResourceState', value = rawget(_G, 'GetResourceState') }
-    env.saved[#env.saved + 1] = { name = 'SetTimeout', value = rawget(_G, 'SetTimeout') }
+    env.saved[#env.saved + 1] = { name = 'GetNumResources', value = rawget(_ENV, 'GetNumResources') }
+    env.saved[#env.saved + 1] = { name = 'GetResourceByFindIndex', value = rawget(_ENV, 'GetResourceByFindIndex') }
+    env.saved[#env.saved + 1] = { name = 'GetResourceMetadata', value = rawget(_ENV, 'GetResourceMetadata') }
+    env.saved[#env.saved + 1] = { name = 'GetResourceState', value = rawget(_ENV, 'GetResourceState') }
+    env.saved[#env.saved + 1] = { name = 'SetTimeout', value = rawget(_ENV, 'SetTimeout') }
 
     GetNumResources = function() return #RESOURCES end
     GetResourceByFindIndex = function(i) return RESOURCES[i + 1] end
@@ -1371,7 +1374,7 @@ do
     Config = CisDefaults.config()
     Security = CisDefaults.security()
     local warned = {}
-    env.saved[#env.saved + 1] = { name = 'CisLog', value = rawget(_G, 'CisLog') }
+    env.saved[#env.saved + 1] = { name = 'CisLog', value = rawget(_ENV, 'CisLog') }
     CisLog = function(level, message, channel)
         warned[#warned + 1] = { level = level, message = message, channel = channel }
     end
@@ -1394,12 +1397,12 @@ do
     Config = CisDefaults.config()
     Security = CisDefaults.security()
     local logged = {}
-    env.saved[#env.saved + 1] = { name = 'CisLog', value = rawget(_G, 'CisLog') }
+    env.saved[#env.saved + 1] = { name = 'CisLog', value = rawget(_ENV, 'CisLog') }
     CisLog = function(level, message, channel)
         logged[#logged + 1] = { level = level, message = message, channel = channel }
     end
     local reported = {}
-    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_G, 'CisSecurityReport') }
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_ENV, 'CisSecurityReport') }
 
     exports.cis_shop = { OnBuy = function() end }
     loadModule('server/security.lua')
@@ -1562,7 +1565,7 @@ do
     exports.thief = { Take = function() end }
     loadModule('server/security.lua')
     local reported = 0
-    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_G, 'CisSecurityReport') }
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_ENV, 'CisSecurityReport') }
     function CisSecurityReport() reported = reported + 1; return true end
 
     env.invoking = 'bank'
@@ -1605,7 +1608,7 @@ do
     exports.cis_big = { OnEv = function() hits = hits + 1 end }
     loadModule('server/security.lua')
     local reasons = {}
-    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_G, 'CisSecurityReport') }
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_ENV, 'CisSecurityReport') }
     function CisSecurityReport(_, why) reasons[#reasons + 1] = tostring(why); return true end
 
     env.invoking = 'cis_big'
@@ -1720,7 +1723,7 @@ do
     exports.bank = { Withdraw = function() end }
     loadModule('server/security.lua')
     local reported = 0
-    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_G, 'CisSecurityReport') }
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_ENV, 'CisSecurityReport') }
     function CisSecurityReport() reported = reported + 1; return true end
     env.invoking = 'bank'
     CisNetOn('bank:pay', 'bank:Withdraw', {
@@ -1756,7 +1759,7 @@ do
     exports.cis_shop = { OnBuy = function() end }
     loadModule('server/security.lua')
     local reported = 0
-    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_G, 'CisSecurityReport') }
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_ENV, 'CisSecurityReport') }
     function CisSecurityReport() reported = reported + 1; return true end
 
     for i = 1, 256 do CisRateOk(3, 'dyn:' .. i, 1000, 8) end
@@ -2368,7 +2371,7 @@ end
 do
     local env = newEnv({})
     local logged = {}
-    env.saved[#env.saved + 1] = { name = 'Logging', value = rawget(_G, 'Logging') }
+    env.saved[#env.saved + 1] = { name = 'Logging', value = rawget(_ENV, 'Logging') }
     Logging = setmetatable({}, {
         __index = function(_, key)
             return function(message)
@@ -4962,8 +4965,8 @@ end
 do
     local env = newEnv({ players = {}, netOk = true })
     loadSync(env)
-    env.saved[#env.saved + 1] = { name = 'DoesEntityExist', value = rawget(_G, 'DoesEntityExist') }
-    env.saved[#env.saved + 1] = { name = 'DeleteEntity', value = rawget(_G, 'DeleteEntity') }
+    env.saved[#env.saved + 1] = { name = 'DoesEntityExist', value = rawget(_ENV, 'DoesEntityExist') }
+    env.saved[#env.saved + 1] = { name = 'DeleteEntity', value = rawget(_ENV, 'DeleteEntity') }
     local deleted = {}
     function DoesEntityExist() return false end
     function DeleteEntity(e) deleted[#deleted + 1] = e end
@@ -4983,7 +4986,7 @@ end
 --   * a box checked only its x size, and a NaN centre was accepted.
 local function zonesEnv(players)
     local env = newEnv({ players = players })
-    env.saved[#env.saved + 1] = { name = 'CisServerZoneBox', value = rawget(_G, 'CisServerZoneBox') }
+    env.saved[#env.saved + 1] = { name = 'CisServerZoneBox', value = rawget(_ENV, 'CisServerZoneBox') }
     env.events = {}
     function TriggerEvent(name, ...)
         env.events[#env.events + 1] = { name = name, args = table.pack(...) }
@@ -5265,11 +5268,11 @@ do
     Config = CisDefaults.config()
     Security = CisDefaults.security()
     local logged = {}
-    env.saved[#env.saved + 1] = { name = 'CisLog', value = rawget(_G, 'CisLog') }
+    env.saved[#env.saved + 1] = { name = 'CisLog', value = rawget(_ENV, 'CisLog') }
     CisLog = function(level, message, channel)
         logged[#logged + 1] = { level = level, message = message, channel = channel }
     end
-    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_G, 'CisSecurityReport') }
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_ENV, 'CisSecurityReport') }
     exports.cis_shop = { OnBuy = function() end }
     loadModule('server/security.lua')
     local reported = {}
@@ -5318,7 +5321,7 @@ do
     Config = CisDefaults.config()
     Config.Printing.UseDiscordLogs = true
     Security = CisDefaults.security()
-    env.saved[#env.saved + 1] = { name = 'DiscordConfig', value = rawget(_G, 'DiscordConfig') }
+    env.saved[#env.saved + 1] = { name = 'DiscordConfig', value = rawget(_ENV, 'DiscordConfig') }
     DiscordConfig = { DiscordLogsLinks = { MasterLogs = 'm', CheatingLogs = 'c', ErrorLogs = 'e' } }
     local posts = {}
     CisRegistry.register('discord', function(method, _, _, message)
@@ -5378,7 +5381,7 @@ end
 do
     local env = newEnv({})
     env.convars = { cis_authorized_resources = 'cis_core, cis_keys' }
-    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_G, 'GetConvar') }
+    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_ENV, 'GetConvar') }
     function GetConvar(name, default) return env.convars[name] or default end
     Config = CisDefaults.config()
     Security = CisDefaults.security()
@@ -5461,7 +5464,7 @@ end
 do
     local env = newEnv({})
     local dropped = {}
-    env.saved[#env.saved + 1] = { name = 'DropPlayer', value = rawget(_G, 'DropPlayer') }
+    env.saved[#env.saved + 1] = { name = 'DropPlayer', value = rawget(_ENV, 'DropPlayer') }
     function DropPlayer(src) dropped[#dropped + 1] = src end
     env.players[7] = true
     Config = CisDefaults.config()
@@ -5645,7 +5648,7 @@ do
         'CB2: and still answers server-side callers')
 
     -- ACE.
-    env.saved[#env.saved + 1] = { name = 'IsPrincipalAceAllowed', value = rawget(_G, 'IsPrincipalAceAllowed') }
+    env.saved[#env.saved + 1] = { name = 'IsPrincipalAceAllowed', value = rawget(_ENV, 'IsPrincipalAceAllowed') }
     local asked
     function IsPrincipalAceAllowed(principal, object)
         asked = principal .. ' ' .. object
@@ -5950,7 +5953,7 @@ end
 -- ============================ P4. the operator can name the config supplier
 do
     local env = newEnv({})
-    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_G, 'GetConvar') }
+    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_ENV, 'GetConvar') }
     function GetConvar(name, default)
         if name == 'cis_config_supplier' then return 'cis_core' end
         return default
@@ -5984,7 +5987,7 @@ local function commandEnv(opts)
     -- GET_REGISTERED_COMMANDS as the server answers it: what this harness
     -- registered (under cis_libs), a builtin with no resource, and a command
     -- another resource owns.
-    env.saved[#env.saved + 1] = { name = 'GetRegisteredCommands', value = rawget(_G, 'GetRegisteredCommands') }
+    env.saved[#env.saved + 1] = { name = 'GetRegisteredCommands', value = rawget(_ENV, 'GetRegisteredCommands') }
     env.foreign = { add_principal = '', setjob = 'jobs' }
     function GetRegisteredCommands()
         local out = {}
@@ -5996,11 +5999,11 @@ local function commandEnv(opts)
         end
         return out
     end
-    env.saved[#env.saved + 1] = { name = 'IsPrincipalAceAllowed', value = rawget(_G, 'IsPrincipalAceAllowed') }
+    env.saved[#env.saved + 1] = { name = 'IsPrincipalAceAllowed', value = rawget(_ENV, 'IsPrincipalAceAllowed') }
     function IsPrincipalAceAllowed(principal, object)
         return env.aceGrants[principal .. ' ' .. object] == true
     end
-    env.saved[#env.saved + 1] = { name = 'ExecuteCommand', value = rawget(_G, 'ExecuteCommand') }
+    env.saved[#env.saved + 1] = { name = 'ExecuteCommand', value = rawget(_ENV, 'ExecuteCommand') }
     function ExecuteCommand(line) env.executed[#env.executed + 1] = line end
     function GetResourceState(name)
         if name == 'chat' then return env.chatStarted and 'started' or 'missing' end
@@ -6101,7 +6104,7 @@ end
 -- operator lists it in cis_command_ace_groups.
 do
     local env = commandEnv({})
-    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_G, 'GetConvar') }
+    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_ENV, 'GetConvar') }
     function GetConvar(name, default)
         if name == 'cis_command_ace_groups' then return 'group.mod' end
         return default
@@ -6198,12 +6201,12 @@ local function versionRun(current, latest, supplier)
     Config.__owner = 'cis_libs'
     Security = CisDefaults.security()
     env.http = {}
-    env.saved[#env.saved + 1] = { name = 'PerformHttpRequest', value = rawget(_G, 'PerformHttpRequest') }
+    env.saved[#env.saved + 1] = { name = 'PerformHttpRequest', value = rawget(_ENV, 'PerformHttpRequest') }
     function PerformHttpRequest(url, cb)
         env.http[#env.http + 1] = url
         cb(200, latest .. '\nnotes')
     end
-    env.saved[#env.saved + 1] = { name = 'GetResourceMetadata', value = rawget(_G, 'GetResourceMetadata') }
+    env.saved[#env.saved + 1] = { name = 'GetResourceMetadata', value = rawget(_ENV, 'GetResourceMetadata') }
     function GetResourceMetadata(_, key) return key == 'version' and current or nil end
     loadModule('server/version.lua')
     -- The thread starts BEFORE the supplier: the supplier's SetConfig lands on
@@ -6308,7 +6311,7 @@ end
 -- server that was.
 do
     local env = newEnv({})
-    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_G, 'GetConvar') }
+    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_ENV, 'GetConvar') }
     function GetConvar(name, default)
         if name == 'cis_authorized_resources' then return 'cis_core' end
         return default
@@ -6423,7 +6426,7 @@ end
 do
     local env = callbackEnv({ players = { [3] = true } })
     local reports = 0
-    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_G, 'CisSecurityReport') }
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_ENV, 'CisSecurityReport') }
     function CisSecurityReport() reports = reports + 1; return true end
     check(env.EXPORTS.RegisterCallback('w2b:shaped', function() return 'ok' end,
         { schema = { amount = { type = 'number' } } }) == true, 'W2b: a schema-checked callback registers')
@@ -6601,8 +6604,8 @@ end
 do
     local function scenario(invoker, state, aceAllowed)
         local env = newEnv({})
-        env.saved[#env.saved + 1] = { name = 'IsPrincipalAceAllowed', value = rawget(_G, 'IsPrincipalAceAllowed') }
-        env.saved[#env.saved + 1] = { name = 'GetResourceState', value = rawget(_G, 'GetResourceState') }
+        env.saved[#env.saved + 1] = { name = 'IsPrincipalAceAllowed', value = rawget(_ENV, 'IsPrincipalAceAllowed') }
+        env.saved[#env.saved + 1] = { name = 'GetResourceState', value = rawget(_ENV, 'GetResourceState') }
         Config = CisDefaults.config()
         Security = CisDefaults.security()
         Security.AuthorizedResources = { 'w2e_victim' }
@@ -6653,8 +6656,8 @@ end
 
 do
     local env = newEnv({ players = { [1] = { coords = { x = 5.0, y = 0.0, z = 0.0 } } } })
-    env.saved[#env.saved + 1] = { name = 'GetResourceState', value = rawget(_G, 'GetResourceState') }
-    env.saved[#env.saved + 1] = { name = 'IsPrincipalAceAllowed', value = rawget(_G, 'IsPrincipalAceAllowed') }
+    env.saved[#env.saved + 1] = { name = 'GetResourceState', value = rawget(_ENV, 'GetResourceState') }
+    env.saved[#env.saved + 1] = { name = 'IsPrincipalAceAllowed', value = rawget(_ENV, 'IsPrincipalAceAllowed') }
     loadSync(env)
     function IsPrincipalAceAllowed() return false end
     env.invoking = 'w2e_victim'
@@ -6700,7 +6703,7 @@ do
     check(env.executed[1] == 'add_ace group.admin command.cis_admincmd allow',
         ('W2f: group.admin is provisioned by default (%s)'):format(tostring(env.executed[1])))
 
-    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_G, 'GetConvar') }
+    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_ENV, 'GetConvar') }
     function GetConvar(name, default)
         if name == 'cis_command_ace_groups' then return 'group.admin, group.user' end
         return default
