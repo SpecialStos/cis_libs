@@ -32,6 +32,7 @@ convar_category 'cis_libs' {
         { 'Callback handlers in flight per player', 'cis_cb_max_inflight', 'CV_INT', '8', 1, 1000 },
         { 'Longest string a client may send (chars)', 'cis_cb_max_string_len', 'CV_INT', '4096', 16, 1048576 },
         { 'Check for updates: true / false / blank', 'cis_check_version', 'CV_STRING', '' },
+        { 'Groups CommandAdd may grant commands to (comma or space list)', 'cis_command_ace_groups', 'CV_STRING', 'group.admin' },
     },
 }
 
