@@ -34,6 +34,24 @@ re-audit numbers in `reaudit-modules.md`.
   is added to its own bucket and returns false only when it is older than the
   whole window.
 
+- **A timer reuses its sleeping thread across pause and play** (A-M10). Each
+  `play` used to spawn another thread, and a paused timer's old ones slept on
+  until their original deadline, so 500 pause/play cycles left 501 threads.
+  Now one thread serves the timer; it exits when it wakes on a paused or ended
+  timer, and a later `play` starts a new one.
+- **`string.suggest` returns the distance it matched on** (A-L1), the
+  case-insensitive one, so it never exceeds `opts.maxDistance`. It used to
+  re-score the winner in its real casing: `suggest('FOO', {'foo'})` answered 3
+  against a maximum of 2.
+- **`heap.replaceTop` refuses nil, and NaN under the default ordering,** with
+  `nil, reason` (A-L2), as `push` does. `heap.build` skips nil holes and
+  such NaNs in its list.
+- **`lru.put` refuses a nil or NaN key** with `nil, reason` (A-L3). A nil
+  value is still a remove.
+- **`cron.next` and `cron.matches` answer `nil, reason` for a time the platform
+  cannot convert, and `matches` for one that is not a number** (A-L4). They
+  raised from `os.date`, `math.floor` or inside the date arithmetic.
+
 ### Fixed
 
 - `mathx.round(0.49999999999999994)` returned 1; it returns 0. The result
@@ -42,5 +60,10 @@ re-audit numbers in `reaudit-modules.md`.
 - `mathx.approx` no longer calls an infinity equal to a huge finite number or
   to its opposite, and compares integers as floats so `approx(maxinteger, -1)`
   is false instead of wrapping to a tiny difference (A-M3).
+- `string.levenshtein` with a ceiling returned the true distance when only the
+  last cell was above it, and ignored the ceiling against an empty string. It
+  returns ceiling + 1 in both (A-L1).
+- `lru.removeWhere` raised when its predicate removed the entry it would visit
+  next, or the one it was asked about (A-L3).
 - A late `window.record` no longer moves the newest bucket backwards, which
   made live samples read as expired (A-M6).

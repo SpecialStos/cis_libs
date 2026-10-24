@@ -368,7 +368,7 @@ Source: `shared/algo/heap.lua`.
 | `pop` | `(h: table) → any` | Remove and return the minimum. |
 | `push` | `(h: table, value: any) → integer\|nil, string\|nil` | Add a value. |
 | `remove` | `(h: table, value: any) → boolean` | Remove a specific value wherever it is. |
-| `replaceTop` | `(h: table, value: any) → any` | Replace the minimum in place. |
+| `replaceTop` | `(h: table, value: any) → any, string\|nil` | Replace the minimum in place. |
 | `size` | `(h: table) → integer` | How many values are queued. |
 
 #### `id` — `Cis.require('id')`
@@ -466,7 +466,7 @@ Source: `shared/algo/lru.lua`.
 | `new` | `(capacity?: number) → table` | Create an empty cache. |
 | `peek` | `(lru: table, key: any) → any` | Look up a key WITHOUT changing its recency. |
 | `popOldest` | `(lru: table) → any, any` | Remove the least recently used entry. |
-| `put` | `(lru: table, key: any, value: any) → any` | Store a value and mark it most recently used. |
+| `put` | `(lru: table, key: any, value: any) → any, string\|nil` | Store a value and mark it most recently used. |
 | `remove` | `(lru: table, key: any) → any` | Remove a key, whatever its position in the order. |
 | `removeWhere` | `(lru: table, predicate: fun(key: any, value: any): boolean) → integer` | Remove every entry for which `predicate(key, value)` is true. |
 

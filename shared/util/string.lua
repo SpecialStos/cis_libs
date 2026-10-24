@@ -376,17 +376,17 @@ function M.levenshtein(a, b, maxDistance)
         return nil, 'both arguments must be strings'
     end
     local la, lb = #a, #b
+    local cap = maxDistance or math.max(la, lb)
     if la == 0 then
-        return lb
+        return lb > cap and cap + 1 or lb
     end
     if lb == 0 then
-        return la
+        return la > cap and cap + 1 or la
     end
     if a == b then
         return 0
     end
     -- The shorter string drives the row width so the table is min(la, lb)+1.
-    local cap = maxDistance or math.max(la, lb)
     if math.abs(la - lb) > cap then
         return cap + 1
     end
@@ -418,7 +418,8 @@ function M.levenshtein(a, b, maxDistance)
         end
         prev, cur = cur, prev
     end
-    return prev[lb]
+    -- No row went past the ceiling, but the last cell can still sit above it.
+    return prev[lb] > cap and cap + 1 or prev[lb]
 end
 
 --- Pick the closest candidate to `word`.
@@ -471,8 +472,8 @@ function M.suggest(word, candidates, opts)
     if not best then
         return nil
     end
-    -- Re-score the winner in its real casing, so the distance the caller logs is the
-    return best, M.levenshtein(word, best, nil)
+    -- The distance it was judged on: the real-casing one can exceed maxDistance.
+    return best, bestScore
 end
 
 local RANDOM_CLASSES = {

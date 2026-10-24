@@ -757,6 +757,29 @@ do
     -- The long timer's sleeper was retired by forceEnd and exits when it wakes.
     advance(3 * 3600000)
     expect(liveThreads() == 0, 'timer: no thread is left behind')
+    -- Every play used to spawn a sleeper, and a paused timer's old ones slept on
+    -- until their original deadline: 500 cycles left 501 threads.
+    local cycles = 0
+    local cyc = T.new(100000, function() cycles = cycles + 1 end)
+    for _ = 1, 500 do
+        cyc:pause()
+        advance(1)
+        cyc:play()
+    end
+    expect(liveThreads() == 1, ('timer: pause/play cycles reuse one sleeper (%d threads)'):format(liveThreads()))
+    advance(99999)
+    expect(cycles == 0 and cyc:getTimeLeft('ms') == 1, 'timer: a reused sleeper does not end the timer early')
+    advance(1)
+    expect(cycles == 1 and cyc:hasEnded() and liveThreads() == 0, 'timer: and ends it on time, once, leaving no thread')
+    -- A sleeper that wakes while the timer is paused exits; a later play starts a new one.
+    local gap = T.new(100, nil)
+    gap:pause()
+    advance(500)
+    expect(liveThreads() == 0, 'timer: the sleeper of a paused timer exits when it wakes')
+    gap:play()
+    expect(liveThreads() == 1, 'timer: and play after that starts one again')
+    advance(100)
+    expect(gap:hasEnded() and liveThreads() == 0, 'timer: which ends the timer')
     expect(raises(function() T.setTimeout(1, 2) end, 'either order'), 'timer: two numbers are refused, naming both orders')
 end
 
@@ -820,6 +843,18 @@ do
         and not Cr.matches('*/5 * * * *', utc(2024, 5, 5, 5, 11), { utc = true }), 'cron: matches tests the minute')
     local nn, nwhy = Cr.next('nope')
     expect(nn == nil and type(nwhy) == 'string', 'cron: next refuses a bad expression with the reason')
+    -- os.date raises on a time the platform cannot convert, and on a non-number
+    -- math.floor did; both now answer nil plus a reason.
+    local huge, hwhy = Cr.next('* * * * *', 1e18, { utc = true })
+    expect(huge == nil and type(hwhy) == 'string', 'cron: next answers nil and a reason for a time too large to convert')
+    local hugeL, hwhyL = Cr.next('* * * * *', -1e18)
+    expect(hugeL == nil and type(hwhyL) == 'string', 'cron: and for one too early, in local time')
+    local mnone, mwhy = Cr.matches('* * * * *', 'abc')
+    expect(mnone == nil and type(mwhy) == 'string', 'cron: matches refuses a time that is not a number')
+    local mnan, mnwhy = Cr.matches('* * * * *', 0 / 0)
+    expect(mnan == nil and type(mnwhy) == 'string', 'cron: matches refuses NaN')
+    local mbig, mbwhy = Cr.matches('* * * * *', 1e18, { utc = true })
+    expect(mbig == nil and type(mbwhy) == 'string', 'cron: matches answers nil and a reason for a time too large to convert')
 
     -- ---- property: next vs a brute-force walk, in UTC ----
     local gen = Random.newGenerator(1337)

@@ -936,6 +936,25 @@ do
     expect(S.levenshtein('cis_libs', 'cis_libz') == 1, 'levenshtein counts a single substitution')
     expect(S.levenshtein('', 'abc') == 3, 'levenshtein against an empty string')
     expect(S.levenshtein('same', 'same') == 0, 'levenshtein of identical strings is zero')
+    -- With a ceiling the answer is the distance up to it and ceiling + 1 beyond it,
+    -- including an empty side and a row whose cheapest cell still ends above it.
+    local words = { '', 'a', 'ab', 'abc', 'cba', 'abcd', 'dcba', 'aaaa', 'bbbb', 'kitten', 'sitting', 'abab', 'baba' }
+    local capBad
+    for _, x in ipairs(words) do
+        for _, y in ipairs(words) do
+            local full = S.levenshtein(x, y)
+            for cap = 0, 4 do
+                local want = full <= cap and full or cap + 1
+                if S.levenshtein(x, y, cap) ~= want then capBad = capBad or ('%s/%s/%d'):format(x, y, cap) end
+            end
+        end
+    end
+    expect(capBad == nil, 'levenshtein with a ceiling answers the distance or ceiling + 1 (' .. tostring(capBad) .. ')')
+    expect(S.levenshtein('', 'abc', 1) == 2 and S.levenshtein('abc', '', 5) == 3, 'levenshtein ceiling applies against an empty string')
+    local closest, dist = S.suggest('FOO', { 'foo' })
+    expect(closest == 'foo' and dist <= 2, 'suggest reports a distance within its own maximum')
+    closest, dist = S.suggest('gve', { 'Give', 'gone' })
+    expect(closest == 'Give' and dist == 1, 'suggest still reports the distance it matched on')
     -- The bug the author found: joinCased only touched the first letter, so
     -- GIVE_MONEY came out as gIVEmONEY.
     local snake = S.camel('GIVE_MONEY')
@@ -1606,6 +1625,21 @@ do
         expect(CisHeap.size(built) == 3, 'build() makes a heap of the whole list')
         expect(CisHeap.peek(built) == 1, 'build() HEAPIFIES rather than just wrapping the list')
 
+        -- push refuses nil and NaN; replaceTop and build now do the same, where they
+        -- used to leave a nil in the array and raise on the next comparison.
+        local rt = CisHeap.build({ 2, 1, 3 })
+        local rv, rwhy = CisHeap.replaceTop(rt, nil)
+        expect(rv == nil and type(rwhy) == 'string' and CisHeap.peek(rt) == 1 and CisHeap.size(rt) == 3,
+            'replaceTop refuses nil with a reason and leaves the heap alone')
+        rv, rwhy = CisHeap.replaceTop(rt, 0 / 0)
+        expect(rv == nil and type(rwhy) == 'string' and CisHeap.peek(rt) == 1,
+            'replaceTop refuses NaN under the default ordering')
+        expect(CisHeap.replaceTop(CisHeap.new(), 5) == nil, 'replaceTop on an empty heap is still nil')
+        local holey = CisHeap.build({ 3, nil, 1, 2 })
+        expect(CisHeap.size(holey) == 3 and CisHeap.pop(holey) == 1 and CisHeap.pop(holey) == 2
+            and CisHeap.pop(holey) == 3, 'build skips the holes in its list')
+        expect(CisHeap.size(CisHeap.build({ 1, 0 / 0, 2 })) == 2, 'build skips NaN under the default ordering')
+
         -- The queue: priority first, and TIES in insertion order. The tie rule
         -- is the whole reason a queue exists over a plain heap, and it is not
         -- obvious from the name.
@@ -1654,6 +1688,29 @@ do
         expect(seen == CisLRU.count(lru), 'each visits every entry')
         expect(CisLRU.each(lru, 'not a function') == 0,
             'each with a non-function visits nothing rather than raising')
+
+        -- A nil or NaN key cannot index the map: put refuses it with a reason, where
+        -- it raised 'index is nil'. removeWhere walks a snapshot, so a predicate that
+        -- removes the entry it would visit next does not strand the walk on an
+        -- unlinked node.
+        local kc = CisLRU.new(3)
+        local kr, kwhy = CisLRU.put(kc, nil, 1)
+        expect(kr == nil and type(kwhy) == 'string' and CisLRU.count(kc) == 0, 'put refuses a nil key with a reason')
+        kr, kwhy = CisLRU.put(kc, 0 / 0, 1)
+        expect(kr == nil and type(kwhy) == 'string' and CisLRU.count(kc) == 0, 'put refuses a NaN key with a reason')
+        expect(CisLRU.put(kc, nil, nil) == nil and CisLRU.put(kc, 'x', nil) == nil, 'and a nil value is still a remove')
+        for _, k in ipairs({ 'a', 'b', 'c' }) do CisLRU.put(kc, k, k) end
+        local visited = {}
+        local gone = CisLRU.removeWhere(kc, function(k)
+            visited[#visited + 1] = k
+            if k == 'c' then CisLRU.remove(kc, 'b') end
+            return k == 'c'
+        end)
+        expect(gone == 1 and #visited == 2 and visited[2] == 'a' and CisLRU.count(kc) == 1 and CisLRU.has(kc, 'a'),
+            'removeWhere survives a predicate that removes the entry it would visit next')
+        CisLRU.put(kc, 'b', 'b')
+        CisLRU.removeWhere(kc, function(k) CisLRU.remove(kc, k) return true end)
+        expect(CisLRU.count(kc) == 0 and #CisLRU.keys(kc) == 0, 'and one that removes the entry it is asked about')
     end
 
     -- ---------------------------------------------------------------- rate

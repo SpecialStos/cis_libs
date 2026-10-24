@@ -85,7 +85,14 @@ end
 ---@param key any
 ---@param value any  nil is treated as a REMOVE, because a table cannot hold a
 ---@return any  the key evicted to make room, or nil
+---@return string|nil reason  why the key was refused: nil and NaN cannot index the map
 function M.put(lru, key, value)
+    if key == nil or key ~= key then
+        if value == nil then
+            return nil
+        end
+        return nil, ('cannot use %s as a cache key'):format(tostring(key))
+    end
     if value == nil then
         M.remove(lru, key)
         return nil
@@ -154,17 +161,28 @@ function M.removeWhere(lru, predicate)
     if type(predicate) ~= 'function' then
         return 0
     end
-    local removed = 0
+    -- A snapshot, as in each: a predicate that removes the next entry would leave
+    -- a cursor on an unlinked node.
+    local nodes = {}
+    local n = 0
     local node = lru.head.next
     while node ~= lru.tail do
-        local successor = node.next
-        if predicate(node.key, node.value) then
-            unlink(lru, node)
-            lru.map[node.key] = nil
-            lru.size = lru.size - 1
-            removed = removed + 1
+        n = n + 1
+        nodes[n] = node
+        node = node.next
+    end
+    local removed = 0
+    for i = 1, n do
+        node = nodes[i]
+        if lru.map[node.key] == node and predicate(node.key, node.value) then
+            -- The predicate may have removed this very node itself.
+            if lru.map[node.key] == node then
+                unlink(lru, node)
+                lru.map[node.key] = nil
+                lru.size = lru.size - 1
+                removed = removed + 1
+            end
         end
-        node = successor
     end
     return removed
 end

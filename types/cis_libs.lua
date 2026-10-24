@@ -166,7 +166,7 @@ local CisDuiPage = {}
 ---@field push fun(h: table, value: any): integer|nil, string|nil # Add a value.
 ---@field pop fun(h: table): any # Remove and return the minimum.
 ---@field peek fun(h: table): any # The minimum, without removing it.
----@field replaceTop fun(h: table, value: any): any # Replace the minimum in place.
+---@field replaceTop fun(h: table, value: any): any, string|nil # Replace the minimum in place.
 ---@field remove fun(h: table, value: any): boolean # Remove a specific value wherever it is.
 ---@field size fun(h: table): integer # How many values are queued.
 ---@field isEmpty fun(h: table): boolean # Is the heap empty?
@@ -259,7 +259,7 @@ local CisKeybindOptions = {}
 ---@field get fun(lru: table, key: any): any # Look up a key and mark it as most recently used.
 ---@field peek fun(lru: table, key: any): any # Look up a key WITHOUT changing its recency.
 ---@field has fun(lru: table, key: any): boolean # Is a key present, without changing its recency?
----@field put fun(lru: table, key: any, value: any): any # Store a value and mark it most recently used.
+---@field put fun(lru: table, key: any, value: any): any, string|nil # Store a value and mark it most recently used.
 ---@field popOldest fun(lru: table): any, any # Remove the least recently used entry.
 ---@field remove fun(lru: table, key: any): any # Remove a key, whatever its position in the order.
 ---@field removeWhere fun(lru: table, predicate: fun(key: any, value: any): boolean): integer # Remove every entry for which `predicate(key, value)` is true.

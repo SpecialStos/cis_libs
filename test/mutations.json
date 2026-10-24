@@ -3428,16 +3428,142 @@
     {
       "id": "M521",
       "file": "shared/util/locale.lua",
-      "find": "        return escape and v:gsub(%%, %%%%) or v",
+      "find": "        return escape and v:gsub('%%', '%%%%') or v",
       "replace": "        return v",
       "why": "A named value holding % is handed to string.format raw, so it eats the positional arguments or raises."
     },
     {
       "id": "M522",
       "file": "shared/util/locale.lua",
-      "find": "    if ok then\n        return formatted\n    end\n    warnOnce(key .. #format",
-      "replace": "    if ok and nargs >= from then\n        return formatted\n    end\n    warnOnce(key .. #format",
+      "find": "    if ok then\n        return formatted\n    end\n    warnOnce(key .. '#format'",
+      "replace": "    if ok and nargs >= from then\n        return formatted\n    end\n    warnOnce(key .. '#format'",
       "why": "A table with no positional argument skips string.format, so %% stays doubled there but collapses beside a positional argument."
+    },
+    {
+      "id": "M523",
+      "file": "shared/util/timer.lua",
+      "find": "    if t._sleeper then return end\n    t._sleeper = true",
+      "replace": "    t._sleeper = true",
+      "why": "Every play spawns another sleeping thread, so 500 pause/play cycles leave 501 threads asleep."
+    },
+    {
+      "id": "M524",
+      "file": "shared/util/timer.lua",
+      "find": "            if t._paused or t._ended then\n                t._sleeper = false\n                return",
+      "replace": "            if t._paused or t._ended then\n                return",
+      "why": "A sleeper that exits on a paused timer does not clear its flag, so the next play finds a sleeper that is gone and the timer never ends."
+    },
+    {
+      "id": "M525",
+      "file": "shared/util/timer.lua",
+      "find": "            if t._paused or t._ended then\n                t._sleeper = false",
+      "replace": "            if false then\n                t._sleeper = false",
+      "why": "A sleeper does not exit when it wakes on a paused or ended timer, so a paused timer keeps a thread alive and an ended one calls onEnd again."
+    },
+    {
+      "id": "M526",
+      "file": "shared/util/string.lua",
+      "find": "    return prev[lb] > cap and cap + 1 or prev[lb]",
+      "replace": "    return prev[lb]",
+      "why": "levenshtein hands back the true distance when only the last cell is above the ceiling, instead of ceiling + 1."
+    },
+    {
+      "id": "M527",
+      "file": "shared/util/string.lua",
+      "find": "        return lb > cap and cap + 1 or lb",
+      "replace": "        return lb",
+      "why": "levenshtein from an empty string ignores the ceiling."
+    },
+    {
+      "id": "M528",
+      "file": "shared/util/string.lua",
+      "find": "        return la > cap and cap + 1 or la",
+      "replace": "        return la",
+      "why": "levenshtein to an empty string ignores the ceiling."
+    },
+    {
+      "id": "M529",
+      "file": "shared/util/string.lua",
+      "find": "    return best, bestScore",
+      "replace": "    return best, M.levenshtein(word, best, nil)",
+      "why": "suggest re-scores the winner in its real casing, so FOO against foo reports 3, above its own maximum of 2."
+    },
+    {
+      "id": "M530",
+      "file": "shared/util/cron.lua",
+      "find": "    local ok, f = pcall(os.date, utc and '!*t' or '*t', t)\n    return ok and f or nil",
+      "replace": "    return os.date(utc and '!*t' or '*t', t)",
+      "why": "os.date raises for a time the platform cannot convert, so next and matches raise instead of answering nil plus a reason."
+    },
+    {
+      "id": "M531",
+      "file": "shared/util/cron.lua",
+      "find": "    if type(time) ~= 'number' or time ~= time or time == math.huge or time == -math.huge then\n        return nil, ('time must be epoch seconds",
+      "replace": "    if false then\n        return nil, ('time must be epoch seconds",
+      "why": "matches takes a string or NaN as a time and raises inside math.floor or os.date."
+    },
+    {
+      "id": "M532",
+      "file": "shared/util/cron.lua",
+      "find": "    if not f then\n        return nil, ('%s is outside the range of times this platform can convert'):format(tostring(fromTime))",
+      "replace": "    if false then\n        return nil, ('%s is outside the range of times this platform can convert'):format(tostring(fromTime))",
+      "why": "next reads the fields of a time that could not be converted and raises on the nil."
+    },
+    {
+      "id": "M533",
+      "file": "shared/util/cron.lua",
+      "find": "    if not f then\n        return nil, ('%s is outside the range of times this platform can convert'):format(tostring(time))",
+      "replace": "    if false then\n        return nil, ('%s is outside the range of times this platform can convert'):format(tostring(time))",
+      "why": "matches reads the fields of a time that could not be converted and raises on the nil."
+    },
+    {
+      "id": "M534",
+      "file": "shared/algo/heap.lua",
+      "find": "    if value == nil then\n        return nil, 'cannot put nil into a heap'\n    end\n",
+      "replace": "",
+      "why": "replaceTop stores a nil at the root, and the next sift raises 'compare number with nil'."
+    },
+    {
+      "id": "M535",
+      "file": "shared/algo/heap.lua",
+      "find": "    if value ~= value and not h.less then\n        return nil, 'cannot put NaN into a heap ordered by <'\n    end\n",
+      "replace": "",
+      "why": "replaceTop stores NaN at the root, which compares false both ways and breaks the ordering."
+    },
+    {
+      "id": "M536",
+      "file": "shared/algo/heap.lua",
+      "find": "        if v ~= nil and (v == v or less) then",
+      "replace": "        if v == v or less then",
+      "why": "build copies a nil hole into the heap, so size counts an empty slot and the next sift raises."
+    },
+    {
+      "id": "M537",
+      "file": "shared/algo/heap.lua",
+      "find": "        if v ~= nil and (v == v or less) then",
+      "replace": "        if v ~= nil then",
+      "why": "build copies NaN into a heap ordered by <, which breaks the ordering for everything after it."
+    },
+    {
+      "id": "M538",
+      "file": "shared/algo/lru.lua",
+      "find": "    if key == nil or key ~= key then\n        if value == nil then",
+      "replace": "    if false then\n        if value == nil then",
+      "why": "put with a nil or NaN key raises 'index is nil' instead of refusing it."
+    },
+    {
+      "id": "M539",
+      "file": "shared/algo/lru.lua",
+      "find": "        if lru.map[node.key] == node and predicate(node.key, node.value) then",
+      "replace": "        if predicate(node.key, node.value) then",
+      "why": "removeWhere hands the predicate an entry an earlier call already removed, and unlinks it a second time."
+    },
+    {
+      "id": "M540",
+      "file": "shared/algo/lru.lua",
+      "find": "            if lru.map[node.key] == node then\n                unlink(lru, node)",
+      "replace": "            if true then\n                unlink(lru, node)",
+      "why": "removeWhere unlinks an entry its own predicate already removed, and raises on the missing neighbour."
     }
   ]
 }

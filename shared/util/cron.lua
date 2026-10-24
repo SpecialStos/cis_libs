@@ -286,8 +286,11 @@ local function toTimestamp(utc, y, m, d, h, mi)
     return os.time({ year = y, month = m, day = d, hour = h, min = mi, sec = 0 })
 end
 
+-- os.date raises for a time the platform cannot convert (before the epoch on
+-- Windows, far past 2038 elsewhere).
 local function fieldsOf(t, utc)
-    return os.date(utc and '!*t' or '*t', t)
+    local ok, f = pcall(os.date, utc and '!*t' or '*t', t)
+    return ok and f or nil
 end
 
 --- The first time strictly after fromTime that the expression matches.
@@ -310,6 +313,9 @@ function M.next(expr, fromTime, opts)
     local from = math.floor(fromTime)
     local utc = type(opts) == 'table' and opts.utc == true
     local f = fieldsOf(from, utc)
+    if not f then
+        return nil, ('%s is outside the range of times this platform can convert'):format(tostring(fromTime))
+    end
     local y, m, d, h, mi = f.year, f.month, f.day, f.hour, f.min + 1
     -- A daylight-saving fold can map a later wall-clock minute to an EARLIER
     -- instant; step past it rather than answer a time that is not after `from`.
@@ -338,7 +344,16 @@ function M.matches(expr, time, opts)
     if not spec then
         return nil, why
     end
-    local f = fieldsOf(math.floor(time or os.time()), type(opts) == 'table' and opts.utc == true)
+    if time == nil then
+        time = os.time()
+    end
+    if type(time) ~= 'number' or time ~= time or time == math.huge or time == -math.huge then
+        return nil, ('time must be epoch seconds, got %s'):format(tostring(time))
+    end
+    local f = fieldsOf(math.floor(time), type(opts) == 'table' and opts.utc == true)
+    if not f then
+        return nil, ('%s is outside the range of times this platform can convert'):format(tostring(time))
+    end
     return spec._minutes.set[f.min] == true and spec._hours.set[f.hour] == true
         and spec._months.set[f.month] == true and dayMatches(spec, f.year, f.month, f.day)
 end
