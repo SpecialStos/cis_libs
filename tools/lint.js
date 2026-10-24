@@ -143,12 +143,15 @@ function neutraliseBackticks(src) {
   return out
 }
 
+// Returns the exit code instead of calling process.exit: process.exit inside the
+// try below skips the finally, and every run then left a cis-luacheck-* folder
+// in the temp directory (the same on failure as on success).
 function main() {
   const luacheck = findLuacheck()
   const targets = collectTargets()
   if (!targets.length) {
     console.error('no Lua files found')
-    process.exit(2)
+    return 2
   }
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cis-luacheck-'))
@@ -213,12 +216,14 @@ function main() {
     if (firstError) {
       console.error('could not run luacheck: ' + firstError.message)
       console.error('looked for: ' + luacheck)
-      process.exit(2)
+      return 2
     }
-    process.exit(worst)
+    return worst
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true })
   }
 }
 
-main()
+if (require.main === module) process.exit(main())
+
+module.exports = { neutraliseBackticks }

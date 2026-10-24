@@ -17,13 +17,42 @@ const lualib = fengari.lualib
 const toLua = fengari.to_luastring
 
 const root = path.join(__dirname, '..')
-  const DOC_FILES = [
-    'README.md',
-    'DOCUMENTATION.md',
-    'CHANGELOG.md',
-    'LICENSE.md',
-    'test/LIVE.md',
-  ]
+// Documents held to every rule: links, `npm run` names, Cis.* names, exports.
+const DOC_FILES = [
+  'README.md',
+  'DOCUMENTATION.md',
+  'CHANGELOG.md',
+  'LICENSE.md',
+  'test/LIVE.md',
+  'test/live/RUNBOOK.md',
+  'test/live/UNRUN.md',
+]
+
+// Every other markdown file in the repo (docs/archive, docs/handoff, ...) is
+// held to the link and anchor rules only. An archived document describes an old
+// API and a handoff note describes a moment, so neither is checked against
+// today's api.lua, but a link in them that goes nowhere is still a broken link.
+const SKIP_DIRS = new Set(['node_modules', '.git', '.claude', '.zcode', 'dist', 'cache', 'reports'])
+function linkOnlyFiles(dir = root, rel = '', out = []) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (SKIP_DIRS.has(e.name)) continue
+    const r = rel ? rel + '/' + e.name : e.name
+    if (e.isDirectory()) linkOnlyFiles(path.join(dir, e.name), r, out)
+    else if (e.name.endsWith('.md') && !DOC_FILES.includes(r)) out.push(r)
+  }
+  return out.sort()
+}
+
+// The cis_libs exports a document calls, in both spellings the docs use:
+// exports['cis_libs']:Name(...) and exports.cis_libs:Name(...). Other
+// resources' exports are not api.lua's business.
+function exportNames(md) {
+  const names = new Set()
+  const re = /\bexports(?:\[\s*(['"])cis_libs\1\s*\]|\.cis_libs):([A-Za-z_][A-Za-z0-9_]*)/g
+  let m
+  while ((m = re.exec(md))) names.add(m[2])
+  return names
+}
 
 function loadApi() {
   const L = lauxlib.luaL_newstate()
@@ -38,14 +67,17 @@ function loadApi() {
   return JSON.parse(lua.lua_tojsstring(L, -1))
 }
 
+// GitHub's rule: drop punctuation, then turn EACH space into a hyphen. A dash
+// removed from the middle of a heading leaves two spaces and so two hyphens, and
+// an underscore is kept.
 function slug(heading) {
   return heading
     .replace(/^#+\s+/, '')
     .toLowerCase()
-    .replace(/[`*_]/g, '')
+    .replace(/[`*]/g, '')
     .replace(/[^\w\s-]/g, '')
     .trim()
-    .replace(/\s+/g, '-')
+    .replace(/\s/g, '-')
 }
 
 function headings(md) {
@@ -93,7 +125,8 @@ function main() {
   const blob = JSON.stringify(api)
   for (const m of blob.matchAll(/Cis\.[A-Za-z_][A-Za-z0-9_.]*/g)) knownCis.add(m[0])
   const namedInDocs = new Set()
-  for (const rel of DOC_FILES) {
+  const linkOnly = linkOnlyFiles()
+  for (const rel of [...DOC_FILES, ...linkOnly]) {
     const abs = path.join(root, rel)
     if (!fs.existsSync(abs)) {
       fail(failures, `missing doc ${rel}`)
@@ -123,6 +156,8 @@ function main() {
       }
     }
 
+    if (linkOnly.includes(rel)) continue
+
     const runRe = /npm run ([a-zA-Z0-9:_-]+)/g
     while ((m = runRe.exec(md))) {
       if (!scripts.has(m[1]) && m[1] !== 'test') {
@@ -136,8 +171,7 @@ function main() {
     const cisRe = /\bCis\.[A-Za-z_][A-Za-z0-9_.]*/g
     while ((m = cisRe.exec(md))) namedInDocs.add(m[0].replace(/\.+$/, ''))
 
-    const exportRe = /exports\[[^\]]+\]:([A-Za-z_][A-Za-z0-9_]*)/g
-    while ((m = exportRe.exec(md))) namedInDocs.add('export:' + m[1])
+    for (const name of exportNames(md)) namedInDocs.add('export:' + name)
   }
 
   for (const name of namedInDocs) {
@@ -187,7 +221,9 @@ function main() {
     for (const f of failures) console.error('  ' + f)
     process.exit(1)
   }
-  console.log(`docs-check: ${DOC_FILES.length} files, versions ${pack.version}, api=${api.api}`)
+  console.log(`docs-check: ${DOC_FILES.length + linkOnly.length} files (${linkOnly.length} link-only), versions ${pack.version}, api=${api.api}`)
 }
 
-main()
+if (require.main === module) main()
+
+module.exports = { DOC_FILES, linkOnlyFiles, exportNames }
