@@ -4257,7 +4257,7 @@
     {
       "id": "M836",
       "file": "tools/validate-api.js",
-      "check": "api",
+      "check": "api-selftest",
       "find": "        sinceCeiling = manifest.unreleased\n",
       "replace": "",
       "why": "The unreleased field does not raise the since ceiling, so the entries added for the next release fail the validator."

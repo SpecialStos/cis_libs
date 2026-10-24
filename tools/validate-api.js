@@ -14,8 +14,9 @@
 //
 // `--selftest` is the part that makes the checker trustworthy. A validator that
 // has only ever been seen to pass has not been tested. It asserts three things
-// about itself: the real manifest is clean, and each deliberately broken
-// fixture fails with the diagnostic it was built to trigger.
+// about itself: the real manifest is clean, each deliberately broken fixture
+// fails with the diagnostic it was built to trigger, and each good fixture
+// (test/api/good/) validates clean.
 
 const fs = require('fs')
 const path = require('path')
@@ -639,6 +640,29 @@ function selftest(root) {
     process.stdout.write('  FAIL  no broken fixtures found; the self-test would be vacuous\n')
     allGood = false
   }
+
+  // 3. each good fixture must validate clean: a rule the real manifest does
+  // not exercise today (such as `unreleased`) still has to accept what it is for
+  const goodDir = path.join(root, 'test', 'api', 'good')
+  const good = fs.existsSync(goodDir)
+    ? fs
+        .readdirSync(goodDir)
+        .filter((d) => fs.existsSync(path.join(goodDir, d, 'api.lua')))
+        .sort()
+    : []
+  for (const name of good) {
+    const loaded = loadManifest(path.join(goodDir, name, 'api.lua'), path.join(REPO_ROOT, 'api.lua'))
+    const report = loaded.error
+      ? Object.assign(new Report(), { findings: [{ code: 'E000', where: name, message: loaded.error }] })
+      : validate(loaded.table, scanResource(root), { strict: true, resourceDir: root })
+    if (!report.ok) {
+      const got = [...new Set(report.findings.map((f) => f.code))].join(', ')
+      process.stdout.write(`  FAIL  good/${name} was refused with ${got}\n`)
+      allGood = false
+      continue
+    }
+    process.stdout.write(`  PASS  good/${name} validates clean\n`)
+  }
   return allGood
 }
 
@@ -658,7 +682,8 @@ function main(argv) {
         `--api       path to the manifest (default: <resource>/api.lua)`,
         '--resource  the resource directory whose source is the truth (default: repo root)',
         '--selftest  assert the validator passes the real manifest and rejects the',
-        '            deliberately broken fixtures in test/api/broken/',
+        '            deliberately broken fixtures in test/api/broken/, and accepts the',
+        '            good fixtures in test/api/good/',
         '',
         `events whose names are computed from Security.EventPrefix are written as`,
         `${PREFIX}:doorlock:... in a manifest, because a consumer cannot hardcode them.`,
