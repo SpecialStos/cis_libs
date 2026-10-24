@@ -38,7 +38,26 @@ list is `CHANGELOG.md` [Unreleased]; the decisions taken for you are in
   formats whenever an argument is given (D16).
 - **Tooling** (no in-game effect): cis-lint (static checks for the Cisoko
   rules), real test assertions, CI actions pinned by SHA, release checksums,
-  and a mutation gate that counts only a test failure as a kill.
+  and a mutation gate that counts only a test failure as a kill. The gate now
+  runs on GitHub CI as 20 shards of at most 45 minutes each.
+- **Second wave, after the first owner-test pin.**
+  - The NUI page runs under a Content-Security-Policy and in strict mode, and
+    every NUI callback validates its payload and answers.
+  - A context menu option may fire only its own resource's events
+    (`<resource>:*`); `cis_libs:*`, `__cfx_*` and the resource start/stop
+    events are refused. Anything else goes through `onSelect`.
+  - Progress bar props are local objects, not networked entities.
+  - `CommandAdd` grants ACEs only to the groups in the convar
+    `cis_command_ace_groups` (default `group.admin`), and never revokes one
+    (D24).
+  - A forged `onResourceStop` no longer releases another resource's
+    registrations on the server (D25).
+  - Sync, context, radial, target and near-watcher records belong to the
+    resource that made them; another resource cannot change or remove them.
+  - `RateOk` keeps separate buckets per calling resource, so a consumer cannot
+    spend the budget of cis_libs' own net events.
+  - A menu, dialog or radial the page refuses (over the NUI message cap)
+    releases focus and the player's controls.
 
 ## 2. What the agent already proved
 
@@ -137,7 +156,23 @@ each; only the framework around them changes.
 9. **Back to idle.** Type `cis_ownertest_clear`.
    - Expected: `cleared: no zone, no point, no text UI`, and within 5 s the
      `cis_libs` resmon row is back to the step 2 value.
-10. **`cis_debug`** in F8. Expected: one line starting `[cis_libs] ped=`.
+10. **NUI under its CSP.** Type `cis_ownertest_ui`.
+    - Expected: an F8 line and toast,
+      `foreign event option refused: true (...)`, where the reason names
+      `cis_libs_ownertest:` as the prefix the event must start with.
+    - Expected: a context menu titled `cis_libs owner test` with two options,
+      drawn with its fonts and icons, and no red F8 line naming `cis_libs`.
+    - Pick `Fire this resource's own event`. Expected: the menu closes and a
+      toast reads `own event fired: 1`.
+    - Type `cis_ownertest_ui` again and press Escape. Expected: the menu
+      closes and the mouse cursor is gone.
+    - Type it again and pick `Progress bar with a prop`. Expected: a 3 s bar
+      labelled `Holding a cone`, a road cone attached to your ped while it
+      runs, and gone afterwards; then `progress finished: true`. Run it once
+      more and press X: `progress finished: false`, and the cone is gone.
+    - If a second player is connected, they should not see the cone: the
+      prop is local to your client.
+11. **`cis_debug`** in F8. Expected: one line starting `[cis_libs] ped=`.
 
 Then switch to the next server (section 3) and repeat.
 
@@ -146,7 +181,7 @@ Then switch to the next server (section 3) and repeat.
 For each server, one line like this:
 
 ```
-esx: idle 0.00 (max 0.01) | active cis_libs 0.03, ownertest 0.05 | text UI yes | callback yes | restart yes | F8 errors none
+esx: idle 0.00 (max 0.01) | active cis_libs 0.03, ownertest 0.05 | text UI yes | callback yes | restart yes | ui menu yes, foreign refused yes, cone yes | F8 errors none
 ```
 
 Add the first red F8 line exactly as shown if there was one.
