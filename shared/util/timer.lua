@@ -11,9 +11,9 @@
 -- every other module: `timer.pause(t)` is `t:pause()`.
 --
 -- NO BUSY-WAIT. A running timer is one thread asleep in Wait() for exactly the
--- time left; nothing polls per frame. Pausing does not wake that thread -- it
--- bumps the timer's generation, and the sleeper exits without doing anything
--- when it wakes. Time is GetGameTimer() milliseconds, which is monotonic and
+-- time left; nothing polls per frame. Pausing does not wake that thread: it
+-- exits without doing anything if the timer is paused or ended when it wakes,
+-- and a play before then reuses it, so pause/play cycles never pile up threads. Time is GetGameTimer() milliseconds, which is monotonic and
 -- does not jump with the wall clock.
 --
 -- ARGUMENT ORDER. setTimeout and setInterval accept the callback and the delay
@@ -57,22 +57,26 @@ local function remaining(t)
     return left
 end
 
--- One sleeping thread per RUN of the timer. A pause, restart or forceEnd bumps
--- the generation, which retires this thread the next time it wakes.
+-- One sleeping thread per timer at a time. A pause, restart or forceEnd leaves
+-- it asleep; when it wakes it exits if the timer is paused or ended, and else
+-- sleeps on for the time left. A play while it sleeps reuses it: the new
+-- deadline is never earlier than the one it is sleeping towards.
 local function arm(t)
-    t._gen = t._gen + 1
-    local gen = t._gen
+    if t._sleeper then return end
+    t._sleeper = true
     CreateThread(function()
         while true do
-            if t._gen ~= gen then return end
+            if t._paused or t._ended then
+                t._sleeper = false
+                return
+            end
             local left = remaining(t)
             if left <= 0 then break end
             Wait(left)
         end
-        if t._gen ~= gen then return end
+        t._sleeper = false
         t._ended = true
         t._elapsed = t._duration
-        t._gen = t._gen + 1
         if t._onEnd then
             t._onEnd(t)
         end
@@ -96,7 +100,7 @@ function M.new(ms, onEnd, opts)
         _startedAt = 0,
         _paused = true,
         _ended = false,
-        _gen = 0,
+        _sleeper = false,
     }, TimerMT)
     if not (type(opts) == 'table' and opts.autoStart == false) then
         M.play(t)
@@ -128,7 +132,6 @@ function M.pause(t)
     end
     t._elapsed = t._elapsed + (now() - t._startedAt)
     t._paused = true
-    t._gen = t._gen + 1
     return true
 end
 
@@ -138,7 +141,6 @@ end
 ---@return boolean  true
 function M.restart(t, autoStart)
     checkTimer(t, 'restart')
-    t._gen = t._gen + 1
     t._elapsed = 0
     t._ended = false
     t._paused = true
@@ -157,7 +159,6 @@ function M.forceEnd(t, triggerOnEnd)
     if t._ended then
         return false
     end
-    t._gen = t._gen + 1
     t._ended = true
     t._paused = false
     t._elapsed = t._duration

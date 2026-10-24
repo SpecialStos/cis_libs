@@ -101,7 +101,9 @@ local function rand01(rng)
 end
 
 -- Integer draw in [lo, hi] for a generator that only exposes float.
-local MAX_RETRIES = 8
+-- A rejected draw is redrawn at worst about half the time, so 64 redraws leave 2^-64 of
+-- the draws to the fold below; 8 left 1 in 512, all landing on one end of the range.
+local MAX_RETRIES = 64
 
 -- The same rule for float bounds.
 local function floatBounds(min, max, who)
@@ -189,7 +191,7 @@ end
 local function nextBits(gen, scale)
     local limit = math.floor(M1 / scale) * scale
     local r, retries = gen:next() - 1, 0
-    while r >= limit and retries < 8 do
+    while r >= limit and retries < MAX_RETRIES do
         r = gen:next() - 1
         retries = retries + 1
     end
@@ -293,7 +295,7 @@ function M.newGenerator(seed)
             -- next() yields 1 .. M1, so the largest multiple of n in that range is
             local limit = M1 - (M1 % n)
             local v, retries = self:next(), 0
-            while v > limit and retries < 8 do
+            while v > limit and retries < MAX_RETRIES do
                 v = self:next()
                 retries = retries + 1
             end
@@ -306,7 +308,7 @@ function M.newGenerator(seed)
         -- Wider than one period. This used to fall into the branch above with `limit`
         local limit = TWO53 - (TWO53 % n)
         local v, retries = nextWide(self), 0
-        while v >= limit and retries < 8 do
+        while v >= limit and retries < MAX_RETRIES do
             v = nextWide(self)
             retries = retries + 1
         end

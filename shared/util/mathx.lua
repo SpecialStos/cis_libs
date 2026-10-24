@@ -22,7 +22,7 @@ end
 --- Round half AWAY from zero, to a number of decimal places.
 ---@param n number
 ---@param decimals? integer  default 0; negative rounds to tens, hundreds...
----@return number  an integer when decimals is 0 and the result fits one; NaN and infinities come back unchanged
+---@return number  n itself when it is an integer and decimals is not negative; an integer when decimals is 0 and the result fits one; NaN and infinities come back unchanged
 function M.round(n, decimals)
     if type(n) ~= 'number' then
         error(('mathx.round: expected a number, got %s'):format(type(n)), 2)
@@ -34,16 +34,33 @@ function M.round(n, decimals)
     if type(d) ~= 'number' or d % 1 ~= 0 then
         error(('mathx.round: decimals must be a whole number, got %s'):format(tostring(decimals)), 2)
     end
-    local a = n >= 0 and n or -n
+    -- A whole number has nothing to round to a decimal place, and going through a
+    -- float would change an integer past 2^53 or flip math.mininteger's sign.
+    if d >= 0 and math.type(n) == 'integer' then
+        return n
+    end
+    -- Past 308 places the scale is infinite, and 0 * inf or inf / inf is NaN.
+    if d > 308 then d = 308 elseif d < -308 then d = -308 end
+    local a = n >= 0 and n or -(n + 0.0)
     local r
     if d >= 0 then
         local m = 10 ^ d
-        r = math.floor(a * m + 0.5) / m
+        local scaled = a * m
+        -- Beyond 2^52 every double is whole already, and the scale may overflow.
+        if scaled >= 2 ^ 52 then
+            return d == 0 and tidy(n) or n
+        end
+        local f = math.floor(scaled)
+        -- The fraction against one half, not floor(x + 0.5): that sum rounds
+        -- 0.49999999999999994 up to 1.0.
+        r = (scaled - f >= 0.5 and f + 1 or f) / m
     else
         -- Divide then multiply: 10 ^ -1 is not exactly 0.1, and n * 0.1 / 0.1
         -- drifts where n / 10 * 10 does not.
         local m = 10 ^ -d
-        r = math.floor(a / m + 0.5) * m
+        local scaled = a / m
+        local f = math.floor(scaled)
+        r = (scaled - f >= 0.5 and f + 1 or f) * m
     end
     if n < 0 then r = -r end
     if d <= 0 then
@@ -52,13 +69,19 @@ function M.round(n, decimals)
     return r
 end
 
---- Clamp into [lo, hi]. Reversed bounds are swapped rather than refused.
+--- Clamp into [lo, hi]. A NaN value or reversed bounds are refused, as CisInterp.clamp and CisValidate.clamp refuse them.
 ---@param v number
 ---@param lo number
 ---@param hi number
----@return number
+---@return number|nil  v limited to [lo, hi]
+---@return string|nil  why, for a NaN v or lo > hi
 function M.clamp(v, lo, hi)
-    if lo > hi then lo, hi = hi, lo end
+    if v ~= v then
+        return nil, 'mathx.clamp: v is NaN, which cannot be clamped'
+    end
+    if lo > hi then
+        return nil, ('mathx.clamp: lo %s is greater than hi %s'):format(tostring(lo), tostring(hi))
+    end
     if v < lo then return lo end
     if v > hi then return hi end
     return v
@@ -113,6 +136,12 @@ function M.approx(a, b, epsilon)
     if a == b then
         return true
     end
+    -- Unequal and either side infinite: the tolerance would scale to infinity too.
+    if a == math.huge or a == -math.huge or b == math.huge or b == -math.huge then
+        return false
+    end
+    -- In floats: integer arithmetic wraps, and math.abs(math.mininteger) with it.
+    a, b = a + 0.0, b + 0.0
     local eps = epsilon or 1e-9
     local scale = math.max(1, math.abs(a), math.abs(b))
     return math.abs(a - b) <= eps * scale
@@ -190,9 +219,9 @@ end
 --- Thousands separators: 1234567.891 -> '1,234,567.891'.
 ---@param n number|string  a number, or a numeric string (kept exactly as written)
 ---@param sep? string  default ','
----@param decimals? integer  fix the number of decimals first (numbers only)
+---@param decimals? integer  fix the number of decimals first (numbers only); a whole number from 0 to 99
 ---@return string|nil
----@return string|nil  why
+---@return string|nil  why, also for a decimals outside 0 to 99
 function M.groupDigits(n, sep, decimals)
     sep = sep or ','
     local text
@@ -201,7 +230,19 @@ function M.groupDigits(n, sep, decimals)
             return tostring(n)
         end
         if decimals ~= nil then
-            text = ('%.' .. tostring(math.floor(decimals)) .. 'f'):format(n)
+            -- string.format takes 0 to 99 places; anything else would raise.
+            if type(decimals) ~= 'number' or decimals ~= decimals or decimals < 0 or decimals >= 100 then
+                return nil, ('decimals must be a number from 0 to 99, got %s'):format(tostring(decimals))
+            end
+            local places = math.floor(decimals)
+            if math.type(n) == 'integer' then
+                -- Written out: through a float the digits past 2^53 change.
+                text = ('%d'):format(n) .. (places > 0 and '.' .. ('0'):rep(places) or '')
+            else
+                text = ('%.' .. tostring(places) .. 'f'):format(n)
+            end
+        elseif math.type(n) == 'integer' then
+            text = ('%d'):format(n)
         elseif n % 1 == 0 and math.abs(n) < 1e21 then
             text = ('%.0f'):format(n)
         else

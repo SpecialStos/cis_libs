@@ -166,7 +166,7 @@ local CisDuiPage = {}
 ---@field push fun(h: table, value: any): integer|nil, string|nil # Add a value.
 ---@field pop fun(h: table): any # Remove and return the minimum.
 ---@field peek fun(h: table): any # The minimum, without removing it.
----@field replaceTop fun(h: table, value: any): any # Replace the minimum in place.
+---@field replaceTop fun(h: table, value: any): any, string|nil # Replace the minimum in place.
 ---@field remove fun(h: table, value: any): boolean # Remove a specific value wherever it is.
 ---@field size fun(h: table): integer # How many values are queued.
 ---@field isEmpty fun(h: table): boolean # Is the heap empty?
@@ -259,7 +259,7 @@ local CisKeybindOptions = {}
 ---@field get fun(lru: table, key: any): any # Look up a key and mark it as most recently used.
 ---@field peek fun(lru: table, key: any): any # Look up a key WITHOUT changing its recency.
 ---@field has fun(lru: table, key: any): boolean # Is a key present, without changing its recency?
----@field put fun(lru: table, key: any, value: any): any # Store a value and mark it most recently used.
+---@field put fun(lru: table, key: any, value: any): any, string|nil # Store a value and mark it most recently used.
 ---@field popOldest fun(lru: table): any, any # Remove the least recently used entry.
 ---@field remove fun(lru: table, key: any): any # Remove a key, whatever its position in the order.
 ---@field removeWhere fun(lru: table, predicate: fun(key: any, value: any): boolean): integer # Remove every entry for which `predicate(key, value)` is true.
@@ -270,7 +270,7 @@ local CisKeybindOptions = {}
 local CisLRU = {}
 
 ---@class CisLocale
--- The table Cis.require('locale') returns. Translations from the CALLING resource's locales/<lang>.json, language from the replicated convar cis:locale else en, with en as the fallback file and the fallback per key. t(key, ...) fills ${name} from a table and %s positionally; a missing key answers the key and warns once.
+-- The table Cis.require('locale') returns. Translations from the CALLING resource's locales/<lang>.json, language from the replicated convar cis:locale else en, with en as the fallback file and the fallback per key. t(key, ...) fills ${name} from a table and %s positionally; a % inside a named value prints as it is, and %% prints as one % whenever any argument is given; a missing key answers the key and warns once.
 ---@field load fun(lang?: string): string|nil, string|nil # Load a language from the calling resource's locales folder.
 ---@field set fun(lang: string): string|nil, string|nil # Switch language; the same as load(lang).
 ---@field getLanguage fun(): string|nil # The language in use.
@@ -298,7 +298,7 @@ local CisMarkerOptions = {}
 ---@class CisMathX
 -- The table Cis.require('mathx') returns. Number helpers: round to decimals, clamp, lerp (numbers or FiveM vectors), inverseLerp, remap, approx, toHex/fromHex exact to 2^53, groupDigits, and a weighted pick that is reproducible with a CisRandom generator.
 ---@field round fun(n: number, decimals?: integer): number # Round half AWAY from zero, to a number of decimal places.
----@field clamp fun(v: number, lo: number, hi: number): number # Clamp into [lo, hi].
+---@field clamp fun(v: number, lo: number, hi: number): number|nil, string|nil # Clamp into [lo, hi].
 ---@field lerp fun(a: number|vector2|vector3|vector4, b: number|vector2|vector3|vector4, t: number): number|vector2|vector3|vector4 # Linear interpolation; t is not clamped.
 ---@field inverseLerp fun(a: number, b: number, v: number): number # Where v sits between a and b, as a fraction: the inverse of lerp.
 ---@field remap fun(v: number, inMin: number, inMax: number, outMin: number, outMax: number, clamped?: boolean): number # Map v from [inMin, inMax] onto [outMin, outMax].
@@ -655,7 +655,7 @@ local CisWeaponData = {}
 ---@field newest fun(w: table): any, number|nil # The newest value without removing it.
 ---@field oldest fun(w: table): any, number|nil # The oldest value without removing it.
 ---@field each fun(w: table, fn: fun(value: any, time: number|nil, index: integer)): integer # Walk from oldest to newest, calling `fn(value, time, index)`.
----@field clear fun(w: table) # Empty the ring, keeping its allocated capacity.
+---@field clear fun(w: table) # Empty the ring, keeping its capacity.
 ---@field newDedupe fun(windowSec: number): table # A per-key "seen recently" filter over a time window.
 ---@field seen fun(d: table, key: any, now: number): boolean # Would this key be ACCEPTED right now?
 ---@field isSeen fun(d: table, key: any, now: number): boolean # Is a key currently inside its window?

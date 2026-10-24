@@ -638,6 +638,14 @@ function M.deepMerge(base, overlay, policy, opts)
     if overlayCycle then
         return nil, ('overlay has a cycle through %s'):format(table.concat(overlayCycle, '.'))
     end
+    -- findCycle gives up at maxDepth without a word, and the copy below recurses
+    -- as deep as the input goes: a 300k-level overlay overflowed the stack.
+    if M.depth(base, maxDepth) > maxDepth then
+        return nil, ('base nesting deeper than %s'):format(tostring(maxDepth))
+    end
+    if M.depth(overlay, maxDepth) > maxDepth then
+        return nil, ('overlay nesting deeper than %s'):format(tostring(maxDepth))
+    end
 
     local out = {}
     for k, v in pairs(base) do

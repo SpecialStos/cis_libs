@@ -46,9 +46,10 @@ end
 --- Add a value.
 ---@param set table
 ---@param value any
----@return boolean  false for nil or a value already present
+---@return boolean  false for nil, NaN or a value already present
 function M.add(set, value)
-    if value == nil then
+    -- NaN is no table key: the slot write below would raise after size had grown.
+    if value == nil or value ~= value then
         return false
     end
     -- `or 0` so a set assembled by hand rather than by new() still works; a missing
@@ -126,8 +127,14 @@ function M.each(set, fn)
     end
     -- Capture the bound first: a visitor that adds to the set grows `size`, and reading
     local n = set.size
+    -- Walk a copy: a visitor that removes the value it is handed moves the last
+    -- value into the hole, and the live array would skip it and then run off its end.
+    local values = {}
     for i = 1, n do
-        fn(set.dense[i], i)
+        values[i] = set.dense[i]
+    end
+    for i = 1, n do
+        fn(values[i], i)
     end
     return n
 end

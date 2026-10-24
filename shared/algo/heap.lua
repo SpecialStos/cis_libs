@@ -106,11 +106,18 @@ end
 
 --- Replace the minimum in place.
 ---@param h table
----@param value any
----@return any  the new minimum; nil when the heap was empty
+---@param value any  nil is refused, and NaN under the default ordering, as push refuses them
+---@return any  the new minimum; nil when the heap was empty or the value was refused
+---@return string|nil reason  why it was refused
 function M.replaceTop(h, value)
     if h.size < 1 then
         return nil
+    end
+    if value == nil then
+        return nil, 'cannot put nil into a heap'
+    end
+    if value ~= value and not h.less then
+        return nil, 'cannot put NaN into a heap ordered by <'
     end
     h.items[1] = value
     -- Only ever sifts DOWN. Replacing the root can only make it too large for its
@@ -192,7 +199,7 @@ function M.drain(h)
 end
 
 --- Build a heap from an existing list in O(n).
----@param list table  array of values
+---@param list table  array of values; a nil hole is skipped, and NaN under the default ordering
 ---@param less? fun(a: any, b: any): boolean  as CisHeap.new
 ---@return table  the heap
 function M.build(list, less)
@@ -200,9 +207,14 @@ function M.build(list, less)
     if type(list) ~= 'table' then
         return h
     end
-    local n = #list
-    for i = 1, n do
-        h.items[i] = list[i]
+    local n = 0
+    for i = 1, #list do
+        local v = list[i]
+        -- What push refuses would leave a nil in the array or break the ordering.
+        if v ~= nil and (v == v or less) then
+            n = n + 1
+            h.items[n] = v
+        end
     end
     h.size = n
     for i = math.floor(n * 0.5), 1, -1 do

@@ -222,6 +222,33 @@ local function shapeOf(t, spec, path)
     return true
 end
 
+-- Nesting past this is refused by defaults() rather than copied.
+local MAX_COPY_DEPTH = 64
+
+-- Why a table cannot be copied: a cycle, or nesting past MAX_COPY_DEPTH. The
+-- recursion is bounded by that depth.
+local function treeProblem(v)
+    local onPath = {}
+    local function walk(t, depth)
+        if onPath[t] then
+            return 'value has a cycle'
+        end
+        if depth > MAX_COPY_DEPTH then
+            return ('value is nested deeper than %d'):format(MAX_COPY_DEPTH)
+        end
+        onPath[t] = true
+        for _, child in next, t do
+            if type(child) == 'table' then
+                local why = walk(child, depth + 1)
+                if why then return why end
+            end
+        end
+        onPath[t] = nil
+        return nil
+    end
+    return walk(v, 1)
+end
+
 -- Recursive copy of a plain table.
 local function copyTree(v)
     if type(v) ~= 'table' then
@@ -299,7 +326,7 @@ function M.field(value, spec, path)
     end
     if want == 'string' then
         local opts = {
-            min = spec.min, max = spec.max, pattern = spec.pattern,
+            min = spec.min, max = spec.max, nonEmpty = spec.nonEmpty, pattern = spec.pattern,
             oneOf = spec.oneOf, ignoreCase = spec.ignoreCase, trim = spec.trim,
             name = path,
         }
@@ -328,6 +355,12 @@ function M.field(value, spec, path)
         if type(value) ~= 'table' then
             return false, wrongType(path, 'table', typeName(value))
         end
+        if spec.min ~= nil or spec.max ~= nil or spec.nonEmpty or spec.of then
+            local ok, why = M.tableValue(value, {
+                min = spec.min, max = spec.max, nonEmpty = spec.nonEmpty, of = spec.of, name = path,
+            })
+            if not ok then return false, why end
+        end
         if spec.fields then
             local errors = {}
             for field, subSpec in pairs(spec.fields) do
@@ -352,8 +385,8 @@ function M.field(value, spec, path)
             return false, ('%s must be %s (keys %s)'):format(path, want,
                 want == 'array' and '1..n, no holes' or 'named, or empty')
         end
-        if spec.min ~= nil or spec.max ~= nil or spec.of then
-            local opts = { min = spec.min, max = spec.max, name = path }
+        if spec.min ~= nil or spec.max ~= nil or spec.nonEmpty or spec.of then
+            local opts = { min = spec.min, max = spec.max, nonEmpty = spec.nonEmpty, name = path }
             local ok, why = M.tableValue(value, opts)
             if not ok then return false, why end
         end
@@ -451,6 +484,10 @@ function M.defaults(value, schema)
     end
     if type(schema) ~= 'table' then
         return nil, ('schema must be a table, got %s'):format(type(schema))
+    end
+    local problem = treeProblem(value)
+    if problem then
+        return nil, problem
     end
     local out = {}
     -- Supplied values first, so the second pass can tell "absent" from "supplied and

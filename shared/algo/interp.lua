@@ -147,7 +147,7 @@ function M.hasEase(name)
     return type(name) == 'string' and M.EASINGS[name] ~= nil
 end
 
---- Apply the named easing curve to t in [0, 1]. An unknown name is linear.
+--- Apply the named easing curve to t in [0, 1]. A t outside it is limited to it. An unknown name is linear.
 ---@param name string
 ---@param t number
 ---@return number
@@ -156,7 +156,8 @@ function M.ease(name, t)
     if not curve then
         return t
     end
-    return curve(t)
+    -- The circ curves take the root of a negative number outside [0, 1].
+    return curve(M.clamp01(t))
 end
 
 
@@ -660,6 +661,8 @@ function M.clampLength(v, maxLength, out)
     end
     z = z or 0
     out = out or {}
+    -- A negative length would scale the vector by a negative factor and flip it.
+    if maxLength < 0 then maxLength = 0 end
     local lenSq = x * x + y * y + z * z
     if lenSq > maxLength * maxLength and lenSq > 0 then
         local f = maxLength / math.sqrt(lenSq)

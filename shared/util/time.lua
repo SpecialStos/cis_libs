@@ -173,6 +173,9 @@ function M.parseDuration(text)
             return nil, ('%q is not a known unit (w d h m s, or a long name)'):format(unit)
         end
         total = total + value * size
+        if total == math.huge then
+            return nil, ('%q is too large a duration'):format(num)
+        end
         matched = true
     end
     if not matched then
@@ -180,6 +183,9 @@ function M.parseDuration(text)
         local value = tonumber(s)
         if value == nil then
             return nil, ('%q is not a duration'):format(text)
+        end
+        if value == math.huge then
+            return nil, ('%q is too large a duration'):format(text)
         end
         return sign * value
     end

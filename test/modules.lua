@@ -88,6 +88,18 @@ do
     expect(I.ease('linear', 0.5) == 0.5, 'the linear ease is the identity')
     expect(I.ease('quadIn', 0) == 0 and I.ease('quadIn', 1) == 1,
         'an ease is pinned at both ends')
+    -- t is limited to [0, 1]: sqrt of a negative made the circ curves NaN above 1.
+    local easeBad
+    for name in pairs(I.EASINGS) do
+        if I.ease(name, 3) ~= I.ease(name, 1) or I.ease(name, -3) ~= I.ease(name, 0) then easeBad = easeBad or name end
+    end
+    expect(easeBad == nil, 'ease limits t to [0, 1] for every curve (' .. tostring(easeBad) .. ')')
+    expect(I.ease('circIn', 2) == 1 and I.ease('circOut', 2) == 1 and I.ease('circInOut', 2) == 1, 'ease: the circ curves end at 1 past t = 1')
+    expect(I.ease('nope', 2) == 2, 'ease: an unknown name stays the identity, unlimited')
+    local clipped = I.clampLength({ x = 3, y = 4, z = 0 }, -1)
+    expect(clipped.x == 0 and clipped.y == 0 and clipped.z == 0, 'clampLength with a negative length gives the zero vector, not a flipped one')
+    clipped = I.clampLength({ x = 3, y = 4, z = 0 }, 2.5)
+    expect(clipped.x == 1.5 and clipped.y == 2 and clipped.z == 0, 'clampLength still shortens to the length')
 end
 
 -- ==================================================================== CisLRU
@@ -891,6 +903,15 @@ do
     expect(ok == true, 'a distance inside the path is reported as on-path')
     near(x, 0, 1e-6, 'the path starts at its first waypoint on x')
     near(y, 0, 1e-6, 'the path starts at its first waypoint on y')
+    -- An infinite distance has no lap to wrap into: it was inf % length = NaN with ok = true.
+    local ring = CisCurve.newPath({ { x = 0, y = 0 }, { x = 10, y = 0 }, { x = 10, y = 10 } }, { closed = true })
+    local ix, iy, iz, iok = CisCurve.pointAtXYZ(ring, math.huge)
+    expect(iok == true and ix == ix and iy == iy and iz == iz, 'pointAtXYZ with an infinite distance on a closed path is a real point')
+    ix, iy, iz, iok = CisCurve.pointAtXYZ(ring, -math.huge)
+    expect(iok == true and ix == ix and iy == iy and iz == iz, 'and so is a negative infinite one')
+    ix, iy = CisCurve.pointAtXYZ(path, math.huge)
+    near(ix, 10, 1e-6, 'an open path still clamps infinity to its end (x)')
+    near(iy, 10, 1e-6, 'an open path still clamps infinity to its end (y)')
     local out = {}
     CisCurve.pointAt(path, CisCurve.length(path) * 0.5, out)
     expect(type(out.x) == 'number' and type(out.y) == 'number' and type(out.z) == 'number',
@@ -936,6 +957,25 @@ do
     expect(S.levenshtein('cis_libs', 'cis_libz') == 1, 'levenshtein counts a single substitution')
     expect(S.levenshtein('', 'abc') == 3, 'levenshtein against an empty string')
     expect(S.levenshtein('same', 'same') == 0, 'levenshtein of identical strings is zero')
+    -- With a ceiling the answer is the distance up to it and ceiling + 1 beyond it,
+    -- including an empty side and a row whose cheapest cell still ends above it.
+    local words = { '', 'a', 'ab', 'abc', 'cba', 'abcd', 'dcba', 'aaaa', 'bbbb', 'kitten', 'sitting', 'abab', 'baba' }
+    local capBad
+    for _, x in ipairs(words) do
+        for _, y in ipairs(words) do
+            local full = S.levenshtein(x, y)
+            for cap = 0, 4 do
+                local want = full <= cap and full or cap + 1
+                if S.levenshtein(x, y, cap) ~= want then capBad = capBad or ('%s/%s/%d'):format(x, y, cap) end
+            end
+        end
+    end
+    expect(capBad == nil, 'levenshtein with a ceiling answers the distance or ceiling + 1 (' .. tostring(capBad) .. ')')
+    expect(S.levenshtein('', 'abc', 1) == 2 and S.levenshtein('abc', '', 5) == 3, 'levenshtein ceiling applies against an empty string')
+    local closest, dist = S.suggest('FOO', { 'foo' })
+    expect(closest == 'foo' and dist <= 2, 'suggest reports a distance within its own maximum')
+    closest, dist = S.suggest('gve', { 'Give', 'gone' })
+    expect(closest == 'Give' and dist == 1, 'suggest still reports the distance it matched on')
     -- The bug the author found: joinCased only touched the first letter, so
     -- GIVE_MONEY came out as gIVEmONEY.
     local snake = S.camel('GIVE_MONEY')
@@ -1606,6 +1646,21 @@ do
         expect(CisHeap.size(built) == 3, 'build() makes a heap of the whole list')
         expect(CisHeap.peek(built) == 1, 'build() HEAPIFIES rather than just wrapping the list')
 
+        -- push refuses nil and NaN; replaceTop and build now do the same, where they
+        -- used to leave a nil in the array and raise on the next comparison.
+        local rt = CisHeap.build({ 2, 1, 3 })
+        local rv, rwhy = CisHeap.replaceTop(rt, nil)
+        expect(rv == nil and type(rwhy) == 'string' and CisHeap.peek(rt) == 1 and CisHeap.size(rt) == 3,
+            'replaceTop refuses nil with a reason and leaves the heap alone')
+        rv, rwhy = CisHeap.replaceTop(rt, 0 / 0)
+        expect(rv == nil and type(rwhy) == 'string' and CisHeap.peek(rt) == 1,
+            'replaceTop refuses NaN under the default ordering')
+        expect(CisHeap.replaceTop(CisHeap.new(), 5) == nil, 'replaceTop on an empty heap is still nil')
+        local holey = CisHeap.build({ 3, nil, 1, 2 })
+        expect(CisHeap.size(holey) == 3 and CisHeap.pop(holey) == 1 and CisHeap.pop(holey) == 2
+            and CisHeap.pop(holey) == 3, 'build skips the holes in its list')
+        expect(CisHeap.size(CisHeap.build({ 1, 0 / 0, 2 })) == 2, 'build skips NaN under the default ordering')
+
         -- The queue: priority first, and TIES in insertion order. The tie rule
         -- is the whole reason a queue exists over a plain heap, and it is not
         -- obvious from the name.
@@ -1654,6 +1709,29 @@ do
         expect(seen == CisLRU.count(lru), 'each visits every entry')
         expect(CisLRU.each(lru, 'not a function') == 0,
             'each with a non-function visits nothing rather than raising')
+
+        -- A nil or NaN key cannot index the map: put refuses it with a reason, where
+        -- it raised 'index is nil'. removeWhere walks a snapshot, so a predicate that
+        -- removes the entry it would visit next does not strand the walk on an
+        -- unlinked node.
+        local kc = CisLRU.new(3)
+        local kr, kwhy = CisLRU.put(kc, nil, 1)
+        expect(kr == nil and type(kwhy) == 'string' and CisLRU.count(kc) == 0, 'put refuses a nil key with a reason')
+        kr, kwhy = CisLRU.put(kc, 0 / 0, 1)
+        expect(kr == nil and type(kwhy) == 'string' and CisLRU.count(kc) == 0, 'put refuses a NaN key with a reason')
+        expect(CisLRU.put(kc, nil, nil) == nil and CisLRU.put(kc, 'x', nil) == nil, 'and a nil value is still a remove')
+        for _, k in ipairs({ 'a', 'b', 'c' }) do CisLRU.put(kc, k, k) end
+        local visited = {}
+        local gone = CisLRU.removeWhere(kc, function(k)
+            visited[#visited + 1] = k
+            if k == 'c' then CisLRU.remove(kc, 'b') end
+            return k == 'c'
+        end)
+        expect(gone == 1 and #visited == 2 and visited[2] == 'a' and CisLRU.count(kc) == 1 and CisLRU.has(kc, 'a'),
+            'removeWhere survives a predicate that removes the entry it would visit next')
+        CisLRU.put(kc, 'b', 'b')
+        CisLRU.removeWhere(kc, function(k) CisLRU.remove(kc, k) return true end)
+        expect(CisLRU.count(kc) == 0 and #CisLRU.keys(kc) == 0, 'and one that removes the entry it is asked about')
     end
 
     -- ---------------------------------------------------------------- rate
@@ -2292,6 +2370,132 @@ do
         collectgarbage() collectgarbage()
         expect(next(keep) ~= nil and Sp.count(s3) == 1, 'sparse: but a LIVE member is never collected')
     end
+end
+
+-- ------------------------------------- sparse: each survives its own visitor
+do
+    local Sp = CisSparse
+    -- each walked the live dense array: a visitor that removed the current value
+    -- moved the last one into the hole, so later values were skipped and the tail
+    -- was handed nil. The doc promises every value present when the walk started.
+    local set = Sp.new()
+    for i = 1, 5 do Sp.add(set, 'v' .. i) end
+    local seen = {}
+    local n = Sp.each(set, function(v)
+        seen[#seen + 1] = tostring(v)
+        Sp.remove(set, v)
+    end)
+    expect(n == 5 and table.concat(seen, ',') == 'v1,v2,v3,v4,v5' and Sp.count(set) == 0,
+        'sparse: each visits every value present at the start although the visitor removes them: ' .. table.concat(seen, ','))
+
+    -- add(NaN) raised on the slot write after size had already grown.
+    local s2 = Sp.new()
+    Sp.add(s2, 'a')
+    local ok, added = pcall(Sp.add, s2, 0 / 0)
+    expect(ok and added == false and Sp.count(s2) == 1 and #Sp.toArray(s2) == 1 and not Sp.has(s2, 0 / 0),
+        'sparse: add(NaN) is refused with false and leaves the set as it was')
+    expect(Sp.add(s2, 'b') == true and Sp.count(s2) == 2 and Sp.at(s2, 2) == 'b',
+        'sparse: and the set still takes values after the refused NaN')
+end
+
+-- ------------------------------- validate: a field spec keeps the options it names
+do
+    local V = CisValidate
+    -- field() built its string options by hand and left nonEmpty out; the table
+    -- branch passed nothing on, so min, max, of and nonEmpty did nothing.
+    -- `required` still means "not nil": an empty string is for nonEmpty to refuse.
+    expect(not V.field('', { type = 'string', nonEmpty = true }, 'name'), 'validate: a string field honours nonEmpty')
+    expect(V.field('', { type = 'string', required = true }, 'name') == true, 'validate: required alone is still only "not nil"')
+    expect(V.field('x', { type = 'string', nonEmpty = true }, 'name') == true, 'validate: and a non-empty string passes nonEmpty')
+    expect(not V.field({}, { type = 'table', nonEmpty = true }, 'cfg'), 'validate: a table field honours nonEmpty')
+    expect(not V.field({ 1, 2, 3 }, { type = 'table', max = 2 }, 'cfg') and not V.field({ 1 }, { type = 'table', min = 2 }, 'cfg')
+        and V.field({ 1, 2 }, { type = 'table', min = 2, max = 2 }, 'cfg') == true, 'validate: a table field honours min and max entries')
+    local okOf, whyOf = V.field({ a = 1, b = 'x' }, { type = 'table', of = { type = 'number' } }, 'cfg')
+    expect(okOf == false and type(whyOf) == 'string' and whyOf:find('cfg[b]', 1, true) ~= nil,
+        'validate: a table field checks every entry against of, naming the key: ' .. tostring(whyOf))
+    expect(V.field({ a = 1, b = 2 }, { type = 'table', of = { type = 'number' } }, 'cfg') == true, 'validate: and a table of valid entries passes')
+    expect(not V.field({}, { type = 'array', nonEmpty = true }, 'list') and not V.field({}, { type = 'map', nonEmpty = true }, 'list')
+        and V.field({ 1 }, { type = 'array', nonEmpty = true }, 'list') == true, 'validate: an array or map field honours nonEmpty')
+end
+
+-- ----------------------- table, validate: a deep or cyclic input answers nil, why
+do
+    local T, V = CisTable, CisValidate
+    local function chain(n)
+        local root = {}
+        local cur = root
+        for _ = 1, n do
+            local child = {}
+            cur.k = child
+            cur = child
+        end
+        return root
+    end
+    -- deepMerge took opts.maxDepth only for its cycle search, then copied and
+    -- recursed through a 300000-level overlay until the stack overflowed.
+    local ok, merged, why = pcall(T.deepMerge, {}, chain(300000))
+    expect(ok and merged == nil and type(why) == 'string' and why:find('deeper', 1, true) ~= nil,
+        'table: deepMerge of a 300000-level overlay answers nil, why instead of raising: ' .. tostring(merged) .. ' ' .. tostring(why))
+    ok, merged, why = pcall(T.deepMerge, chain(300000), { a = 1 })
+    expect(ok and merged == nil and type(why) == 'string', 'table: and so does a 300000-level base')
+    ok, merged, why = pcall(T.deepMerge, chain(100), { a = 1 }, nil, { maxDepth = 10 })
+    expect(ok and merged == nil and type(why) == 'string' and why:find('10', 1, true) ~= nil,
+        'table: deepMerge honours opts.maxDepth for the nesting too: ' .. tostring(why))
+    ok, merged = pcall(T.deepMerge, chain(5), { a = 1 }, nil, { maxDepth = 10 })
+    expect(ok and merged ~= nil and merged.a == 1 and merged.k.k.k.k.k ~= nil, 'table: and a tree within maxDepth still merges')
+
+    -- validate.defaults copied its input with a recursion that knew no cycle and no depth.
+    local cyc = {}
+    cyc.self = cyc
+    local okD, filled, whyD = pcall(V.defaults, cyc, { n = { default = 1 } })
+    expect(okD and filled == nil and type(whyD) == 'string' and whyD:find('cycle', 1, true) ~= nil,
+        'validate: defaults of a cyclic table answers nil, why instead of raising: ' .. tostring(filled) .. ' ' .. tostring(whyD))
+    okD, filled, whyD = pcall(V.defaults, chain(300000), {})
+    expect(okD and filled == nil and type(whyD) == 'string' and whyD:find('deeper', 1, true) ~= nil,
+        'validate: defaults of a 300000-level table answers nil, why: ' .. tostring(filled) .. ' ' .. tostring(whyD))
+    okD, filled = pcall(V.defaults, chain(10), { n = { default = 1 } })
+    expect(okD and filled ~= nil and filled.n == 1 and filled.k.k.k ~= nil, 'validate: and an ordinary nested table is still filled')
+    local shared = { x = 1 }
+    okD, filled = pcall(V.defaults, { a = shared, b = shared }, { n = { default = 1 } })
+    expect(okD and filled ~= nil and filled.a.x == 1 and filled.b.x == 1, 'validate: a table shared by two keys is not a cycle')
+end
+
+-- ----------------------------- rate: prune keeps a key the sliding window blocks
+do
+    local R = CisRate
+    -- The default idle time was one window, but the ring still weights the oldest
+    -- slice for one slice more: with 10 per 10 s, a prune at t = 10 freed a key
+    -- that is blocked until t = 11 and let 10 more hits through.
+    local lim = R.newSliding({ limit = 10, windowSec = 10 })
+    for _ = 1, 10 do R.allow(lim, 'k', 0) end
+    expect(R.prune(lim, 10) == 0 and R.count(lim) == 1, 'rate: prune at exactly one window keeps a key the sliding limiter still blocks')
+    expect(R.allow(lim, 'k', 10) == false, 'rate: and that key is still refused at t = 10')
+    local lim2 = R.newSliding({ limit = 10, windowSec = 10 })
+    for _ = 1, 10 do R.allow(lim2, 'k', 0) end
+    expect(R.prune(lim2, 11) == 1 and R.count(lim2) == 0, 'rate: prune one slice later reclaims it')
+    expect(R.allow(lim2, 'k', 11) == true, 'rate: and the key has its full allowance after that')
+    local fixed = R.newFixed({ limit = 1, windowSec = 10 })
+    R.allow(fixed, 'k', 0)
+    expect(R.prune(fixed, 10) == 1, 'rate: a fixed window is still reclaimed after one window')
+end
+
+-- ------------------------- window: a sample older than the newest keeps the rest
+do
+    local W = CisWindow
+    -- record moved lastBucket back to the late sample's bucket without moving the
+    -- ring, so the newest bucket was relabelled as old and read as expired.
+    local st = W.newStats(10, 1)
+    W.record(st, 'k', 7, 100)
+    expect(W.record(st, 'k', 3, 95) == true, 'window: a late sample inside the window is recorded')
+    expect(W.samples(st, 'k', 100) == 2 and W.read(st, 'k', 100).sum == 10, 'window: and both samples are live')
+    expect(W.samples(st, 'k', 106) == 1 and W.read(st, 'k', 106).sum == 7,
+        'window: the newest sample outlives the late one: at t = 106 only the t = 100 sample is left')
+    expect(W.samples(st, 'k', 108) == 1, 'window: and it stays live until its own bucket expires')
+    expect(W.record(st, 'k', 1, 50) == false and W.samples(st, 'k', 100) == 2,
+        'window: a sample older than the whole ring is refused and changes nothing')
+    W.record(st, 'k', 5, 101)
+    expect(W.samples(st, 'k', 101) == 3 and W.samples(st, 'k', 106) == 2,
+        'window: and the cursor still advances normally after a late sample')
 end
 
 -- ------------------------------------------------- id: uuid takes a generator
@@ -3210,6 +3414,94 @@ do
     expect(S.best({ '1.2.3', '1.4.0', '2.0.0', '1.4.0-rc.1' }, '^1.2') == '1.4.0',
         'semver: best picks the highest match and skips the prerelease')
     expect(S.best({ '1.0.0', 'garbage' }, '*') == nil, 'semver: best refuses a malformed candidate')
+end
+
+-- ====================================================== re-audit lows (A-L8..A-L14)
+do
+    -- A-L8: an unbounded ring clears, and a dedupe without a clock refuses.
+    local W = CisWindow
+    local ring = W.new(math.huge)
+    for i = 1, 3 do W.push(ring, i * 10, i) end
+    debug.sethook(function() error('HUNG', 0) end, '', 2000000)
+    local okClear = pcall(W.clear, ring)
+    debug.sethook()
+    expect(okClear and ring.size == 0 and W.newest(ring) == nil,
+        'window: clear on a ring of infinite capacity returns instead of walking every slot')
+    W.push(ring, 7, 1)
+    expect(W.newest(ring) == 7 and ring.size == 1, 'window: a cleared infinite ring takes pushes again')
+    local d = W.newDedupe(5)
+    W.seen(d, 'k', 100)
+    local okSeen, seenNil = pcall(W.isSeen, d, 'k', nil)
+    local okPrune, pruned = pcall(W.prune, d, nil)
+    expect(okSeen and seenNil == false, 'window: isSeen with no clock answers false instead of raising')
+    expect(okPrune and pruned == 0 and d.size == 1, 'window: prune with no clock removes nothing instead of raising')
+
+    -- A-L11: a limit of 0 is a limit of 0, and a key that cannot index is refused.
+    local zeroFixed = CisRate.newFixed({ limit = 0, windowSec = 1 })
+    local zeroSliding = CisRate.newSliding({ limit = 0, windowSec = 1 })
+    expect(zeroFixed.limit == 0 and zeroSliding.limit == 0, 'rate: limit = 0 is kept, not turned into 10')
+    expect(CisRate.allow(zeroFixed, 'a', 100) == false and CisRate.allow(zeroSliding, 'a', 100) == false,
+        'rate: a limiter with limit 0 allows nothing')
+    expect(CisRate.peek(zeroFixed, 'a', 100).retryAfter == math.huge
+        and CisRate.peek(zeroSliding, 'a', 100).retryAfter == math.huge,
+        'rate: a limit of 0 never recovers, so retryAfter is infinite')
+    expect(CisRate.newFixed({ limit = -3 }).limit == 10 and CisRate.newFixed({ limit = 0 / 0 }).limit == 10,
+        'rate: a negative or NaN limit still falls back to the default')
+    for _, kind in ipairs({ 'newFixed', 'newSliding', 'newTokenBucket' }) do
+        local r = CisRate[kind]({})
+        local okA, allowed = pcall(CisRate.allow, r, nil, 100)
+        local okN, allowedN = pcall(CisRate.allow, r, 0 / 0, 100)
+        local okP, peeked = pcall(CisRate.peek, r, nil, 100)
+        expect(okA and allowed == false and okN and allowedN == false and r.size == 0,
+            ('rate: %s refuses a nil or NaN key instead of raising'):format(kind))
+        expect(okP and peeked.allowed == false and peeked.remaining == 0,
+            ('rate: %s peek on a nil key reports no allowance'):format(kind))
+    end
+
+    -- A-L12: the uniqueness suffix counts toward maxLength.
+    local used = { abcdefgh = true }
+    local seen, within = {}, true
+    for _ = 1, 12 do
+        local key = CisId.normaliseName('abcdefgh', used, { maxLength = 8 })
+        within = within and key ~= nil and #key <= 8 and not seen[key]
+        used[key or '?'] = true
+        seen[key or '?'] = true
+    end
+    expect(within, 'id: every suffixed key stays within maxLength and unique')
+    expect(CisId.normaliseName('abcdefgh', { abcdefgh = true }, { maxLength = 8 }) == 'abcdef_2',
+        'id: the name is trimmed to make room for _2')
+    local none, noneWhy = CisId.normaliseName('ab', { ab = true }, { maxLength = 2 })
+    expect(none == nil and type(noneWhy) == 'string', 'id: no room for the suffix is a refusal with a reason')
+
+    -- A-L13: a duration too large for a double is refused, not returned as infinity.
+    local big, bigWhy = CisTime.parseDuration(('9'):rep(400) .. 's')
+    local bigBare, bigBareWhy = CisTime.parseDuration(('9'):rep(400))
+    expect(big == nil and type(bigWhy) == 'string' and bigBare == nil and type(bigBareWhy) == 'string',
+        'time: parseDuration refuses a number too large to hold')
+    expect(CisTime.parseDuration('1w') == 604800 and CisTime.parseDuration('99999999999999999999999w') ~= nil,
+        'time: a large but finite duration still parses')
+
+    -- A-L14: a draw is redrawn until accepted, not folded onto the top value after 8.
+    local M1 = 4294967087.0
+    local n = 2147483649.0
+    local limit = M1 - (M1 % n)
+    local checked = 0
+    for seed = 1, 30000 do
+        local mirror = CisRandom.newGenerator(seed)
+        local rejected, accepted = 0, nil
+        for _ = 1, 40 do
+            local v = mirror:next()
+            if v > limit then rejected = rejected + 1 else accepted = v break end
+        end
+        if rejected >= 9 and accepted then
+            local got = CisRandom.newGenerator(seed):int(0, n - 1)
+            expect(got == math.floor((accepted - 1) % n),
+                ('random: seed %d, %d rejected draws, still lands on the first accepted one'):format(seed, rejected))
+            checked = checked + 1
+            if checked >= 3 then break end
+        end
+    end
+    expect(checked >= 1, 'random: the scan found a seed whose first nine draws are all rejected')
 end
 
 io.write(('module tests: passed=%d failed=%d\n'):format(passed, failed))

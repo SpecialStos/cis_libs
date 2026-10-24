@@ -371,7 +371,7 @@ Source: `shared/algo/heap.lua`.
 | `pop` | `(h: table) → any` | Remove and return the minimum. |
 | `push` | `(h: table, value: any) → integer\|nil, string\|nil` | Add a value. |
 | `remove` | `(h: table, value: any) → boolean` | Remove a specific value wherever it is. |
-| `replaceTop` | `(h: table, value: any) → any` | Replace the minimum in place. |
+| `replaceTop` | `(h: table, value: any) → any, string\|nil` | Replace the minimum in place. |
 | `size` | `(h: table) → integer` | How many values are queued. |
 
 #### `id` — `Cis.require('id')`
@@ -469,7 +469,7 @@ Source: `shared/algo/lru.lua`.
 | `new` | `(capacity?: number) → table` | Create an empty cache. |
 | `peek` | `(lru: table, key: any) → any` | Look up a key WITHOUT changing its recency. |
 | `popOldest` | `(lru: table) → any, any` | Remove the least recently used entry. |
-| `put` | `(lru: table, key: any, value: any) → any` | Store a value and mark it most recently used. |
+| `put` | `(lru: table, key: any, value: any) → any, string\|nil` | Store a value and mark it most recently used. |
 | `remove` | `(lru: table, key: any) → any` | Remove a key, whatever its position in the order. |
 | `removeWhere` | `(lru: table, predicate: fun(key: any, value: any): boolean) → integer` | Remove every entry for which `predicate(key, value)` is true. |
 
@@ -480,7 +480,7 @@ Source: `shared/util/mathx.lua`.
 | Function | Signature | Summary |
 |---|---|---|
 | `approx` | `(a: number, b: number, epsilon?: number) → boolean` | Equal within a tolerance that scales with the magnitude: \|a - b\| <= epsilon * max(1, \|a\|, \|b\|). |
-| `clamp` | `(v: number, lo: number, hi: number) → number` | Clamp into [lo, hi]. |
+| `clamp` | `(v: number, lo: number, hi: number) → number\|nil, string\|nil` | Clamp into [lo, hi]. |
 | `fromHex` | `(s: string) → number\|nil, string\|nil` | Hexadecimal text back to a number. |
 | `groupDigits` | `(n: number\|string, sep?: string, decimals?: integer) → string\|nil, string\|nil` | Thousands separators: 1234567.891 -> '1,234,567.891'. |
 | `inverseLerp` | `(a: number, b: number, v: number) → number` | Where v sits between a and b, as a fraction: the inverse of lerp. |
@@ -721,7 +721,7 @@ Source: `shared/algo/window.lua`.
 
 | Function | Signature | Summary |
 |---|---|---|
-| `clear` | `(w: table) → nil` | Empty the ring, keeping its allocated capacity. |
+| `clear` | `(w: table) → nil` | Empty the ring, keeping its capacity. |
 | `count` | `(stats: table, key: any, now: number) → integer` | Alias of `samples`. The number of live SAMPLES for `key` inside the window. |
 | `dedupeCount` | `(d: table) → integer` | How many keys are being tracked, including expired ones not yet pruned. |
 | `each` | `(w: table, fn: fun(value: any, time: number\|nil, index: integer)) → integer` | Walk from oldest to newest, calling `fn(value, time, index)`. |

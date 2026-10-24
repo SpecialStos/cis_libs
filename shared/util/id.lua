@@ -210,7 +210,16 @@ function M.normaliseName(raw, used, opts)
     local candidate = cleaned
     local suffix = 2
     while used[candidate] do
-        candidate = ('%s%s%d'):format(cleaned, separator, suffix)
+        local tail = ('%s%d'):format(separator, suffix)
+        -- The suffix counts toward maxLength: the name is trimmed to leave room for it.
+        local base = cleaned
+        if #base + #tail > maxLength then
+            base = base:sub(1, math.max(maxLength - #tail, 0)):gsub(pattern .. '+$', '')
+        end
+        if base == '' then
+            return nil, ('no unused key fits within maxLength %s'):format(tostring(maxLength))
+        end
+        candidate = base .. tail
         suffix = suffix + 1
     end
     return candidate

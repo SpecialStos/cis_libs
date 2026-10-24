@@ -372,7 +372,26 @@ do
     expect(X.round(1.2345, 2) == 1.23 and X.round(1250, -2) == 1300 and X.round(-1250, -2) == -1300,
         'mathx: round to decimals, and to hundreds with a negative count')
     expect(X.round(0 / 0) ~= X.round(0 / 0) and X.round(math.huge) == math.huge, 'mathx: round leaves NaN and inf alone')
-    expect(X.clamp(5, 10, 0) == 5 and X.clamp(-1, 0, 10) == 0 and X.clamp(11, 0, 10) == 10, 'mathx: clamp, reversed bounds swapped')
+    -- floor(x + 0.5) took 0.49999999999999994 to 1, an integer went through a
+    -- float (past 2^53 it changed, math.mininteger flipped sign), and a scale
+    -- of 10^400 made 0 * inf or inf / inf a NaN.
+    expect(X.round(0.49999999999999994) == 0 and X.round(-0.49999999999999994) == 0 and X.round(0.5) == 1,
+        'mathx: round only rounds up from a true half, 0.49999999999999994 stays 0')
+    expect(X.round(math.maxinteger - 1) == math.maxinteger - 1 and X.round(math.mininteger) == math.mininteger
+        and X.round(math.maxinteger, 3) == math.maxinteger and math.type(X.round(math.mininteger)) == 'integer' and math.type(X.round(7, 2)) == 'integer',
+        'mathx: round returns an integer unchanged, math.maxinteger - 1 and math.mininteger included')
+    expect(X.round(1.5, 400) == 1.5 and X.round(1.5, -400) == 0 and X.round(0, 400) == 0 and X.round(1e308, 1) == 1e308,
+        'mathx: round with an enormous decimals count or a huge value answers, never NaN or inf')
+    expect(X.round(math.mininteger, -2) <= 0 and X.round(2.5, 0) == 3, 'mathx: round of math.mininteger to hundreds keeps its sign')
+    expect(X.clamp(5, 0, 10) == 5 and X.clamp(-1, 0, 10) == 0 and X.clamp(11, 0, 10) == 10, 'mathx: clamp')
+    -- The three clamps (mathx, interp, validate) now agree: a NaN value or reversed
+    -- bounds answer nil plus a reason. mathx used to swap the bounds and pass NaN on.
+    local cv, cwhy = X.clamp(5, 10, 0)
+    expect(cv == nil and type(cwhy) == 'string', 'mathx: clamp refuses reversed bounds with a reason')
+    cv, cwhy = X.clamp(0 / 0, 0, 10)
+    expect(cv == nil and type(cwhy) == 'string', 'mathx: clamp refuses NaN with a reason')
+    expect(X.clamp(math.huge, 0, 10) == 10 and X.clamp(-math.huge, 0, 10) == 0 and X.clamp(5, -math.huge, math.huge) == 5,
+        'mathx: clamp still takes infinities')
     expect(X.lerp(0, 10, 0.25) == 2.5 and X.inverseLerp(0, 10, 2.5) == 0.25 and X.inverseLerp(3, 3, 9) == 0,
         'mathx: lerp and inverseLerp, with a == b safe')
     expect(X.remap(5, 0, 10, 100, 200) == 150 and X.remap(20, 0, 10, 0, 1, true) == 1, 'mathx: remap and clamped remap')
@@ -387,6 +406,12 @@ do
     expect(mid.x == 5 and mid.y == 10, 'mathx: lerp works on a vector type (FiveM vector2/3/4)')
     expect(X.approx(0.1 + 0.2, 0.3) and not X.approx(1, 1.001) and X.approx(1e20, 1e20 + 1e5)
         and not X.approx(0 / 0, 0 / 0) and X.approx(math.huge, math.huge), 'mathx: approx scales with magnitude, NaN is never equal')
+    -- An infinity scaled the tolerance to infinity, and integers subtracted in
+    -- integer arithmetic, where maxinteger - (-1) wraps to a tiny number.
+    expect(not X.approx(math.huge, 1e308) and not X.approx(math.huge, -math.huge) and not X.approx(-math.huge, 5)
+        and X.approx(-math.huge, -math.huge), 'mathx: approx never calls an infinity equal to a finite number or to its opposite')
+    expect(not X.approx(math.maxinteger, -1) and not X.approx(math.mininteger, 1) and X.approx(math.maxinteger, math.maxinteger)
+        and X.approx(3, 3.0000000001), 'mathx: approx does not let a wrapped integer difference pass')
     expect(X.toHex(255) == 'ff' and X.toHex(255, { upper = true, width = 4, prefix = '0x' }) == '0x00FF'
         and X.toHex(-16) == '-10' and X.toHex(0) == '0', 'mathx: toHex with options and sign')
     expect(X.toHex(1.5) == nil and X.toHex(2 ^ 53) == nil, 'mathx: toHex refuses a fraction and 2^53')
@@ -576,7 +601,7 @@ do
     GetCurrentResourceName = function() return 'shop' end -- luacheck: ignore 121
     local decoded = {
         EN = { greet = 'Hello ${name}', shop = { price = 'Costs $%s', both = '${who} paid %s', only = 'en only' },
-            n = 5, count = '%d items' },
+            n = 5, count = '%d items', pct = 'Hi ${name}: %s', half = '${name}: 50%% off' },
         PT = { greet = 'Ola ${name}', shop = { price = 'Custa R$%s' } },
     }
     json = { decode = function(text) -- luacheck: ignore 121
@@ -599,6 +624,13 @@ do
     expect(L.t('shop.only') == 'en only', 'locale: a key missing from the language falls back to English')
     expect(L.t('shop.both', { who = 'Bo' }, 9) == 'Bo paid 9', 'locale: a table then positional arguments')
     expect(L.t('n') == '5', 'locale: a number phrase becomes text')
+    -- ${name} was filled first and the result went through string.format, so a
+    -- value holding '%' broke the positional arguments, and '%%' collapsed only
+    -- when a positional argument came with the table.
+    expect(L.t('pct', { name = '50%' }, 'x') == 'Hi 50%: x' and L.t('pct', { name = '100%s' }, 'x') == 'Hi 100%s: x',
+        'locale: a named value holding % is printed as it is and leaves the positional arguments alone')
+    expect(L.t('half', { name = 'A' }) == 'A: 50% off' and L.t('half', { name = 'A' }, 1) == 'A: 50% off',
+        'locale: %% is one % with a table alone and with a table plus positional arguments')
 
     capture()
     local miss1 = L.t('nope.key')
@@ -733,6 +765,29 @@ do
     -- The long timer's sleeper was retired by forceEnd and exits when it wakes.
     advance(3 * 3600000)
     expect(liveThreads() == 0, 'timer: no thread is left behind')
+    -- Every play used to spawn a sleeper, and a paused timer's old ones slept on
+    -- until their original deadline: 500 cycles left 501 threads.
+    local cycles = 0
+    local cyc = T.new(100000, function() cycles = cycles + 1 end)
+    for _ = 1, 500 do
+        cyc:pause()
+        advance(1)
+        cyc:play()
+    end
+    expect(liveThreads() == 1, ('timer: pause/play cycles reuse one sleeper (%d threads)'):format(liveThreads()))
+    advance(99999)
+    expect(cycles == 0 and cyc:getTimeLeft('ms') == 1, 'timer: a reused sleeper does not end the timer early')
+    advance(1)
+    expect(cycles == 1 and cyc:hasEnded() and liveThreads() == 0, 'timer: and ends it on time, once, leaving no thread')
+    -- A sleeper that wakes while the timer is paused exits; a later play starts a new one.
+    local gap = T.new(100, nil)
+    gap:pause()
+    advance(500)
+    expect(liveThreads() == 0, 'timer: the sleeper of a paused timer exits when it wakes')
+    gap:play()
+    expect(liveThreads() == 1, 'timer: and play after that starts one again')
+    advance(100)
+    expect(gap:hasEnded() and liveThreads() == 0, 'timer: which ends the timer')
     expect(raises(function() T.setTimeout(1, 2) end, 'either order'), 'timer: two numbers are refused, naming both orders')
 end
 
@@ -796,6 +851,18 @@ do
         and not Cr.matches('*/5 * * * *', utc(2024, 5, 5, 5, 11), { utc = true }), 'cron: matches tests the minute')
     local nn, nwhy = Cr.next('nope')
     expect(nn == nil and type(nwhy) == 'string', 'cron: next refuses a bad expression with the reason')
+    -- os.date raises on a time the platform cannot convert, and on a non-number
+    -- math.floor did; both now answer nil plus a reason.
+    local huge, hwhy = Cr.next('* * * * *', 1e18, { utc = true })
+    expect(huge == nil and type(hwhy) == 'string', 'cron: next answers nil and a reason for a time too large to convert')
+    local hugeL, hwhyL = Cr.next('* * * * *', -1e18)
+    expect(hugeL == nil and type(hwhyL) == 'string', 'cron: and for one too early, in local time')
+    local mnone, mwhy = Cr.matches('* * * * *', 'abc')
+    expect(mnone == nil and type(mwhy) == 'string', 'cron: matches refuses a time that is not a number')
+    local mnan, mnwhy = Cr.matches('* * * * *', 0 / 0)
+    expect(mnan == nil and type(mnwhy) == 'string', 'cron: matches refuses NaN')
+    local mbig, mbwhy = Cr.matches('* * * * *', 1e18, { utc = true })
+    expect(mbig == nil and type(mbwhy) == 'string', 'cron: matches answers nil and a reason for a time too large to convert')
 
     -- ---- property: next vs a brute-force walk, in UTC ----
     local gen = Random.newGenerator(1337)
@@ -963,6 +1030,73 @@ do
     expect(bad1 == nil and why1:find('5', 1, true) and bad2 == nil and why2:find('function', 1, true),
         'cron: schedule refuses a bad expression and a non-function')
     os.time = realTime -- luacheck: ignore 122
+end
+
+-- ====================================================== re-audit lows (A-L5..A-L9)
+do
+    local X = load('shared/util/mathx.lua')
+    local Str = load('shared/util/string.lua')
+    local A = load('shared/util/array.lua')
+    local C = load('shared/util/class.lua')
+
+    -- A-L5: an integer is formatted as an integer, and a bad decimals is a refusal.
+    local want = math.maxinteger > 2 ^ 40 and '9,223,372,036,854,775,807' or '2,147,483,647'
+    expect(X.groupDigits(math.maxinteger) == want,
+        'mathx: groupDigits writes math.maxinteger digit for digit, not through a float')
+    local wantMin = math.maxinteger > 2 ^ 40 and '-9,223,372,036,854,775,808' or '-2,147,483,648'
+    expect(X.groupDigits(math.mininteger) == wantMin, 'mathx: groupDigits writes math.mininteger exactly')
+    for _, bad in ipairs({ 'x', -1, 100, 0 / 0, math.huge, {} }) do
+        local ok, out, why = pcall(X.groupDigits, 1234.5, ',', bad)
+        expect(ok and out == nil and type(why) == 'string',
+            ('mathx: groupDigits refuses decimals %s with a reason instead of raising'):format(tostring(bad)))
+    end
+    expect(X.groupDigits(1234.5, ',', 2.9) == '1,234.50', 'mathx: a fractional decimals still floors')
+
+    -- A-L6: a width that is not a whole number is floored, and a missing one pads nothing.
+    expect(Str.padStart('a', 2.5) == ' a' and Str.padEnd('a', 2.5) == 'a ',
+        'string: pad floors a fractional width')
+    expect(Str.padStart('a') == 'a' and Str.padEnd('a') == 'a' and Str.padStart('a', 'x') == 'a'
+        and Str.padStart('a', 0 / 0) == 'a' and Str.padEnd('a', math.huge) == 'a',
+        'string: pad with no usable width returns the text unchanged')
+
+    -- A-L7: the sum leaves the integers instead of wrapping, and flat survives a cycle.
+    local total = A.sum({ math.maxinteger, 1 })
+    expect(total == math.maxinteger + 1.0, 'array: sum past the integer range goes to a float, not a wrapped negative')
+    local low = A.sum({ math.mininteger, -1 })
+    expect(low == math.mininteger - 1.0, 'array: sum below the integer range goes to a float too')
+    expect(A.sum({ 1, 2, 3 }) == 6 and math.type(A.sum({ 1, 2, 3 })) == 'integer',
+        'array: a sum that fits stays an integer')
+    local cyc = { 1 }
+    cyc[2] = cyc
+    cyc[3] = { 2, cyc }
+    local okFlat, flat = pcall(A.flat, cyc, math.huge)
+    expect(okFlat and flat[1] == 1 and flat[2] == cyc and flat[3] == 2 and flat[4] == cyc,
+        'array: flat keeps a reference to a table it is already inside, instead of overflowing the stack')
+    local shared = { 7 }
+    local twice = A.flat({ shared, shared }, math.huge)
+    expect(twice[1] == 7 and twice[2] == 7, 'array: flat still spreads the same table met twice, side by side')
+
+    -- A-L9: a subclass keeps the parent's guards.
+    local Base = C.new('Base')
+    Base.__newindex = function(_, k) error('read-only: ' .. tostring(k), 0) end
+    Base.__gc = function() end
+    local Sub = C.new('Sub', Base)
+    expect(not pcall(function() Sub:new().x = 1 end), 'class: a read-only parent stays read-only through a subclass')
+    expect(rawget(Sub, '__gc') == Base.__gc, 'class: __gc is copied down to a subclass')
+    local Dyn = C.new('Dyn')
+    function Dyn:hello() return 'hi' end
+    Dyn.__index = function(_, k)
+        local m = rawget(Dyn, k)
+        if m ~= nil then return m end
+        return 'dyn:' .. tostring(k)
+    end
+    local Kid = C.new('Kid', Dyn)
+    function Kid:own() return 'own' end
+    local kid = Kid:new()
+    expect(kid.anything == 'dyn:anything' and kid:hello() == 'hi' and kid:own() == 'own',
+        'class: a parent __index function still answers for a subclass instance, and methods still resolve')
+    local plain = C.new('Plain', C.new('Root'))
+    expect(rawget(plain, '__index') == plain, 'class: a plain parent leaves the subclass __index as the class itself')
 end
 
 io.write(('devx module tests: passed=%d failed=%d\n'):format(passed, failed))
