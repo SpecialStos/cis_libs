@@ -66,13 +66,17 @@ At commit `d7dcebb` the release zip booted on all four VPS servers with no
 `SCRIPT ERROR`, `cis_doctor` printed `self-check: ok`, and the server profile
 showed cis_libs at 0.002 to 0.005 ms per frame with no player and no consumer
 (`docs/V1.md` section 10, third run). The `cis_test` live suite passed with
-your PC connected (run-20261024-115302: pass 38, fail 0). What is left is
-client resmon and how it looks and feels: that is this test.
+your PC connected (run-20261024-115302: pass 38, fail 0). At the 1.1.0
+release candidate `62ab3df` the same zip booted again on `esx`, `qbcore` and
+`qbox` with no `SCRIPT ERROR`, `self-check: ok`, 0.002 to 0.004 ms per frame,
+and `cis_bridge test` passing beside it (`docs/V1.md` section 10, fourth
+run). What is left is client resmon and how it looks and feels: that is this
+test.
 
 ## 3. Before you start
 
-cis_libs `d7dcebb` and the test consumer `cis_libs_ownertest` are installed in
-`resources/[cis]/` on every server, but neither is in `server.cfg`, so a server
+cis_libs `62ab3df` (`d7dcebb` on `cis_core`) and the test consumer
+`cis_libs_ownertest` are installed in `resources/[cis]/` on every server, but neither is in `server.cfg`, so a server
 restart leaves both stopped. Nothing in `server.cfg` was changed.
 
 On your PC, check that no agent is using the VPS (no output means free):

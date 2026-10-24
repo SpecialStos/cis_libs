@@ -48,13 +48,16 @@ one-time `deprecated` line; they move to cis_bridge and leave in 2.0.0.
 
 ### Tested
 
-<!-- Fill from docs/V1.md section 10 at the tagged commit. -->
-- Full gate: `<N>` assertions across `<M>` suites, Lua 5.3 (fengari) and a real
-  Lua 5.4, on GitHub CI run `<id>`.
-- Mutation gate: `<K>` known defects, every one caught by the tests (20 CI
-  shards).
+<!-- Filled at the release candidate 62ab3df (docs/V1.md sections 8 and 10).
+     If the tag lands on a later commit, check these against its CI run. -->
+- Full gate: 4250 assertions across 10 suites, Lua 5.3 (fengari) and a real
+  Lua 5.4, on GitHub CI run 40125264420 (all 22 jobs green).
+- Mutation gate: 732 known defects, every one caught by the tests (20 CI
+  shards, 0 survivors).
 - Live: boots with no script error on ESX, QBCore and Qbox test servers;
-  `cis_doctor` ok; live suite `<run id>` pass `<n>` fail 0.
+  `cis_doctor` ok; idle 0.002 to 0.004 ms per server frame; the cis_bridge
+  conformance suite passes beside it on all three. The live suite with a game
+  client connected: run-20261024-115302, pass 38, fail 0.
 
 ### Security
 
