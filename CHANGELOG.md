@@ -328,6 +328,17 @@ which is forgotten when that resource stops.
 - **The dataProbe and migration slots** move to cis_core.
 - **`DetectFramework`, `DetectDatabase` and `GetKnownTargets`** move to the
   cis_bridge detection.
+- **The events `cis_libs:client:inventory` and `cis_libs:server:inventorySync`**
+  go with the inventory slot. The server handler does not warn, because the
+  sender is a player rather than a resource; `RequestInventorySync`, which
+  fires it, warns its caller instead.
+- **The config keys `Framework.Type`, `Framework.Inventory`,
+  `Framework.Target.*` and `Framework.Database.*`** move to the cis_bridge
+  config, because choosing a framework, inventory, target or database driver is
+  detection. `Framework.Zones.Enabled` stays. Config keys do not warn.
+- `GetKnownTargets`, `RequestInventorySync`, `RequestLockDoors` and
+  `RequestUnlockDoors` warn under their own names, so they warn even when no
+  provider is registered behind them.
 - The `security`, `ui` and `discord` slots and the generic registry are not
   deprecated. Registering a deprecated slot from another resource also warns
   once. The types file marks every deprecated export and proxy
@@ -335,6 +346,15 @@ which is forgotten when that resource stops.
 
 ### Fixed
 
+- **A forged `onResourceStart` replayed a consumer's records.** Any script can
+  fire `onResourceStart` with `'cis_libs'` as its argument. Before, each
+  consumer then re-registered every capability, net handler and hook onto the
+  running cis_libs. Now a replay needs a real cis_libs stop first, and both the
+  stop and the start must come from the engine. One real stop allows one replay.
+- **A callback request's key was echoed back unbounded.** `cis_libs:cb` sent
+  the client's key straight back in its reply, so a 32 KiB key came back as
+  32 KiB. A key must now be a number, nil or a string of at most 64
+  characters; any other key gets no reply.
 - **`mathx.toHex(math.mininteger)` looped forever**: `-n` wrapped back to a
   negative number. The magnitude is now taken in floats, so Lua 5.4 refuses
   it as beyond 2^53.

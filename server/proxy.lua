@@ -392,6 +392,7 @@ end)
 
 --- The frameworks and drivers this library knows how to detect, copied out of the pure
 exports('GetKnownTargets', function()
+    CisRegistry.warnDeprecated('GetKnownTargets', GetInvokingResource())
     return {
         frameworks = CisDetect and CisDetect.FRAMEWORKS or {},
         databases = CisDetect and CisDetect.DATABASES or {},

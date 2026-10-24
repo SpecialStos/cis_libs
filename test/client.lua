@@ -6302,6 +6302,18 @@ do
     exports.InventoryCount('water')
     exports.InventoryCount('water')
     check(count('"inventory"') == 1, ('D1: a client inventory call warns once (got %d)'):format(count('"inventory"')))
+    -- The exports that never touch a slot warn under their own name.
+    exports.GetKnownTargets()
+    exports.GetKnownTargets()
+    exports.RequestInventorySync()
+    exports.RequestLockDoors('door_1')
+    exports.RequestUnlockDoors('door_1')
+    check(count('"GetKnownTargets"') == 1, ('D1: client GetKnownTargets warns once (got %d)'):format(count('"GetKnownTargets"')))
+    check(count('"RequestInventorySync"') == 1,
+        ('D1: RequestInventorySync warns once (got %d)'):format(count('"RequestInventorySync"')))
+    check(count('"RequestLockDoors"') == 1 and count('"RequestUnlockDoors"') == 1,
+        ('D1: a door request with no doors provider still warns (got %d, %d)')
+            :format(count('"RequestLockDoors"'), count('"RequestUnlockDoors"')))
     env.reset()
 end
 

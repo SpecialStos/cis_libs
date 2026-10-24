@@ -17,6 +17,8 @@ end
 
 -- How much of a client's payload is worth walking before it is refused.
 local MAX_CALLBACK_ARGS = 32
+-- A CisPending key is about 22 characters; 64 leaves room and nothing more.
+local MAX_KEY_LEN = 64
 local MAX_TABLE_KEYS = 256
 local MAX_NESTING = 8
 
@@ -325,6 +327,14 @@ RegisterNetEvent('cis_libs:cb', function(name, key, ...)
     if type(src) ~= 'number' or src <= 0 then
         return
     end
+    -- THE KEY IS ECHOED IN THE REPLY, so it is bounded before anything answers:
+    -- a 32 KiB key would otherwise come straight back as a free amplifier. A key
+    -- that is not a short string, a number or nil has nowhere to be routed, so
+    -- it gets no reply at all. A nil key costs nothing to echo.
+    local keyType = type(key)
+    if not (keyType == 'nil' or keyType == 'number' or (keyType == 'string' and #key <= MAX_KEY_LEN)) then
+        return
+    end
     local limits = CisCallbackLimits()
     -- THE PLAYER'S BUDGET IS CHECKED FIRST, before the name is even looked at: a
     -- client spraying made-up names used to be answered 'unknown' as fast as it
@@ -335,6 +345,7 @@ RegisterNetEvent('cis_libs:cb', function(name, key, ...)
     end
     -- THEN THE HANDLER (). A local-only callback answers exactly like a
     -- missing one, so a client cannot even learn that the name exists.
+    -- A name that is not a string misses this lookup like any unknown one.
     local entry = callbacks[name]
     if not entry or not entry.remote then
         answer(src, key, false, 'unknown')

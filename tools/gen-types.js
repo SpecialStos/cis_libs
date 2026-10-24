@@ -41,6 +41,9 @@ const BEGIN = '<!-- generated:begin -->'
 const END = '<!-- generated:end -->'
 const MOD_BEGIN = '<!-- generated:modules:begin -->'
 const MOD_END = '<!-- generated:modules:end -->'
+const OUT_V1 = 'docs/V1.md'
+const V1_BEGIN = '<!-- generated:v1:begin -->'
+const V1_END = '<!-- generated:v1:end -->'
 
 function loadApi() {
   const L = lauxlib.luaL_newstate()
@@ -69,14 +72,37 @@ function paramsToSig(params) {
   return `(${inner})`
 }
 
+// A realm-keyed list ({ server = {...}, client = {...} }) or a plain one.
+function forRealm(list, realm) {
+  if (Array.isArray(list)) return list
+  if (list && typeof list === 'object') return list[realm] || list.server || list.client || []
+  return []
+}
+
 function sigFor(d, realm) {
   const s = d.signature
   if (s && typeof s === 'object') {
-    return s[realm] || s.client || s.server || paramsToSig(d.params)
+    return s[realm] || s.client || s.server || paramsToSig(forRealm(d.params, realm))
   }
   if (typeof s === 'string' && s.length) return s
-  return paramsToSig(d.params)
+  return paramsToSig(forRealm(d.params, realm))
 }
+
+function retsFor(d, realm) {
+  const list = forRealm(d.returns, realm)
+  return list.length ? list.map((r) => (r && r.type) || 'any').join(', ') : '—'
+}
+
+// ONE CELL FOR BOTH REALMS: the shared value when the realms agree, and each
+// realm's own when they do not, so a two-realm export is never shown as ().
+function bothRealms(d, realm, fn) {
+  if (realm !== 'both') return fn(d, realm)
+  const sv = fn(d, 'server')
+  const cl = fn(d, 'client')
+  return sv === cl ? sv : `server ${sv}; client ${cl}`
+}
+
+const cell = (v) => String(v).replace(/\|/g, '\\|')
 
 // Argument NAMES, filtered to things that are valid Lua parameter names.
 //
@@ -346,6 +372,7 @@ function buildSurface(api, block, title, kind) {
       // way LuaLS can offer both. A single declaration with the server's names
       // would be wrong for every client caller, and a single one with the
       // client's would be wrong for every server caller.
+      L.push(...deprecatedLines(api, d, kind))
       L.push('---@overload fun(...)')
       for (const r of realms) {
         L.push(...paramAnnotations(listFor(r), '  '))
@@ -373,15 +400,11 @@ function buildSurface(api, block, title, kind) {
       if (d.since) L.push(`---@field since string ${d.since}`)
       L.push(`---@field realm "${d.realm || r}"`)
       if (d.forwardsTo) L.push(`---@field forwardsTo string ${d.forwardsTo}`)
-      // A proxy is exactly as deprecated as the export it forwards to.
-      const target = d.forwardsTo && (api.exports || {})[d.forwardsTo]
-      if (target && target.deprecated) {
-        L.push('---@deprecated')
-        if (target.use) L.push(`--- ${oneLine(target.use)}`)
-      }
-    } else {
-      if (d.deprecated) L.push('---@deprecated')
-      if (d.use) L.push(`--- ${oneLine(d.use)}`)
+      L.push(...deprecatedLines(api, d, kind))
+    } else if (d.deprecated) {
+      L.push(...deprecatedLines(api, d, kind))
+    } else if (d.use) {
+      L.push(`--- ${oneLine(d.use)}`)
     }
     L.push(...paramAnnotations(params, ''))
     L.push(...returnAnnotations(returns, ''))
@@ -390,6 +413,15 @@ function buildSurface(api, block, title, kind) {
     L.push('')
   }
   return L
+}
+
+// THE DEPRECATION LINES for one export or one Cis.* function. A proxy is
+// exactly as deprecated as the export it forwards to, and a two-realm export
+// is as deprecated as a one-realm one: the editor must strike both.
+function deprecatedLines(api, d, kind) {
+  const src = kind === 'fn' ? d.forwardsTo && (api.exports || {})[d.forwardsTo] : d
+  if (!src || !src.deprecated) return []
+  return src.use ? ['---@deprecated', `--- ${oneLine(src.use)}`] : ['---@deprecated']
 }
 
 // ---------------------------------------------------------------------------
@@ -463,41 +495,42 @@ function buildTypes(api, surface, modules) {
 function buildDocTables(api) {
   const L = []
   const exports = api.exports || {}
-  L.push('| Export | Realm | Signature | Since | Notes |')
-  L.push('|---|---|---|---|---|')
+  L.push('| Export | Realm | Signature | Returns | Since | Notes |')
+  L.push('|---|---|---|---|---|---|')
   for (const name of Object.keys(exports).sort()) {
     const d = exports[name] || {}
     const realm = d.realm || 'both'
-    const sig = realm === 'both' ? sigFor(d, 'server') : sigFor(d, realm)
     const notes = [
-      oneLine(d.use),
       d.deprecated ? '**deprecated**' : '',
+      oneLine(d.use),
       d.stable === false ? 'unstable' : '',
     ].filter(Boolean).join(' ')
-    L.push(`| \`${name}\` | ${realm} | \`${sig.replace(/\|/g, '\\|')}\` | ${d.since || '—'} | ${notes} |`)
+    L.push(`| \`${name}\` | ${realm} | \`${cell(bothRealms(d, realm, sigFor))}\` | ${cell(bothRealms(d, realm, retsFor))} | ${d.since || '—'} | ${cell(notes)} |`)
   }
   L.push('')
   if (api.events) {
-    L.push('| Event | Since | Payload |')
-    L.push('|---|---|---|')
+    L.push('| Event | Since | Payload | Notes |')
+    L.push('|---|---|---|---|')
     for (const name of Object.keys(api.events).sort()) {
       const e = api.events[name] || {}
-      L.push(`| \`${name}\` | ${e.since || '—'} | ${oneLine(e.payload)} |`)
+      const notes = [e.deprecated ? '**deprecated**' : '', e.deprecated ? oneLine(e.use) : ''].filter(Boolean).join(' ')
+      L.push(`| \`${name}\` | ${e.since || '—'} | ${cell(oneLine(e.payload))} | ${cell(notes)} |`)
     }
     L.push('')
   }
   const functions = api.functions || {}
-  L.push('| `Cis.*` | Realm | Signature | Since | Notes |')
-  L.push('|---|---|---|---|---|')
+  L.push('| `Cis.*` | Realm | Signature | Returns | Since | Notes |')
+  L.push('|---|---|---|---|---|---|')
   for (const name of Object.keys(functions).sort()) {
     const d = functions[name] || {}
     const realm = d.realm || 'both'
-    const sig = realm === 'both' ? sigFor(d, 'server') : sigFor(d, realm)
+    // A proxy is exactly as deprecated as the export it forwards to.
+    const target = d.forwardsTo && exports[d.forwardsTo]
     const notes = [
+      d.deprecated || (target && target.deprecated) ? '**deprecated**' : '',
       oneLine(d.use),
-      d.deprecated ? '**deprecated**' : '',
     ].filter(Boolean).join(' ')
-    L.push(`| \`${name}\` | ${realm} | \`${String(sig).replace(/\|/g, '\\|')}\` | ${d.since || '—'} | ${notes} |`)
+    L.push(`| \`${name}\` | ${realm} | \`${cell(bothRealms(d, realm, sigFor))}\` | ${cell(bothRealms(d, realm, retsFor))} | ${d.since || '—'} | ${cell(notes)} |`)
   }
   L.push('')
   return L.join('\n')
@@ -596,6 +629,29 @@ function main() {
     }
   } else {
     console.log(`${OUT_DOC} up to date`)
+  }
+
+  // docs/V1.md §9: the frozen surface, from the same tables, so the spec the
+  // owner signs off cannot list a name the code does not have.
+  const v1Path = path.join(root, OUT_V1)
+  if (fs.existsSync(v1Path)) {
+    const v1 = nl(fs.readFileSync(v1Path, 'utf8'))
+    let nextV1
+    try {
+      nextV1 = replaceBetween(v1, buildDocTables(api), OUT_V1, V1_BEGIN, V1_END)
+    } catch (e) {
+      console.error(String(e.message))
+      process.exitCode = 1
+      return
+    }
+    if (nextV1 !== v1) {
+      if (check) { console.error(`FAIL ${OUT_V1} is stale. Run: npm run gen-types`); stale = true } else {
+        fs.writeFileSync(v1Path, nl(nextV1))
+        console.log(`wrote ${OUT_V1}`)
+      }
+    } else {
+      console.log(`${OUT_V1} up to date`)
+    }
   }
 
   if (stale) process.exitCode = 1

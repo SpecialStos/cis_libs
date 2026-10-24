@@ -165,6 +165,7 @@ exports('DetectDatabase', function(configured)
 end)
 
 exports('GetKnownTargets', function()
+    CisRegistry.warnDeprecated('GetKnownTargets', GetInvokingResource())
     return {
         frameworks = CisDetect and CisDetect.FRAMEWORKS or {},
         databases = CisDetect and CisDetect.DATABASES or {},
@@ -208,6 +209,7 @@ end)
 
 -- Ask the server for a fresh inventory snapshot.
 exports('RequestInventorySync', function()
+    CisRegistry.warnDeprecated('RequestInventorySync', GetInvokingResource())
     if not CisReadyState.wait(15000) then
         return false
     end
@@ -236,10 +238,12 @@ local function requestDoorState(identifier, lock)
 end
 
 exports('RequestLockDoors', function(identifier)
+    CisRegistry.warnDeprecated('RequestLockDoors', GetInvokingResource())
     return requestDoorState(identifier, true)
 end)
 
 exports('RequestUnlockDoors', function(identifier)
+    CisRegistry.warnDeprecated('RequestUnlockDoors', GetInvokingResource())
     return requestDoorState(identifier, false)
 end)
 

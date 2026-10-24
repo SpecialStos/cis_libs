@@ -238,8 +238,25 @@ local function releaseHandle(handle)
 end
 
 if not IS_SELF and AddEventHandler then
+    -- A REPLAY ONLY FOLLOWS A REAL STOP. `onResourceStart` is an ordinary event:
+    -- any client script could TriggerEvent('onResourceStart', 'cis_libs') and
+    -- have every record made a second time on the running cis_libs, which keeps
+    -- the first copy too -- a second sync spawn handler, a second statebag
+    -- watcher, a second near watcher. So the replay runs only when this VM saw
+    -- cis_libs really stop since the last replay, and the start itself passes
+    -- the same caller test as a stop.
+    local libsStopped = false
+    AddEventHandler('onResourceStop', function(resource)
+        if resource == RESOURCE and realStop(resource) then
+            libsStopped = true
+        end
+    end)
     AddEventHandler('onResourceStart', function(resource)
-        if resource ~= RESOURCE or #replayOrder == 0 then
+        if resource ~= RESOURCE or not libsStopped or not realStop(resource) then
+            return
+        end
+        libsStopped = false
+        if #replayOrder == 0 then
             return
         end
         CreateThread(function()

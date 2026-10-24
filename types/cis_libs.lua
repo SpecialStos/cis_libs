@@ -716,6 +716,8 @@ local CisZoneOptions = {}
 
 -- ================================================= RAW EXPORTS (202)
 
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge doors API
 ---@overload fun(...)
   ---@param groupData table #the group record handed to the provider's addGroup
   ---@return boolean, string #false plus a reason when the caller is not allow-listed, or when no doors provider is registered
@@ -726,6 +728,8 @@ local CisZoneOptions = {}
 function AddDoorGroup.server(groupData) end
 function AddDoorGroup.client(data) end
 
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge doors API
 ---@overload fun(...)
   ---@param newDoorData table #the door record, handed to the provider unexamined
   ---@param internal any #a flag passed straight through and never read here 
@@ -1033,6 +1037,8 @@ function DbUpdate(sql, params) end
 --- realm: client
 function DebugLog(message) end
 
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge detection
 ---@overload fun(...)
   ---@param configured? string #the operator's driver preference; nil means AUTO
   ---@return CisDetection #the same { name, resource, version, how, reason } shape as DetectFramework
@@ -1043,6 +1049,8 @@ function DebugLog(message) end
 function DetectDatabase.server(configured) end
 function DetectDatabase.client(configured) end
 
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge detection
 ---@overload fun(...)
   ---@param configured? string #the operator's framework preference; nil means AUTO and the callee uppercases it
   ---@param custom? table #product-supplied detection overrides, handed through untouched
@@ -1228,6 +1236,8 @@ function GetDiscordQueueDepth() end
 --- realm: client
 function GetDistanceBetweenCoords(x1, y1, z1, x2, y2, z2, useZ) end
 
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge doors API
 ---@overload fun(...)
   ---@param doorId string|integer #the door id
   ---@return boolean|nil, string|nil #nil means no such door and false means that door is unlocked -- the two are kept distinct on purpose
@@ -1238,6 +1248,8 @@ function GetDistanceBetweenCoords(x1, y1, z1, x2, y2, z2, useZ) end
 function GetDoorState.server(doorId) end
 function GetDoorState.client(doorId) end
 
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge detection
 ---@overload fun(...)
   ---@return table #{ frameworks, databases }, each defaulting to {} so neither is ever nil
 ---@overload
@@ -1402,6 +1414,8 @@ function InputDialog(heading, rows, options) end
 --- realm: server
 function InventoryAdd(src, item, amount, metadata) end
 
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge inventory API
 ---@overload fun(...)
   ---@param src integer #the player id, handed to the provider with no local check
   ---@param item string #the provider's item key, passed straight through
@@ -1413,6 +1427,8 @@ function InventoryAdd(src, item, amount, metadata) end
 function InventoryCount.server(src, item) end
 function InventoryCount.client(item) end
 
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge inventory API
 ---@overload fun(...)
   ---@param src integer #the player id
   ---@param item string #the provider's item key
@@ -1654,14 +1670,14 @@ function Ptfx(name, timeout) end
 --- realm: server
 function PublishInventory(src) end
 
---- Called by cis_core when a player changes job. Fires cis_libs:jobUpdated, so the event name stays owned by this library
+--- Called by cis_core or any bridge target when a player changes job. Fires cis_libs:jobUpdated, so the event name stays owned by this library
 ---@param job table #the job record; a non-table is refused by name
 ---@param src? integer #the player to tell; nil broadcasts to every client
 ---@return boolean, string #true after the event is fired; false plus 'job must be a table', a reason naming Security.AuthorizedResources, or a reason when src is given but is not a connected player
 --- realm: server
 function PublishJobUpdate(job, src) end
 
---- Called by cis_core when a player object exists. Fires cis_libs:playerLoaded
+--- Called by cis_core or any bridge target when a player object exists. Fires cis_libs:playerLoaded
 ---@param job table #the job record; only a table is remembered, but the value is sent as given
 ---@param src? integer #the one client to tell; nil means the event is never fired and true is still returned. A src that is not a connected player is refused
 ---@return boolean, string|nil #true once published; false plus a reason when the caller is not on Security.AuthorizedResources (it writes the same job histogram PublishJobUpdate does) or src is not a connected player
@@ -2506,6 +2522,8 @@ function Cis.hooks.run(name, payload) end
 ---@return boolean #false when no inventory provider is registered
 function Cis.inventory.add(src, item, amount, metadata) end
 
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge inventory API
 ---@overload fun(...)
   ---@param src integer #the player id
   ---@param item string #the item name
@@ -2517,6 +2535,8 @@ function Cis.inventory.add(src, item, amount, metadata) end
 function Cis.inventory.count.server(src, item) end
 function Cis.inventory.count.client(item) end
 
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge inventory API
 ---@overload fun(...)
   ---@param src integer #the player id
   ---@param item string #the item name

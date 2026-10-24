@@ -1492,6 +1492,9 @@ do
     -- documents the boundaries in prose and prose that quotes a banned name is
     -- not a call to it.
     local manifest = stripComments(readFile('fxmanifest.lua'))
+    -- NO PROVIDE. A library that claims another resource's name would satisfy
+    -- that resource's dependents while serving none of its exports.
+    check(not manifest:find('%f[%w_]provides?%f[^%w_]'), 'the manifest declares no provide')
     local shipped, seen = {}, {}
     for entry in manifest:gmatch("['\"]([^'\"]+%.lua)['\"]") do
         if not seen[entry] and CIS_TEST_FILES[entry] then
@@ -4376,9 +4379,34 @@ do
     local _, near = Cis.player.near({ x = 1, y = 2, z = 3 }, 2.0, nil, nil, 'in', 'out')
     check(bag == 1 and near == 2, ('20: the watchers answer their ids (%s, %s)'):format(tostring(bag), tostring(near)))
 
+    -- A FORGED START REPLAYS NOTHING (CL-X6): a start with no stop before it,
+    -- and a stop and start that another script fired, would each make every
+    -- record a second time on a cis_libs that still holds the first.
+    nextCookie = 10
+    calls = {}
+    local threadsBefore = #threads
+    for _, fn in ipairs(handlers.onResourceStart or {}) do fn('cis_libs') end
+    check(#threads == threadsBefore and #calls == 0, '20: a start with no stop before it replays nothing')
+    GetInvokingResource = function() return 'evil_res' end
+    for _, fn in ipairs(handlers.onResourceStop or {}) do fn('cis_libs') end
+    for _, fn in ipairs(handlers.onResourceStart or {}) do fn('cis_libs') end
+    GetInvokingResource = function() return nil end
+    check(#threads == threadsBefore and #calls == 0,
+        '20: a stop and a start forged by another script replay nothing')
+    for _, fn in ipairs(handlers.onResourceStart or {}) do fn('cis_libs') end
+    check(#threads == threadsBefore and #calls == 0,
+        '20: a forged stop does not arm the replay for the next start')
+    for _, fn in ipairs(handlers.onResourceStop or {}) do fn('cis_libs') end
+    GetInvokingResource = function() return 'evil_res' end
+    for _, fn in ipairs(handlers.onResourceStart or {}) do fn('cis_libs') end
+    GetInvokingResource = function() return nil end
+    check(#threads == threadsBefore and #calls == 0,
+        '20: after a real stop, a start forged by another script replays nothing')
+
     -- cis_libs restarts: its ids start again from 1.
     nextCookie = 10
     calls = {}
+    for _, fn in ipairs(handlers.onResourceStop or {}) do fn('cis_libs') end
     for _, fn in ipairs(handlers.onResourceStart or {}) do fn('cis_libs') end
     for _, t in ipairs(threads) do t() end
     local made = {}
@@ -4388,6 +4416,10 @@ do
         ('20: everything still registered is made again, in order, and the removed target is not (%s)'):format(list))
     check(calls[4] and calls[4].args[1] == 'cis_x' and calls[4].args[2] == bagHandler,
         '20: with the arguments it was first made with')
+    local threadsAfter = #threads
+    calls = {}
+    for _, fn in ipairs(handlers.onResourceStart or {}) do fn('cis_libs') end
+    check(#threads == threadsAfter and #calls == 0, '20: one real stop buys one replay, not two')
 
     -- The consumer's ids still work, and reach cis_libs' NEW ids.
     calls = {}
@@ -4398,6 +4430,7 @@ do
     check(calls[2] and calls[2].name == 'RemoveNearWatcher' and calls[2].args[1] == 12,
         '20: and the old near id stops the new watcher')
     calls, threads = {}, {}
+    for _, fn in ipairs(handlers.onResourceStop or {}) do fn('cis_libs') end
     for _, fn in ipairs(handlers.onResourceStart or {}) do fn('cis_libs') end
     for _, t in ipairs(threads) do t() end
     local again = {}
@@ -4510,6 +4543,7 @@ do
     Cis.ui.radial.add({ id = 'dance' })
     Cis.ui.radial.remove('wave')
     calls = {}
+    for _, fn in ipairs(handlers.onResourceStop or {}) do fn('cis_libs') end
     for _, fn in ipairs(handlers.onResourceStart or {}) do fn('cis_libs') end
     for _, t in ipairs(threads) do t() end
     local made = {}
@@ -4519,6 +4553,7 @@ do
         ('22: registrations are made again on a restart, a removed item is not (%s)'):format(list))
     Cis.ui.radial.clear()
     calls, threads = {}, {}
+    for _, fn in ipairs(handlers.onResourceStop or {}) do fn('cis_libs') end
     for _, fn in ipairs(handlers.onResourceStart or {}) do fn('cis_libs') end
     for _, t in ipairs(threads) do t() end
     made = {}

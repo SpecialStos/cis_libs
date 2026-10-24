@@ -1796,6 +1796,34 @@ do
     env.reset()
 end
 
+-- ================= 12b. a callback request's name and key are type-checked
+--
+-- The key is echoed back in the reply, so an unbounded key was a free
+-- amplifier: a client could send a 32 KiB string as its key and have the server
+-- send it straight back. A key that is not a short string, a number or nil
+-- gets no reply at all; a name that is not a string is answered like a missing one.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+    loadModule('server/callback.lua')
+    env.EXPORTS.RegisterCallback('shop:price', function() return 1 end)
+    local function replies() return #env.sentTo(4, 'cis_libs:cb:res') end
+    env.emit('cis_libs:cb', 4, 'shop:price', ('k'):rep(200))
+    env.emit('cis_libs:cb', 4, 'shop:price', { 'k' })
+    env.emit('cis_libs:cb', 4, 'shop:price', true)
+    check(replies() == 0, ('a long, table or boolean key gets no reply (got %d)'):format(replies()))
+    env.emit('cis_libs:cb', 4, 'shop:price', ('k'):rep(64))
+    check(replies() == 1, ('a 64-character key is still answered (got %d)'):format(replies()))
+    env.emit('cis_libs:cb', 4, { 'shop:price' }, 'a.1')
+    local sent = env.sentTo(4, 'cis_libs:cb:res')
+    check(#sent == 2 and sent[2].args[1] == 'a.1' and sent[2].args[2] == false and sent[2].args[3] == 'unknown',
+        'a name that is not a string is answered unknown')
+    env.reset()
+end
+
 -- ================= 13. random callback names cannot grow the limiter ()
 --
 -- The rate bucket was allocated BEFORE the handler lookup, and buckets are keyed
@@ -2266,6 +2294,10 @@ do
     check(notices('DetectFramework') == 1 and notices('DetectDatabase') == 1,
         ('D1: and each detection export warns once (got %d, %d)')
             :format(notices('DetectFramework'), notices('DetectDatabase')))
+    env.EXPORTS.GetKnownTargets()
+    env.EXPORTS.GetKnownTargets()
+    check(notices('"GetKnownTargets"') == 1,
+        ('D1: server GetKnownTargets warns once (got %d)'):format(notices('"GetKnownTargets"')))
 
     -- The memory is per caller and goes when the caller stops.
     check(CisRegistry.deprecationNotice('framework', 'cis_shop2') ~= nil

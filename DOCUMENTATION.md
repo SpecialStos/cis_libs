@@ -794,385 +794,385 @@ Generated from `api.lua`. Do not edit between the markers.
 
 <!-- generated:begin -->
 
-| Export | Realm | Signature | Since | Notes |
-|---|---|---|---|---|
-| `AddDoorGroup` | both | `()` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge doors API **deprecated** |
-| `AddDoorToSystem` | both | `()` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge doors API **deprecated** |
-| `AddRadialItem` | client | `(data)` | 1.1.0 | exports.cis_libs:AddRadialItem(data) |
-| `AddSyncDespawnHandler` | client | `(fn)` | 1.0.0 | Cis.sync.onDespawn(fn) unstable |
-| `AddSyncSpawnHandler` | client | `(fn)` | 1.0.0 | Cis.sync.onSpawn(fn) unstable |
-| `AlertDialog` | client | `(data)` | 1.1.0 | exports.cis_libs:AlertDialog(data) |
-| `AnimDict` | client | `(name, timeout?)` | 1.0.0 | Cis.streaming.animDict(name, timeout) |
-| `AnimSet` | client | `(name, timeout?)` | 1.0.0 | Cis.streaming.animSet(name, timeout) |
-| `AudioBank` | client | `(name, timeout?)` | 1.0.0 | Cis.streaming.audioBank(name, timeout) |
-| `AutoLogError` | both | `()` | 1.0.0 | Cis.log.error(message) from inside a pcall |
-| `AwaitCallback` | both | `()` | 1.0.0 | Cis.callback.await(name, ...) |
-| `AwaitCallbackClient` | server | `(name, target, ...)` | 1.0.0 | Cis.callback.awaitClient(src, name, ...) |
-| `BreakDoor` | server | `(identifier)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge doors API **deprecated** |
-| `CallCallback` | both | `()` | 1.0.0 | Cis.callback.call(name, cb, ...) |
-| `CallCallbackClient` | server | `(name, target, cb?, ...)` | 1.0.0 | Cis.callback.callClient(src, name, cb, ...) |
-| `CancelProgress` | client | `()` | 1.1.0 | exports.cis_libs:CancelProgress() |
-| `CancelSkillCheck` | client | `()` | 1.1.0 | exports.cis_libs:CancelSkillCheck() |
-| `ClearRadialItems` | client | `()` | 1.1.0 | exports.cis_libs:ClearRadialItems() |
-| `CloseAlertDialog` | client | `()` | 1.1.0 | exports.cis_libs:CloseAlertDialog() |
-| `CloseInputDialog` | client | `()` | 1.1.0 | exports.cis_libs:CloseInputDialog() |
-| `ClosestObject` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.getClosestObject(coords, maxDistance, filter, opts) |
-| `ClosestPed` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.getClosestPed(coords, maxDistance, filter, opts) |
-| `ClosestPlayer` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.getClosestPlayer(coords, maxDistance, filter, opts) |
-| `ClosestVehicle` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.getClosestVehicle(coords, maxDistance, filter, opts) |
-| `CommandAdd` | server | `(name, options, handler)` | 1.0.0 | Cis.command.add(name, { params, restricted, help }, handler) |
-| `CommandList` | server | `()` | 1.0.0 | Cis.command.list() |
-| `CommandParse` | server | `(raw)` | 1.0.0 | no proxy equivalent; the argument splitter used by CommandAdd |
-| `CommandRemove` | server | `(name)` | 1.0.0 | Cis.command.remove(name) |
-| `CreatePed` | client | `(model, coords, heading?, options?)` | 1.0.0 | no proxy equivalent; returns 0 on an invalid or unloaded model. The Lua global is CisCreatePed -- the CreatePed native keeps its own name |
-| `CreatePoint` | client | `(data)` | 1.0.0 | Cis.points.add({ coords, distance, onEnter, onExit, nearby }) |
-| `CreateTarget` | client | `(zoneType, name, coords, size, options?)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge target API **deprecated** |
-| `CreateZone` | client | `(kind, name, a, b, options?)` | 1.0.0 | Cis.zones.box / Cis.zones.poly / Cis.zones.sphere |
-| `DbInsert` | server | `(sql, params?)` | 1.0.0 | deprecated since 1.1.0; use the oxmysql API (MySQL.insert.await), served by oxmysql or cis_database **deprecated** |
-| `DbQuery` | server | `(sql, params?)` | 1.0.0 | deprecated since 1.1.0; use the oxmysql API (MySQL.query.await), served by oxmysql or cis_database **deprecated** |
-| `DbScalar` | server | `(sql, params?)` | 1.0.0 | deprecated since 1.1.0; use the oxmysql API (MySQL.scalar.await), served by oxmysql or cis_database **deprecated** |
-| `DbSingle` | server | `(sql, params?)` | 1.0.0 | deprecated since 1.1.0; use the oxmysql API (MySQL.single.await), served by oxmysql or cis_database **deprecated** |
-| `DbTransaction` | server | `(queries)` | 1.0.0 | deprecated since 1.1.0; use the oxmysql API (MySQL.transaction.await), served by oxmysql or cis_database **deprecated** |
-| `DbUpdate` | server | `(sql, params?)` | 1.0.0 | deprecated since 1.1.0; use the oxmysql API (MySQL.update.await), served by oxmysql or cis_database **deprecated** |
-| `DebugLog` | client | `(message)` | 1.0.0 | Cis.log.debug(message) |
-| `DetectDatabase` | both | `(configured?)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge detection **deprecated** |
-| `DetectFramework` | both | `()` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge detection **deprecated** |
-| `DisableRadial` | client | `(state)` | 1.1.0 | exports.cis_libs:DisableRadial(state) |
-| `DrawText3D` | client | `(x, y, z, text, settings?)` | 1.0.0 | no proxy equivalent |
-| `FixDoor` | server | `(identifier)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge doors API **deprecated** |
-| `FollowCacheHeading` | client | `()` | 1.1.0 | Cis.player.on("heading", fn) -- init.lua calls it for the first heading listener |
-| `GetAllDoorData` | server | `()` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge doors API **deprecated** |
-| `GetAllPoints` | client | `()` | 1.1.0 | Cis.points.getAll() |
-| `GetAllZones` | client | `()` | 1.1.0 | Cis.zones.getAll() |
-| `GetAuditLog` | server | `(limit?)` | 1.0.0 | The capability and configuration change log, newest last. Gated on Security.AuthorizedResources like every other mutating call. Entries carry resource and slot names and never a player name, identifier or IP. Bounded by Config.AuditLines, default 500 |
-| `GetCacheSnapshot` | client | `()` | 1.1.0 | Cis.player.* and Cis.cache(key) -- init.lua takes this once per consumer |
-| `GetCachedHeading` | client | `()` | 1.0.0 | Cis.player.heading(), which reads the native directly in a consumer VM |
-| `GetCachedPed` | client | `()` | 1.0.0 | Cis.player.ped(), which reads the native directly in a consumer VM |
-| `GetCachedPlayerId` | client | `()` | 1.0.0 | Cis.player.playerId() |
-| `GetCachedSeat` | client | `()` | 1.0.0 | Cis.player.seat() |
-| `GetCachedServerId` | client | `()` | 1.0.0 | Cis.player.serverId() |
-| `GetCachedVehicle` | client | `()` | 1.0.0 | Cis.player.vehicle() |
-| `GetCachedWeapon` | client | `()` | 1.0.0 | Cis.player.weapon() |
-| `GetCapabilities` | both | `()` | 1.0.0 | The one call that answers "which of my four resources is actually running". Returns { [slot] = { owner, resolved } } |
-| `GetClientConfig` | client | `()` | 1.0.0 | no proxy equivalent; the config the server sent to this client |
-| `GetClientLogging` | client | `()` | 1.0.0 | Cis.log.debug / info / warn / error |
-| `GetClosestDoor` | client | `()` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge doors API **deprecated** |
-| `GetClosestPoint` | client | `()` | 1.0.0 | Cis.points.getClosest() |
-| `GetClosestVehicle` | client | `()` | 1.0.0 | no proxy equivalent; a 5 unit forward ray, then the nearest vehicle in the CVehicle pool within 5 units. The Lua global is CisGetClosestVehicle; the native GetClosestVehicle is left alone |
-| `GetConfigSummary` | server | `()` | 1.0.0 | no proxy equivalent; the non-secret half of the server config |
-| `GetCurrentWeaponData` | client | `(ped?)` | 1.0.0 | Cis.player.weapon() |
-| `GetCurrentZones` | client | `()` | 1.1.0 | Cis.zones.getCurrent() |
-| `GetDiagnostics` | both | `(opts?)` | 1.0.0 | Counts, never player data: capability slots and owners, sync records by owner, pending callbacks, net handlers, error and warning counters, memory, uptime, and pass timings. The harness diffs counters and probes only; timings are a sibling so a pass does not fail every case |
-| `GetDiscordConfig` | server | `()` | 1.0.0 | The outbound/webhook configuration SetConfig was handed, for the capability that does the sending. Server realm only -- it holds webhook URLs and is deliberately not on the client payload whitelist |
-| `GetDiscordQueueDepth` | server | `()` | 1.0.0 | no proxy equivalent; queued message count and dropped count |
-| `GetDistanceBetweenCoords` | client | `(x1, y1, z1, x2, y2, z2, useZ?)` | 1.0.0 | no proxy equivalent |
-| `GetDoorState` | both | `()` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge doors API **deprecated** |
-| `GetKnownTargets` | both | `()` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge detection **deprecated** |
-| `GetLastRefusal` | server | `()` | 1.0.0 | Read after a nil/false answer from a capability export to learn WHY it was refused. Returns a sentence naming the missing or failing capability, or nil when the last call succeeded. Additive: no existing return shape changes |
-| `GetLibsPrefix` | server | `()` | 1.0.0 | no proxy equivalent; the configured Security.EventPrefix |
-| `GetLogging` | server | `()` | 1.0.0 | Cis.log.debug / info / warn / error |
-| `GetNearbyPoints` | client | `()` | 1.1.0 | Cis.points.getNearby() |
-| `GetNearbyZones` | client | `(coords?, radius?)` | 1.1.0 | Cis.zones.getNearby(coords, radius) |
-| `GetNormalizedPlayer` | server | `(src)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge player API **deprecated** |
-| `GetOnlineJobCount` | server | `(jobs)` | 1.0.0 | no proxy equivalent; the callback cis_libs:getOnlineJobCount |
-| `GetOpenContextMenu` | client | `()` | 1.1.0 | exports.cis_libs:GetOpenContextMenu() |
-| `GetOpenMenu` | client | `()` | 1.1.0 | exports.cis_libs:GetOpenMenu() |
-| `GetPlayerVehicleSeat` | client | `()` | 1.0.0 | Cis.player.vehicle(), second return value |
-| `GetPointsDebug` | client | `()` | 1.0.0 | no proxy equivalent; the live debug record for the point pass |
-| `GetSelfCheck` | server | `()` | 1.0.0 | The boot self-check as data: { ok, problems = { { code, message, fix } } }. Each problem names the change that resolves it |
-| `GetSyncedEntities` | client | `()` | 1.0.0 | no proxy equivalent; the id-to-handle table of everything this client spawned |
-| `GetSyncedEntity` | client | `(key)` | 1.0.0 | Cis.sync.entity(key) |
-| `GetTableSize` | client | `(t)` | 1.0.0 | no proxy equivalent |
-| `GetVehicleProperties` | client | `(vehicle)` | 1.0.0 | Cis.vehicle.getProperties(vehicle) -- the same engine, in the caller VM |
-| `GetZoneDebug` | client | `()` | 1.0.0 | no proxy equivalent; the last grid pass cost in milliseconds |
-| `HideContext` | client | `(onExit?)` | 1.1.0 | exports.cis_libs:HideContext(onExit) |
-| `HideMenu` | client | `(onExit?)` | 1.1.0 | exports.cis_libs:HideMenu(onExit) |
-| `HideRadial` | client | `()` | 1.1.0 | exports.cis_libs:HideRadial() |
-| `HideTextUI` | client | `()` | 1.1.0 | exports.cis_libs:HideTextUI() |
-| `HookOn` | both | `(name, fn, opts?)` | 1.0.0 | Cis.hooks.on(name, fn, opts) |
-| `HookRemove` | both | `(id)` | 1.0.0 | Cis.hooks.remove(id) |
-| `HookRun` | both | `(name, payload?)` | 1.0.0 | Cis.hooks.run(name, payload) |
-| `InputDialog` | client | `(heading, rows, options?)` | 1.1.0 | exports.cis_libs:InputDialog(heading, rows, options) |
-| `InventoryAdd` | server | `(src, item, amount, metadata?)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge inventory API **deprecated** |
-| `InventoryCount` | both | `()` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge inventory API **deprecated** |
-| `InventoryHas` | both | `()` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge inventory API **deprecated** |
-| `InventoryRemove` | server | `(src, item, amount)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge inventory API **deprecated** |
-| `InvokingAllowed` | server | `()` | 1.0.0 | no proxy equivalent; ask before mutating. This is the supported way to avoid a refusal |
-| `IsReady` | client | `()` | 1.0.0 | Cis.isReady, or Cis.ready(cb) |
-| `IsTextUIOpen` | client | `()` | 1.1.0 | exports.cis_libs:IsTextUIOpen() |
-| `KeybindAdd` | client | `(options)` | 1.0.0 | Cis.keybind.add({ name, description, defaultKey, onPress, onRelease }) |
-| `KeybindDisable` | client | `(id, state)` | 1.0.0 | no proxy equivalent; the id-based form of handle:disable(state) |
-| `KeybindEnable` | client | `(id)` | 1.0.0 | no proxy equivalent; KeybindDisable(id, false) |
-| `KeybindIsPressed` | client | `(id)` | 1.0.0 | no proxy equivalent; the id-based form of handle:isPressed() |
-| `KeybindRemove` | client | `(id)` | 1.0.0 | no proxy equivalent; the id-based form of handle:destroy() |
-| `Keybinds` | client | `()` | 1.0.0 | no proxy equivalent; every binding this library registered |
-| `LockDoors` | server | `(identifier)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge doors API **deprecated** |
-| `LogDebug` | both | `()` | 1.0.0 | Cis.log.debug(message) |
-| `LogError` | both | `()` | 1.0.0 | Cis.log.error(message) |
-| `LogInfo` | both | `()` | 1.0.0 | Cis.log.info(message) |
-| `LogWarn` | both | `()` | 1.0.0 | Cis.log.warn(message) |
-| `ModuleInfo` | both | `(name, opts?)` | 1.0.0 | Cis.moduleInfo(name, opts) |
-| `NearbyObjects` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.getNearbyObjects(coords, maxDistance, filter, opts) |
-| `NearbyPeds` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.getNearbyPeds(coords, maxDistance, filter, opts) |
-| `NearbyPlayers` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.getNearbyPlayers(coords, maxDistance, filter, opts) |
-| `NearbyVehicles` | client | `(coords, maxDistance, filter, opts)` | 1.0.0 | Cis.world.getNearbyVehicles(coords, maxDistance, filter, opts) |
-| `Notify` | both | `()` | 1.0.0 | Cis.framework.notify(...). With a framework provider registered the call passes through to it untouched; with none, cis_libs delivers it itself through the same guards NotifyClient uses, so a server with no framework does not go mute and does not become the unbounded path. The two-argument client form sends `kind` in the message slot; this is pinned as a known defect in test/contracts.lua and is a MAJOR change to correct |
-| `NotifyClient` | server | `(src, message, kind?)` | 1.0.0 | Called by a product to show a notification to one client, without hardcoding the event name owned by this library. Answers `false, reason` for a src that is not a connected player, truncates a message past 512 characters, and allows 10 a second per (src, calling resource) |
-| `NotifyPlayer` | server | `(src, data)` | 1.1.0 | exports.cis_libs:NotifyPlayer(src, data) |
-| `OnPlayerCache` | client | `(key, cb)` | 1.0.0 | Cis.player.on(key, cb); stop it with RemovePlayerCacheListener(id) |
-| `ProgressActive` | client | `()` | 1.1.0 | exports.cis_libs:ProgressActive() |
-| `ProgressBar` | client | `(data)` | 1.1.0 | exports.cis_libs:ProgressBar(data) |
-| `ProgressCircle` | client | `(data)` | 1.1.0 | exports.cis_libs:ProgressCircle(data) |
-| `Ptfx` | client | `(name, timeout?)` | 1.0.0 | Cis.streaming.ptfx(name, timeout) |
-| `PublishInventory` | server | `(src)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge inventory API **deprecated** |
-| `PublishJobUpdate` | server | `(job, src?)` | 1.0.0 | Called by cis_core when a player changes job. Fires cis_libs:jobUpdated, so the event name stays owned by this library |
-| `PublishPlayerLoaded` | server | `(job, src?)` | 1.0.0 | Called by cis_core when a player object exists. Fires cis_libs:playerLoaded |
-| `RandomFloat` | client | `(lower, greater)` | 1.0.0 | no proxy equivalent |
-| `RateOk` | server | `(src, name, windowMs?, maxHits?)` | 1.0.0 | no proxy equivalent; a resource may share the library rate limiter |
-| `RaycastCamera` | client | `(flags, ignore, distance?, timeoutMs?)` | 1.0.0 | Cis.raycast.camera(flags, ignore, distance, timeoutMs) |
-| `RaycastFromCoords` | client | `(origin, target, flags?, ignore?, timeoutMs?)` | 1.0.0 | Cis.raycast.fromCoords(origin, target, flags, ignore, timeoutMs) |
-| `ReadyState` | both | `()` | 1.0.0 | Cis.isReady and Cis.isFailed, which read through to this in a consumer |
-| `RegisterCallback` | both | `()` | 1.0.0 | Cis.callback.register(name, handler) |
-| `RegisterCapability` | both | `()` | 1.0.0 | Called by cis_core, cis_bridge and cis_keys with (slot, "resource:Export"). Gated on Security.AuthorizedResources on both realms; among allowed callers the first registration wins |
-| `RegisterContext` | client | `(context)` | 1.1.0 | exports.cis_libs:RegisterContext(context) |
-| `RegisterMenu` | client | `(data, cb?)` | 1.1.0 | exports.cis_libs:RegisterMenu(data, cb) |
-| `RegisterRadial` | client | `(radial)` | 1.1.0 | exports.cis_libs:RegisterRadial(radial) |
-| `RemoveNearWatcher` | client | `(id)` | 1.0.0 | Cis.player.nearStop(id); the id WatchNear returns as its second value |
-| `RemovePlayerCacheListener` | client | `(id)` | 1.0.0 | no proxy equivalent; the id OnPlayerCache returns as its second value |
-| `RemovePoint` | client | `(id)` | 1.0.0 | Cis.points.remove(id) |
-| `RemoveRadialItem` | client | `(id)` | 1.1.0 | exports.cis_libs:RemoveRadialItem(id) |
-| `RemoveStatebagHandler` | both | `(cookie)` | 1.0.0 | Cis.statebag.remove(cookie) |
-| `RemoveTarget` | client | `(name, isPed?)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge target API **deprecated** |
-| `RemoveZone` | client | `(name)` | 1.0.0 | Cis.zones.remove(name) |
-| `RequestInventorySync` | client | `()` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge inventory API **deprecated** |
-| `RequestLockDoors` | client | `(identifier)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge doors API **deprecated** |
-| `RequestModelTimeout` | client | `(model, timeout?)` | 1.0.0 | Cis.streaming.model(model, timeout) |
-| `RequestUnlockDoors` | client | `(identifier)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge doors API **deprecated** |
-| `Round` | client | `(num, numDecimalPlaces?)` | 1.0.0 | no proxy equivalent; math round to n places |
-| `Scaleform` | client | `(name, timeout?)` | 1.0.0 | Cis.streaming.scaleform(name, timeout) |
-| `SecureNetOn` | server | `(name, fn, opts?)` | 1.0.0 | Cis.net.on(name, fn, opts) -> true when the event was bound |
-| `SecurityReport` | server | `(src, reason)` | 1.0.0 | Cis.security.report(src, reason) |
-| `SendDiscordLog` | server | `(webhookURL, title, message, color, ping)` | 1.0.0 | Cis.log.info with a discordType; no proxy equivalent for a raw webhook push |
-| `ServerZoneBox` | server | `(center, size, opts?)` | 1.0.0 | Cis.zones.server.box(center, size, opts) |
-| `ServerZoneContains` | server | `(id, coords)` | 1.0.0 | Cis.zones.server.contains(id, coords) |
-| `ServerZonePlayers` | server | `(id)` | 1.0.0 | Cis.zones.server.players(id) |
-| `ServerZonePoly` | server | `(points, opts?)` | 1.0.0 | Cis.zones.server.poly(points, opts) |
-| `ServerZoneRemove` | server | `(id)` | 1.0.0 | Cis.zones.server.remove(id) |
-| `ServerZoneSphere` | server | `(center, radius, opts?)` | 1.0.0 | Cis.zones.server.sphere(center, radius, opts) |
-| `SetConfig` | server | `(config?, security?, discord?)` | 1.0.0 | Called by cis_core at boot with (config, security, discord). First registration wins; a second is refused and named. When the server convar cis_config_supplier names a resource, only that resource may call it. When cis_authorized_resources or cis_allow_any_resource is set, the security posture comes from the convars and the AuthorizedResources / AllowAnyResource passed here are ignored (DOCUMENTATION.md section 3). `security.AllowAnyResource` is the 1.0.0 opt-in escape hatch: with it true an EMPTY AuthorizedResources stops meaning restrictive, and the console warns on every boot |
-| `SetDropPlayerHandler` | server | `(provider)` | 1.0.0 | Called by whoever ships the config, with "resource:Export". A FUNCTION cannot be sent across the boundary, which is why this exists |
-| `SetMenuOptions` | client | `(id, options, index?)` | 1.1.0 | exports.cis_libs:SetMenuOptions(id, options, index) |
-| `SetUiLocale` | client | `(strings)` | 1.1.0 | exports.cis_libs:SetUiLocale(strings) |
-| `SetUiTheme` | client | `(data)` | 1.1.0 | exports.cis_libs:SetUiTheme(data) |
-| `SetVehicleProperties` | client | `(vehicle, props, fixVehicle?)` | 1.0.0 | no proxy equivalent; applies every field present, every time (there is no diff) |
-| `ShowContext` | client | `(id)` | 1.1.0 | exports.cis_libs:ShowContext(id) |
-| `ShowMenu` | client | `(id, startIndex?)` | 1.1.0 | exports.cis_libs:ShowMenu(id, startIndex) |
-| `ShowTextUI` | client | `(text, options?)` | 1.1.0 | exports.cis_libs:ShowTextUI(text, options) |
-| `SkillCheck` | client | `(difficulty, inputs?)` | 1.1.0 | exports.cis_libs:SkillCheck(difficulty, inputs) |
-| `SkillCheckActive` | client | `()` | 1.1.0 | exports.cis_libs:SkillCheckActive() |
-| `StatebagOnEntity` | both | `(key, handler, timeoutMs?)` | 1.0.0 | Cis.statebag.onEntity(key, handler, timeoutMs) |
-| `StatebagOnPlayer` | both | `(key, handler, timeoutMs?)` | 1.0.0 | Cis.statebag.onPlayer(key, handler, timeoutMs) |
-| `SyncClear` | server | `()` | 1.0.0 | Cis.sync.clear() |
-| `SyncCreate` | server | `(kind, data)` | 1.0.0 | Cis.sync.ped / Cis.sync.prop / Cis.sync.vehicle |
-| `SyncList` | server | `()` | 1.0.0 | Cis.sync.list() |
-| `SyncRemove` | server | `(id?)` | 1.0.0 | Cis.sync.remove(id) |
-| `TargetAvailable` | client | `()` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge target API **deprecated** |
-| `TargetExists` | client | `(name)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge target API **deprecated** |
-| `TextureDict` | client | `(name, timeout?)` | 1.0.0 | Cis.streaming.textureDict(name, timeout) |
-| `Toast` | client | `(data)` | 1.1.0 | exports.cis_libs:Toast(data). The library's own NUI notification; Cis.ui.notify routes here when no ui provider is registered. Not Notify: that export is the framework notify, a different signature |
-| `TriggerLibCallback` | client | `(name, cb?, ...)` | 1.0.0 | the client-to-server round trip whose callback receives only the results |
-| `TryAwaitCallback` | both | `()` | 1.0.0 | Cis.callback.tryAwait(name, ...) -> ok, ... on success; false, reason on a refusal |
-| `TryAwaitCallbackWithin` | client | `(name, timeoutMs, ...)` | 1.1.0 | Cis.callback.tryAwaitWithin(name, timeoutMs, ...) -> ok, ... ; a per-call timeout instead of Config.CallbackTimeout |
-| `UiConfirm` | client | `(opts)` | 1.0.0 | Cis.ui.confirm(opts). A ui provider if registered, else the built-in AlertDialog. RETURNS, does not take a callback |
-| `UiInput` | client | `(opts)` | 1.0.0 | Cis.ui.input(opts). A ui provider if registered, else the built-in InputDialog. RETURNS, does not take a callback |
-| `UiNotify` | client | `(message, kind?)` | 1.0.0 | Cis.ui.notify(message, kind). NOT Cis.framework.notify: that one is player-targeted, rate-limited, and the one a server uses. This is the local toast |
-| `UiProgress` | client | `(opts)` | 1.0.0 | Cis.ui.progress(opts). A ui provider if registered, else the built-in ProgressBar/ProgressCircle (opts.type = 'circle') |
-| `UiTextUIHide` | client | `()` | 1.0.0 | Cis.ui.textUI.hide() |
-| `UiTextUIIsOpen` | client | `()` | 1.0.0 | Cis.ui.textUI.isOpen() |
-| `UiTextUIShow` | client | `(text, opts?)` | 1.0.0 | Cis.ui.textUI.show(text, opts) |
-| `UnlockDoors` | server | `(identifier)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge doors API **deprecated** |
-| `UnregisterCapability` | server | `(slot)` | 1.0.0 | Called by a product on shutdown or handover. Only the slot owner may release it |
-| `UpdateTarget` | client | `(name, newOptions?)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge target API **deprecated** |
-| `WaitCapability` | server | `(slot, timeoutMs?)` | 1.0.0 | Waits up to timeoutMs for a capability slot to be filled. Returns true and the owner, or nil and a reason naming the slot. No proxy equivalent -- a consumer waits from its own resource. |
-| `WaitReady` | both | `(timeout?)` | 1.0.0 | Cis.ready(cb, timeout) or Cis.wait(timeout) |
-| `WatchNear` | client | `(coords, distance?, onEnter?, onExit?, onEnterEvent?, onExitEvent?)` | 1.0.0 | Cis.player.near(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent) |
-| `WeaponAsset` | client | `(name, timeout?)` | 1.0.0 | Cis.streaming.weaponAsset(hash, timeout) |
-| `ZoneContains` | client | `(name, point?)` | 1.0.0 | Cis.zones.contains(name, point) |
+| Export | Realm | Signature | Returns | Since | Notes |
+|---|---|---|---|---|---|
+| `AddDoorGroup` | both | `server (groupData); client (data)` | server boolean, string; client boolean | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge doors API |
+| `AddDoorToSystem` | both | `server (newDoorData, internal); client (data)` | server boolean, string; client boolean | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge doors API |
+| `AddRadialItem` | client | `(data)` | boolean, string\|nil | 1.1.0 | exports.cis_libs:AddRadialItem(data) |
+| `AddSyncDespawnHandler` | client | `(fn)` | boolean, string | 1.0.0 | Cis.sync.onDespawn(fn) unstable |
+| `AddSyncSpawnHandler` | client | `(fn)` | boolean, string | 1.0.0 | Cis.sync.onSpawn(fn) unstable |
+| `AlertDialog` | client | `(data)` | string\|nil, string\|nil | 1.1.0 | exports.cis_libs:AlertDialog(data) |
+| `AnimDict` | client | `(name, timeout?)` | string\|nil, string\|nil | 1.0.0 | Cis.streaming.animDict(name, timeout) |
+| `AnimSet` | client | `(name, timeout?)` | string\|nil, string\|nil | 1.0.0 | Cis.streaming.animSet(name, timeout) |
+| `AudioBank` | client | `(name, timeout?)` | string\|nil, string\|nil | 1.0.0 | Cis.streaming.audioBank(name, timeout) |
+| `AutoLogError` | both | `server (err, event); client (err, context?)` | nil | 1.0.0 | Cis.log.error(message) from inside a pcall |
+| `AwaitCallback` | both | `(name, ...)` | any | 1.0.0 | Cis.callback.await(name, ...) |
+| `AwaitCallbackClient` | server | `(name, target, ...)` | boolean, any | 1.0.0 | Cis.callback.awaitClient(src, name, ...) |
+| `BreakDoor` | server | `(identifier)` | any, string\|nil | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge doors API |
+| `CallCallback` | both | `(name, cb?, ...)` | nil | 1.0.0 | Cis.callback.call(name, cb, ...) |
+| `CallCallbackClient` | server | `(name, target, cb?, ...)` | string | 1.0.0 | Cis.callback.callClient(src, name, cb, ...) |
+| `CancelProgress` | client | `()` | boolean | 1.1.0 | exports.cis_libs:CancelProgress() |
+| `CancelSkillCheck` | client | `()` | boolean | 1.1.0 | exports.cis_libs:CancelSkillCheck() |
+| `ClearRadialItems` | client | `()` | boolean | 1.1.0 | exports.cis_libs:ClearRadialItems() |
+| `CloseAlertDialog` | client | `()` | boolean | 1.1.0 | exports.cis_libs:CloseAlertDialog() |
+| `CloseInputDialog` | client | `()` | boolean | 1.1.0 | exports.cis_libs:CloseInputDialog() |
+| `ClosestObject` | client | `(coords, maxDistance, filter, opts)` | integer\|false, vector3\|string\|nil | 1.0.0 | Cis.world.getClosestObject(coords, maxDistance, filter, opts) |
+| `ClosestPed` | client | `(coords, maxDistance, filter, opts)` | integer\|false, vector3\|string\|nil | 1.0.0 | Cis.world.getClosestPed(coords, maxDistance, filter, opts) |
+| `ClosestPlayer` | client | `(coords, maxDistance, filter, opts)` | integer\|false, vector3\|string\|nil, integer\|nil | 1.0.0 | Cis.world.getClosestPlayer(coords, maxDistance, filter, opts) |
+| `ClosestVehicle` | client | `(coords, maxDistance, filter, opts)` | integer\|false, vector3\|string\|nil | 1.0.0 | Cis.world.getClosestVehicle(coords, maxDistance, filter, opts) |
+| `CommandAdd` | server | `(name, options, handler)` | boolean, string\|nil | 1.0.0 | Cis.command.add(name, { params, restricted, help }, handler) |
+| `CommandList` | server | `()` | table[] | 1.0.0 | Cis.command.list() |
+| `CommandParse` | server | `(raw)` | string[] | 1.0.0 | no proxy equivalent; the argument splitter used by CommandAdd |
+| `CommandRemove` | server | `(name)` | boolean, string\|nil | 1.0.0 | Cis.command.remove(name) |
+| `CreatePed` | client | `(model, coords, heading?, options?)` | integer | 1.0.0 | no proxy equivalent; returns 0 on an invalid or unloaded model. The Lua global is CisCreatePed -- the CreatePed native keeps its own name |
+| `CreatePoint` | client | `(data)` | integer\|false, string\|nil | 1.0.0 | Cis.points.add({ coords, distance, onEnter, onExit, nearby }) |
+| `CreateTarget` | client | `(zoneType, name, coords, size, options?)` | boolean, string | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge target API |
+| `CreateZone` | client | `(kind, name, a, b, options?)` | boolean, string | 1.0.0 | Cis.zones.box / Cis.zones.poly / Cis.zones.sphere |
+| `DbInsert` | server | `(sql, params?)` | integer\|nil | 1.0.0 | **deprecated** deprecated since 1.1.0; use the oxmysql API (MySQL.insert.await), served by oxmysql or cis_database |
+| `DbQuery` | server | `(sql, params?)` | table\|nil | 1.0.0 | **deprecated** deprecated since 1.1.0; use the oxmysql API (MySQL.query.await), served by oxmysql or cis_database |
+| `DbScalar` | server | `(sql, params?)` | any | 1.0.0 | **deprecated** deprecated since 1.1.0; use the oxmysql API (MySQL.scalar.await), served by oxmysql or cis_database |
+| `DbSingle` | server | `(sql, params?)` | table\|nil | 1.0.0 | **deprecated** deprecated since 1.1.0; use the oxmysql API (MySQL.single.await), served by oxmysql or cis_database |
+| `DbTransaction` | server | `(queries)` | boolean, string | 1.0.0 | **deprecated** deprecated since 1.1.0; use the oxmysql API (MySQL.transaction.await), served by oxmysql or cis_database |
+| `DbUpdate` | server | `(sql, params?)` | integer\|nil | 1.0.0 | **deprecated** deprecated since 1.1.0; use the oxmysql API (MySQL.update.await), served by oxmysql or cis_database |
+| `DebugLog` | client | `(message)` | nil | 1.0.0 | Cis.log.debug(message) |
+| `DetectDatabase` | both | `(configured?)` | CisDetection | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge detection |
+| `DetectFramework` | both | `(configured?, custom?)` | CisDetection | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge detection |
+| `DisableRadial` | client | `(state)` | boolean | 1.1.0 | exports.cis_libs:DisableRadial(state) |
+| `DrawText3D` | client | `(x, y, z, text, settings?)` | nil | 1.0.0 | no proxy equivalent |
+| `FixDoor` | server | `(identifier)` | any, string\|nil | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge doors API |
+| `FollowCacheHeading` | client | `()` | boolean | 1.1.0 | Cis.player.on("heading", fn) -- init.lua calls it for the first heading listener |
+| `GetAllDoorData` | server | `()` | table\|nil | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge doors API |
+| `GetAllPoints` | client | `()` | integer[] | 1.1.0 | Cis.points.getAll() |
+| `GetAllZones` | client | `()` | string[] | 1.1.0 | Cis.zones.getAll() |
+| `GetAuditLog` | server | `(limit?)` | CisAuditEntry[]\|boolean, string | 1.0.0 | The capability and configuration change log, newest last. Gated on Security.AuthorizedResources like every other mutating call. Entries carry resource and slot names and never a player name, identifier or IP. Bounded by Config.AuditLines, default 500 |
+| `GetCacheSnapshot` | client | `()` | CisCacheSnapshot | 1.1.0 | Cis.player.* and Cis.cache(key) -- init.lua takes this once per consumer |
+| `GetCachedHeading` | client | `()` | number | 1.0.0 | Cis.player.heading(), which reads the native directly in a consumer VM |
+| `GetCachedPed` | client | `()` | integer | 1.0.0 | Cis.player.ped(), which reads the native directly in a consumer VM |
+| `GetCachedPlayerId` | client | `()` | integer | 1.0.0 | Cis.player.playerId() |
+| `GetCachedSeat` | client | `()` | integer\|nil | 1.0.0 | Cis.player.seat() |
+| `GetCachedServerId` | client | `()` | integer | 1.0.0 | Cis.player.serverId() |
+| `GetCachedVehicle` | client | `()` | integer\|nil, integer\|nil | 1.0.0 | Cis.player.vehicle() |
+| `GetCachedWeapon` | client | `()` | CisWeaponData\|nil | 1.0.0 | Cis.player.weapon() |
+| `GetCapabilities` | both | `()` | table<string, table> | 1.0.0 | The one call that answers "which of my four resources is actually running". Returns { [slot] = { owner, resolved } } |
+| `GetClientConfig` | client | `()` | table\|nil | 1.0.0 | no proxy equivalent; the config the server sent to this client |
+| `GetClientLogging` | client | `()` | table | 1.0.0 | Cis.log.debug / info / warn / error |
+| `GetClosestDoor` | client | `()` | table\|nil, string\|nil | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge doors API |
+| `GetClosestPoint` | client | `()` | integer\|nil, number\|string\|nil | 1.0.0 | Cis.points.getClosest() |
+| `GetClosestVehicle` | client | `()` | integer | 1.0.0 | no proxy equivalent; a 5 unit forward ray, then the nearest vehicle in the CVehicle pool within 5 units. The Lua global is CisGetClosestVehicle; the native GetClosestVehicle is left alone |
+| `GetConfigSummary` | server | `()` | table | 1.0.0 | no proxy equivalent; the non-secret half of the server config |
+| `GetCurrentWeaponData` | client | `(ped?)` | CisWeaponData | 1.0.0 | Cis.player.weapon() |
+| `GetCurrentZones` | client | `()` | string[] | 1.1.0 | Cis.zones.getCurrent() |
+| `GetDiagnostics` | both | `(opts?)` | CisDiagnostics | 1.0.0 | Counts, never player data: capability slots and owners, sync records by owner, pending callbacks, net handlers, error and warning counters, memory, uptime, and pass timings. The harness diffs counters and probes only; timings are a sibling so a pass does not fail every case |
+| `GetDiscordConfig` | server | `()` | table | 1.0.0 | The outbound/webhook configuration SetConfig was handed, for the capability that does the sending. Server realm only -- it holds webhook URLs and is deliberately not on the client payload whitelist |
+| `GetDiscordQueueDepth` | server | `()` | integer | 1.0.0 | no proxy equivalent; queued message count and dropped count |
+| `GetDistanceBetweenCoords` | client | `(x1, y1, z1, x2, y2, z2, useZ?)` | number | 1.0.0 | no proxy equivalent |
+| `GetDoorState` | both | `(doorId)` | boolean\|nil, string\|nil | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge doors API |
+| `GetKnownTargets` | both | `()` | table | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge detection |
+| `GetLastRefusal` | server | `()` | string\|nil | 1.0.0 | Read after a nil/false answer from a capability export to learn WHY it was refused. Returns a sentence naming the missing or failing capability, or nil when the last call succeeded. Additive: no existing return shape changes |
+| `GetLibsPrefix` | server | `()` | string | 1.0.0 | no proxy equivalent; the configured Security.EventPrefix |
+| `GetLogging` | server | `()` | table | 1.0.0 | Cis.log.debug / info / warn / error |
+| `GetNearbyPoints` | client | `()` | integer[] | 1.1.0 | Cis.points.getNearby() |
+| `GetNearbyZones` | client | `(coords?, radius?)` | string[] | 1.1.0 | Cis.zones.getNearby(coords, radius) |
+| `GetNormalizedPlayer` | server | `(src)` | table\|nil | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge player API |
+| `GetOnlineJobCount` | server | `(jobs)` | integer | 1.0.0 | no proxy equivalent; the callback cis_libs:getOnlineJobCount |
+| `GetOpenContextMenu` | client | `()` | string\|nil | 1.1.0 | exports.cis_libs:GetOpenContextMenu() |
+| `GetOpenMenu` | client | `()` | string\|nil | 1.1.0 | exports.cis_libs:GetOpenMenu() |
+| `GetPlayerVehicleSeat` | client | `()` | integer\|nil | 1.0.0 | Cis.player.vehicle(), second return value |
+| `GetPointsDebug` | client | `()` | CisPointsDebug | 1.0.0 | no proxy equivalent; the live debug record for the point pass |
+| `GetSelfCheck` | server | `()` | CisSelfCheck | 1.0.0 | The boot self-check as data: { ok, problems = { { code, message, fix } } }. Each problem names the change that resolves it |
+| `GetSyncedEntities` | client | `()` | table<string, integer | 1.0.0 | no proxy equivalent; the id-to-handle table of everything this client spawned |
+| `GetSyncedEntity` | client | `(key)` | integer\|nil | 1.0.0 | Cis.sync.entity(key) |
+| `GetTableSize` | client | `(t)` | integer | 1.0.0 | no proxy equivalent |
+| `GetVehicleProperties` | client | `(vehicle)` | CisVehicleProps\|nil | 1.0.0 | Cis.vehicle.getProperties(vehicle) -- the same engine, in the caller VM |
+| `GetZoneDebug` | client | `()` | CisZoneDebug | 1.0.0 | no proxy equivalent; the last grid pass cost in milliseconds |
+| `HideContext` | client | `(onExit?)` | boolean | 1.1.0 | exports.cis_libs:HideContext(onExit) |
+| `HideMenu` | client | `(onExit?)` | boolean | 1.1.0 | exports.cis_libs:HideMenu(onExit) |
+| `HideRadial` | client | `()` | boolean | 1.1.0 | exports.cis_libs:HideRadial() |
+| `HideTextUI` | client | `()` | boolean | 1.1.0 | exports.cis_libs:HideTextUI() |
+| `HookOn` | both | `(name, fn, opts?)` | integer\|false, string\|nil | 1.0.0 | Cis.hooks.on(name, fn, opts) |
+| `HookRemove` | both | `(id)` | boolean, string\|nil | 1.0.0 | Cis.hooks.remove(id) |
+| `HookRun` | both | `(name, payload?)` | boolean, string\|nil, string\|nil | 1.0.0 | Cis.hooks.run(name, payload) |
+| `InputDialog` | client | `(heading, rows, options?)` | table\|nil, string\|nil | 1.1.0 | exports.cis_libs:InputDialog(heading, rows, options) |
+| `InventoryAdd` | server | `(src, item, amount, metadata?)` | boolean | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge inventory API |
+| `InventoryCount` | both | `server (src, item); client (item)` | integer | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge inventory API |
+| `InventoryHas` | both | `server (src, item, amount); client (item, amount)` | boolean | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge inventory API |
+| `InventoryRemove` | server | `(src, item, amount)` | boolean | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge inventory API |
+| `InvokingAllowed` | server | `()` | boolean | 1.0.0 | no proxy equivalent; ask before mutating. This is the supported way to avoid a refusal |
+| `IsReady` | client | `()` | boolean | 1.0.0 | Cis.isReady, or Cis.ready(cb) |
+| `IsTextUIOpen` | client | `()` | boolean, string\|nil | 1.1.0 | exports.cis_libs:IsTextUIOpen() |
+| `KeybindAdd` | client | `(options)` | table\|false, string\|nil | 1.0.0 | Cis.keybind.add({ name, description, defaultKey, onPress, onRelease }) |
+| `KeybindDisable` | client | `(id, state)` | boolean, string\|nil | 1.0.0 | no proxy equivalent; the id-based form of handle:disable(state) |
+| `KeybindEnable` | client | `(id)` | boolean, string\|nil | 1.0.0 | no proxy equivalent; KeybindDisable(id, false) |
+| `KeybindIsPressed` | client | `(id)` | boolean | 1.0.0 | no proxy equivalent; the id-based form of handle:isPressed() |
+| `KeybindRemove` | client | `(id)` | boolean, string\|nil | 1.0.0 | no proxy equivalent; the id-based form of handle:destroy() |
+| `Keybinds` | client | `()` | table[] | 1.0.0 | no proxy equivalent; every binding this library registered |
+| `LockDoors` | server | `(identifier)` | integer, string\|nil | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge doors API |
+| `LogDebug` | both | `server (message, discordType?); client (message)` | nil | 1.0.0 | Cis.log.debug(message) |
+| `LogError` | both | `server (message, discordType?, errorInfo?); client (message)` | nil | 1.0.0 | Cis.log.error(message) |
+| `LogInfo` | both | `server (message, discordType?); client (message)` | nil | 1.0.0 | Cis.log.info(message) |
+| `LogWarn` | both | `server (message, discordType?); client (message)` | nil | 1.0.0 | Cis.log.warn(message) |
+| `ModuleInfo` | both | `(name, opts?)` | CisModuleInfo | 1.0.0 | Cis.moduleInfo(name, opts) |
+| `NearbyObjects` | client | `(coords, maxDistance, filter, opts)` | CisWorldEntry[]\|false, string | 1.0.0 | Cis.world.getNearbyObjects(coords, maxDistance, filter, opts) |
+| `NearbyPeds` | client | `(coords, maxDistance, filter, opts)` | CisWorldEntry[]\|false, string | 1.0.0 | Cis.world.getNearbyPeds(coords, maxDistance, filter, opts) |
+| `NearbyPlayers` | client | `(coords, maxDistance, filter, opts)` | CisWorldEntry[]\|false, string | 1.0.0 | Cis.world.getNearbyPlayers(coords, maxDistance, filter, opts) |
+| `NearbyVehicles` | client | `(coords, maxDistance, filter, opts)` | CisWorldEntry[]\|false, string | 1.0.0 | Cis.world.getNearbyVehicles(coords, maxDistance, filter, opts) |
+| `Notify` | both | `server (src, message, kind?); client (message, kind?)` | server boolean, string; client any, string\|nil | 1.0.0 | Cis.framework.notify(...). With a framework provider registered the call passes through to it untouched; with none, cis_libs delivers it itself through the same guards NotifyClient uses, so a server with no framework does not go mute and does not become the unbounded path. The two-argument client form sends `kind` in the message slot; this is pinned as a known defect in test/contracts.lua and is a MAJOR change to correct |
+| `NotifyClient` | server | `(src, message, kind?)` | boolean, string | 1.0.0 | Called by a product to show a notification to one client, without hardcoding the event name owned by this library. Answers `false, reason` for a src that is not a connected player, truncates a message past 512 characters, and allows 10 a second per (src, calling resource) |
+| `NotifyPlayer` | server | `(src, data)` | boolean, string\|nil | 1.1.0 | exports.cis_libs:NotifyPlayer(src, data) |
+| `OnPlayerCache` | client | `(key, cb)` | function\|nil, integer\|string | 1.0.0 | Cis.player.on(key, cb); stop it with RemovePlayerCacheListener(id) |
+| `ProgressActive` | client | `()` | boolean | 1.1.0 | exports.cis_libs:ProgressActive() |
+| `ProgressBar` | client | `(data)` | boolean, string\|nil | 1.1.0 | exports.cis_libs:ProgressBar(data) |
+| `ProgressCircle` | client | `(data)` | boolean, string\|nil | 1.1.0 | exports.cis_libs:ProgressCircle(data) |
+| `Ptfx` | client | `(name, timeout?)` | string\|nil, string\|nil | 1.0.0 | Cis.streaming.ptfx(name, timeout) |
+| `PublishInventory` | server | `(src)` | boolean, string\|nil | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge inventory API |
+| `PublishJobUpdate` | server | `(job, src?)` | boolean, string | 1.0.0 | Called by cis_core or any bridge target when a player changes job. Fires cis_libs:jobUpdated, so the event name stays owned by this library |
+| `PublishPlayerLoaded` | server | `(job, src?)` | boolean, string\|nil | 1.0.0 | Called by cis_core or any bridge target when a player object exists. Fires cis_libs:playerLoaded |
+| `RandomFloat` | client | `(lower, greater)` | number | 1.0.0 | no proxy equivalent |
+| `RateOk` | server | `(src, name, windowMs?, maxHits?)` | boolean | 1.0.0 | no proxy equivalent; a resource may share the library rate limiter |
+| `RaycastCamera` | client | `(flags, ignore, distance?, timeoutMs?)` | boolean\|nil, integer\|nil, vector3\|nil, vector3\|nil, integer\|nil | 1.0.0 | Cis.raycast.camera(flags, ignore, distance, timeoutMs) |
+| `RaycastFromCoords` | client | `(origin, target, flags?, ignore?, timeoutMs?)` | boolean\|nil, integer\|nil, vector3\|nil, vector3\|nil, integer\|nil | 1.0.0 | Cis.raycast.fromCoords(origin, target, flags, ignore, timeoutMs) |
+| `ReadyState` | both | `()` | boolean, boolean, string\|nil | 1.0.0 | Cis.isReady and Cis.isFailed, which read through to this in a consumer |
+| `RegisterCallback` | both | `server (name, handler, opts?); client (name, fn)` | boolean, string\|nil | 1.0.0 | Cis.callback.register(name, handler) |
+| `RegisterCapability` | both | `(slot, provider, contract?)` | server boolean, string; client boolean, string\|nil | 1.0.0 | Called by cis_core, cis_bridge and cis_keys with (slot, "resource:Export"). Gated on Security.AuthorizedResources on both realms; among allowed callers the first registration wins |
+| `RegisterContext` | client | `(context)` | boolean, string\|nil | 1.1.0 | exports.cis_libs:RegisterContext(context) |
+| `RegisterMenu` | client | `(data, cb?)` | boolean, string\|nil | 1.1.0 | exports.cis_libs:RegisterMenu(data, cb) |
+| `RegisterRadial` | client | `(radial)` | boolean, string\|nil | 1.1.0 | exports.cis_libs:RegisterRadial(radial) |
+| `RemoveNearWatcher` | client | `(id)` | boolean, string | 1.0.0 | Cis.player.nearStop(id); the id WatchNear returns as its second value |
+| `RemovePlayerCacheListener` | client | `(id)` | boolean, string\|nil | 1.0.0 | no proxy equivalent; the id OnPlayerCache returns as its second value |
+| `RemovePoint` | client | `(id)` | boolean, string\|nil | 1.0.0 | Cis.points.remove(id) |
+| `RemoveRadialItem` | client | `(id)` | boolean | 1.1.0 | exports.cis_libs:RemoveRadialItem(id) |
+| `RemoveStatebagHandler` | both | `(cookie)` | boolean, string\|nil | 1.0.0 | Cis.statebag.remove(cookie) |
+| `RemoveTarget` | client | `(name, isPed?)` | boolean, string | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge target API |
+| `RemoveZone` | client | `(name)` | boolean, string\|nil | 1.0.0 | Cis.zones.remove(name) |
+| `RequestInventorySync` | client | `()` | boolean | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge inventory API |
+| `RequestLockDoors` | client | `(identifier)` | any, string\|nil | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge doors API |
+| `RequestModelTimeout` | client | `(model, timeout?)` | boolean, integer | 1.0.0 | Cis.streaming.model(model, timeout) |
+| `RequestUnlockDoors` | client | `(identifier)` | any, string\|nil | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge doors API |
+| `Round` | client | `(num, numDecimalPlaces?)` | number | 1.0.0 | no proxy equivalent; math round to n places |
+| `Scaleform` | client | `(name, timeout?)` | string\|nil, integer\|nil, string\|nil | 1.0.0 | Cis.streaming.scaleform(name, timeout) |
+| `SecureNetOn` | server | `(name, fn, opts?)` | boolean | 1.0.0 | Cis.net.on(name, fn, opts) -> true when the event was bound |
+| `SecurityReport` | server | `(src, reason)` | boolean | 1.0.0 | Cis.security.report(src, reason) |
+| `SendDiscordLog` | server | `(webhookURL, title, message, color, ping)` | any | 1.0.0 | Cis.log.info with a discordType; no proxy equivalent for a raw webhook push |
+| `ServerZoneBox` | server | `(center, size, opts?)` | integer\|false, string\|nil | 1.0.0 | Cis.zones.server.box(center, size, opts) |
+| `ServerZoneContains` | server | `(id, coords)` | boolean, string\|nil | 1.0.0 | Cis.zones.server.contains(id, coords) |
+| `ServerZonePlayers` | server | `(id)` | integer[]\|false, string\|nil | 1.0.0 | Cis.zones.server.players(id) |
+| `ServerZonePoly` | server | `(points, opts?)` | integer\|false, string\|nil | 1.0.0 | Cis.zones.server.poly(points, opts) |
+| `ServerZoneRemove` | server | `(id)` | boolean, string\|nil | 1.0.0 | Cis.zones.server.remove(id) |
+| `ServerZoneSphere` | server | `(center, radius, opts?)` | integer\|false, string\|nil | 1.0.0 | Cis.zones.server.sphere(center, radius, opts) |
+| `SetConfig` | server | `(config?, security?, discord?)` | boolean, string | 1.0.0 | Called by cis_core at boot with (config, security, discord). First registration wins; a second is refused and named. When the server convar cis_config_supplier names a resource, only that resource may call it. When cis_authorized_resources or cis_allow_any_resource is set, the security posture comes from the convars and the AuthorizedResources / AllowAnyResource passed here are ignored (DOCUMENTATION.md section 3). `security.AllowAnyResource` is the 1.0.0 opt-in escape hatch: with it true an EMPTY AuthorizedResources stops meaning restrictive, and the console warns on every boot |
+| `SetDropPlayerHandler` | server | `(provider)` | boolean, string | 1.0.0 | Called by whoever ships the config, with "resource:Export". A FUNCTION cannot be sent across the boundary, which is why this exists |
+| `SetMenuOptions` | client | `(id, options, index?)` | boolean, string\|nil | 1.1.0 | exports.cis_libs:SetMenuOptions(id, options, index) |
+| `SetUiLocale` | client | `(strings)` | boolean, string\|nil | 1.1.0 | exports.cis_libs:SetUiLocale(strings) |
+| `SetUiTheme` | client | `(data)` | boolean, string\|nil | 1.1.0 | exports.cis_libs:SetUiTheme(data) |
+| `SetVehicleProperties` | client | `(vehicle, props, fixVehicle?)` | boolean, string\|nil | 1.0.0 | no proxy equivalent; applies every field present, every time (there is no diff) |
+| `ShowContext` | client | `(id)` | boolean, string\|nil | 1.1.0 | exports.cis_libs:ShowContext(id) |
+| `ShowMenu` | client | `(id, startIndex?)` | boolean, string\|nil | 1.1.0 | exports.cis_libs:ShowMenu(id, startIndex) |
+| `ShowTextUI` | client | `(text, options?)` | boolean, string\|nil | 1.1.0 | exports.cis_libs:ShowTextUI(text, options) |
+| `SkillCheck` | client | `(difficulty, inputs?)` | boolean, string\|nil | 1.1.0 | exports.cis_libs:SkillCheck(difficulty, inputs) |
+| `SkillCheckActive` | client | `()` | boolean | 1.1.0 | exports.cis_libs:SkillCheckActive() |
+| `StatebagOnEntity` | both | `(key, handler, timeoutMs?)` | integer\|nil, string\|nil | 1.0.0 | Cis.statebag.onEntity(key, handler, timeoutMs) |
+| `StatebagOnPlayer` | both | `(key, handler, timeoutMs?)` | integer\|nil, string\|nil | 1.0.0 | Cis.statebag.onPlayer(key, handler, timeoutMs) |
+| `SyncClear` | server | `()` | integer\|nil, string\|nil | 1.0.0 | Cis.sync.clear() |
+| `SyncCreate` | server | `(kind, data)` | string\|nil, string\|nil | 1.0.0 | Cis.sync.ped / Cis.sync.prop / Cis.sync.vehicle |
+| `SyncList` | server | `()` | CisSyncSummary[], string\|nil | 1.0.0 | Cis.sync.list() |
+| `SyncRemove` | server | `(id?)` | boolean, string | 1.0.0 | Cis.sync.remove(id) |
+| `TargetAvailable` | client | `()` | boolean | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge target API |
+| `TargetExists` | client | `(name)` | boolean | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge target API |
+| `TextureDict` | client | `(name, timeout?)` | string\|nil, string\|nil | 1.0.0 | Cis.streaming.textureDict(name, timeout) |
+| `Toast` | client | `(data)` | boolean, string\|nil | 1.1.0 | exports.cis_libs:Toast(data). The library's own NUI notification; Cis.ui.notify routes here when no ui provider is registered. Not Notify: that export is the framework notify, a different signature |
+| `TriggerLibCallback` | client | `(name, cb?, ...)` | nil | 1.0.0 | the client-to-server round trip whose callback receives only the results |
+| `TryAwaitCallback` | both | `(name, ...)` | boolean, any | 1.0.0 | Cis.callback.tryAwait(name, ...) -> ok, ... on success; false, reason on a refusal |
+| `TryAwaitCallbackWithin` | client | `(name, timeoutMs, ...)` | boolean, any | 1.1.0 | Cis.callback.tryAwaitWithin(name, timeoutMs, ...) -> ok, ... ; a per-call timeout instead of Config.CallbackTimeout |
+| `UiConfirm` | client | `(opts)` | any, string\|nil | 1.0.0 | Cis.ui.confirm(opts). A ui provider if registered, else the built-in AlertDialog. RETURNS, does not take a callback |
+| `UiInput` | client | `(opts)` | any, string\|nil | 1.0.0 | Cis.ui.input(opts). A ui provider if registered, else the built-in InputDialog. RETURNS, does not take a callback |
+| `UiNotify` | client | `(message, kind?)` | boolean, string\|nil | 1.0.0 | Cis.ui.notify(message, kind). NOT Cis.framework.notify: that one is player-targeted, rate-limited, and the one a server uses. This is the local toast |
+| `UiProgress` | client | `(opts)` | boolean\|nil, string\|nil | 1.0.0 | Cis.ui.progress(opts). A ui provider if registered, else the built-in ProgressBar/ProgressCircle (opts.type = 'circle') |
+| `UiTextUIHide` | client | `()` | boolean, string\|nil | 1.0.0 | Cis.ui.textUI.hide() |
+| `UiTextUIIsOpen` | client | `()` | boolean | 1.0.0 | Cis.ui.textUI.isOpen() |
+| `UiTextUIShow` | client | `(text, opts?)` | boolean, string\|nil | 1.0.0 | Cis.ui.textUI.show(text, opts) |
+| `UnlockDoors` | server | `(identifier)` | integer, string\|nil | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge doors API |
+| `UnregisterCapability` | server | `(slot)` | boolean | 1.0.0 | Called by a product on shutdown or handover. Only the slot owner may release it |
+| `UpdateTarget` | client | `(name, newOptions?)` | boolean, string | 1.0.0 | **deprecated** deprecated since 1.1.0; use the cis_bridge target API |
+| `WaitCapability` | server | `(slot, timeoutMs?)` | boolean, string | 1.0.0 | Waits up to timeoutMs for a capability slot to be filled. Returns true and the owner, or nil and a reason naming the slot. No proxy equivalent -- a consumer waits from its own resource. |
+| `WaitReady` | both | `(timeout?)` | boolean | 1.0.0 | Cis.ready(cb, timeout) or Cis.wait(timeout) |
+| `WatchNear` | client | `(coords, distance?, onEnter?, onExit?, onEnterEvent?, onExitEvent?)` | function, integer | 1.0.0 | Cis.player.near(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent) |
+| `WeaponAsset` | client | `(name, timeout?)` | integer\|nil, string\|nil | 1.0.0 | Cis.streaming.weaponAsset(hash, timeout) |
+| `ZoneContains` | client | `(name, point?)` | boolean | 1.0.0 | Cis.zones.contains(name, point) |
 
-| Event | Since | Payload |
-|---|---|---|
-| `chat:addSuggestion` | 1.0.0 | server to client, (name, help, params) while the chat resource is started. The one new standard-resource integration allowed, used only by Cis.command.add. Sent to -1 on add and when chat starts, and to each player as they join |
-| `chat:removeSuggestion` | 1.0.0 | server to client, (name) while the chat resource is started: the same seam, taking a suggestion back when its command is removed or its resource stops |
-| `cis_libs:cache` | 1.1.0 | client, local: (key, value, seat, silent) -- seat rides on a vehicle push; silent marks a refresh with no change to announce |
-| `cis_libs:capabilityChanged` | 1.0.0 | both realms: ({ slot, action, owner, previousOwner, resolved }) |
-| `cis_libs:cb` | 1.0.0 | client to server and server to client: (name, key, ...). `key` is the caller's opaque pending token, echoed back unchanged. The client handler ignores a local TriggerEvent (`source` is empty): only the server can ask a client callback. |
-| `cis_libs:cb:res` | 1.0.0 | client: (key, ok, ...) resolving an outstanding callback. Only a reply from the server counts; a local TriggerEvent (`source` is empty) is ignored. |
-| `cis_libs:cb:serverRes` | 1.0.0 | server: (key, ok, ...) resolving an outstanding client callback |
-| `cis_libs:client:getData` | 1.0.0 | server to client: ({ Config, EventPrefix, Providers }) on join, and to every client after SetConfig. Providers is "any" or the CisConfigUtil.digest of each Security.AuthorizedResources name (never the names), and gates client RegisterCapability. A local TriggerEvent is ignored. DoorData was not shipped in 1.0.0 |
-| `cis_libs:client:inventory` | 1.0.0 | server to client: ({ [itemName] = count }), pushed by PublishInventory |
-| `cis_libs:client:showNotification` | 1.0.0 | server to client: (message, kind) |
-| `cis_libs:client:syncBatch` | 1.0.0 | server to client: (n, upserts, removes). ONE event per player per pass, latent when it carries 32 entries or more. `n` numbers the batches sent to that player, and a client applies an entry only if no later batch has touched that key, so a reliable batch overtaking a latent one is safe. `upserts` are CLIENT-LOCAL records (identity `record.key`, the caller's id namespaced by its owning resource; `record.rev` is its revision); a networked record is never on this wire. `removes` are keys to despawn. The client applies a batch only from the server (a local TriggerEvent is ignored) and only when `n` is an integer in 1..2^31-1. |
-| `cis_libs:client:uiNotify` | 1.1.0 | server to client: (data) a Notify table, sent by NotifyPlayer. Accepted only from the network: a local TriggerEvent of it is ignored |
-| `cis_libs:jobUpdated` | 1.0.0 | server to client: ({ name, grade }), fired by PublishJobUpdate |
-| `cis_libs:playerLoaded` | 1.0.0 | server to client: (job), fired by PublishPlayerLoaded |
-| `cis_libs:server:getData` | 1.0.0 | client to server: no arguments, requests the config payload |
-| `cis_libs:server:inventorySync` | 1.0.0 | client to server: no arguments, requests an inventory snapshot |
-| `cis_libs:server:syncGaveUp` | 1.0.0 | client to server: (key) the client could not load that record's model after its retries. The server stops believing the client holds it and holds back that revision for 30 s. |
-| `cis_libs:server:syncSnapshot` | 1.0.0 | client to server: (held) sent when the client's sync scripts load, `held` being { [key] = rev } of what it still holds (nothing, on a fresh start). The server reconciles what it believed this player held against the claim, answers with one capped batch and lets the pass deliver the rest. Honoured once per 10 s per player. |
+| Event | Since | Payload | Notes |
+|---|---|---|---|
+| `chat:addSuggestion` | 1.0.0 | server to client, (name, help, params) while the chat resource is started. The one new standard-resource integration allowed, used only by Cis.command.add. Sent to -1 on add and when chat starts, and to each player as they join |  |
+| `chat:removeSuggestion` | 1.0.0 | server to client, (name) while the chat resource is started: the same seam, taking a suggestion back when its command is removed or its resource stops |  |
+| `cis_libs:cache` | 1.1.0 | client, local: (key, value, seat, silent) -- seat rides on a vehicle push; silent marks a refresh with no change to announce |  |
+| `cis_libs:capabilityChanged` | 1.0.0 | both realms: ({ slot, action, owner, previousOwner, resolved }) |  |
+| `cis_libs:cb` | 1.0.0 | client to server and server to client: (name, key, ...). `key` is the caller's opaque pending token, echoed back unchanged. The client handler ignores a local TriggerEvent (`source` is empty): only the server can ask a client callback. |  |
+| `cis_libs:cb:res` | 1.0.0 | client: (key, ok, ...) resolving an outstanding callback. Only a reply from the server counts; a local TriggerEvent (`source` is empty) is ignored. |  |
+| `cis_libs:cb:serverRes` | 1.0.0 | server: (key, ok, ...) resolving an outstanding client callback |  |
+| `cis_libs:client:getData` | 1.0.0 | server to client: ({ Config, EventPrefix, Providers }) on join, and to every client after SetConfig. Providers is "any" or the CisConfigUtil.digest of each Security.AuthorizedResources name (never the names), and gates client RegisterCapability. A local TriggerEvent is ignored. DoorData was not shipped in 1.0.0 |  |
+| `cis_libs:client:inventory` | 1.0.0 | server to client: ({ [itemName] = count }), pushed by PublishInventory | **deprecated** deprecated since 1.1.0; use the cis_bridge inventory API |
+| `cis_libs:client:showNotification` | 1.0.0 | server to client: (message, kind) |  |
+| `cis_libs:client:syncBatch` | 1.0.0 | server to client: (n, upserts, removes). ONE event per player per pass, latent when it carries 32 entries or more. `n` numbers the batches sent to that player, and a client applies an entry only if no later batch has touched that key, so a reliable batch overtaking a latent one is safe. `upserts` are CLIENT-LOCAL records (identity `record.key`, the caller's id namespaced by its owning resource; `record.rev` is its revision); a networked record is never on this wire. `removes` are keys to despawn. The client applies a batch only from the server (a local TriggerEvent is ignored) and only when `n` is an integer in 1..2^31-1. |  |
+| `cis_libs:client:uiNotify` | 1.1.0 | server to client: (data) a Notify table, sent by NotifyPlayer. Accepted only from the network: a local TriggerEvent of it is ignored |  |
+| `cis_libs:jobUpdated` | 1.0.0 | server to client: ({ name, grade }), fired by PublishJobUpdate |  |
+| `cis_libs:playerLoaded` | 1.0.0 | server to client: (job), fired by PublishPlayerLoaded |  |
+| `cis_libs:server:getData` | 1.0.0 | client to server: no arguments, requests the config payload |  |
+| `cis_libs:server:inventorySync` | 1.0.0 | client to server: no arguments, requests an inventory snapshot | **deprecated** deprecated since 1.1.0; use the cis_bridge inventory API |
+| `cis_libs:server:syncGaveUp` | 1.0.0 | client to server: (key) the client could not load that record's model after its retries. The server stops believing the client holds it and holds back that revision for 30 s. |  |
+| `cis_libs:server:syncSnapshot` | 1.0.0 | client to server: (held) sent when the client's sync scripts load, `held` being { [key] = rev } of what it still holds (nothing, on a fresh start). The server reconciles what it believed this player held against the claim, answers with one capped batch and lets the pass deliver the rest. Honoured once per 10 s per player. |  |
 
-| `Cis.*` | Realm | Signature | Since | Notes |
-|---|---|---|---|---|
-| `Cis.anim.play` | client | `(ped, dict, clip, opts?)` | 1.1.0 |  |
-| `Cis.cache` | client | `(key)` | 1.1.0 |  |
-| `Cis.callback.await` | both | `(name, ...)` | 1.0.0 |  |
-| `Cis.callback.awaitClient` | server | `(src, name, ...)` | 1.0.0 |  |
-| `Cis.callback.awaitWithin` | client | `(name, timeoutMs, ...)` | 1.1.0 |  |
-| `Cis.callback.call` | both | `(name, cb?, ...)` | 1.0.0 |  |
-| `Cis.callback.callClient` | server | `(src, name, cb?, ...)` | 1.0.0 |  |
-| `Cis.callback.register` | both | `(name, handler, opts?)` | 1.0.0 |  |
-| `Cis.callback.tryAwait` | both | `(name, ...)` | 1.0.0 |  |
-| `Cis.callback.tryAwaitWithin` | client | `(name, timeoutMs, ...)` | 1.1.0 |  |
-| `Cis.command.add` | server | `(name, options, handler)` | 1.0.0 |  |
-| `Cis.command.list` | server | `()` | 1.0.0 |  |
-| `Cis.command.remove` | server | `(name)` | 1.0.0 |  |
-| `Cis.controls.disable` | client | `(...)` | 1.1.0 |  |
-| `Cis.controls.enable` | client | `(id)` | 1.1.0 |  |
-| `Cis.controls.isDisabled` | client | `(control)` | 1.1.0 |  |
-| `Cis.db.insert` | server | `(sql, params?)` | 1.0.0 |  |
-| `Cis.db.query` | server | `(sql, params?)` | 1.0.0 |  |
-| `Cis.db.scalar` | server | `(sql, params?)` | 1.0.0 |  |
-| `Cis.db.single` | server | `(sql, params?)` | 1.0.0 |  |
-| `Cis.db.transaction` | server | `(queries)` | 1.0.0 |  |
-| `Cis.db.update` | server | `(sql, params?)` | 1.0.0 |  |
-| `Cis.doors.add` | both | `(data)` | 1.0.0 |  |
-| `Cis.doors.get` | both | `(id)` | 1.0.0 |  |
-| `Cis.doors.setState` | both | `(id, locked)` | 1.0.0 |  |
-| `Cis.dui.new` | client | `(opts)` | 1.1.0 |  |
-| `Cis.framework.notify` | both | `()` | 1.0.0 |  |
-| `Cis.framework.player` | server | `(src)` | 1.0.0 |  |
-| `Cis.hooks.on` | both | `(name, fn, opts?)` | 1.0.0 |  |
-| `Cis.hooks.remove` | both | `(id)` | 1.0.0 |  |
-| `Cis.hooks.run` | both | `(name, payload?)` | 1.0.0 |  |
-| `Cis.inventory.add` | server | `(src, item, amount, metadata?)` | 1.0.0 |  |
-| `Cis.inventory.count` | both | `()` | 1.0.0 |  |
-| `Cis.inventory.has` | both | `()` | 1.0.0 |  |
-| `Cis.inventory.remove` | server | `(src, item, amount)` | 1.0.0 |  |
-| `Cis.keybind.add` | client | `(options)` | 1.0.0 |  |
-| `Cis.log.debug` | both | `(message)` | 1.0.0 |  |
-| `Cis.log.error` | both | `(message)` | 1.0.0 |  |
-| `Cis.log.info` | both | `(message)` | 1.0.0 |  |
-| `Cis.log.warn` | both | `(message)` | 1.0.0 |  |
-| `Cis.marker.add` | client | `(opts)` | 1.1.0 |  |
-| `Cis.marker.clear` | client | `()` | 1.1.0 |  |
-| `Cis.marker.remove` | client | `(id)` | 1.1.0 |  |
-| `Cis.moduleInfo` | both | `(name, opts?)` | 1.0.0 |  |
-| `Cis.moduleProbe` | both | `()` | 1.0.0 |  |
-| `Cis.net.on` | server | `(name, fn, opts?)` | 1.0.0 |  |
-| `Cis.onCache` | client | `(key, fn)` | 1.1.0 |  |
-| `Cis.player.coords` | client | `()` | 1.0.0 |  |
-| `Cis.player.heading` | client | `()` | 1.0.0 |  |
-| `Cis.player.near` | client | `(coords, distance?, onEnter?, onExit?, onEnterEvent?, onExitEvent?)` | 1.0.0 |  |
-| `Cis.player.nearStop` | client | `(id)` | 1.1.0 |  |
-| `Cis.player.on` | client | `(key, cb)` | 1.0.0 |  |
-| `Cis.player.ped` | client | `()` | 1.0.0 |  |
-| `Cis.player.playerId` | client | `()` | 1.0.0 |  |
-| `Cis.player.seat` | client | `()` | 1.0.0 |  |
-| `Cis.player.serverId` | client | `()` | 1.0.0 |  |
-| `Cis.player.vehicle` | client | `()` | 1.0.0 |  |
-| `Cis.player.weapon` | client | `()` | 1.0.0 |  |
-| `Cis.points.add` | client | `(data)` | 1.0.0 |  |
-| `Cis.points.getAll` | client | `()` | 1.1.0 |  |
-| `Cis.points.getClosest` | client | `()` | 1.0.0 |  |
-| `Cis.points.getNearby` | client | `()` | 1.1.0 |  |
-| `Cis.points.remove` | client | `(id)` | 1.0.0 |  |
-| `Cis.raycast.camera` | client | `(flags?, ignore?, distance?, timeoutMs?)` | 1.0.0 |  |
-| `Cis.raycast.fromCoords` | client | `(origin, target, flags?, ignore?, timeoutMs?)` | 1.0.0 |  |
-| `Cis.ready` | both | `(cb?, timeout?)` | 1.0.0 |  |
-| `Cis.require` | both | `(name)` | 1.0.0 |  |
-| `Cis.requireList` | both | `()` | 1.0.0 |  |
-| `Cis.scaleform.new` | client | `(name, timeout?)` | 1.1.0 |  |
-| `Cis.security.report` | server | `(src, reason)` | 1.0.0 |  |
-| `Cis.statebag.onEntity` | both | `(key, handler, timeoutMs?)` | 1.0.0 |  |
-| `Cis.statebag.onPlayer` | both | `(key, handler, timeoutMs?)` | 1.0.0 |  |
-| `Cis.statebag.remove` | both | `(cookie)` | 1.0.0 |  |
-| `Cis.streaming.animDict` | client | `(name, timeout?)` | 1.0.0 |  |
-| `Cis.streaming.animSet` | client | `(name, timeout?)` | 1.0.0 |  |
-| `Cis.streaming.audioBank` | client | `(name, timeout?)` | 1.0.0 |  |
-| `Cis.streaming.model` | client | `(model, timeout?)` | 1.0.0 |  |
-| `Cis.streaming.ptfx` | client | `(name, timeout?)` | 1.0.0 |  |
-| `Cis.streaming.release` | client | `(kind, asset)` | 1.1.0 |  |
-| `Cis.streaming.scaleform` | client | `(name, timeout?)` | 1.0.0 |  |
-| `Cis.streaming.textureDict` | client | `(name, timeout?)` | 1.0.0 |  |
-| `Cis.streaming.weaponAsset` | client | `(hash, timeout?)` | 1.0.0 |  |
-| `Cis.sync.clear` | both | `()` | 1.0.0 |  |
-| `Cis.sync.entity` | both | `(key)` | 1.0.0 |  |
-| `Cis.sync.list` | both | `()` | 1.0.0 |  |
-| `Cis.sync.onDespawn` | both | `(fn)` | 1.0.0 |  |
-| `Cis.sync.onSpawn` | both | `(fn)` | 1.0.0 |  |
-| `Cis.sync.ped` | both | `(data)` | 1.0.0 |  |
-| `Cis.sync.prop` | both | `(data)` | 1.0.0 |  |
-| `Cis.sync.remove` | both | `(id)` | 1.0.0 |  |
-| `Cis.sync.vehicle` | both | `(data)` | 1.0.0 |  |
-| `Cis.target.add` | client | `(zoneType, name, coords, size, options?)` | 1.0.0 |  |
-| `Cis.target.exists` | client | `(name)` | 1.0.0 |  |
-| `Cis.target.remove` | client | `(name, isPed?)` | 1.0.0 |  |
-| `Cis.target.update` | client | `(name, options?)` | 1.0.0 |  |
-| `Cis.ui.cancelProgress` | client | `()` | 1.1.0 |  |
-| `Cis.ui.cancelSkillCheck` | client | `()` | 1.1.0 |  |
-| `Cis.ui.closeAlert` | client | `()` | 1.1.0 |  |
-| `Cis.ui.closeInput` | client | `()` | 1.1.0 |  |
-| `Cis.ui.confirm` | client | `(opts)` | 1.0.0 |  |
-| `Cis.ui.context.getOpen` | client | `()` | 1.1.0 |  |
-| `Cis.ui.context.hide` | client | `(onExit?)` | 1.1.0 |  |
-| `Cis.ui.context.register` | client | `(context)` | 1.1.0 |  |
-| `Cis.ui.context.show` | client | `(id)` | 1.1.0 |  |
-| `Cis.ui.input` | client | `(opts)` | 1.0.0 |  |
-| `Cis.ui.menu.getOpen` | client | `()` | 1.1.0 |  |
-| `Cis.ui.menu.hide` | client | `(onExit?)` | 1.1.0 |  |
-| `Cis.ui.menu.register` | client | `(data, cb?)` | 1.1.0 |  |
-| `Cis.ui.menu.setOptions` | client | `(id, options, index?)` | 1.1.0 |  |
-| `Cis.ui.menu.show` | client | `(id, startIndex?)` | 1.1.0 |  |
-| `Cis.ui.notify` | client | `(message, kind?)` | 1.0.0 |  |
-| `Cis.ui.progress` | client | `(opts)` | 1.0.0 |  |
-| `Cis.ui.progressActive` | client | `()` | 1.1.0 |  |
-| `Cis.ui.radial.add` | client | `(data)` | 1.1.0 |  |
-| `Cis.ui.radial.clear` | client | `()` | 1.1.0 |  |
-| `Cis.ui.radial.disable` | client | `(state)` | 1.1.0 |  |
-| `Cis.ui.radial.hide` | client | `()` | 1.1.0 |  |
-| `Cis.ui.radial.register` | client | `(radial)` | 1.1.0 |  |
-| `Cis.ui.radial.remove` | client | `(id)` | 1.1.0 |  |
-| `Cis.ui.skillCheck` | client | `(difficulty, inputs?)` | 1.1.0 |  |
-| `Cis.ui.skillCheckActive` | client | `()` | 1.1.0 |  |
-| `Cis.ui.textUI.hide` | client | `()` | 1.0.0 |  |
-| `Cis.ui.textUI.isOpen` | client | `()` | 1.0.0 |  |
-| `Cis.ui.textUI.show` | client | `(text, opts?)` | 1.0.0 |  |
-| `Cis.vehicle.getProperties` | client | `(vehicle)` | 1.1.0 |  |
-| `Cis.vehicle.setProperties` | client | `(vehicle, props, fixVehicle?)` | 1.1.0 |  |
-| `Cis.wait` | both | `(timeout?)` | 1.0.0 |  |
-| `Cis.waitFor` | both | `(fn, msg?, timeoutMs?)` | 1.0.0 |  |
-| `Cis.world.getClosestObject` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
-| `Cis.world.getClosestPed` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
-| `Cis.world.getClosestPlayer` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
-| `Cis.world.getClosestPlayerId` | client | `(coords?, maxDistance?, includePlayer?)` | 1.1.0 |  |
-| `Cis.world.getClosestVehicle` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
-| `Cis.world.getNearbyObjects` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
-| `Cis.world.getNearbyPeds` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
-| `Cis.world.getNearbyPlayers` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
-| `Cis.world.getNearbyVehicles` | client | `(coords?, maxDistance?, filter?, opts?)` | 1.1.0 |  |
-| `Cis.zones.box` | client | `(name, center, size, options?)` | 1.0.0 |  |
-| `Cis.zones.contains` | client | `(name, point?)` | 1.0.0 |  |
-| `Cis.zones.getAll` | client | `()` | 1.1.0 |  |
-| `Cis.zones.getCurrent` | client | `()` | 1.1.0 |  |
-| `Cis.zones.getNearby` | client | `(coords?, radius?)` | 1.1.0 |  |
-| `Cis.zones.poly` | client | `(name, points, options?)` | 1.0.0 |  |
-| `Cis.zones.remove` | client | `(name)` | 1.0.0 |  |
-| `Cis.zones.server.box` | server | `(center, size, opts?)` | 1.0.0 |  |
-| `Cis.zones.server.contains` | server | `(id, coords)` | 1.0.0 |  |
-| `Cis.zones.server.players` | server | `(id)` | 1.0.0 |  |
-| `Cis.zones.server.poly` | server | `(points, opts?)` | 1.0.0 |  |
-| `Cis.zones.server.remove` | server | `(id)` | 1.0.0 |  |
-| `Cis.zones.server.sphere` | server | `(center, radius, opts?)` | 1.0.0 |  |
-| `Cis.zones.sphere` | client | `(name, center, radius?, options?)` | 1.0.0 |  |
+| `Cis.*` | Realm | Signature | Returns | Since | Notes |
+|---|---|---|---|---|---|
+| `Cis.anim.play` | client | `(ped, dict, clip, opts?)` | boolean, string\|nil | 1.1.0 |  |
+| `Cis.cache` | client | `(key)` | any | 1.1.0 |  |
+| `Cis.callback.await` | both | `(name, ...)` | any | 1.0.0 |  |
+| `Cis.callback.awaitClient` | server | `(src, name, ...)` | boolean, any | 1.0.0 |  |
+| `Cis.callback.awaitWithin` | client | `(name, timeoutMs, ...)` | any | 1.1.0 |  |
+| `Cis.callback.call` | both | `(name, cb?, ...)` | nil | 1.0.0 |  |
+| `Cis.callback.callClient` | server | `(src, name, cb?, ...)` | string | 1.0.0 |  |
+| `Cis.callback.register` | both | `(name, handler, opts?)` | boolean, string\|nil | 1.0.0 |  |
+| `Cis.callback.tryAwait` | both | `(name, ...)` | boolean, any | 1.0.0 |  |
+| `Cis.callback.tryAwaitWithin` | client | `(name, timeoutMs, ...)` | boolean, any | 1.1.0 |  |
+| `Cis.command.add` | server | `(name, options, handler)` | boolean, string\|nil | 1.0.0 |  |
+| `Cis.command.list` | server | `()` | table[] | 1.0.0 |  |
+| `Cis.command.remove` | server | `(name)` | boolean, string\|nil | 1.0.0 |  |
+| `Cis.controls.disable` | client | `(...)` | integer\|false, string\|nil | 1.1.0 |  |
+| `Cis.controls.enable` | client | `(id)` | boolean | 1.1.0 |  |
+| `Cis.controls.isDisabled` | client | `(control)` | boolean | 1.1.0 |  |
+| `Cis.db.insert` | server | `(sql, params?)` | integer\|nil | 1.0.0 | **deprecated** |
+| `Cis.db.query` | server | `(sql, params?)` | table\|nil | 1.0.0 | **deprecated** |
+| `Cis.db.scalar` | server | `(sql, params?)` | any | 1.0.0 | **deprecated** |
+| `Cis.db.single` | server | `(sql, params?)` | table\|nil | 1.0.0 | **deprecated** |
+| `Cis.db.transaction` | server | `(queries)` | boolean, string | 1.0.0 | **deprecated** |
+| `Cis.db.update` | server | `(sql, params?)` | integer\|nil | 1.0.0 | **deprecated** |
+| `Cis.doors.add` | both | `(data)` | boolean, string | 1.0.0 | **deprecated** |
+| `Cis.doors.get` | both | `(id)` | boolean\|nil, string\|nil | 1.0.0 | **deprecated** |
+| `Cis.doors.setState` | both | `(id, locked)` | boolean, string | 1.0.0 | **deprecated** |
+| `Cis.dui.new` | client | `(opts)` | CisDuiPage\|nil, string\|nil | 1.1.0 |  |
+| `Cis.framework.notify` | both | `server (srcOrNil, message, kind?); client (message, kind?)` | boolean, string | 1.0.0 |  |
+| `Cis.framework.player` | server | `(src)` | table\|nil | 1.0.0 | **deprecated** |
+| `Cis.hooks.on` | both | `(name, fn, opts?)` | integer\|false, string\|nil | 1.0.0 |  |
+| `Cis.hooks.remove` | both | `(id)` | boolean, string\|nil | 1.0.0 |  |
+| `Cis.hooks.run` | both | `(name, payload?)` | boolean, string\|nil, string\|nil | 1.0.0 |  |
+| `Cis.inventory.add` | server | `(src, item, amount, metadata?)` | boolean | 1.0.0 | **deprecated** |
+| `Cis.inventory.count` | both | `server (src, item); client (item)` | integer | 1.0.0 | **deprecated** |
+| `Cis.inventory.has` | both | `server (src, item, amount?); client (item, amount?)` | boolean | 1.0.0 | **deprecated** |
+| `Cis.inventory.remove` | server | `(src, item, amount)` | boolean | 1.0.0 | **deprecated** |
+| `Cis.keybind.add` | client | `(options)` | table\|false, string\|nil | 1.0.0 |  |
+| `Cis.log.debug` | both | `(message)` | nil | 1.0.0 |  |
+| `Cis.log.error` | both | `(message)` | nil | 1.0.0 |  |
+| `Cis.log.info` | both | `(message)` | nil | 1.0.0 |  |
+| `Cis.log.warn` | both | `(message)` | nil | 1.0.0 |  |
+| `Cis.marker.add` | client | `(opts)` | integer\|false, string\|nil | 1.1.0 |  |
+| `Cis.marker.clear` | client | `()` | integer | 1.1.0 |  |
+| `Cis.marker.remove` | client | `(id)` | boolean | 1.1.0 |  |
+| `Cis.moduleInfo` | both | `(name, opts?)` | CisModuleInfo | 1.0.0 |  |
+| `Cis.moduleProbe` | both | `()` | table | 1.0.0 |  |
+| `Cis.net.on` | server | `(name, fn, opts?)` | boolean, string | 1.0.0 |  |
+| `Cis.onCache` | client | `(key, fn)` | function\|nil, integer\|string | 1.1.0 |  |
+| `Cis.player.coords` | client | `()` | vector3 | 1.0.0 |  |
+| `Cis.player.heading` | client | `()` | number | 1.0.0 |  |
+| `Cis.player.near` | client | `(coords, distance?, onEnter?, onExit?, onEnterEvent?, onExitEvent?)` | function, integer | 1.0.0 |  |
+| `Cis.player.nearStop` | client | `(id)` | boolean, string | 1.1.0 |  |
+| `Cis.player.on` | client | `(key, cb)` | function\|nil, integer\|string | 1.0.0 |  |
+| `Cis.player.ped` | client | `()` | integer | 1.0.0 |  |
+| `Cis.player.playerId` | client | `()` | integer | 1.0.0 |  |
+| `Cis.player.seat` | client | `()` | integer\|nil | 1.0.0 |  |
+| `Cis.player.serverId` | client | `()` | integer | 1.0.0 |  |
+| `Cis.player.vehicle` | client | `()` | integer\|nil, integer\|nil | 1.0.0 |  |
+| `Cis.player.weapon` | client | `()` | CisWeaponData\|nil | 1.0.0 |  |
+| `Cis.points.add` | client | `(data)` | integer\|false, string\|nil | 1.0.0 |  |
+| `Cis.points.getAll` | client | `()` | integer[] | 1.1.0 |  |
+| `Cis.points.getClosest` | client | `()` | integer\|nil, number\|string\|nil | 1.0.0 |  |
+| `Cis.points.getNearby` | client | `()` | integer[] | 1.1.0 |  |
+| `Cis.points.remove` | client | `(id)` | boolean | 1.0.0 |  |
+| `Cis.raycast.camera` | client | `(flags?, ignore?, distance?, timeoutMs?)` | boolean\|nil, integer\|nil, vector3\|nil, vector3\|nil, integer\|nil | 1.0.0 |  |
+| `Cis.raycast.fromCoords` | client | `(origin, target, flags?, ignore?, timeoutMs?)` | boolean\|nil, integer\|nil, vector3\|nil, vector3\|nil, integer\|nil | 1.0.0 |  |
+| `Cis.ready` | both | `(cb?, timeout?)` | boolean\|function | 1.0.0 |  |
+| `Cis.require` | both | `(name)` | CisCurve\|CisHeap\|CisInterp\|CisLRU\|CisRandom\|CisRate\|CisRingBuffer\|CisSet\|CisSparse\|CisWindow\|CisArray\|CisClass\|CisCron\|CisId\|CisJson\|CisLocale\|CisMathX\|CisPrint\|CisSemver\|CisString\|CisTable\|CisTime\|CisTimer\|CisValidate\|any | 1.0.0 |  |
+| `Cis.requireList` | both | `()` | string[] | 1.0.0 |  |
+| `Cis.scaleform.new` | client | `(name, timeout?)` | CisScaleformMovie\|nil, string\|nil | 1.1.0 |  |
+| `Cis.security.report` | server | `(src, reason)` | boolean | 1.0.0 |  |
+| `Cis.statebag.onEntity` | both | `(key, handler, timeoutMs?)` | integer\|nil, string\|nil | 1.0.0 |  |
+| `Cis.statebag.onPlayer` | both | `(key, handler, timeoutMs?)` | integer\|nil, string\|nil | 1.0.0 |  |
+| `Cis.statebag.remove` | both | `(cookie)` | boolean, string\|nil | 1.0.0 |  |
+| `Cis.streaming.animDict` | client | `(name, timeout?)` | string\|nil, string\|nil | 1.0.0 |  |
+| `Cis.streaming.animSet` | client | `(name, timeout?)` | string\|nil, string\|nil | 1.0.0 |  |
+| `Cis.streaming.audioBank` | client | `(name, timeout?)` | string\|nil, string\|nil | 1.0.0 |  |
+| `Cis.streaming.model` | client | `(model, timeout?)` | boolean, integer | 1.0.0 |  |
+| `Cis.streaming.ptfx` | client | `(name, timeout?)` | string\|nil, string\|nil | 1.0.0 |  |
+| `Cis.streaming.release` | client | `(kind, asset)` | boolean | 1.1.0 |  |
+| `Cis.streaming.scaleform` | client | `(name, timeout?)` | string\|nil, integer\|nil, string\|nil | 1.0.0 |  |
+| `Cis.streaming.textureDict` | client | `(name, timeout?)` | string\|nil, string\|nil | 1.0.0 |  |
+| `Cis.streaming.weaponAsset` | client | `(hash, timeout?)` | integer\|nil, string\|nil | 1.0.0 |  |
+| `Cis.sync.clear` | both | `()` | integer\|false, string | 1.0.0 |  |
+| `Cis.sync.entity` | both | `(key)` | integer\|nil | 1.0.0 |  |
+| `Cis.sync.list` | both | `()` | CisSyncSummary[]\|false, string | 1.0.0 |  |
+| `Cis.sync.onDespawn` | both | `(fn)` | boolean, string | 1.0.0 |  |
+| `Cis.sync.onSpawn` | both | `(fn)` | boolean, string | 1.0.0 |  |
+| `Cis.sync.ped` | both | `(data)` | string\|nil, string\|nil | 1.0.0 |  |
+| `Cis.sync.prop` | both | `(data)` | string\|nil, string\|nil | 1.0.0 |  |
+| `Cis.sync.remove` | both | `(id)` | boolean, string | 1.0.0 |  |
+| `Cis.sync.vehicle` | both | `(data)` | string\|nil, string\|nil | 1.0.0 |  |
+| `Cis.target.add` | client | `(zoneType, name, coords, size, options?)` | boolean, string | 1.0.0 | **deprecated** |
+| `Cis.target.exists` | client | `(name)` | boolean | 1.0.0 | **deprecated** |
+| `Cis.target.remove` | client | `(name, isPed?)` | boolean, string | 1.0.0 | **deprecated** |
+| `Cis.target.update` | client | `(name, options?)` | boolean, string | 1.0.0 | **deprecated** |
+| `Cis.ui.cancelProgress` | client | `()` | boolean | 1.1.0 |  |
+| `Cis.ui.cancelSkillCheck` | client | `()` | boolean | 1.1.0 |  |
+| `Cis.ui.closeAlert` | client | `()` | boolean | 1.1.0 |  |
+| `Cis.ui.closeInput` | client | `()` | boolean | 1.1.0 |  |
+| `Cis.ui.confirm` | client | `(opts)` | any, string\|nil | 1.0.0 |  |
+| `Cis.ui.context.getOpen` | client | `()` | string\|nil | 1.1.0 |  |
+| `Cis.ui.context.hide` | client | `(onExit?)` | boolean | 1.1.0 |  |
+| `Cis.ui.context.register` | client | `(context)` | boolean, string\|nil | 1.1.0 |  |
+| `Cis.ui.context.show` | client | `(id)` | boolean, string\|nil | 1.1.0 |  |
+| `Cis.ui.input` | client | `(opts)` | any, string\|nil | 1.0.0 |  |
+| `Cis.ui.menu.getOpen` | client | `()` | string\|nil | 1.1.0 |  |
+| `Cis.ui.menu.hide` | client | `(onExit?)` | boolean | 1.1.0 |  |
+| `Cis.ui.menu.register` | client | `(data, cb?)` | boolean, string\|nil | 1.1.0 |  |
+| `Cis.ui.menu.setOptions` | client | `(id, options, index?)` | boolean, string\|nil | 1.1.0 |  |
+| `Cis.ui.menu.show` | client | `(id, startIndex?)` | boolean, string\|nil | 1.1.0 |  |
+| `Cis.ui.notify` | client | `(message, kind?)` | boolean, string\|nil | 1.0.0 |  |
+| `Cis.ui.progress` | client | `(opts)` | boolean\|nil, string\|nil | 1.0.0 |  |
+| `Cis.ui.progressActive` | client | `()` | boolean | 1.1.0 |  |
+| `Cis.ui.radial.add` | client | `(data)` | boolean, string\|nil | 1.1.0 |  |
+| `Cis.ui.radial.clear` | client | `()` | boolean | 1.1.0 |  |
+| `Cis.ui.radial.disable` | client | `(state)` | boolean | 1.1.0 |  |
+| `Cis.ui.radial.hide` | client | `()` | boolean | 1.1.0 |  |
+| `Cis.ui.radial.register` | client | `(radial)` | boolean, string\|nil | 1.1.0 |  |
+| `Cis.ui.radial.remove` | client | `(id)` | boolean | 1.1.0 |  |
+| `Cis.ui.skillCheck` | client | `(difficulty, inputs?)` | boolean, string\|nil | 1.1.0 |  |
+| `Cis.ui.skillCheckActive` | client | `()` | boolean | 1.1.0 |  |
+| `Cis.ui.textUI.hide` | client | `()` | boolean, string\|nil | 1.0.0 |  |
+| `Cis.ui.textUI.isOpen` | client | `()` | boolean | 1.0.0 |  |
+| `Cis.ui.textUI.show` | client | `(text, opts?)` | boolean, string\|nil | 1.0.0 |  |
+| `Cis.vehicle.getProperties` | client | `(vehicle)` | CisVehicleProps\|nil | 1.1.0 |  |
+| `Cis.vehicle.setProperties` | client | `(vehicle, props, fixVehicle?)` | boolean, string\|nil | 1.1.0 |  |
+| `Cis.wait` | both | `(timeout?)` | boolean | 1.0.0 |  |
+| `Cis.waitFor` | both | `(fn, msg?, timeoutMs?)` | any, string\|nil | 1.0.0 |  |
+| `Cis.world.getClosestObject` | client | `(coords?, maxDistance?, filter?, opts?)` | integer\|false, vector3\|string\|nil | 1.1.0 |  |
+| `Cis.world.getClosestPed` | client | `(coords?, maxDistance?, filter?, opts?)` | integer\|false, vector3\|string\|nil | 1.1.0 |  |
+| `Cis.world.getClosestPlayer` | client | `(coords?, maxDistance?, filter?, opts?)` | integer\|false, vector3\|string\|nil, integer\|nil | 1.1.0 |  |
+| `Cis.world.getClosestPlayerId` | client | `(coords?, maxDistance?, includePlayer?)` | integer\|false, integer\|string\|nil, vector3\|nil | 1.1.0 |  |
+| `Cis.world.getClosestVehicle` | client | `(coords?, maxDistance?, filter?, opts?)` | integer\|false, vector3\|string\|nil | 1.1.0 |  |
+| `Cis.world.getNearbyObjects` | client | `(coords?, maxDistance?, filter?, opts?)` | CisWorldEntry[]\|false, string\|nil | 1.1.0 |  |
+| `Cis.world.getNearbyPeds` | client | `(coords?, maxDistance?, filter?, opts?)` | CisWorldEntry[]\|false, string\|nil | 1.1.0 |  |
+| `Cis.world.getNearbyPlayers` | client | `(coords?, maxDistance?, filter?, opts?)` | CisWorldEntry[]\|false, string\|nil | 1.1.0 |  |
+| `Cis.world.getNearbyVehicles` | client | `(coords?, maxDistance?, filter?, opts?)` | CisWorldEntry[]\|false, string\|nil | 1.1.0 |  |
+| `Cis.zones.box` | client | `(name, center, size, options?)` | boolean, string | 1.0.0 |  |
+| `Cis.zones.contains` | client | `(name, point?)` | boolean | 1.0.0 |  |
+| `Cis.zones.getAll` | client | `()` | string[] | 1.1.0 |  |
+| `Cis.zones.getCurrent` | client | `()` | string[] | 1.1.0 |  |
+| `Cis.zones.getNearby` | client | `(coords?, radius?)` | string[] | 1.1.0 |  |
+| `Cis.zones.poly` | client | `(name, points, options?)` | boolean, string | 1.0.0 |  |
+| `Cis.zones.remove` | client | `(name)` | boolean, string\|nil | 1.0.0 |  |
+| `Cis.zones.server.box` | server | `(center, size, opts?)` | integer\|false, string\|nil | 1.0.0 |  |
+| `Cis.zones.server.contains` | server | `(id, coords)` | boolean, string\|nil | 1.0.0 |  |
+| `Cis.zones.server.players` | server | `(id)` | integer[]\|false, string\|nil | 1.0.0 |  |
+| `Cis.zones.server.poly` | server | `(points, opts?)` | integer\|false, string\|nil | 1.0.0 |  |
+| `Cis.zones.server.remove` | server | `(id)` | boolean, string\|nil | 1.0.0 |  |
+| `Cis.zones.server.sphere` | server | `(center, radius, opts?)` | integer\|false, string\|nil | 1.0.0 |  |
+| `Cis.zones.sphere` | client | `(name, center, radius?, options?)` | boolean, string | 1.0.0 |  |
 
 
 <!-- generated:end -->

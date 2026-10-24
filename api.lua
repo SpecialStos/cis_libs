@@ -1178,14 +1178,14 @@ return {
         },
         PublishJobUpdate = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Called by cis_core when a player changes job. Fires cis_libs:jobUpdated, so the event name stays owned by this library',
+            use = 'Called by cis_core or any bridge target when a player changes job. Fires cis_libs:jobUpdated, so the event name stays owned by this library',
             realm = 'server',
             params = { { name = 'job', type = 'table', doc = 'the job record; a non-table is refused by name' }, { name = 'src', type = 'integer', optional = true, doc = 'the player to tell; nil broadcasts to every client' } },
             returns = { { type = 'boolean, string', doc = "true after the event is fired; false plus 'job must be a table', a reason naming Security.AuthorizedResources, or a reason when src is given but is not a connected player" } },
         },
         PublishPlayerLoaded = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'Called by cis_core when a player object exists. Fires cis_libs:playerLoaded',
+            use = 'Called by cis_core or any bridge target when a player object exists. Fires cis_libs:playerLoaded',
             realm = 'server',
             params = { { name = 'job', type = 'table', doc = 'the job record; only a table is remembered, but the value is sent as given' }, { name = 'src', type = 'integer', optional = true, doc = 'the one client to tell; nil means the event is never fired and true is still returned. A src that is not a connected player is refused' } },
             returns = { { type = 'boolean, string|nil', doc = 'true once published; false plus a reason when the caller is not on Security.AuthorizedResources (it writes the same job histogram PublishJobUpdate does) or src is not a connected player' } },
@@ -2940,10 +2940,16 @@ return {
         ['cis_libs:client:inventory'] = {
             since = '1.0.0',
             payload = 'server to client: ({ [itemName] = count }), pushed by PublishInventory',
+            ['until'] = '2.0.0',
+            deprecated = true,
+            use = 'deprecated since 1.1.0; use the cis_bridge inventory API',
         },
         ['cis_libs:server:inventorySync'] = {
             since = '1.0.0',
             payload = 'client to server: no arguments, requests an inventory snapshot',
+            ['until'] = '2.0.0',
+            deprecated = true,
+            use = 'deprecated since 1.1.0; use the cis_bridge inventory API',
         },
         ['cis_libs:client:syncBatch'] = {
             since = '1.0.0',

@@ -3340,6 +3340,90 @@
       "find": " and not NOTICE_EXEMPT[slot .. '.' .. (...)] then",
       "replace": " then",
       "why": "Notify, which stays, warns its callers that framework is going."
+    },
+    {
+      "id": "M660",
+      "file": "init.lua",
+      "find": "if resource ~= RESOURCE or not libsStopped or not realStop(resource) then",
+      "replace": "if resource ~= RESOURCE or not realStop(resource) then",
+      "why": "A start with no stop before it replays every record onto the running cis_libs."
+    },
+    {
+      "id": "M661",
+      "file": "init.lua",
+      "find": "if resource ~= RESOURCE or not libsStopped or not realStop(resource) then",
+      "replace": "if resource ~= RESOURCE or not libsStopped then",
+      "why": "A start another script fires after a real stop replays every record."
+    },
+    {
+      "id": "M662",
+      "file": "init.lua",
+      "find": "        if resource == RESOURCE and realStop(resource) then\n            libsStopped = true",
+      "replace": "        if resource == RESOURCE then\n            libsStopped = true",
+      "why": "A stop another script forged arms the replay."
+    },
+    {
+      "id": "M663",
+      "file": "init.lua",
+      "find": "        libsStopped = false\n",
+      "replace": "",
+      "why": "One real stop allows every later forged start to replay."
+    },
+    {
+      "id": "M664",
+      "file": "client/proxy.lua",
+      "find": "    CisRegistry.warnDeprecated('GetKnownTargets', GetInvokingResource())\n",
+      "replace": "",
+      "why": "Client GetKnownTargets stops naming its replacement."
+    },
+    {
+      "id": "M665",
+      "file": "server/proxy.lua",
+      "find": "    CisRegistry.warnDeprecated('GetKnownTargets', GetInvokingResource())\n",
+      "replace": "",
+      "why": "Server GetKnownTargets stops naming its replacement."
+    },
+    {
+      "id": "M666",
+      "file": "client/proxy.lua",
+      "find": "    CisRegistry.warnDeprecated('RequestInventorySync', GetInvokingResource())\n",
+      "replace": "",
+      "why": "RequestInventorySync is deprecated in silence."
+    },
+    {
+      "id": "M667",
+      "file": "client/proxy.lua",
+      "find": "    CisRegistry.warnDeprecated('RequestLockDoors', GetInvokingResource())\n",
+      "replace": "",
+      "why": "A door lock request with no doors provider is deprecated in silence."
+    },
+    {
+      "id": "M668",
+      "file": "client/proxy.lua",
+      "find": "    CisRegistry.warnDeprecated('RequestUnlockDoors', GetInvokingResource())\n",
+      "replace": "",
+      "why": "A door unlock request with no doors provider is deprecated in silence."
+    },
+    {
+      "id": "M669",
+      "file": "server/callback.lua",
+      "find": "(keyType == 'string' and #key <= MAX_KEY_LEN)",
+      "replace": "keyType == 'string'",
+      "why": "A client sends a 32 KiB callback key and the server echoes it straight back."
+    },
+    {
+      "id": "M670",
+      "file": "server/callback.lua",
+      "find": "    if not (keyType == 'nil' or",
+      "replace": "    if false and not (keyType == 'nil' or",
+      "why": "A table or boolean callback key is answered and echoed back."
+    },
+    {
+      "id": "M671",
+      "file": "fxmanifest.lua",
+      "find": "fx_version 'cerulean'",
+      "replace": "fx_version 'cerulean'\nprovide 'oxmysql'",
+      "why": "cis_libs claims to be oxmysql, so its dependents start against a library that serves none of its exports."
     }
   ]
 }

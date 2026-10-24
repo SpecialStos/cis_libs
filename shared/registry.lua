@@ -120,6 +120,12 @@ CisRegistry.DEPRECATED = {
     migration = 'cis_core',
     DetectFramework = 'the cis_bridge detection',
     DetectDatabase = 'the cis_bridge detection',
+    -- Exports that warn under their own name: they never reach a slot, or reach
+    -- one only when a provider is registered.
+    GetKnownTargets = 'the cis_bridge detection',
+    RequestInventorySync = 'the cis_bridge inventory API',
+    RequestLockDoors = 'the cis_bridge doors API',
+    RequestUnlockDoors = 'the cis_bridge doors API',
 }
 
 -- Methods a kept export forwards through a deprecated slot.
