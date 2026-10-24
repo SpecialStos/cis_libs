@@ -6406,6 +6406,35 @@ do
     env.reset()
 end
 
+-- ============================ W2b. a callback schema failure is one report per run
+--
+-- A net event's bad payload was latched (one report per player and event per
+-- run); a callback's was reported on EVERY request, so a client sending a bad
+-- shape once a second was a report -- and, with a ban provider, a strike --
+-- every second.
+do
+    local env = callbackEnv({ players = { [3] = true } })
+    local reports = 0
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_G, 'CisSecurityReport') }
+    function CisSecurityReport() reports = reports + 1; return true end
+    check(env.EXPORTS.RegisterCallback('w2b:shaped', function() return 'ok' end,
+        { schema = { amount = { type = 'number' } } }) == true, 'W2b: a schema-checked callback registers')
+    for i = 1, 10 do
+        env.emit('cis_libs:cb', 3, 'w2b:shaped', i, { amount = 'x' })
+        env.clock = env.clock + 300
+    end
+    check(env.lastReply(3) and env.lastReply(3)[3] == 'bad payload', 'W2b: every bad payload is still refused')
+    check(reports == 1, ('W2b: a run of bad callback payloads is one report (got %d)'):format(reports))
+    env.clock = env.clock + 10000
+    env.emit('cis_libs:cb', 3, 'w2b:shaped', 99, { amount = 'x' })
+    check(reports == 2, ('W2b: a bad payload after a quiet interval is a new strike (got %d)'):format(reports))
+    -- The latch is per player: a second player's first bad payload is reported.
+    env.players[4] = true
+    env.emit('cis_libs:cb', 4, 'w2b:shaped', 1, { amount = 'x' })
+    check(reports == 3, ('W2b: the latch is per player (got %d)'):format(reports))
+    env.reset()
+end
+
 -- ==================================================================== report
 -- Named, not just counted. A suite that reports "failed=3" and exits tells you
 -- something broke and nothing about what, and the fix is to re-run with a print

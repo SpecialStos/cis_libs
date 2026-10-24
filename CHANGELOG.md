@@ -772,6 +772,9 @@ which is forgotten when that resource stops.
   grew the limiter for the life of cis_libs. Idle ones are swept, and past
   1024 live ones a new key is refused with `'cap'`; a connected player is
   never refused for that bound.
+- **A callback's bad payload is reported once per run, like a net event's.**
+  Every schema refusal used to be a security report, so a client repeating
+  one bad shape was a strike per request with a ban provider.
 
 ### Security
 

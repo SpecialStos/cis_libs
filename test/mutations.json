@@ -4154,6 +4154,13 @@
       "find": "not isFinite(maxHits) or maxHits < 1 then",
       "replace": "not isFinite(maxHits) then",
       "why": "RateOk with maxHits 0 let the first hit of every window through, because a new bucket never compared against the limit."
+    },
+    {
+      "id": "M768",
+      "file": "server/callback.lua",
+      "find": "            CisReportBadPayload(src, name, schemaWhy, limits.windowMs, 'callback')",
+      "replace": "            CisSecurityReport(src, 'bad callback payload ' .. tostring(name))",
+      "why": "A callback schema failure was a security report on every request, so a client repeating one bad shape was a strike per request; it must share the net event's one-report-per-run latch."
     }
   ]
 }

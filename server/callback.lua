@@ -330,8 +330,9 @@ RegisterNetEvent('cis_libs:cb', function(name, key, ...)
     if entry.schema then
         local schemaOk, schemaWhy = CisCheckNetSchema(entry.schema, args[1])
         if not schemaOk then
-            CisDiagnostics.Inc(CisDiagnostics.NAMES.NET_SCHEMA_REFUSED)
-            CisSecurityReport(src, ('bad callback payload %s: %s'):format(tostring(name), tostring(schemaWhy)))
+            -- ONE REPORT PER RUN, like a net event's: every refusal used to be a
+            -- report, so a client repeating one bad shape was a strike per request.
+            CisReportBadPayload(src, name, schemaWhy, limits.windowMs, 'callback')
             answer(src, key, false, 'bad payload')
             return
         end

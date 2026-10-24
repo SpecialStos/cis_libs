@@ -695,7 +695,11 @@ end
 -- ONE REPORT per player and event per run of bad payloads; the rest are counted
 -- only. A run ends after a quiet interval, so a repeat after a pause is reported
 -- as a new strike, and a provider that bans after N strikes sees strike two.
-local function reportBadPayload(src, name, why, windowMs)
+-- `label` names the kind in the report ('net' or 'callback') and keys the
+-- ledger, so a net event and a callback of the same name are separate runs.
+-- Both kinds key on a REGISTERED name, so the ledger is bounded by what was bound.
+local function reportBadPayload(src, name, why, windowMs, label)
+    label = label or 'net'
     CisDiagnostics.Inc(CisDiagnostics.NAMES.NET_SCHEMA_REFUSED)
     local perSrc = schemaReported[src]
     if not perSrc then
@@ -703,12 +707,18 @@ local function reportBadPayload(src, name, why, windowMs)
         schemaReported[src] = perSrc
     end
     local now = GetGameTimer()
-    local last = perSrc[name]
-    perSrc[name] = now
+    local ledgerKey = label == 'net' and name or (label .. ' ' .. tostring(name))
+    local last = perSrc[ledgerKey]
+    perSrc[ledgerKey] = now
     local quiet = math.max(BAD_PAYLOAD_QUIET_MS, 2 * (windowMs or 1000))
     if last == nil or now - last >= quiet or now < last then
-        CisSecurityReport(src, ('bad net payload %s: %s'):format(tostring(name), tostring(why)))
+        CisSecurityReport(src, ('bad %s payload %s: %s'):format(label, tostring(name), tostring(why)))
     end
+end
+
+--- The same one-report-per-run latch, for server/callback.lua's schema option.
+function CisReportBadPayload(src, name, why, windowMs, label)
+    return reportBadPayload(src, name, why, windowMs, label)
 end
 
 local function dispatch(name, ...)
