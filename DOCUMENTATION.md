@@ -477,7 +477,7 @@ Source: `shared/util/mathx.lua`.
 | Function | Signature | Summary |
 |---|---|---|
 | `approx` | `(a: number, b: number, epsilon?: number) → boolean` | Equal within a tolerance that scales with the magnitude: \|a - b\| <= epsilon * max(1, \|a\|, \|b\|). |
-| `clamp` | `(v: number, lo: number, hi: number) → number` | Clamp into [lo, hi]. |
+| `clamp` | `(v: number, lo: number, hi: number) → number\|nil, string\|nil` | Clamp into [lo, hi]. |
 | `fromHex` | `(s: string) → number\|nil, string\|nil` | Hexadecimal text back to a number. |
 | `groupDigits` | `(n: number\|string, sep?: string, decimals?: integer) → string\|nil, string\|nil` | Thousands separators: 1234567.891 -> '1,234,567.891'. |
 | `inverseLerp` | `(a: number, b: number, v: number) → number` | Where v sits between a and b, as a fraction: the inverse of lerp. |

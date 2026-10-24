@@ -383,7 +383,15 @@ do
     expect(X.round(1.5, 400) == 1.5 and X.round(1.5, -400) == 0 and X.round(0, 400) == 0 and X.round(1e308, 1) == 1e308,
         'mathx: round with an enormous decimals count or a huge value answers, never NaN or inf')
     expect(X.round(math.mininteger, -2) <= 0 and X.round(2.5, 0) == 3, 'mathx: round of math.mininteger to hundreds keeps its sign')
-    expect(X.clamp(5, 10, 0) == 5 and X.clamp(-1, 0, 10) == 0 and X.clamp(11, 0, 10) == 10, 'mathx: clamp, reversed bounds swapped')
+    expect(X.clamp(5, 0, 10) == 5 and X.clamp(-1, 0, 10) == 0 and X.clamp(11, 0, 10) == 10, 'mathx: clamp')
+    -- The three clamps (mathx, interp, validate) now agree: a NaN value or reversed
+    -- bounds answer nil plus a reason. mathx used to swap the bounds and pass NaN on.
+    local cv, cwhy = X.clamp(5, 10, 0)
+    expect(cv == nil and type(cwhy) == 'string', 'mathx: clamp refuses reversed bounds with a reason')
+    cv, cwhy = X.clamp(0 / 0, 0, 10)
+    expect(cv == nil and type(cwhy) == 'string', 'mathx: clamp refuses NaN with a reason')
+    expect(X.clamp(math.huge, 0, 10) == 10 and X.clamp(-math.huge, 0, 10) == 0 and X.clamp(5, -math.huge, math.huge) == 5,
+        'mathx: clamp still takes infinities')
     expect(X.lerp(0, 10, 0.25) == 2.5 and X.inverseLerp(0, 10, 2.5) == 0.25 and X.inverseLerp(3, 3, 9) == 0,
         'mathx: lerp and inverseLerp, with a == b safe')
     expect(X.remap(5, 0, 10, 100, 200) == 150 and X.remap(20, 0, 10, 0, 1, true) == 1, 'mathx: remap and clamped remap')

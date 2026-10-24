@@ -344,6 +344,10 @@ function M.pointAtXYZ(path, distance)
         distance = 0
     end
     if path.closed and path.length > 0 then
+        -- An infinite distance has no lap to wrap into; inf % length is NaN.
+        if distance == math.huge or distance == -math.huge then
+            distance = 0
+        end
         distance = distance % path.length
     elseif distance < 0 then
         distance = 0

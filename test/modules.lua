@@ -88,6 +88,18 @@ do
     expect(I.ease('linear', 0.5) == 0.5, 'the linear ease is the identity')
     expect(I.ease('quadIn', 0) == 0 and I.ease('quadIn', 1) == 1,
         'an ease is pinned at both ends')
+    -- t is limited to [0, 1]: sqrt of a negative made the circ curves NaN above 1.
+    local easeBad
+    for name in pairs(I.EASINGS) do
+        if I.ease(name, 3) ~= I.ease(name, 1) or I.ease(name, -3) ~= I.ease(name, 0) then easeBad = easeBad or name end
+    end
+    expect(easeBad == nil, 'ease limits t to [0, 1] for every curve (' .. tostring(easeBad) .. ')')
+    expect(I.ease('circIn', 2) == 1 and I.ease('circOut', 2) == 1 and I.ease('circInOut', 2) == 1, 'ease: the circ curves end at 1 past t = 1')
+    expect(I.ease('nope', 2) == 2, 'ease: an unknown name stays the identity, unlimited')
+    local clipped = I.clampLength({ x = 3, y = 4, z = 0 }, -1)
+    expect(clipped.x == 0 and clipped.y == 0 and clipped.z == 0, 'clampLength with a negative length gives the zero vector, not a flipped one')
+    clipped = I.clampLength({ x = 3, y = 4, z = 0 }, 2.5)
+    expect(clipped.x == 1.5 and clipped.y == 2 and clipped.z == 0, 'clampLength still shortens to the length')
 end
 
 -- ==================================================================== CisLRU
@@ -891,6 +903,15 @@ do
     expect(ok == true, 'a distance inside the path is reported as on-path')
     near(x, 0, 1e-6, 'the path starts at its first waypoint on x')
     near(y, 0, 1e-6, 'the path starts at its first waypoint on y')
+    -- An infinite distance has no lap to wrap into: it was inf % length = NaN with ok = true.
+    local ring = CisCurve.newPath({ { x = 0, y = 0 }, { x = 10, y = 0 }, { x = 10, y = 10 } }, { closed = true })
+    local ix, iy, iz, iok = CisCurve.pointAtXYZ(ring, math.huge)
+    expect(iok == true and ix == ix and iy == iy and iz == iz, 'pointAtXYZ with an infinite distance on a closed path is a real point')
+    ix, iy, iz, iok = CisCurve.pointAtXYZ(ring, -math.huge)
+    expect(iok == true and ix == ix and iy == iy and iz == iz, 'and so is a negative infinite one')
+    ix, iy = CisCurve.pointAtXYZ(path, math.huge)
+    near(ix, 10, 1e-6, 'an open path still clamps infinity to its end (x)')
+    near(iy, 10, 1e-6, 'an open path still clamps infinity to its end (y)')
     local out = {}
     CisCurve.pointAt(path, CisCurve.length(path) * 0.5, out)
     expect(type(out.x) == 'number' and type(out.y) == 'number' and type(out.z) == 'number',

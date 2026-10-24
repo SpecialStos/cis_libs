@@ -298,7 +298,7 @@ local CisMarkerOptions = {}
 ---@class CisMathX
 -- The table Cis.require('mathx') returns. Number helpers: round to decimals, clamp, lerp (numbers or FiveM vectors), inverseLerp, remap, approx, toHex/fromHex exact to 2^53, groupDigits, and a weighted pick that is reproducible with a CisRandom generator.
 ---@field round fun(n: number, decimals?: integer): number # Round half AWAY from zero, to a number of decimal places.
----@field clamp fun(v: number, lo: number, hi: number): number # Clamp into [lo, hi].
+---@field clamp fun(v: number, lo: number, hi: number): number|nil, string|nil # Clamp into [lo, hi].
 ---@field lerp fun(a: number|vector2|vector3|vector4, b: number|vector2|vector3|vector4, t: number): number|vector2|vector3|vector4 # Linear interpolation; t is not clamped.
 ---@field inverseLerp fun(a: number, b: number, v: number): number # Where v sits between a and b, as a fraction: the inverse of lerp.
 ---@field remap fun(v: number, inMin: number, inMax: number, outMin: number, outMax: number, clamped?: boolean): number # Map v from [inMin, inMax] onto [outMin, outMax].

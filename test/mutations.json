@@ -3564,6 +3564,41 @@
       "find": "            if lru.map[node.key] == node then\n                unlink(lru, node)",
       "replace": "            if true then\n                unlink(lru, node)",
       "why": "removeWhere unlinks an entry its own predicate already removed, and raises on the missing neighbour."
+    },
+    {
+      "id": "M541",
+      "file": "shared/util/mathx.lua",
+      "find": "    if v ~= v then\n        return nil, 'mathx.clamp: v is NaN",
+      "replace": "    if false then\n        return nil, 'mathx.clamp: v is NaN",
+      "why": "mathx.clamp passes a NaN value through as a number."
+    },
+    {
+      "id": "M542",
+      "file": "shared/util/mathx.lua",
+      "find": "    if lo > hi then\n        return nil, ('mathx.clamp",
+      "replace": "    if false then\n        return nil, ('mathx.clamp",
+      "why": "mathx.clamp answers a number for reversed bounds while interp.clamp and validate.clamp refuse them."
+    },
+    {
+      "id": "M543",
+      "file": "shared/algo/interp.lua",
+      "find": "    return curve(M.clamp01(t))",
+      "replace": "    return curve(t)",
+      "why": "ease hands a t outside [0, 1] to the curve, and the circ curves take the root of a negative number and return NaN."
+    },
+    {
+      "id": "M544",
+      "file": "shared/algo/interp.lua",
+      "find": "    if maxLength < 0 then maxLength = 0 end\n",
+      "replace": "",
+      "why": "clampLength with a negative length scales the vector by a negative factor and flips it."
+    },
+    {
+      "id": "M545",
+      "file": "shared/algo/curve.lua",
+      "find": "        if distance == math.huge or distance == -math.huge then\n            distance = 0\n        end\n",
+      "replace": "",
+      "why": "pointAtXYZ on a closed path takes inf % length, which is NaN, and reports ok = true."
     }
   ]
 }

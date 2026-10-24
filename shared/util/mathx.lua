@@ -69,13 +69,19 @@ function M.round(n, decimals)
     return r
 end
 
---- Clamp into [lo, hi]. Reversed bounds are swapped rather than refused.
+--- Clamp into [lo, hi]. A NaN value or reversed bounds are refused, as CisInterp.clamp and CisValidate.clamp refuse them.
 ---@param v number
 ---@param lo number
 ---@param hi number
----@return number
+---@return number|nil  v limited to [lo, hi]
+---@return string|nil  why, for a NaN v or lo > hi
 function M.clamp(v, lo, hi)
-    if lo > hi then lo, hi = hi, lo end
+    if v ~= v then
+        return nil, 'mathx.clamp: v is NaN, which cannot be clamped'
+    end
+    if lo > hi then
+        return nil, ('mathx.clamp: lo %s is greater than hi %s'):format(tostring(lo), tostring(hi))
+    end
     if v < lo then return lo end
     if v > hi then return hi end
     return v

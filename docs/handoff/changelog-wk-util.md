@@ -43,6 +43,16 @@ re-audit numbers in `reaudit-modules.md`.
   case-insensitive one, so it never exceeds `opts.maxDistance`. It used to
   re-score the winner in its real casing: `suggest('FOO', {'foo'})` answered 3
   against a maximum of 2.
+- **`mathx.clamp` returns `nil, reason` for a NaN value or reversed bounds**
+  (A-L10, A-L15), as `interp.clamp` and `validate.clamp` already do. It used
+  to swap reversed bounds and pass NaN through, so the three clamps disagreed.
+  A caller that relied on the swap must order its bounds.
+- **`interp.ease` limits `t` to [0, 1]** (A-L10). The circ curves returned NaN
+  above 1. An unknown name is still the identity, unlimited.
+- **`interp.clampLength` treats a negative length as 0** (A-L10) and gives the
+  zero vector; it used to flip the vector.
+- **`curve.pointAtXYZ` on a closed path treats an infinite distance as 0**
+  (A-L10); `inf % length` was NaN with `ok` true.
 - **`heap.replaceTop` refuses nil, and NaN under the default ordering,** with
   `nil, reason` (A-L2), as `push` does. `heap.build` skips nil holes and
   such NaNs in its list.
