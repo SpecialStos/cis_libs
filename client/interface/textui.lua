@@ -30,7 +30,11 @@ local function showTextUI(text, options)
             key = I.str(options.key, 8),
         },
     }
-    I.send('textui:show', current.payload)
+    local sent, why = I.send('textui:show', current.payload)
+    if sent == false and I.ready then
+        current = nil
+        return false, ('text UI not shown: %s'):format(tostring(why or 'the page refused the message'))
+    end
     return true
 end
 

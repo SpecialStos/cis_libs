@@ -60,14 +60,24 @@ local function checkAabb(aabb)
         end
     end
     -- minZ and maxZ may be nil -- queryPoint reads a nil z as "do not test z" -- but
-    for _, v in ipairs({ aabb.minZ, aabb.maxZ }) do
-        if v ~= nil and v ~= v then
+    -- Each z bound is checked on its own: ipairs over { nil, maxZ } stopped at the
+    -- nil and never looked at maxZ, and a string bound raised on every query of
+    -- its cell.
+    local minZ, maxZ = aabb.minZ, aabb.maxZ
+    for _, v in pairs({ minZ = minZ, maxZ = maxZ }) do
+        if type(v) ~= 'number' then
+            return nil, ('an AABB z bound is %s, not a number or nil'):format(type(v))
+        end
+        if v ~= v then
             return nil, 'the AABB has a NaN z bound'
         end
-        if type(v) == 'number' and (v < -LIMIT or v > LIMIT) then
+        if v < -LIMIT or v > LIMIT then
             return nil, ('the AABB has a z bound of %s; at most %d metres is allowed')
                 :format(tostring(v), LIMIT)
         end
+    end
+    if minZ ~= nil and maxZ ~= nil and minZ > maxZ then
+        return nil, ('the AABB is inverted: minZ %s > maxZ %s'):format(tostring(minZ), tostring(maxZ))
     end
     if minX > maxX or minY > maxY then
         return nil, ('the AABB is inverted: minX %s > maxX %s, minY %s > maxY %s')
@@ -173,7 +183,8 @@ function CisGrid.queryPoint(grid, x, y, z, fn)
         if item then
             local aabb = item.aabb
             if x >= aabb.minX and x <= aabb.maxX and y >= aabb.minY and y <= aabb.maxY then
-                if z == nil or (z >= aabb.minZ and z <= aabb.maxZ) then
+                if z == nil or ((aabb.minZ == nil or z >= aabb.minZ)
+                    and (aabb.maxZ == nil or z <= aabb.maxZ)) then
                     fn(id, item)
                 end
             end
@@ -195,7 +206,8 @@ function CisGrid.queryNeighbors(grid, x, y, z, fn)
                         if item then
                             local aabb = item.aabb
                             if x >= aabb.minX and x <= aabb.maxX and y >= aabb.minY and y <= aabb.maxY then
-                                if z == nil or (z >= aabb.minZ and z <= aabb.maxZ) then
+                                if z == nil or ((aabb.minZ == nil or z >= aabb.minZ)
+                                    and (aabb.maxZ == nil or z <= aabb.maxZ)) then
                                     fn(id, item)
                                 end
                             end

@@ -231,14 +231,21 @@ local function showMenu(id, startIndex)
         if o.values then s.scroll[i] = math.min(#o.values, o.defaultIndex) end
         s.checked[i] = o.checked
     end
-    open = s
-    I.send('menu:open', {
+    -- Sent BEFORE the menu counts as open: a message the page refuses (over the
+    -- NUI cap) leaves nothing drawn, and the input thread would then disable
+    -- the player's controls for a menu nobody can see. Not ready is not a
+    -- refusal: onReady draws it.
+    local sent, why = I.send('menu:open', {
         id = id,
         title = menu.title,
         position = menu.position or I.defaults.menuPosition,
         options = view(s),
         selected = s.selected,
     })
+    if sent == false and I.ready then
+        return false, ('menu %s failed to open: %s'):format(id, tostring(why or 'the page refused the message'))
+    end
+    open = s
     -- A menu replacing another reuses nothing: the previous thread sees
     -- open ~= its state and ends on its next frame.
     CreateThread(function()

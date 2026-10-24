@@ -2037,6 +2037,73 @@ do
     env.reset()
 end
 
+-- NEAR WATCHERS FAIL CLOSED AND FAIL ALONE. A watcher with a string distance
+-- raised on `dist <= distance` inside the shared tick, so every watcher after
+-- it was never checked again; a NaN or infinite coordinate never entered or
+-- always did. watchNear now refuses them with nil plus a reason, and each
+-- watcher is checked in its own pcall.
+do
+    local env = cacheEnv()
+    env.saved[#env.saved + 1] = { name = 'Cis', value = rawget(_ENV, 'Cis') }
+    Cis = Cis or {}
+    Cis.player = Cis.player or {}
+    local priorCoords = Cis.player.coords
+    Cis.player.coords = function() return vector3(0.0, 0.0, 0.0) end
+    GetInvokingResource = function() return 'res_a' end
+    local base = #(env.threads or {})
+    local nan, inf = 0 / 0, math.huge
+    local bad = {
+        { 'coords x a string', { x = 'a', y = 0.0, z = 0.0 }, 2.0 },
+        { 'coords with no z', { x = 0.0, y = 0.0 }, 2.0 },
+        { 'a NaN coordinate', { x = nan, y = 0.0, z = 0.0 }, 2.0 },
+        { 'an infinite coordinate', { x = 0.0, y = inf, z = 0.0 }, 2.0 },
+        { 'coords a string', 'here', 2.0 },
+        { 'a string distance', { x = 0.0, y = 0.0, z = 0.0 }, 'far' },
+        { 'a zero distance', { x = 0.0, y = 0.0, z = 0.0 }, 0 },
+        { 'a negative distance', { x = 0.0, y = 0.0, z = 0.0 }, -5 },
+        { 'a NaN distance', { x = 0.0, y = 0.0, z = 0.0 }, nan },
+        { 'an infinite distance', { x = 0.0, y = 0.0, z = 0.0 }, inf },
+    }
+    for _, b in ipairs(bad) do
+        local r1, r2 = exports.WatchNear(b[2], b[3], nil, nil, 'a:in', 'a:out')
+        check(r1 == nil and type(r2) == 'string',
+            ('near N4: %s is refused with nil and a reason (got %s, %s)'):format(b[1], tostring(r1), tostring(r2)))
+    end
+    local e1, e2 = exports.WatchNear({ x = 0.0, y = 0.0, z = 0.0 }, 2.0, nil, nil, 5, 'a:out')
+    check(e1 == nil and type(e2) == 'string', 'near N4: a non-string onEnterEvent is refused')
+    check(#env.threads == base, ('near N4: no refused watcher started the thread (%d)'):format(#env.threads - base))
+
+    -- One watcher that raises does not starve the next one.
+    local boom = function() end
+    local realCallable = CisCallable
+    CisCallable = function(v)
+        if v == boom then error('boom', 0) end
+        return realCallable(v)
+    end
+    local _, wa = exports.WatchNear({ x = 0.0, y = 0.0, z = 0.0 }, 2.0, boom)
+    local _, wb = exports.WatchNear({ x = 1.0, y = 0.0, z = 0.0 }, 2.0, nil, nil, 'b:in', 'b:out')
+    local nearThread = env.threads[#env.threads]
+    local waits = 0
+    local realWait = Wait
+    Wait = function(ms)
+        waits = waits + 1
+        env.clock = env.clock + (tonumber(ms) or 0)
+        if waits == 1 then
+            exports.RemoveNearWatcher(wa)
+            exports.RemoveNearWatcher(wb)
+        end
+        if waits > 10 then error('near: the thread did not end', 0) end
+    end
+    local ok, err = pcall(nearThread)
+    Wait = realWait
+    CisCallable = realCallable
+    check(ok, ('near N4: the thread ran (%s)'):format(tostring(err)))
+    check(#env.serverEventsOf('b:in') == 1,
+        ('near N4: a watcher after one that raised is still entered (b:in x%d)'):format(#env.serverEventsOf('b:in')))
+    Cis.player.coords = priorCoords
+    env.reset()
+end
+
 -- THE CACHE LOOP NEVER GIVES UP ON READINESS.
 do
     local calls = 0
@@ -2627,6 +2694,62 @@ do
     env.reset()
 end
 
+-- N7. UpdateTarget REMOVED FIRST AND CREATED AFTER, with nothing in between:
+-- a provider that refused the new options, or no provider at all, left the
+-- caller with no target and a bare false. And the re-create read the owner
+-- from GetInvokingResource, so cis_libs updating res_a's target took it from
+-- res_a. Now it is checked first, restored on a refused create, and keeps its
+-- owner.
+do
+    local env = newEnv({})
+    env.invoking = 'res_a'
+    local live, avail = {}, true
+    env.foreign('cis_bridge').CisBridgeTargetOx = function()
+        return {
+            name = function() return 'ox_target' end,
+            available = function() return avail end,
+            create = function(spec)
+                if spec.targetOptions.distance == 9.0 then return false end
+                live[spec.name] = spec.targetOptions.distance
+                return true
+            end,
+            remove = function(name)
+                live[name] = nil
+                return true
+            end,
+        }
+    end
+    env.saved[#env.saved + 1] = { name = 'CisReadyState', value = rawget(_ENV, 'CisReadyState') }
+    CisReadyState = { wait = function() return true end, ready = true, failed = false }
+    loadModule('client/target.lua')
+    CisRegistry.register('target', 'cis_bridge:CisBridgeTargetOx')
+    local X = env.EXPORTS
+    check(X.CreateTarget('box', 'u', { x = 0.0, y = 0.0, z = 0.0 }, { x = 2.0, y = 2.0, z = 2.0 }, { distance = 3.0 }) == true,
+        'target N7: res_a creates u')
+
+    local okU, whyU = X.UpdateTarget('nope', {})
+    check(okU == false and type(whyU) == 'string', 'target N7: updating an unknown name is false plus a reason')
+
+    local okR, whyR = X.UpdateTarget('u', { distance = 9.0 })
+    check(okR == false and type(whyR) == 'string',
+        ('target N7: an update the provider refuses is false plus a reason (got %s, %s)'):format(tostring(okR), tostring(whyR)))
+    check(X.TargetExists('u') == true and live.u == 3.0,
+        ('target N7: and the old target is put back (exists=%s, provider distance=%s)'):format(tostring(X.TargetExists('u')), tostring(live.u)))
+
+    avail = false
+    local okA, whyA = X.UpdateTarget('u', { distance = 4.0 })
+    check(okA == false and type(whyA) == 'string', 'target N7: with no provider, the update is refused')
+    check(X.TargetExists('u') == true and live.u == 3.0, 'target N7: and the target is untouched')
+    avail = true
+
+    env.invoking = nil
+    check(X.UpdateTarget('u', { distance = 4.0 }) == true and live.u == 4.0, 'target N7: cis_libs updates res_a\'s target')
+    env.invoking = 'res_a'
+    local okRm, whyRm = X.RemoveTarget('u')
+    check(okRm == true, ('target N7: and res_a still owns it (remove: %s, %s)'):format(tostring(okRm), tostring(whyRm)))
+    env.reset()
+end
+
 -- ======================================= 9. the zone guards (rest)
 --
 -- Arguments the exports boundary can drop, and no check for them. Each raised
@@ -2961,6 +3084,8 @@ do
     check(exited and math.abs(exited.x - 0.0) > 0.001,
         ('3.3: and it is demonstrably NOT the old value, which was %s')
             :format(tostring(exited and exited.x)))
+    check(exited and getmetatable(exited) == getmetatable(vector3(0.0, 0.0, 0.0)),
+        '3.3 C10: and as a vector3, the shape every pass exit hands onExit')
     env.reset()
 end
 
@@ -4414,6 +4539,43 @@ do
     local dbg = exports.GetPointsDebug()
     check(dbg.insideCount == 2 and dbg.insideIds[1] == 1 and dbg.insideIds[2] == 2,
         ('7.1: the debug view is still right when asked (count=%s)'):format(tostring(dbg.insideCount)))
+    env.reset()
+end
+
+-- C10 + N5. A point removed while the player is inside fires onExit with a
+-- vector3, as every pass exit does (it handed a plain table, so `#(coords - x)`
+-- in the handler raised). And no consumer hook runs while the grid bucket is
+-- being walked: an onEnter that created a point inserted into the bucket the
+-- walk was iterating, which is undefined `next` behaviour.
+do
+    local env = pointEnv()
+    local vecMeta = getmetatable(vector3(0.0, 0.0, 0.0))
+    local walking, hookDuringWalk = false, false
+    local realQuery = CisGrid.queryPoint
+    CisGrid.queryPoint = function(...)
+        walking = true
+        local ok, err = pcall(realQuery, ...)
+        walking = false
+        if not ok then error(err, 0) end
+    end
+    local exitCoords, madeInHook
+    local id = exports.CreatePoint({
+        coords = { x = 0.0, y = 0.0, z = 0.0 },
+        distance = 5.0,
+        onEnter = function()
+            if walking then hookDuringWalk = true end
+            madeInHook = exports.CreatePoint({ coords = { x = 0.5, y = 0.0, z = 0.0 }, distance = 5.0 })
+        end,
+        onExit = function(coords) exitCoords = coords end,
+    })
+    local ran, why = pointPass(env)
+    CisGrid.queryPoint = realQuery
+    check(ran ~= nil and type(madeInHook) == 'number', ('7.1 N5: the pass ran and onEnter made a point (%s)'):format(tostring(why)))
+    check(not hookDuringWalk, '7.1 N5: onEnter runs after the grid walk, not inside it')
+    env.coords = { x = 1.0, y = 2.0, z = 0.0 }
+    check(exports.RemovePoint(id) == true, '7.1 C10: the point removes')
+    check(exitCoords ~= nil and getmetatable(exitCoords) == vecMeta and exitCoords.x == 1.0 and exitCoords.y == 2.0,
+        ('7.1 C10: removal fires onExit with the player\'s position as a vector3 (got %s)'):format(tostring(exitCoords)))
     env.reset()
 end
 
@@ -6318,6 +6480,155 @@ do
         ('D1: a door request with no doors provider still warns (got %d, %d)')
             :format(count('"RequestLockDoors"'), count('"RequestUnlockDoors"')))
     env.reset()
+end
+
+-- ================================================= C13. the grid's z bounds
+--
+-- checkAabb lets minZ and maxZ be nil ("no z test"), but both queries compared
+-- `z >= aabb.minZ` whenever the caller passed a z, so a 2D AABB raised on a
+-- number-vs-nil compare the first time anything queried it with a z. And the z
+-- bounds were never typed: a string minZ was stored, then raised on every query
+-- of its cell, taking every other item in that cell down with it.
+do
+    local savedGrid = CisGrid
+    load(readSource('shared/grid.lua'), '@shared/grid.lua')()
+    local G = CisGrid
+    CisGrid = savedGrid
+
+    local g = G.new()
+    check(G.insert(g, 'flat', { minX = -5, maxX = 5, minY = -5, maxY = 5 }) == true,
+        'grid C13: an AABB with no z bounds is admitted')
+    check(G.insert(g, 'floor', { minX = -5, maxX = 5, minY = -5, maxY = 5, minZ = 10 }) == true,
+        'grid C13: an AABB with only a minZ is admitted')
+    check(G.insert(g, 'ceil', { minX = -5, maxX = 5, minY = -5, maxY = 5, maxZ = 20 }) == true,
+        'grid C13: an AABB with only a maxZ is admitted')
+    local function hits(query, z)
+        local got = {}
+        local ok, err = pcall(query, g, 0.0, 0.0, z, function(id) got[id] = true end)
+        return ok, got, err
+    end
+    for _, q in ipairs({ { 'queryPoint', G.queryPoint }, { 'queryNeighbors', G.queryNeighbors } }) do
+        local ok, got, err = hits(q[2], 15.0)
+        check(ok and got.flat and got.floor and got.ceil,
+            ('grid C13: %s with a z inside every bound matches the 2D and half-open AABBs (%s)'):format(q[1], tostring(err)))
+        ok, got = hits(q[2], 5.0)
+        check(ok and got.flat and not got.floor and got.ceil,
+            ('grid C13: %s below a lone minZ misses that AABB only'):format(q[1]))
+        ok, got = hits(q[2], 25.0)
+        check(ok and got.flat and got.floor and not got.ceil,
+            ('grid C13: %s above a lone maxZ misses that AABB only'):format(q[1]))
+    end
+
+    local bad = {
+        { { minZ = 'low' }, 'a string minZ' },
+        { { maxZ = true }, 'a boolean maxZ' },
+        { { minZ = 0 / 0 }, 'a NaN minZ' },
+        { { maxZ = 0 / 0, minZ = 1 }, 'a NaN maxZ beside a number minZ' },
+        { { minZ = 30, maxZ = 10 }, 'minZ above maxZ' },
+        { { minZ = -1e9 }, 'a minZ past the limit' },
+    }
+    for _, b in ipairs(bad) do
+        local aabb = { minX = 0, maxX = 1, minY = 0, maxY = 1 }
+        for k, v in pairs(b[1]) do aabb[k] = v end
+        local ran, ok, why = pcall(G.insert, g, 'bad', aabb)
+        check(ran and ok == false and type(why) == 'string',
+            ('grid C13: %s is refused, with a reason (got %s, %s)'):format(b[2], tostring(ok), tostring(why)))
+    end
+    check(g.items.bad == nil, 'grid C13: and none of the refused AABBs was stored')
+end
+
+-- ===================================== loop guard: Body without a per-tick table
+--
+-- Body runs every frame for the cache, zone and point passes. It packed every
+-- result into a fresh table (table.pack) only to unpack it again; the results
+-- now pass straight through. What the caller sees must not change: every
+-- return value, nil holes and the count included, and nil after a raise.
+do
+    local saved = { CisLoopGuard = CisLoopGuard, CisDiagnostics = CisDiagnostics,
+        GetGameTimer = GetGameTimer, Logging = Logging }
+    local logged = {}
+    CisDiagnostics = { Register = function() end, Inc = function() end }
+    GetGameTimer = function() return 0 end
+    Logging = { Error = function(m) logged[#logged + 1] = m end }
+    load(readSource('shared/loopguard.lua'), '@shared/loopguard.lua')()
+    local LG = CisLoopGuard
+
+    local tick = LG.Body('test.body', function() return 1, nil, 3 end)
+    local n = select('#', tick())
+    local a, b, c = tick()
+    check(n == 3 and a == 1 and b == nil and c == 3,
+        ('loopguard: Body passes every return value through, nil holes included (n=%d)'):format(n))
+    check(select('#', LG.Body('test.none', function() end)()) == 0,
+        'loopguard: a body that returns nothing returns nothing')
+    local raising = LG.Body('test.raise', function() error('boom', 0) end)
+    local r1 = { raising() }
+    raising()
+    check(#r1 == 0 and select('#', raising()) == 1 and LG.Raises['test.raise'] == 3,
+        ('loopguard: a raise answers one nil and is counted (raises=%s)'):format(tostring(LG.Raises['test.raise'])))
+    check(#logged == 1 and logged[1]:find('boom', 1, true) ~= nil,
+        ('loopguard: and is logged once per window, with the error (logged %d)'):format(#logged))
+
+    for k, v in pairs(saved) do _ENV[k] = v end
+end
+
+-- ============================================ dui / scaleform: releaseAll
+--
+-- init.lua runs releaseAll on each factory when the consumer stops (contracts.lua
+-- section 19 drives that path). Here the factories themselves: every live object
+-- is freed exactly once, a disposed one is not freed again, the count is right,
+-- and a second releaseAll frees nothing.
+do
+    local NAMES = { 'CreateDui', 'GetDuiHandle', 'CreateRuntimeTxd', 'CreateRuntimeTextureFromDuiHandle',
+        'DestroyDui', 'GetGameTimer', 'SetScaleformMovieAsNoLongerNeeded', 'BeginScaleformMovieMethod',
+        'EndScaleformMovieMethod', 'DrawScaleformMovieFullscreen' }
+    local saved = {}
+    for _, n in ipairs(NAMES) do saved[n] = rawget(_ENV, n) end
+    local destroyed, released = {}, {}
+    local nextDui = 900
+    CreateDui = function() nextDui = nextDui + 1; return nextDui end
+    GetDuiHandle = function(o) return 'dui://' .. o end
+    CreateRuntimeTxd = function() return 1 end
+    CreateRuntimeTextureFromDuiHandle = function() return 1 end
+    DestroyDui = function(o) destroyed[#destroyed + 1] = o end
+    GetGameTimer = function() return 1234 end
+    SetScaleformMovieAsNoLongerNeeded = function(h) released[#released + 1] = h end
+    local methods = 0
+    BeginScaleformMovieMethod = function() methods = methods + 1; return true end
+    EndScaleformMovieMethod = function() end
+    DrawScaleformMovieFullscreen = function() methods = methods + 1 end
+
+    local Dui = load(readSource('client/core/dui.lua'), '@client/core/dui.lua')()
+    local duis = Dui.new({ resource = 'res_d' })
+    local p1 = duis:create({ url = 'https://a.invalid' })
+    local p2 = duis:create({ url = 'https://b.invalid' })
+    local p3 = duis:create({ url = 'https://c.invalid' })
+    check(p1 and p2 and p3, 'releaseAll: three DUI pages open')
+    check(p2:destroy() == true and #destroyed == 1, 'releaseAll: one is destroyed by its owner first')
+    check(duis:releaseAll() == 2, 'releaseAll: the DUI factory frees the two still open, and says 2')
+    table.sort(destroyed)
+    check(#destroyed == 3 and destroyed[1] == 901 and destroyed[2] == 902 and destroyed[3] == 903,
+        ('releaseAll: every browser was destroyed exactly once (%d calls)'):format(#destroyed))
+    check(p1:isAvailable() == false and p1:setUrl('https://x.invalid') == false,
+        'releaseAll: a released page is inert')
+    check(duis:releaseAll() == 0 and #destroyed == 3, 'releaseAll: a second DUI releaseAll frees nothing')
+
+    local handles = 40
+    local streaming = { request = function(kind, name)
+        handles = handles + 1
+        return true, handles
+    end }
+    local Scaleform = load(readSource('client/core/scaleform.lua'), '@client/core/scaleform.lua')()
+    local movies = Scaleform.new({ streaming = streaming })
+    local m1 = movies:create('one')
+    local m2 = movies:create('two')
+    check(m1 and m2 and m1:dispose() == true and #released == 1,
+        'releaseAll: two movies held, one disposed by its owner')
+    check(movies:releaseAll() == 1 and #released == 2 and released[2] == 42,
+        'releaseAll: the scaleform factory releases the one still held, and says 1')
+    check(m2:call('SHOW') == false and m2:draw() == false and methods == 0, 'releaseAll: a released movie is inert')
+    check(movies:releaseAll() == 0 and #released == 2, 'releaseAll: a second scaleform releaseAll releases nothing')
+
+    for _, n in ipairs(NAMES) do _ENV[n] = saved[n] end
 end
 
 -- ==================================================================== report

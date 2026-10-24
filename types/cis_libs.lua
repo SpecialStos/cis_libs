@@ -744,7 +744,7 @@ function AddDoorToSystem.client(data) end
 
 --- exports.cis_libs:AddRadialItem(data)
 ---@param data table #one item or a list: { id, label, icon, iconColor, menu (a RegisterRadial id), onSelect, keepOpen }. onSelect is called (menuId, index)
----@return boolean, string|nil #true once added. The radial key (default Z) is registered with the first item
+---@return boolean, string|nil #true once added. The radial key (default Z) is registered with the first item. false plus a reason for a bad item, the cap, or an id another resource holds ("radial item <id> is registered by <res>"); a list is all or nothing
 --- realm: client
 function AddRadialItem(data) end
 
@@ -866,7 +866,7 @@ function CancelProgress() end
 function CancelSkillCheck() end
 
 --- exports.cis_libs:ClearRadialItems()
----@return boolean #always true; removes every global item
+---@return boolean #always true; removes only the global items the calling resource added (every item when cis_libs itself calls)
 --- realm: client
 function ClearRadialItems() end
 
@@ -1752,8 +1752,8 @@ function RegisterCapability.server(slot, provider, contract) end
 function RegisterCapability.client(slot, provider, contract) end
 
 --- exports.cis_libs:RegisterContext(context)
----@param context table #one context or a list: { id, title, menu (parent id), canClose, onExit, onBack, options = { { title, description, icon, iconColor, arrow, disabled, readOnly, progress, colorScheme, metadata, image, menu, onSelect, event, serverEvent, args } } }. serverEvent is fired by THIS CLIENT with TriggerServerEvent(name, args): the server handler must validate it like any client event
----@return boolean, string|nil #true once registered. Owned by the calling resource and removed when it stops
+---@param context table #one context or a list: { id, title, menu (parent id), canClose, onExit, onBack, options = { { title, description, icon, iconColor, arrow, disabled, readOnly, progress, colorScheme, metadata, image, menu, onSelect, event, serverEvent, args } } }. serverEvent is fired by THIS CLIENT with TriggerServerEvent(name, args): the server handler must validate it like any client event. event is fired from the cis_libs VM, so it must start with the calling resource name as a "<resource>:" prefix, at most 128 bytes; onResourceStart/Stop/Starting, onClientResourceStart/Stop and any cis_libs: or __cfx_ name are refused for every caller. Fire any other event from onSelect
+---@return boolean, string|nil #true once registered. Owned by the calling resource and removed when it stops. false plus a reason for a bad option, a refused event, or an id another resource holds ("context <id> is registered by <res>"). A list is all or nothing. Re-registering the menu on screen redraws it under a new token
 --- realm: client
 function RegisterContext(context) end
 
@@ -1766,7 +1766,7 @@ function RegisterMenu(data, cb) end
 
 --- exports.cis_libs:RegisterRadial(radial)
 ---@param radial table #{ id, items } -- a submenu opened by an item whose menu is this id
----@return boolean, string|nil #true once registered
+---@return boolean, string|nil #true once registered; false plus a reason for a bad item or a submenu id another resource holds
 --- realm: client
 function RegisterRadial(radial) end
 
@@ -1790,7 +1790,7 @@ function RemovePoint(id) end
 
 --- exports.cis_libs:RemoveRadialItem(id)
 ---@param id string #the item id
----@return boolean #true when it existed
+---@return boolean, string|nil #true once removed; false plus a reason for an unknown id or an item another resource registered (only its owner or cis_libs may remove it)
 --- realm: client
 function RemoveRadialItem(id) end
 
@@ -2156,7 +2156,7 @@ function UnregisterCapability(slot) end
 --- deprecated since 1.1.0; use the cis_bridge target API
 ---@param name string #the name; a name that is not live is refused
 ---@param newOptions? table #the new options, passed straight to a create -- update is a remove and re-create, not a patch on the provider
----@return boolean, string #false with NO reason for an unknown name; false plus a reason when another resource owns it; otherwise whatever the implicit create returned
+---@return boolean, string #true once re-created; false plus a reason for an unknown name, one another resource owns, bad options, or no provider (the target is untouched). A create the provider refuses puts the old target back and says so. The target keeps its owner
 --- realm: client
 function UpdateTarget(name, newOptions) end
 
@@ -2180,7 +2180,7 @@ function WaitReady(timeout) end
 ---@param onExit? function #called pcall'd with the distance on the outside edge
 ---@param onEnterEvent? string #an event name, used only when onEnter is absent
 ---@param onExitEvent? string #an event name, used only when onExit is absent
----@return function, integer #the in-realm unsubscribe and the watcher id -- feed slot two to RemoveNearWatcher. Refusal is nil plus a reason naming what arrived as nil
+---@return function, integer #the in-realm unsubscribe and the watcher id -- feed slot two to RemoveNearWatcher. Refusal is nil plus a reason: coords that arrived as nil or lack finite numeric x, y and z, a distance that is not a finite number above 0, or an event name that is not a string
 --- realm: client
 function WatchNear(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent) end
 
@@ -2682,7 +2682,7 @@ function Cis.player.heading() end
 ---@param onExit? function #on the client this is a function argument and it is DROPPED across the boundary
 ---@param onEnterEvent? string #an event name, which is a string and does cross -- this is the working form from a consumer
 ---@param onExitEvent? string #an event name, which is a string and does cross
----@return function, integer #the in-realm unsubscribe (unusable once it has crossed) and the watcher id, for Cis.player.nearStop. The watcher is made again, under the same id, when cis_libs restarts. Refusal is nil plus a reason naming what arrived as nil
+---@return function, integer #the in-realm unsubscribe (unusable once it has crossed) and the watcher id, for Cis.player.nearStop. The watcher is made again, under the same id, when cis_libs restarts. Refusal is nil plus a reason: coords that arrived as nil or lack finite numeric x, y and z, a distance that is not a finite number above 0, or an event name that is not a string
 function Cis.player.near(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent) end
 
 ---@class Cis.player.nearStop
@@ -3044,7 +3044,7 @@ function Cis.target.remove(name, isPed) end
 --- deprecated since 1.1.0; use the cis_bridge target API
 ---@param name string #the target name
 ---@param options? CisTargetOptions #the new options
----@return boolean, string #false with NO reason for an unknown name; false plus a reason when another resource owns it; otherwise whatever the implicit create returned
+---@return boolean, string #true once re-created; false plus a reason for an unknown name, one another resource owns, bad options, or no provider (the target is untouched). A create the provider refuses puts the old target back and says so. The target keeps its owner
 function Cis.target.update(name, options) end
 
 ---@class Cis.ui.cancelProgress
@@ -3103,8 +3103,8 @@ function Cis.ui.context.hide(onExit) end
 ---@field since string 1.1.0
 ---@field realm "client"
 ---@field forwardsTo string RegisterContext
----@param context table #one context or a list: { id, title, menu (parent id), canClose, onExit, onBack, options = { { title, description, icon, iconColor, arrow, disabled, readOnly, progress, colorScheme, metadata, image, menu, onSelect, event, serverEvent, args } } }. serverEvent is fired by THIS CLIENT with TriggerServerEvent(name, args): the server handler must validate it like any client event
----@return boolean, string|nil #true once registered; made again when cis_libs restarts. Owned by the calling resource and removed when it stops
+---@param context table #one context or a list: { id, title, menu (parent id), canClose, onExit, onBack, options = { { title, description, icon, iconColor, arrow, disabled, readOnly, progress, colorScheme, metadata, image, menu, onSelect, event, serverEvent, args } } }. serverEvent is fired by THIS CLIENT with TriggerServerEvent(name, args): the server handler must validate it like any client event. event is fired from the cis_libs VM, so it must start with the calling resource name as a "<resource>:" prefix, at most 128 bytes; onResourceStart/Stop/Starting, onClientResourceStart/Stop and any cis_libs: or __cfx_ name are refused for every caller. Fire any other event from onSelect
+---@return boolean, string|nil #true once registered; made again when cis_libs restarts. Owned by the calling resource and removed when it stops. false plus a reason for a bad option, a refused event, or an id another resource holds ("context <id> is registered by <res>"). A list is all or nothing. Re-registering the menu on screen redraws it under a new token
 function Cis.ui.context.register(context) end
 
 ---@class Cis.ui.context.show
@@ -3196,14 +3196,14 @@ function Cis.ui.progressActive() end
 ---@field realm "client"
 ---@field forwardsTo string AddRadialItem
 ---@param data table #one item or a list: { id, label, icon, iconColor, menu (a RegisterRadial id), onSelect, keepOpen }. onSelect is called (menuId, index)
----@return boolean, string|nil #true once added; made again when cis_libs restarts. The radial key (default Z) is registered with the first item
+---@return boolean, string|nil #true once added; made again when cis_libs restarts. The radial key (default Z) is registered with the first item. false plus a reason for a bad item, the cap, or an id another resource holds; a list is all or nothing
 function Cis.ui.radial.add(data) end
 
 ---@class Cis.ui.radial.clear
 ---@field since string 1.1.0
 ---@field realm "client"
 ---@field forwardsTo string ClearRadialItems
----@return boolean #always true; removes every global item
+---@return boolean #always true; removes only the global items the calling resource added (every item when cis_libs itself calls)
 function Cis.ui.radial.clear() end
 
 ---@class Cis.ui.radial.disable
@@ -3226,7 +3226,7 @@ function Cis.ui.radial.hide() end
 ---@field realm "client"
 ---@field forwardsTo string RegisterRadial
 ---@param radial table #{ id, items } -- a submenu opened by an item whose menu is this id
----@return boolean, string|nil #true once registered; made again when cis_libs restarts
+---@return boolean, string|nil #true once registered; made again when cis_libs restarts. false plus a reason for a bad item or a submenu id another resource holds
 function Cis.ui.radial.register(radial) end
 
 ---@class Cis.ui.radial.remove
@@ -3234,7 +3234,7 @@ function Cis.ui.radial.register(radial) end
 ---@field realm "client"
 ---@field forwardsTo string RemoveRadialItem
 ---@param id string #the item id
----@return boolean #true when it existed
+---@return boolean, string|nil #true once removed; false plus a reason for an unknown id or an item another resource registered (only its owner or cis_libs may remove it)
 function Cis.ui.radial.remove(id) end
 
 ---@class Cis.ui.skillCheck

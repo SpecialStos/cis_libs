@@ -332,7 +332,7 @@ local function inputDialog(heading, rows, options)
             end,
         })
         local labels = type(options.labels) == 'table' and options.labels or {}
-        I.send('input:open', {
+        local sent, why = I.send('input:open', {
             id = s.id,
             heading = I.str(heading, 256) or '',
             rows = wire,
@@ -342,6 +342,12 @@ local function inputDialog(heading, rows, options)
                 labels = { confirm = I.str(labels.confirm, 64), cancel = I.str(labels.cancel, 64) },
             },
         })
+        if sent == false and I.ready then
+            -- The page never got it (a message over the NUI cap): fail the open
+            -- so the cleanup below releases focus instead of keeping a cursor up
+            -- for nothing on screen.
+            error(why or 'the page refused the message', 0)
+        end
     end)
     if not ok then
         I.log('error', ('input dialog failed to open: %s'):format(tostring(err)))

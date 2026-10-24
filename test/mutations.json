@@ -4276,6 +4276,216 @@
       "find": "return x[i] < y[i] ? -1 : 1",
       "replace": "return String(x[i]) < String(y[i]) ? -1 : 1",
       "why": "Compare each version component as text, so 9 sorts after 10 and a numeric ordering of releases is wrong at two digits."
+    },
+    {
+      "id": "M710",
+      "file": "client/interface/context.lua",
+      "find": "    if owner ~= LIB then\n        local prefix = tostring(owner) .. ':'",
+      "replace": "    if false then\n        local prefix = tostring(owner) .. ':'",
+      "why": "A context option may fire any resource's event from cis_libs' VM, so a click runs another resource's handler with cis_libs as the invoker."
+    },
+    {
+      "id": "M711",
+      "file": "client/interface/context.lua",
+      "find": "    if RESERVED_EVENTS[name] then",
+      "replace": "    if false then",
+      "why": "A context option fires onResourceStop with args 'cis_libs' from cis_libs' own VM: CisRealStop accepts it and every consumer marks the library stopped."
+    },
+    {
+      "id": "M712",
+      "file": "client/interface/context.lua",
+      "find": "    if holder and holder ~= owner then\n        return false, ('context %q is registered by %s",
+      "replace": "    if false then\n        return false, ('context %q is registered by %s",
+      "why": "Any resource re-registers another resource's context id and takes the menu over: the player sees the hijacker's options under the original menu's id."
+    },
+    {
+      "id": "M713",
+      "file": "client/interface/context.lua",
+      "find": "    if open and open.id == entry.id then\n        redraw()",
+      "replace": "    if false then\n        redraw()",
+      "why": "Re-registering the menu on screen keeps the old token, so a click on the old list's index n runs the new list's option n."
+    },
+    {
+      "id": "M714",
+      "file": "client/interface/context.lua",
+      "find": "            ready[i] = entry\n",
+      "replace": "            ready[i] = entry\n            commit(entry)\n",
+      "why": "A list of contexts with a bad entry is refused but keeps the entries before it, so the caller gets false and a half-registered list."
+    },
+    {
+      "id": "M715",
+      "file": "client/interface/context.lua",
+      "find": "        local refused = localEventRefused(option.event, owner)\n        if refused then",
+      "replace": "        local refused = nil\n        if refused then",
+      "why": "An option held by reference whose event is changed to a reserved name after registration is fired on the click."
+    },
+    {
+      "id": "M716",
+      "file": "client/cache.lua",
+      "find": "        or not (finite(coords.x) and finite(coords.y) and finite(coords.z)) then",
+      "replace": "        or false then",
+      "why": "WatchNear accepts a NaN, infinite or non-numeric coordinate: the watcher never enters, or raises in the shared near tick."
+    },
+    {
+      "id": "M717",
+      "file": "client/cache.lua",
+      "find": "    if distance ~= nil and not (finite(distance) and distance > 0) then",
+      "replace": "    if false then",
+      "why": "WatchNear accepts a string, zero, negative, NaN or infinite distance; a string raises on every near tick."
+    },
+    {
+      "id": "M718",
+      "file": "client/cache.lua",
+      "find": "                    local ok, err = pcall(evalWatcher, watcher, coords)",
+      "replace": "                    local ok, err = true, evalWatcher(watcher, coords)",
+      "why": "One near watcher that raises ends the tick, so every watcher after it in the table is never checked again."
+    },
+    {
+      "id": "M719",
+      "file": "client/core/zones.lua",
+      "find": "            and vector3(p.x, p.y, p.z)\n            or vector3(zone.cx, zone.cy, zone.cz)",
+      "replace": "            and { x = p.x, y = p.y, z = p.z }\n            or vector3(zone.cx, zone.cy, zone.cz)",
+      "why": "A zone removed while the player is inside hands onExit a plain table, not the vector3 every pass exit hands it, so vector maths in the handler raises."
+    },
+    {
+      "id": "M720",
+      "file": "client/core/points.lua",
+      "find": "            and vector3(p.x, p.y, p.z)\n            or vector3(point.x, point.y, point.z)",
+      "replace": "            and { x = p.x, y = p.y, z = p.z }\n            or vector3(point.x, point.y, point.z)",
+      "why": "A point removed while the player is inside hands onExit a plain table, not the vector3 every pass exit hands it."
+    },
+    {
+      "id": "M721",
+      "file": "client/core/points.lua",
+      "find": "        q[#q + 1] = id\n",
+      "replace": "        self:enter(point, visitCoords)\n",
+      "why": "onEnter runs inside the grid bucket walk, so a point created or removed from the hook changes the table `next` is iterating."
+    },
+    {
+      "id": "M722",
+      "file": "client/interface/radial.lua",
+      "find": "    if holder ~= caller and caller ~= LIB then",
+      "replace": "    if false then",
+      "why": "Any resource removes another resource's radial item by id."
+    },
+    {
+      "id": "M723",
+      "file": "client/interface/radial.lua",
+      "find": "        local holder = itemOwner(it.id)\n        if holder and holder ~= owner then",
+      "replace": "        local holder = itemOwner(it.id)\n        if false then",
+      "why": "Any resource replaces another resource's radial item by adding the same id, swapping its label and onSelect."
+    },
+    {
+      "id": "M724",
+      "file": "client/interface/radial.lua",
+      "find": "        if caller == LIB or items[i].owner == caller then",
+      "replace": "        if true then",
+      "why": "ClearRadialItems from any resource removes every resource's radial items."
+    },
+    {
+      "id": "M725",
+      "file": "client/interface/radial.lua",
+      "find": "    if held and held.owner ~= owner then",
+      "replace": "    if false then",
+      "why": "Any resource re-registers another resource's radial submenu and takes it over."
+    },
+    {
+      "id": "M726",
+      "file": "client/target.lua",
+      "find": "    local restored = createAs(old.owner, old.zoneType, name, old.coords, old.size, old.options)",
+      "replace": "    local restored = false",
+      "why": "An UpdateTarget the provider refuses leaves the caller with no target at all: the old one was removed and is never put back."
+    },
+    {
+      "id": "M727",
+      "file": "client/target.lua",
+      "find": "    local ok, err = createAs(old.owner, old.zoneType, name, old.coords, old.size, newOptions)",
+      "replace": "    local ok, err = createAs(GetInvokingResource() or 'cis_libs', old.zoneType, name, old.coords, old.size, newOptions)",
+      "why": "cis_libs updating a consumer's target re-creates it under cis_libs, so its owner can no longer remove it and its stop no longer releases it."
+    },
+    {
+      "id": "M728",
+      "file": "client/target.lua",
+      "find": "    if not Target.Available() then\n        missingOnce()\n        return false, 'no target provider started'\n    end\n    local removed",
+      "replace": "    local removed",
+      "why": "UpdateTarget with no provider started forgets the target before the create fails, so the caller loses it."
+    },
+    {
+      "id": "M729",
+      "file": "shared/grid.lua",
+      "find": "if z == nil or ((aabb.minZ == nil or z >= aabb.minZ)\n                    and (aabb.maxZ == nil or z <= aabb.maxZ)) then",
+      "replace": "if z == nil or (z >= aabb.minZ and z <= aabb.maxZ) then",
+      "why": "queryPoint compares z with a nil minZ or maxZ, so a 2D AABB raises the first time it is queried with a z."
+    },
+    {
+      "id": "M730",
+      "file": "shared/grid.lua",
+      "find": "if z == nil or ((aabb.minZ == nil or z >= aabb.minZ)\n                                    and (aabb.maxZ == nil or z <= aabb.maxZ)) then",
+      "replace": "if z == nil or (z >= aabb.minZ and z <= aabb.maxZ) then",
+      "why": "queryNeighbors compares z with a nil minZ or maxZ, so a 2D AABB raises the first time it is queried with a z."
+    },
+    {
+      "id": "M731",
+      "file": "shared/grid.lua",
+      "find": "        if type(v) ~= 'number' then\n            return nil, ('an AABB z bound is",
+      "replace": "        if false then\n            return nil, ('an AABB z bound is",
+      "why": "A non-number z bound is admitted, then raises on every query of its cell."
+    },
+    {
+      "id": "M732",
+      "file": "shared/grid.lua",
+      "find": "if minZ ~= nil and maxZ ~= nil and minZ > maxZ then",
+      "replace": "if minZ ~= nil and maxZ ~= nil and minZ > maxZ and false then",
+      "why": "An AABB with minZ above maxZ is admitted and can never match."
+    },
+    {
+      "id": "M733",
+      "file": "client/core/dui.lua",
+      "find": "    for _, page in pairs(self.live) do\n        if page:destroy() then n = n + 1 end\n    end",
+      "replace": "    for _ in pairs(self.live) do\n        n = n + 1\n    end",
+      "why": "releaseAll counts the open pages but destroys none, so a stopped consumer leaves its DUI browsers running."
+    },
+    {
+      "id": "M734",
+      "file": "client/core/scaleform.lua",
+      "find": "    for _, movie in pairs(self.live) do\n        if movie:dispose() then n = n + 1 end\n    end",
+      "replace": "    for _ in pairs(self.live) do\n        n = n + 1\n    end",
+      "why": "releaseAll counts the held movies but disposes none, so a stopped consumer leaves its scaleforms resident."
+    },
+    {
+      "id": "M735",
+      "file": "shared/loopguard.lua",
+      "find": "            return ...\n",
+      "replace": "            return (...)\n",
+      "why": "Body keeps only the first return value of the loop body, so a tick that answers several values loses the rest."
+    },
+    {
+      "id": "M736",
+      "file": "client/interface/alert.lua",
+      "find": "if sent == false and I.ready then",
+      "replace": "if false then",
+      "why": "An alert the page refuses (over the NUI cap) keeps NUI focus with nothing drawn."
+    },
+    {
+      "id": "M737",
+      "file": "client/interface/context.lua",
+      "find": "if sent == false and I.ready then",
+      "replace": "if false then",
+      "why": "A context menu the page refuses (over the NUI cap) counts as open and keeps NUI focus with nothing drawn."
+    },
+    {
+      "id": "M738",
+      "file": "client/interface/radial.lua",
+      "find": "if sent == false and I.ready then",
+      "replace": "if false then",
+      "why": "A radial the page refuses (over the NUI cap) keeps focus, keepInput and its control thread with nothing drawn."
+    },
+    {
+      "id": "M739",
+      "file": "client/interface/menu.lua",
+      "find": "if sent == false and I.ready then",
+      "replace": "if false then",
+      "why": "A list menu the page refuses (over the NUI cap) counts as open and disables the player's controls for a menu nobody sees."
     }
   ]
 }

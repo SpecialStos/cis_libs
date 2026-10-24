@@ -549,8 +549,8 @@ return {
             since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
             use = 'exports.cis_libs:RegisterContext(context)',
             realm = 'client',
-            params = { { name = 'context', type = 'table', doc = 'one context or a list: { id, title, menu (parent id), canClose, onExit, onBack, options = { { title, description, icon, iconColor, arrow, disabled, readOnly, progress, colorScheme, metadata, image, menu, onSelect, event, serverEvent, args } } }. serverEvent is fired by THIS CLIENT with TriggerServerEvent(name, args): the server handler must validate it like any client event' } },
-            returns = { { type = 'boolean, string|nil', doc = 'true once registered. Owned by the calling resource and removed when it stops' } }
+            params = { { name = 'context', type = 'table', doc = 'one context or a list: { id, title, menu (parent id), canClose, onExit, onBack, options = { { title, description, icon, iconColor, arrow, disabled, readOnly, progress, colorScheme, metadata, image, menu, onSelect, event, serverEvent, args } } }. serverEvent is fired by THIS CLIENT with TriggerServerEvent(name, args): the server handler must validate it like any client event. event is fired from the cis_libs VM, so it must start with the calling resource name as a "<resource>:" prefix, at most 128 bytes; onResourceStart/Stop/Starting, onClientResourceStart/Stop and any cis_libs: or __cfx_ name are refused for every caller. Fire any other event from onSelect' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true once registered. Owned by the calling resource and removed when it stops. false plus a reason for a bad option, a refused event, or an id another resource holds ("context <id> is registered by <res>"). A list is all or nothing. Re-registering the menu on screen redraws it under a new token' } }
         },
         ShowContext = {
             since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
@@ -613,28 +613,28 @@ return {
             use = 'exports.cis_libs:AddRadialItem(data)',
             realm = 'client',
             params = { { name = 'data', type = 'table', doc = 'one item or a list: { id, label, icon, iconColor, menu (a RegisterRadial id), onSelect, keepOpen }. onSelect is called (menuId, index)' } },
-            returns = { { type = 'boolean, string|nil', doc = 'true once added. The radial key (default Z) is registered with the first item' } }
+            returns = { { type = 'boolean, string|nil', doc = 'true once added. The radial key (default Z) is registered with the first item. false plus a reason for a bad item, the cap, or an id another resource holds ("radial item <id> is registered by <res>"); a list is all or nothing' } }
         },
         RemoveRadialItem = {
             since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
             use = 'exports.cis_libs:RemoveRadialItem(id)',
             realm = 'client',
             params = { { name = 'id', type = 'string', doc = 'the item id' } },
-            returns = { { type = 'boolean', doc = 'true when it existed' } }
+            returns = { { type = 'boolean, string|nil', doc = 'true once removed; false plus a reason for an unknown id or an item another resource registered (only its owner or cis_libs may remove it)' } }
         },
         ClearRadialItems = {
             since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
             use = 'exports.cis_libs:ClearRadialItems()',
             realm = 'client',
             params = {},
-            returns = { { type = 'boolean', doc = 'always true; removes every global item' } }
+            returns = { { type = 'boolean', doc = 'always true; removes only the global items the calling resource added (every item when cis_libs itself calls)' } }
         },
         RegisterRadial = {
             since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
             use = 'exports.cis_libs:RegisterRadial(radial)',
             realm = 'client',
             params = { { name = 'radial', type = 'table', doc = '{ id, items } -- a submenu opened by an item whose menu is this id' } },
-            returns = { { type = 'boolean, string|nil', doc = 'true once registered' } }
+            returns = { { type = 'boolean, string|nil', doc = 'true once registered; false plus a reason for a bad item or a submenu id another resource holds' } }
         },
         HideRadial = {
             since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
@@ -892,7 +892,7 @@ return {
             use = 'deprecated since 1.1.0; use the cis_bridge target API',
             realm = 'client',
             params = { { name = 'name', type = 'string', doc = 'the name; a name that is not live is refused' }, { name = 'newOptions', type = 'table', optional = true, doc = 'the new options, passed straight to a create -- update is a remove and re-create, not a patch on the provider' } },
-            returns = { { type = 'boolean, string', doc = 'false with NO reason for an unknown name; false plus a reason when another resource owns it; otherwise whatever the implicit create returned' } },
+            returns = { { type = 'boolean, string', doc = 'true once re-created; false plus a reason for an unknown name, one another resource owns, bad options, or no provider (the target is untouched). A create the provider refuses puts the old target back and says so. The target keeps its owner' } },
         },
         TargetExists = {
             since = '1.0.0', ['until'] = '2.0.0', stable = true, deprecated = true,
@@ -1065,7 +1065,7 @@ return {
             use = 'Cis.player.near(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent)',
             realm = 'client',
             params = { { name = 'coords', type = 'vector3|table', doc = 'the point; nil is refused by name because the boundary dropped it' }, { name = 'distance', type = 'number', optional = true, doc = 'the radius, default 2.0' }, { name = 'onEnter', type = 'function', optional = true, doc = "called pcall'd with the distance on the inside edge" }, { name = 'onExit', type = 'function', optional = true, doc = "called pcall'd with the distance on the outside edge" }, { name = 'onEnterEvent', type = 'string', optional = true, doc = 'an event name, used only when onEnter is absent' }, { name = 'onExitEvent', type = 'string', optional = true, doc = 'an event name, used only when onExit is absent' } },
-            returns = { { type = 'function, integer', doc = 'the in-realm unsubscribe and the watcher id -- feed slot two to RemoveNearWatcher. Refusal is nil plus a reason naming what arrived as nil' } },
+            returns = { { type = 'function, integer', doc = 'the in-realm unsubscribe and the watcher id -- feed slot two to RemoveNearWatcher. Refusal is nil plus a reason: coords that arrived as nil or lack finite numeric x, y and z, a distance that is not a finite number above 0, or an event name that is not a string' } },
         },
         RemoveNearWatcher = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -1862,7 +1862,7 @@ return {
         realm = 'client',
         forwardsTo = 'WatchNear',
         params = { { name = 'coords', type = 'vector3|table', doc = 'the point to watch. Receives the distance on the server half' }, { name = 'distance', type = 'number', optional = true, doc = 'the radius, default 2.0' }, { name = 'onEnter', type = 'function', optional = true, doc = 'on the client this is a function argument and it is DROPPED across the boundary' }, { name = 'onExit', type = 'function', optional = true, doc = 'on the client this is a function argument and it is DROPPED across the boundary' }, { name = 'onEnterEvent', type = 'string', optional = true, doc = 'an event name, which is a string and does cross -- this is the working form from a consumer' }, { name = 'onExitEvent', type = 'string', optional = true, doc = 'an event name, which is a string and does cross' } },
-        returns = { { type = 'function, integer', doc = 'the in-realm unsubscribe (unusable once it has crossed) and the watcher id, for Cis.player.nearStop. The watcher is made again, under the same id, when cis_libs restarts. Refusal is nil plus a reason naming what arrived as nil' } },
+        returns = { { type = 'function, integer', doc = 'the in-realm unsubscribe (unusable once it has crossed) and the watcher id, for Cis.player.nearStop. The watcher is made again, under the same id, when cis_libs restarts. Refusal is nil plus a reason: coords that arrived as nil or lack finite numeric x, y and z, a distance that is not a finite number above 0, or an event name that is not a string' } },
     },
     ['Cis.player.nearStop'] = {
         since = '1.1.0',
@@ -2134,7 +2134,7 @@ return {
         realm = 'client',
         forwardsTo = 'UpdateTarget',
         params = { { name = 'name', type = 'string', doc = 'the target name' }, { name = 'options', type = 'CisTargetOptions', optional = true, doc = 'the new options' } },
-        returns = { { type = 'boolean, string', doc = 'false with NO reason for an unknown name; false plus a reason when another resource owns it; otherwise whatever the implicit create returned' } },
+        returns = { { type = 'boolean, string', doc = 'true once re-created; false plus a reason for an unknown name, one another resource owns, bad options, or no provider (the target is untouched). A create the provider refuses puts the old target back and says so. The target keeps its owner' } },
     },
     ['Cis.waitFor'] = {
         since = '1.0.0',
@@ -2216,8 +2216,8 @@ return {
         since = '1.1.0',
         realm = 'client',
         forwardsTo = 'RegisterContext',
-        params = { { name = 'context', type = 'table', doc = 'one context or a list: { id, title, menu (parent id), canClose, onExit, onBack, options = { { title, description, icon, iconColor, arrow, disabled, readOnly, progress, colorScheme, metadata, image, menu, onSelect, event, serverEvent, args } } }. serverEvent is fired by THIS CLIENT with TriggerServerEvent(name, args): the server handler must validate it like any client event' } },
-        returns = { { type = 'boolean, string|nil', doc = 'true once registered; made again when cis_libs restarts. Owned by the calling resource and removed when it stops' } }
+        params = { { name = 'context', type = 'table', doc = 'one context or a list: { id, title, menu (parent id), canClose, onExit, onBack, options = { { title, description, icon, iconColor, arrow, disabled, readOnly, progress, colorScheme, metadata, image, menu, onSelect, event, serverEvent, args } } }. serverEvent is fired by THIS CLIENT with TriggerServerEvent(name, args): the server handler must validate it like any client event. event is fired from the cis_libs VM, so it must start with the calling resource name as a "<resource>:" prefix, at most 128 bytes; onResourceStart/Stop/Starting, onClientResourceStart/Stop and any cis_libs: or __cfx_ name are refused for every caller. Fire any other event from onSelect' } },
+        returns = { { type = 'boolean, string|nil', doc = 'true once registered; made again when cis_libs restarts. Owned by the calling resource and removed when it stops. false plus a reason for a bad option, a refused event, or an id another resource holds ("context <id> is registered by <res>"). A list is all or nothing. Re-registering the menu on screen redraws it under a new token' } }
     },
     ['Cis.ui.context.show'] = {
         since = '1.1.0',
@@ -2280,28 +2280,28 @@ return {
         realm = 'client',
         forwardsTo = 'AddRadialItem',
         params = { { name = 'data', type = 'table', doc = 'one item or a list: { id, label, icon, iconColor, menu (a RegisterRadial id), onSelect, keepOpen }. onSelect is called (menuId, index)' } },
-        returns = { { type = 'boolean, string|nil', doc = 'true once added; made again when cis_libs restarts. The radial key (default Z) is registered with the first item' } }
+        returns = { { type = 'boolean, string|nil', doc = 'true once added; made again when cis_libs restarts. The radial key (default Z) is registered with the first item. false plus a reason for a bad item, the cap, or an id another resource holds; a list is all or nothing' } }
     },
     ['Cis.ui.radial.remove'] = {
         since = '1.1.0',
         realm = 'client',
         forwardsTo = 'RemoveRadialItem',
         params = { { name = 'id', type = 'string', doc = 'the item id' } },
-        returns = { { type = 'boolean', doc = 'true when it existed' } }
+        returns = { { type = 'boolean, string|nil', doc = 'true once removed; false plus a reason for an unknown id or an item another resource registered (only its owner or cis_libs may remove it)' } }
     },
     ['Cis.ui.radial.clear'] = {
         since = '1.1.0',
         realm = 'client',
         forwardsTo = 'ClearRadialItems',
         params = {},
-        returns = { { type = 'boolean', doc = 'always true; removes every global item' } }
+        returns = { { type = 'boolean', doc = 'always true; removes only the global items the calling resource added (every item when cis_libs itself calls)' } }
     },
     ['Cis.ui.radial.register'] = {
         since = '1.1.0',
         realm = 'client',
         forwardsTo = 'RegisterRadial',
         params = { { name = 'radial', type = 'table', doc = '{ id, items } -- a submenu opened by an item whose menu is this id' } },
-        returns = { { type = 'boolean, string|nil', doc = 'true once registered; made again when cis_libs restarts' } }
+        returns = { { type = 'boolean, string|nil', doc = 'true once registered; made again when cis_libs restarts. false plus a reason for a bad item or a submenu id another resource holds' } }
     },
     ['Cis.ui.radial.hide'] = {
         since = '1.1.0',

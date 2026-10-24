@@ -499,13 +499,14 @@ function Zones:remove(name)
         return false
     end
     if self.inside[name] then
-        -- THE PLAYER'S COORDS, not the zone's.
+        -- THE PLAYER'S COORDS, not the zone's, and a vector3 like every pass
+        -- exit: a plain table made `#(coords - x)` in the handler raise.
         local zone = zones[name]
         local ped = PlayerPedId()
         local p = GetEntityCoords(ped)
         local coords = (p and p.x ~= nil)
-            and { x = p.x, y = p.y, z = p.z }
-            or { x = zone.cx, y = zone.cy, z = zone.cz }
+            and vector3(p.x, p.y, p.z)
+            or vector3(zone.cx, zone.cy, zone.cz)
         self:invoke(zone, 'onExit', coords)
         self.inside[name] = nil
     end

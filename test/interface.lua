@@ -328,9 +328,9 @@ local function newEnv()
     function HasModelLoaded() return true end
     function SetModelAsNoLongerNeeded() end
     function GetEntityCoords() return { x = 1.0, y = 2.0, z = 3.0 } end
-    function CreateObject(model)
+    function CreateObject(model, _, _, _, isNetwork, netMission)
         env.nextEntity = env.nextEntity + 1
-        env.created[#env.created + 1] = { handle = env.nextEntity, model = model }
+        env.created[#env.created + 1] = { handle = env.nextEntity, model = model, network = isNetwork, mission = netMission }
         env.alive = env.alive or {}
         env.alive[env.nextEntity] = true
         return env.nextEntity
@@ -706,6 +706,10 @@ do
     check(env.live() == 2, 'progress: exactly one frame thread (plus the parked caller) while active')
     check(#env.created == 2 and env.attached[1].bone == 18905, 'progress: both props spawned and attached to the asked bone')
     check(env.attached[2].bone == 60309, 'progress: a prop with no bone uses the default hand bone')
+    -- L9: local objects, as ox_lib creates them: no network id, no entity
+    -- lockdown refusal, nothing in the server's entity pool for a cosmetic prop.
+    check(env.created[1].network == false and env.created[2].network == false
+        and env.created[1].mission == false, 'progress L9: the props are created non-networked')
     check(env.anims[1] and env.anims[1].dict == 'amb@x' and env.anims[1].flag == 49, 'progress: the animation is played with the default flag')
     local start = env.last('progress:start')
     check(start and start.kind == 'bar' and start.duration == 1000 and start.canCancel == true, 'progress: the page is told to draw a bar')
@@ -961,7 +965,7 @@ do
             id = 'main', title = 'Main', onExit = function() exited = exited + 1 end,
             options = {
                 { title = 'Run', onSelect = function(args) selected[#selected + 1] = args end, args = { n = 1 },
-                  event = 'my:event', serverEvent = 'my:server', metadata = { Weight = '2kg' } },
+                  event = 'res_c:event', serverEvent = 'my:server', metadata = { Weight = '2kg' } },
                 { title = 'Off', disabled = true, onSelect = function() selected[#selected + 1] = 'disabled' end },
                 { title = 'Info', readOnly = true, serverEvent = 'never' },
                 { title = 'More', menu = 'sub' },
@@ -996,7 +1000,7 @@ do
     for _, e in ipairs(env.events) do if e.kind == 'server' then server[#server + 1] = e end end
     check(#server == 1 and server[1].name == 'my:server' and server[1].args[1].n == 1,
         'context: serverEvent is the REGISTERED name, fired by the client with args; names in the payload are ignored')
-    check(env.events[1].kind == 'local' and env.events[1].name == 'my:event', 'context: event fires as a local event')
+    check(env.events[1].kind == 'local' and env.events[1].name == 'res_c:event', 'context: event fires as a local event')
     check(env.X.GetOpenContextMenu() == nil and lastFocus(env).focus == false, 'context: selecting closes it and releases focus')
 
     env.X.ShowContext('main')
@@ -1037,6 +1041,113 @@ do
     check(exited == 2, 'context: without calling into the stopped resource (no onExit)')
     check(env.X.ShowContext('main') == false and env.X.ShowContext('sub') == false, 'context: and unregisters all of its menus')
     check(env.X.ShowContext('theirs') == true, 'context: another resource\'s menu survives')
+    env.reset()
+end
+
+-- ===================================================== 8b. context menus: who may fire what, and own which id
+--
+-- An option's `event` is fired by TriggerEvent from cis_libs' OWN VM, so every
+-- handler sees GetInvokingResource() == 'cis_libs'. A co-resident resource that
+-- registered { event = 'onResourceStop', args = 'cis_libs' } got a forged stop
+-- of cis_libs past CisRealStop with one click: sync despawned everything and
+-- every consumer marked the library stopped. Same rule as zones: a local event
+-- must carry the registrant's own '<resource>:' prefix, and the lifecycle,
+-- 'cis_libs:' and '__cfx_' names are refused for everyone.
+do
+    local env = newEnv()
+    env.load()
+    local function reg(by, ctx)
+        env.invoking = by
+        local r = { env.X.RegisterContext(ctx) }
+        env.invoking = nil
+        return r[1], r[2]
+    end
+    local forged = {
+        { 'onResourceStop', 'a lifecycle event' },
+        { 'onClientResourceStart', 'a client lifecycle event' },
+        { 'cis_libs:cache', 'a cis_libs: event' },
+        { '__cfx_nui:context', 'a __cfx_ event (a forged NUI callback)' },
+        { 'other_res:open', 'another resource\'s event' },
+    }
+    for _, f in ipairs(forged) do
+        local ok, why = reg('res_x', { id = 'f_' .. f[1], options = { { title = 'Open shop', event = f[1], args = 'cis_libs' } } })
+        check(ok == false and type(why) == 'string',
+            ('context N1: an option firing %s is refused at registration (got %s, %s)'):format(f[2], tostring(ok), tostring(why)))
+        check(env.X.ShowContext('f_' .. f[1]) == false, ('context N1: and the menu with %s was never stored'):format(f[2]))
+    end
+    local okOwn = reg('res_x', { id = 'own', options = { { title = 'Mine', event = 'res_x:open', args = 1 } } })
+    check(okOwn == true, 'context N1: an option firing the registrant\'s own res_x: event is accepted')
+    -- cis_libs itself has no prefix rule, but the reserved names still apply.
+    local okLib = reg(nil, { id = 'lib_stop', options = { { title = 'x', event = 'onResourceStop' } } })
+    check(okLib == false, 'context N1: even cis_libs\' own menu may not fire onResourceStop')
+    local okLong = reg('res_x', { id = 'long', options = { { title = 'x', event = 'res_x:' .. ('a'):rep(200) } } })
+    check(okLong == false, 'context N1: an event name over 128 bytes is refused')
+
+    -- The own-prefix event fires, as a local event, with its args.
+    env.X.ShowContext('own')
+    env.post('context', { token = env.last('context:open').token, action = 'select', index = 1 })
+    local fired = env.events[#env.events]
+    check(fired and fired.kind == 'local' and fired.name == 'res_x:open' and fired.args[1] == 1,
+        'context N1: the accepted own-prefix event fires with its args')
+
+    -- N2: an id belongs to its registrant.
+    check(reg('res_a', { id = 'garage', title = 'A garage', options = { { title = 'A' } } }) == true,
+        'context N2: res_a registers garage')
+    local okB, whyB = reg('res_b', { id = 'garage', title = 'B garage', options = { { title = 'B' } } })
+    check(okB == false and tostring(whyB):find('res_a', 1, true) ~= nil,
+        ('context N2: res_b is refused res_a\'s id, with the holder named (got %s, %s)'):format(tostring(okB), tostring(whyB)))
+    env.X.ShowContext('garage')
+    check(env.last('context:open').title == 'A garage' and env.last('context:open').options[1].title == 'A',
+        'context N2: and res_a\'s menu is still the one shown')
+    env.X.HideContext(false)
+    check(reg('res_a', { id = 'garage', title = 'A2', options = {} }) == true, 'context N2: its owner may re-register it')
+    env.fire('onResourceStop', 'res_a')
+    check(reg('res_b', { id = 'garage', title = 'B garage', options = {} }) == true,
+        'context N2: once res_a stops, the id is free for res_b')
+
+    -- NUI N4: a list is all or nothing.
+    local okList, whyList = reg('res_l', {
+        { id = 'l1', options = { { title = 'fine' } } },
+        { id = 'l2', options = { { title = 'bad', onSelect = 'notafunction' } } },
+    })
+    check(okList == false and tostring(whyList):find('context 2', 1, true) ~= nil,
+        'context NUI-N4: a list with a bad second context is refused, naming it')
+    check(env.X.ShowContext('l1') == false, 'context NUI-N4: and the good first context was NOT stored')
+
+    -- L14: re-registering the menu on screen redraws it under a new token, so a
+    -- click on the old list cannot run the new list's option at that index.
+    local picks = {}
+    reg('res_r', { id = 'live', options = {
+        { title = 'Look', serverEvent = 'res_r:look' },
+    } })
+    env.X.ShowContext('live')
+    local before = env.last('context:open')
+    reg('res_r', { id = 'live', options = {
+        { title = 'Pay', serverEvent = 'res_r:pay', onSelect = function() picks[#picks + 1] = 'pay' end },
+    } })
+    local after = env.last('context:open')
+    check(after ~= before and after.token ~= before.token and after.options[1].title == 'Pay',
+        'context L14: re-registering the open menu redraws it with the new options under a new token')
+    local nEvents = #env.events
+    env.post('context', { token = before.token, action = 'select', index = 1 })
+    check(#picks == 0 and #env.events == nEvents and env.X.GetOpenContextMenu() == 'live',
+        'context L14: a click carrying the old token runs nothing')
+    check(CisInterface.focus.top() == 'context', 'context L14: the redraw keeps the menu\'s focus entry')
+    env.escape()
+    check(env.X.GetOpenContextMenu() == nil, 'context L14: Escape still closes the redrawn menu')
+    env.X.ShowContext('live')
+    env.post('context', { token = env.last('context:open').token, action = 'select', index = 1 })
+    check(#picks == 1, 'context L14: a click on the redrawn menu runs the option the player saw')
+
+    -- The click re-checks: a list registered in cis_libs' own VM is held by
+    -- reference, so its event can be changed after registration.
+    local byref = { { title = 'x', event = 'lib_local:open' } }
+    check(reg(nil, { id = 'byref', options = byref }) == true, 'context N1: cis_libs registers a menu by reference')
+    byref[1].event = 'onResourceStop'
+    env.X.ShowContext('byref')
+    local nBefore = #env.events
+    env.post('context', { token = env.last('context:open').token, action = 'select', index = 1 })
+    check(#env.events == nBefore, 'context N1: an event changed to a reserved name after registration is not fired on the click')
     env.reset()
 end
 
@@ -1208,6 +1319,52 @@ do
     env.reset()
 end
 
+-- ===================================================== 10b. radial: an item and a submenu belong to their registrant
+--
+-- RemoveRadialItem and ClearRadialItems had no owner check, and AddRadialItem /
+-- RegisterRadial replaced another resource's same id: any script could strip or
+-- swap every resource's radial entries. Now a resource touches only its own;
+-- cis_libs (the library itself) may still remove or clear anything.
+do
+    local env = newEnv()
+    env.load()
+    local function as(by, fn, ...)
+        env.invoking = by
+        local r = { fn(...) }
+        env.invoking = nil
+        return r[1], r[2]
+    end
+    check(as('res_a', env.X.AddRadialItem, { id = 'phone', label = 'Phone' }) == true, 'radial N6: res_a adds phone')
+    as('res_a', env.X.AddRadialItem, { id = 'bag', label = 'Bag' })
+    check(as('res_b', env.X.AddRadialItem, { id = 'mine', label = 'Mine' }) == true, 'radial N6: res_b adds its own item')
+    local ok, why = as('res_b', env.X.RemoveRadialItem, 'phone')
+    check(ok == false and tostring(why):find('res_a', 1, true) ~= nil,
+        ('radial N6: res_b cannot remove res_a\'s item (got %s, %s)'):format(tostring(ok), tostring(why)))
+    local ok2, why2 = as('res_b', env.X.AddRadialItem, { id = 'phone', label = 'Fake phone' })
+    check(ok2 == false and tostring(why2):find('res_a', 1, true) ~= nil,
+        ('radial N6: res_b cannot replace res_a\'s item (got %s, %s)'):format(tostring(ok2), tostring(why2)))
+    check(as('res_b', env.X.ClearRadialItems) == true, 'radial N6: ClearRadialItems answers true')
+    env.commands['+cis_libs_radial']()
+    local o = env.last('radial:open')
+    check(o and #o.items == 2 and o.items[1].label == 'Phone' and o.items[2].label == 'Bag',
+        'radial N6: res_b clearing removes only res_b\'s items; res_a\'s are untouched')
+    env.escape()
+    check(as('res_a', env.X.RemoveRadialItem, 'phone') == true, 'radial N6: the owner removes its item')
+    local okMissing, whyMissing = as('res_a', env.X.RemoveRadialItem, 'phone')
+    check(okMissing == false and type(whyMissing) == 'string', 'radial N6: removing an unknown item is false plus a reason')
+
+    check(as('res_a', env.X.RegisterRadial, { id = 'sub', items = { { label = 'A' } } }) == true, 'radial N6: res_a registers a submenu')
+    local ok3, why3 = as('res_b', env.X.RegisterRadial, { id = 'sub', items = { { label = 'B' } } })
+    check(ok3 == false and tostring(why3):find('res_a', 1, true) ~= nil,
+        ('radial N6: res_b cannot take over res_a\'s submenu (got %s, %s)'):format(tostring(ok3), tostring(why3)))
+    check(as('res_a', env.X.RegisterRadial, { id = 'sub', items = { { label = 'A2' } } }) == true, 'radial N6: its owner re-registers it')
+
+    check(as(nil, env.X.ClearRadialItems) == true, 'radial N6: cis_libs clears')
+    check(as('res_a', env.X.RemoveRadialItem, 'bag') == false, 'radial N6: and cis_libs clearing removed every resource\'s items')
+    env.step()
+    env.reset()
+end
+
 -- ===================================================== 11. theme and locale
 do
     local env = newEnv()
@@ -1286,6 +1443,84 @@ do
     check(env.live() == 0, 'errors: and starts no thread')
     env.failSend = nil
     check(#env.logged > 0, 'errors: each failure is logged')
+    env.reset()
+end
+
+-- ============================== 13b. a message the page refuses (the NUI size cap)
+--
+-- I.send answers false and a reason when it refuses a message (one NUI message
+-- is capped at 1 MiB). An opener that ignored that answer kept NUI focus, or a
+-- control-disabling thread, for a component the page never drew: the player
+-- was left with a cursor and nothing on screen. Every opener now treats a
+-- refused open as a failure to open.
+do
+    local env = newEnv()
+    env.load()
+    local realSend = CisInterface.send
+    local refuse
+    CisInterface.send = function(action, data, buffer)
+        if action == refuse then return false, 'message too large' end
+        return realSend(action, data, buffer)
+    end
+    local function released(what)
+        check(lastFocus(env) == nil or lastFocus(env).focus == false,
+            ('cap: %s refused by the page does not keep NUI focus'):format(what))
+        check(#CisInterface.focus.stack() == 0, ('cap: and leaves nothing on the focus stack (%s)'):format(what))
+    end
+
+    refuse = 'alert:open'
+    local got
+    env.spawn(function() got = { env.X.AlertDialog({ header = 'big' }) } end)
+    check(got and got[1] == nil and type(got[2]) == 'string', 'cap: an alert the page refuses returns nil and a reason')
+    released('an alert')
+
+    refuse = 'input:open'
+    got = nil
+    env.spawn(function() got = { env.X.InputDialog('big', { 'a' }) } end)
+    check(got and got[1] == nil and type(got[2]) == 'string', 'cap: an input dialog the page refuses returns nil and a reason')
+    released('an input dialog')
+
+    refuse = 'context:open'
+    env.X.RegisterContext({ id = 'big', options = { { title = 'x' } } })
+    local okC, whyC = env.X.ShowContext('big')
+    check(okC == false and type(whyC) == 'string' and env.X.GetOpenContextMenu() == nil,
+        'cap: a context menu the page refuses reports false, a reason, and is not open')
+    released('a context menu')
+
+    refuse = 'radial:open'
+    env.X.AddRadialItem({ id = 'big', label = 'big' })
+    env.commands['+cis_libs_radial']()
+    check(env.keep == false or env.keep == nil, 'cap: a radial the page refuses releases keepInput')
+    released('a radial')
+    check(env.live() == 0, 'cap: and the radial starts no control thread')
+
+    refuse = 'menu:open'
+    env.X.RegisterMenu({ id = 'bigm', title = 'Big', options = { { label = 'a' } } }, function() end)
+    local okM, whyM = env.X.ShowMenu('bigm')
+    check(okM == false and type(whyM) == 'string' and env.X.GetOpenMenu() == nil and env.live() == 0,
+        'cap: a list menu the page refuses reports false, a reason, is not open and runs no thread')
+
+    refuse = 'skill:round'
+    got = nil
+    env.spawn(function() got = { env.X.SkillCheck('easy') } end)
+    check(got and got[1] == false and type(got[2]) == 'string' and env.X.SkillCheckActive() == false,
+        'cap: a skill check the page refuses returns false and a reason, and is not active')
+    check(env.live() == 0, 'cap: and runs no input thread')
+
+    refuse = 'progress:start'
+    got = nil
+    env.spawn(function() got = { env.X.ProgressBar({ duration = 1000, label = 'big', prop = { model = 'p' } }) } end)
+    check(got and got[1] == false and type(got[2]) == 'string' and env.X.ProgressActive() == false,
+        'cap: a progress bar the page refuses returns false and a reason, and is not active')
+    check(env.live() == 0, 'cap: and runs no frame thread')
+
+    refuse = 'textui:show'
+    local okT, whyT = env.X.ShowTextUI('big')
+    check(okT == false and type(whyT) == 'string' and env.X.IsTextUIOpen() == false,
+        'cap: a text UI the page refuses reports false, a reason, and is not open')
+
+    refuse = nil
+    CisInterface.send = realSend
     env.reset()
 end
 

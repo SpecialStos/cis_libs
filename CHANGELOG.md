@@ -294,6 +294,10 @@ Check these first; each is a line under **Changed** or **Deprecated**.
 - **`class` copies `__newindex` and `__gc` down to a subclass, and a parent
   `__index` function keeps answering after the subclass's own methods** (A-L9).
   A read-only parent was writable through a subclass.
+- **Progress props are local objects.** `ProgressBar` / `ProgressCircle` created their props
+  networked, which needs the server's entity policy to allow client-created entities (strict
+  entity lockdown refuses them) and takes a network slot per prop. They are now created
+  non-networked, as ox_lib creates them; other players see the animation without the prop.
 
 - **A NUI message over 1 MiB is refused, not sent** (NUI-L11): the send
   returns `false, 'message too large'` and logs one error. A payload that size
@@ -694,6 +698,44 @@ which is forgotten when that resource stops.
   hook takes a callable or a `'resource:Export'` string, never an event name.
 - Added `docs/MIGRATING-FROM-OX_LIB.md`, mapping ox_lib calls to the `api.lua`
   entries that do the same job.
+- Re-registering the context menu on screen redraws it under a new token. The
+  page kept showing the old options, and a click on index n ran the new list's
+  option n.
+- `RegisterContext` with a list is all or nothing: a bad entry no longer leaves
+  the entries before it registered behind a `false`.
+- `WatchNear` refuses coords without finite numeric `x`, `y` and `z`, a
+  distance that is not a finite number above 0, and a non-string event name,
+  with `nil` plus a reason. A string distance used to raise inside the shared
+  near tick, and every watcher after it was never checked again; each watcher
+  is now also checked in its own `pcall`.
+- A zone or point removed while the player is inside hands `onExit` a
+  `vector3`, as every pass exit does. It handed a plain table, so vector maths
+  in the handler raised.
+- Point enters run after the grid walk. An `onEnter` that created or removed a
+  point changed the bucket being iterated (zones already queued their edges).
+- `UpdateTarget` checks before it removes, and keeps the target's owner. It
+  removed the old target and then created the new one with nothing between,
+  so a provider that refused the new options (or no provider at all) left the
+  caller with no target and a bare `false`. Now an unknown name, bad options or
+  a missing provider answer `false` plus a reason with the target untouched, a
+  refused create puts the old target back, and cis_libs updating a consumer's
+  target no longer takes it from that consumer.
+- **The spatial grid no longer raises on an AABB without z bounds.** `CisGrid.queryPoint` and
+  `queryNeighbors` compared a caller's z with `aabb.minZ` and `aabb.maxZ` even when the AABB left
+  them nil (which `insert` allows, and documents as "no z test"), so a 2D or half-open AABB raised
+  the first time anything queried its cell with a z. A nil bound is now skipped. `insert` also
+  checks each z bound on its own: a non-number z bound and `minZ > maxZ` are refused with a reason
+  (a string bound used to be stored and then raise on every query of its cell).
+- **The loop guard no longer builds a table every tick.** `CisLoopGuard.Body`, which wraps the
+  cache, zone and point passes every frame, packed each result into a new table only to unpack it;
+  the results now pass straight through. Return values (nil holes included) and the nil after a
+  raise are unchanged, and now tested.
+- **A UI the page refuses no longer strands the player.** `I.send` answers `false` and a reason
+  when the page does not take a message (one NUI message is capped at 1 MiB). The alert, input,
+  context, radial, list menu, skill check, progress and text UI openers ignored that answer, so an
+  over-cap open kept NUI focus, keepInput or a control-disabling thread for a component nothing
+  drew. Each now fails the open: focus and threads are released, an anim or props already started
+  by a progress are undone, and the caller gets `false` (or `nil` for the dialogs) and a reason.
 
 ### Security
 
@@ -814,6 +856,28 @@ which is forgotten when that resource stops.
   `hello` only the cis_libs page receives, and only the `ready` that echoes
   it is acted on), and every Escape carries it. A page that has loaded
   ignores a later `hello`, so a forged `ready` cannot make it reset.
+- **A context menu option can no longer fire a reserved or foreign event.**
+  An option's `event` is fired from the cis_libs VM, so every handler saw
+  cis_libs as the invoker: an option firing `onResourceStop` with
+  `'cis_libs'` passed `CisRealStop` and every consumer marked the library
+  stopped. `RegisterContext` now refuses an `event` that lacks the
+  registering resource's own `<resource>:` prefix, is over 128 bytes, or is
+  `onResourceStart`/`Stop`/`Starting`, `onClientResourceStart`/`Stop` or any
+  `cis_libs:` or `__cfx_` name; the click checks again. Fire any other event
+  from `onSelect`. `serverEvent` is unchanged.
+- **A context id belongs to its registrant.** Another resource registering the
+  same id got the menu silently; it now gets `false, 'context "<id>" is
+  registered by <res>; pick a different id'`. The id is free once the holder
+  stops.
+- **Radial items and submenus belong to their registrant.**
+  `RemoveRadialItem` and `ClearRadialItems` had no owner check, and
+  `AddRadialItem` / `RegisterRadial` replaced another resource's same id, so
+  any script could strip or swap every resource's entries. Adding or
+  registering a held id now answers `false, 'radial item "<id>" is registered
+  by <res>; ...'`; `RemoveRadialItem` answers `false` plus a reason for an
+  unknown or foreign item (it was a bare `false`); `ClearRadialItems` removes
+  only the caller's own items. cis_libs itself may still remove or clear
+  anything.
 
 ## [1.0.0] — 2026-10-07
 
