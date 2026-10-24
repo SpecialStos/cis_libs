@@ -786,6 +786,11 @@ which is forgotten when that resource stops.
 - **A callback's bad payload is reported once per run, like a net event's.**
   Every schema refusal used to be a security report, so a client repeating
   one bad shape was a strike per request with a ban provider.
+- The server console is rate-limited per message, as Discord already was. One
+  message prints at most 20 times per 10 s window and the window prints at most
+  500 lines in all; held copies are counted and said once as the window rolls,
+  so a client tripping the same warning every frame no longer floods the
+  console. At most 512 distinct messages are tracked per window.
 
 ### Security
 

@@ -6536,6 +6536,51 @@ do
     env.reset()
 end
 
+-- ============================ W2d. the console is rate-limited per message
+--
+-- Discord was deduped and rate-limited; the console printed every line. One
+-- client tripping the same warning every frame scrolled thousands of identical
+-- lines a second, burying everything else. Now each message prints at most 20
+-- times per 10 s window, and what is held back is counted on the next roll.
+do
+    local env = newEnv({})
+    local function count(needle)
+        local n = 0
+        for _, line in ipairs(env.lines) do
+            if tostring(line):find(needle, 1, true) then n = n + 1 end
+        end
+        return n
+    end
+    for _ = 1, 50 do Logging.Info('w2d flood line') end
+    check(count('w2d flood line') == 20,
+        ('W2d: one message prints at most 20 times a window (got %d)'):format(count('w2d flood line')))
+    Logging.Info('w2d other line')
+    check(count('w2d other line') == 1, 'W2d: a different message still prints')
+    env.clock = env.clock + 10000
+    Logging.Info('w2d after the roll')
+    local summary = nil
+    for _, line in ipairs(env.lines) do
+        if tostring(line):find('30 more copies', 1, true) and tostring(line):find('w2d flood line', 1, true) then
+            summary = line
+        end
+    end
+    check(summary ~= nil, 'W2d: the roll says how many copies were suppressed, naming the line')
+    check(count('w2d after the roll') == 1, 'W2d: the next window prints again')
+
+    -- Many distinct lines: the window prints at most 500 in all, and the rest
+    -- are counted rather than lost.
+    env.clock = env.clock + 10000
+    Logging.Info('w2d reset')
+    local before = count('w2d distinct ')
+    for i = 1, 600 do Logging.Info('w2d distinct ' .. i) end
+    check(count('w2d distinct ') - before == 499,
+        ('W2d: a window prints at most 500 lines in all (got %d)'):format(count('w2d distinct ') - before))
+    env.clock = env.clock + 10000
+    Logging.Info('w2d end')
+    check(count('other line(s) suppressed') == 1, 'W2d: the lines held past the report limit are counted on one line')
+    env.reset()
+end
+
 -- ==================================================================== report
 -- Named, not just counted. A suite that reports "failed=3" and exits tells you
 -- something broke and nothing about what, and the fix is to re-run with a print

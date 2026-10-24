@@ -1258,6 +1258,8 @@ Live harness: `test/LIVE.md`. Counts are not repeated here.
 - Networked entities are created and deleted on the server.
 - This resource writes no files. Logs are console, the in-memory audit ring,
   and an optional discord capability.
+- Console lines are rate-limited: one message prints at most 20 times per 10 s
+  and 500 lines in all; the rest are counted on one line as the window rolls.
 - Live numbers (assertion counts, soak heap) belong in dated result JSON, not
   in this prose.
 - A refusal whose first return is `nil` loses its reason at the exports
