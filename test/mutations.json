@@ -1,5 +1,5 @@
 {
-  "$comment": "Each row is one deliberate defect. tools/mutate.js applies it to a throwaway copy of the repository and runs the full suite. A mutation that still passes is a SURVIVOR and fails the build; a `find` that no longer matches exactly once is STALE and also fails, because it means the code moved and the row stopped describing anything. M44 was written and REMOVED as an equivalent mutation, not as a coverage hole: with no insertion at all, every record lands in the unindexed fallback and is still delivered, so the pass is slower and nothing is wrong. M43 (a one-metre AABB) is the row that proves the index is actually consulted, and it is killed. M42 (no pcall per record in the streaming pass) was REMOVED as structurally impossible: the per-record step no longer builds the payload -- it is built once per revision at upsert, where a failure is the caller's -- so what is left is arithmetic on validated fields and nothing per record can raise; the per-player guard (M41) still bounds a raise.",
+  "$comment": "Each row is one deliberate defect. tools/mutate.js applies it to a throwaway copy of the repository and runs the full suite. A mutation that still passes is a SURVIVOR and fails the build; a `find` that no longer matches exactly once is STALE and also fails, because it means the code moved and the row stopped describing anything. M44 was written and REMOVED as an equivalent mutation, not as a coverage hole: with no insertion at all, every record lands in the unindexed fallback and is still delivered, so the pass is slower and nothing is wrong. M43 (a one-metre AABB) is the row that proves the index is actually consulted, and it is killed. M42 (no pcall per record in the streaming pass) was REMOVED as structurally impossible: the per-record step no longer builds the payload -- it is built once per revision at upsert, where a failure is the caller's -- so what is left is arithmetic on validated fields and nothing per record can raise; the per-player guard (M41) still bounds a raise. M526 (levenshtein returns prev[lb] without the final ceiling test) was REMOVED as an equivalent mutation: every banded cell is clamped to cap + 1, so a last cell above the ceiling is already cap + 1 and the test changes nothing.",
   "mutations": [
     {
       "id": "M01",
@@ -3776,13 +3776,6 @@
       "find": "            if t._paused or t._ended then\n                t._sleeper = false",
       "replace": "            if false then\n                t._sleeper = false",
       "why": "A sleeper does not exit when it wakes on a paused or ended timer, so a paused timer keeps a thread alive and an ended one calls onEnd again."
-    },
-    {
-      "id": "M526",
-      "file": "shared/util/string.lua",
-      "find": "    return prev[lb] > cap and cap + 1 or prev[lb]",
-      "replace": "    return prev[lb]",
-      "why": "levenshtein hands back the true distance when only the last cell is above the ceiling, instead of ceiling + 1."
     },
     {
       "id": "M527",

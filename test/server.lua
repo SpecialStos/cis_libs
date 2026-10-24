@@ -6711,6 +6711,18 @@ do
     exports.CommandAdd('cis_usercmd2', { restricted = 'group.user' }, function() end)
     check(env.executed[2] == 'add_ace group.user command.cis_usercmd2 allow',
         ('W2f: a group the operator lists is provisioned (%s)'):format(tostring(env.executed[2])))
+
+    -- Only a group principal is ever written, even when the operator lists
+    -- something else: builtin.everyone on the list must not open a command
+    -- to every player through cis_libs' add_ace right.
+    function GetConvar(name, default)
+        if name == 'cis_command_ace_groups' then return 'group.admin builtin.everyone player.1' end
+        return default
+    end
+    exports.CommandAdd('cis_evcmd', { restricted = 'builtin.everyone' }, function() end)
+    exports.CommandAdd('cis_p1cmd', { restricted = 'player.1' }, function() end)
+    check(#env.executed == 2,
+        ('W2f: a listed non-group principal is never provisioned (%s)'):format(tostring(env.executed[3])))
     env.reset()
 end
 

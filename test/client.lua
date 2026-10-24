@@ -2855,7 +2855,8 @@ do
         { 'a box with a NaN size', 'box', o, 0 / 0, {}, 'size' },
         { 'a box with a string heading', 'box', o, 2.0, { heading = 'north' }, 'heading' },
         { 'a two-point poly', 'poly', { p3[1], p3[2] }, {}, nil, '3 points' },
-        { 'a poly with minZ above maxZ', 'poly', p3, { minZ = 10.0, maxZ = 5.0 }, nil, 'minZ' },
+        { 'a poly with minZ above maxZ', 'poly', p3, { minZ = 10.0, maxZ = 5.0 }, nil, 'must be a number below maxZ' },
+        { 'a poly with a NaN minZ', 'poly', p3, { minZ = 0 / 0, maxZ = 5.0 }, nil, 'must be a number below maxZ' },
     }) do
         local okCall, okShape, whyShape = pcall(exports.CreateZone, c[2], 'shape', c[3], c[4], c[5])
         check(okCall and okShape == false and tostring(whyShape):find(c[6], 1, true) ~= nil,
