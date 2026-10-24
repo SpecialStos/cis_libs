@@ -442,13 +442,24 @@ function M.schema(value, schema, opts)
     return true
 end
 
---- Apply one FIELD SPEC's defaults to one value.
-local function applyFieldDefaults(value, spec)
+local fillDefaults
+
+--- Apply one FIELD SPEC's defaults to one value. Answers the value, or nil and
+--- why; `depth` counts nested schemas, so one that contains itself ends.
+local function applyFieldDefaults(value, spec, depth)
     if type(spec) ~= 'table' then
         return type(value) == 'table' and copyTree(value) or value
     end
     local out = (type(value) == 'table') and copyTree(value) or value
     if out == nil and spec.default ~= nil then
+        -- The DEFAULT is checked like the value: a default that contains itself
+        -- sent copyTree round the cycle until the stack overflowed.
+        if type(spec.default) == 'table' then
+            local problem = treeProblem(spec.default)
+            if problem then
+                return nil, ('default %s'):format(problem:gsub('^value ', ''))
+            end
+        end
         out = copyTree(spec.default)
     end
     -- A nested spec that declares `fields` gets its container created even with no
@@ -457,17 +468,52 @@ local function applyFieldDefaults(value, spec)
     end
     if type(out) == 'table' then
         if spec.fields then
-            local filled = M.defaults(out, spec.fields)
-            if not filled then return nil end
+            -- A nested failure fails the whole call; it used to drop the field.
+            local filled, why = fillDefaults(out, spec.fields, depth + 1)
+            if not filled then return nil, why end
             out = filled
         end
         if spec.of then
             local nested = {}
             -- The KEY is used, never a running counter.
             for k, v in pairs(out) do
-                nested[k] = applyFieldDefaults(v, spec.of)
+                local item, why = applyFieldDefaults(v, spec.of, depth + 1)
+                if why then return nil, why end
+                nested[k] = item
             end
             out = nested
+        end
+    end
+    return out
+end
+
+fillDefaults = function(value, schema, depth)
+    if type(value) ~= 'table' then
+        return nil, ('value must be a table, got %s'):format(type(value))
+    end
+    if type(schema) ~= 'table' then
+        return nil, ('schema must be a table, got %s'):format(type(schema))
+    end
+    -- A schema whose `fields` contain the schema again built containers forever.
+    if depth > MAX_COPY_DEPTH then
+        return nil, ('schema is nested deeper than %d (does it contain itself?)'):format(MAX_COPY_DEPTH)
+    end
+    local problem = treeProblem(value)
+    if problem then
+        return nil, problem
+    end
+    local out = {}
+    -- Supplied values first, so the second pass can tell "absent" from "supplied and
+    for k, v in pairs(value) do
+        local item, why = applyFieldDefaults(v, schema[k], depth)
+        if why then return nil, why end
+        out[k] = item
+    end
+    for key, spec in pairs(schema) do
+        if type(spec) == 'table' and out[key] == nil then
+            local item, why = applyFieldDefaults(nil, spec, depth)
+            if why then return nil, why end
+            out[key] = item
         end
     end
     return out
@@ -479,27 +525,7 @@ end
 ---@return table|nil  a NEW filled table
 ---@return string|nil  why
 function M.defaults(value, schema)
-    if type(value) ~= 'table' then
-        return nil, ('value must be a table, got %s'):format(type(value))
-    end
-    if type(schema) ~= 'table' then
-        return nil, ('schema must be a table, got %s'):format(type(schema))
-    end
-    local problem = treeProblem(value)
-    if problem then
-        return nil, problem
-    end
-    local out = {}
-    -- Supplied values first, so the second pass can tell "absent" from "supplied and
-    for k, v in pairs(value) do
-        out[k] = applyFieldDefaults(v, schema[k])
-    end
-    for key, spec in pairs(schema) do
-        if type(spec) == 'table' and out[key] == nil then
-            out[key] = applyFieldDefaults(nil, spec)
-        end
-    end
-    return out
+    return fillDefaults(value, schema, 1)
 end
 
 --- Constrain a number to a range.
@@ -517,6 +543,12 @@ function M.clamp(v, min, max)
     end
     if min == nil and max == nil then
         return v
+    end
+    -- A bound must be a number: a string raised a compare error, and a NaN one
+    -- failed every comparison, so v came back unclamped.
+    if (min ~= nil and (type(min) ~= 'number' or min ~= min))
+        or (max ~= nil and (type(max) ~= 'number' or max ~= max)) then
+        return nil, ('min and max must be numbers, got %s and %s'):format(tostring(min), tostring(max))
     end
     if min ~= nil and max ~= nil and min > max then
         return nil, ('min %s is greater than max %s'):format(tostring(min), tostring(max))

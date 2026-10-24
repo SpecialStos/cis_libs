@@ -376,7 +376,7 @@ end
 --- Levenshtein edit distance between two strings.
 ---@param a string
 ---@param b string
----@param maxDistance? integer
+---@param maxDistance? integer  0 or more; a fraction counts as its floor, math.huge as none
 ---@return integer|nil  the distance; maxDistance + 1 once it is exceeded
 ---@return string|nil  why
 function M.levenshtein(a, b, maxDistance)
@@ -384,7 +384,14 @@ function M.levenshtein(a, b, maxDistance)
         return nil, 'both arguments must be strings'
     end
     local la, lb = #a, #b
-    local cap = maxDistance or math.max(la, lb)
+    -- A negative or NaN ceiling used to answer a "distance" of cap + 1 (0 for -1).
+    if maxDistance ~= nil and (type(maxDistance) ~= 'number' or not (maxDistance >= 0)) then
+        return nil, ('maxDistance must be a number 0 or more, got %s'):format(tostring(maxDistance))
+    end
+    local cap = math.max(la, lb)
+    if maxDistance ~= nil and maxDistance < cap then
+        cap = math.floor(maxDistance)
+    end
     if la == 0 then
         return lb > cap and cap + 1 or lb
     end
@@ -398,16 +405,32 @@ function M.levenshtein(a, b, maxDistance)
     if math.abs(la - lb) > cap then
         return cap + 1
     end
+    -- Only cells within `cap` of the diagonal can stay at or under the ceiling
+    -- (Ukkonen's band): a cell outside it reads as cap + 1, so a ceiling walks
+    -- (2 * cap + 1) cells a row instead of the whole table.
+    local over = cap + 1
     local prev = {}
     local cur = {}
-    for j = 0, lb do
+    for j = 0, math.min(lb, cap) do
         prev[j] = j
     end
+    if cap < lb then
+        prev[cap + 1] = over
+    end
     for i = 1, la do
-        cur[0] = i
-        local best = cur[0]
+        local lo = i - cap
+        if lo < 1 then lo = 1 end
+        local hi = i + cap
+        if hi > lb then hi = lb end
+        if lo == 1 then
+            cur[0] = i <= cap and i or over
+        else
+            cur[lo - 1] = over
+        end
+        local best = over
+        if lo == 1 and cur[0] < best then best = cur[0] end
         local ca = a:byte(i)
-        for j = 1, lb do
+        for j = lo, hi do
             local cost = 0
             if ca ~= b:byte(j) then
                 cost = 1
@@ -417,8 +440,12 @@ function M.levenshtein(a, b, maxDistance)
             if del < d then d = del end
             local ins = cur[j - 1] + 1
             if ins < d then d = ins end
+            if d > over then d = over end
             cur[j] = d
             if d < best then best = d end
+        end
+        if hi < lb then
+            cur[hi + 1] = over
         end
         if best > cap then
             -- Every cell in this row is already past the ceiling: no later row can come
@@ -447,6 +474,9 @@ function M.suggest(word, candidates, opts)
     local maxDistance = opts.maxDistance
     if maxDistance == nil then
         maxDistance = math.floor(#word / 2) + 1
+    elseif type(maxDistance) ~= 'number' or not (maxDistance >= 0) then
+        -- A negative one raised a compare error on the nil levenshtein answer.
+        return nil, ('opts.maxDistance must be a number 0 or more, got %s'):format(tostring(maxDistance))
     end
     local comparator = opts.comparator
     local lower = word:lower()
