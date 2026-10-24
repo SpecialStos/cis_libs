@@ -4210,6 +4210,27 @@
       "find": "    if held and held.owner ~= owner then",
       "replace": "    if false then",
       "why": "Any resource re-registers another resource's radial submenu and takes it over."
+    },
+    {
+      "id": "M726",
+      "file": "client/target.lua",
+      "find": "    local restored = createAs(old.owner, old.zoneType, name, old.coords, old.size, old.options)",
+      "replace": "    local restored = false",
+      "why": "An UpdateTarget the provider refuses leaves the caller with no target at all: the old one was removed and is never put back."
+    },
+    {
+      "id": "M727",
+      "file": "client/target.lua",
+      "find": "    local ok, err = createAs(old.owner, old.zoneType, name, old.coords, old.size, newOptions)",
+      "replace": "    local ok, err = createAs(GetInvokingResource() or 'cis_libs', old.zoneType, name, old.coords, old.size, newOptions)",
+      "why": "cis_libs updating a consumer's target re-creates it under cis_libs, so its owner can no longer remove it and its stop no longer releases it."
+    },
+    {
+      "id": "M728",
+      "file": "client/target.lua",
+      "find": "    if not Target.Available() then\n        missingOnce()\n        return false, 'no target provider started'\n    end\n    local removed",
+      "replace": "    local removed",
+      "why": "UpdateTarget with no provider started forgets the target before the create fails, so the caller loses it."
     }
   ]
 }

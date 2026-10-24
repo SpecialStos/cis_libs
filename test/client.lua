@@ -2694,6 +2694,62 @@ do
     env.reset()
 end
 
+-- N7. UpdateTarget REMOVED FIRST AND CREATED AFTER, with nothing in between:
+-- a provider that refused the new options, or no provider at all, left the
+-- caller with no target and a bare false. And the re-create read the owner
+-- from GetInvokingResource, so cis_libs updating res_a's target took it from
+-- res_a. Now it is checked first, restored on a refused create, and keeps its
+-- owner.
+do
+    local env = newEnv({})
+    env.invoking = 'res_a'
+    local live, avail = {}, true
+    env.foreign('cis_bridge').CisBridgeTargetOx = function()
+        return {
+            name = function() return 'ox_target' end,
+            available = function() return avail end,
+            create = function(spec)
+                if spec.targetOptions.distance == 9.0 then return false end
+                live[spec.name] = spec.targetOptions.distance
+                return true
+            end,
+            remove = function(name)
+                live[name] = nil
+                return true
+            end,
+        }
+    end
+    env.saved[#env.saved + 1] = { name = 'CisReadyState', value = rawget(_ENV, 'CisReadyState') }
+    CisReadyState = { wait = function() return true end, ready = true, failed = false }
+    loadModule('client/target.lua')
+    CisRegistry.register('target', 'cis_bridge:CisBridgeTargetOx')
+    local X = env.EXPORTS
+    check(X.CreateTarget('box', 'u', { x = 0.0, y = 0.0, z = 0.0 }, { x = 2.0, y = 2.0, z = 2.0 }, { distance = 3.0 }) == true,
+        'target N7: res_a creates u')
+
+    local okU, whyU = X.UpdateTarget('nope', {})
+    check(okU == false and type(whyU) == 'string', 'target N7: updating an unknown name is false plus a reason')
+
+    local okR, whyR = X.UpdateTarget('u', { distance = 9.0 })
+    check(okR == false and type(whyR) == 'string',
+        ('target N7: an update the provider refuses is false plus a reason (got %s, %s)'):format(tostring(okR), tostring(whyR)))
+    check(X.TargetExists('u') == true and live.u == 3.0,
+        ('target N7: and the old target is put back (exists=%s, provider distance=%s)'):format(tostring(X.TargetExists('u')), tostring(live.u)))
+
+    avail = false
+    local okA, whyA = X.UpdateTarget('u', { distance = 4.0 })
+    check(okA == false and type(whyA) == 'string', 'target N7: with no provider, the update is refused')
+    check(X.TargetExists('u') == true and live.u == 3.0, 'target N7: and the target is untouched')
+    avail = true
+
+    env.invoking = nil
+    check(X.UpdateTarget('u', { distance = 4.0 }) == true and live.u == 4.0, 'target N7: cis_libs updates res_a\'s target')
+    env.invoking = 'res_a'
+    local okRm, whyRm = X.RemoveTarget('u')
+    check(okRm == true, ('target N7: and res_a still owns it (remove: %s, %s)'):format(tostring(okRm), tostring(whyRm)))
+    env.reset()
+end
+
 -- ======================================= 9. the zone guards (rest)
 --
 -- Arguments the exports boundary can drop, and no check for them. Each raised

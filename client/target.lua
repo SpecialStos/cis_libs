@@ -39,14 +39,15 @@ local function missingOnce()
     CisLog('warn', 'No target provider registered')
 end
 
-Target.Create = function(zoneType, name, coords, size, options)
+-- The create itself, for a given owner. Target.Create passes the invoker;
+-- Target.Update passes the target's existing owner, so cis_libs updating a
+-- consumer's target does not take it from that consumer.
+local function createAs(owner, zoneType, name, coords, size, options)
     -- Refusals return a reason as a second value: a caller across the exports boundary
     if not CisReadyState.wait(15000) then
         return false, 'cis_libs never became ready'
     end
     options = options or {}
-    -- Read HERE, while the export is executing and GetInvokingResource() still names
-    local owner = GetInvokingResource() or 'cis_libs'
     if not targetEnabled() then
         return false, 'target disabled by config'
     end
@@ -103,6 +104,12 @@ Target.Create = function(zoneType, name, coords, size, options)
     spec.owner = owner
     CisOwned.track(owned, spec.owner, 'target', name)
     return true
+end
+
+Target.Create = function(zoneType, name, coords, size, options)
+    -- Read HERE, while the export is executing and GetInvokingResource() still names
+    -- the caller.
+    return createAs(GetInvokingResource() or 'cis_libs', zoneType, name, coords, size, options)
 end
 
 -- ONLY THE OWNER, or cis_libs, may change a target. A target name is a string
@@ -178,17 +185,40 @@ AddEventHandler('onResourceStop', function(resource)
     end
 end)
 
+-- CHECKED FIRST, RESTORED ON A REFUSAL. This removed the old target and then
+-- created the new one with nothing in between, so a provider that refused the
+-- new options (or no provider at all) left the caller with no target and a
+-- bare false. The owner is the target's own, not the caller's.
 Target.Update = function(name, newOptions)
-    if not CreatedZones[name] then
-        return false
+    local old = CreatedZones[name]
+    if not old then
+        return false, ('no target named %s'):format(tostring(name))
     end
     local foreign = refuseForeign(name)
     if foreign then
         return false, foreign
     end
-    local zoneInfo = CreatedZones[name]
-    Target.Remove(name, zoneInfo.zoneType == 'ped')
-    return Target.Create(zoneInfo.zoneType, name, zoneInfo.coords, zoneInfo.size, newOptions)
+    if newOptions ~= nil and type(newOptions) ~= 'table' then
+        return false, ('newOptions must be a table, got %s'):format(type(newOptions))
+    end
+    if not targetEnabled() then
+        return false, 'target disabled by config'
+    end
+    if not Target.Available() then
+        missingOnce()
+        return false, 'no target provider started'
+    end
+    local removed, removeWhy = Target.Remove(name, old.zoneType == 'ped')
+    if not removed then
+        return false, removeWhy
+    end
+    local ok, err = createAs(old.owner, old.zoneType, name, old.coords, old.size, newOptions)
+    if ok then
+        return true
+    end
+    local restored = createAs(old.owner, old.zoneType, name, old.coords, old.size, old.options)
+    return false, ('update refused (%s); %s'):format(tostring(err),
+        restored and 'the old target was restored' or 'the old target could not be restored')
 end
 
 Target.Exists = function(name)

@@ -2156,7 +2156,7 @@ function UnregisterCapability(slot) end
 --- deprecated since 1.1.0; use the cis_bridge target API
 ---@param name string #the name; a name that is not live is refused
 ---@param newOptions? table #the new options, passed straight to a create -- update is a remove and re-create, not a patch on the provider
----@return boolean, string #false with NO reason for an unknown name; false plus a reason when another resource owns it; otherwise whatever the implicit create returned
+---@return boolean, string #true once re-created; false plus a reason for an unknown name, one another resource owns, bad options, or no provider (the target is untouched). A create the provider refuses puts the old target back and says so. The target keeps its owner
 --- realm: client
 function UpdateTarget(name, newOptions) end
 
@@ -3044,7 +3044,7 @@ function Cis.target.remove(name, isPed) end
 --- deprecated since 1.1.0; use the cis_bridge target API
 ---@param name string #the target name
 ---@param options? CisTargetOptions #the new options
----@return boolean, string #false with NO reason for an unknown name; false plus a reason when another resource owns it; otherwise whatever the implicit create returned
+---@return boolean, string #true once re-created; false plus a reason for an unknown name, one another resource owns, bad options, or no provider (the target is untouched). A create the provider refuses puts the old target back and says so. The target keeps its owner
 function Cis.target.update(name, options) end
 
 ---@class Cis.ui.cancelProgress

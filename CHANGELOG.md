@@ -771,6 +771,13 @@ which is forgotten when that resource stops.
   in the handler raised.
 - Point enters run after the grid walk. An `onEnter` that created or removed a
   point changed the bucket being iterated (zones already queued their edges).
+- `UpdateTarget` checks before it removes, and keeps the target's owner. It
+  removed the old target and then created the new one with nothing between,
+  so a provider that refused the new options (or no provider at all) left the
+  caller with no target and a bare `false`. Now an unknown name, bad options or
+  a missing provider answer `false` plus a reason with the target untouched, a
+  refused create puts the old target back, and cis_libs updating a consumer's
+  target no longer takes it from that consumer.
 
 ### Security
 

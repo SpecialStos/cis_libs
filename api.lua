@@ -886,7 +886,7 @@ return {
             use = 'deprecated since 1.1.0; use the cis_bridge target API',
             realm = 'client',
             params = { { name = 'name', type = 'string', doc = 'the name; a name that is not live is refused' }, { name = 'newOptions', type = 'table', optional = true, doc = 'the new options, passed straight to a create -- update is a remove and re-create, not a patch on the provider' } },
-            returns = { { type = 'boolean, string', doc = 'false with NO reason for an unknown name; false plus a reason when another resource owns it; otherwise whatever the implicit create returned' } },
+            returns = { { type = 'boolean, string', doc = 'true once re-created; false plus a reason for an unknown name, one another resource owns, bad options, or no provider (the target is untouched). A create the provider refuses puts the old target back and says so. The target keeps its owner' } },
         },
         TargetExists = {
             since = '1.0.0', ['until'] = '2.0.0', stable = true, deprecated = true,
@@ -2128,7 +2128,7 @@ return {
         realm = 'client',
         forwardsTo = 'UpdateTarget',
         params = { { name = 'name', type = 'string', doc = 'the target name' }, { name = 'options', type = 'CisTargetOptions', optional = true, doc = 'the new options' } },
-        returns = { { type = 'boolean, string', doc = 'false with NO reason for an unknown name; false plus a reason when another resource owns it; otherwise whatever the implicit create returned' } },
+        returns = { { type = 'boolean, string', doc = 'true once re-created; false plus a reason for an unknown name, one another resource owns, bad options, or no provider (the target is untouched). A create the provider refuses puts the old target back and says so. The target keeps its owner' } },
     },
     ['Cis.waitFor'] = {
         since = '1.0.0',
