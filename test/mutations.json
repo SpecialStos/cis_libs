@@ -3580,6 +3580,20 @@
       "find": "    perSrc[name] = now\n    local quiet",
       "replace": "    perSrc[name] = last or now\n    local quiet",
       "why": "Refresh the bad-payload latch only when it reports. A flood that lasts longer than the quiet interval is then reported again every interval, one provider call each."
+    },
+    {
+      "id": "M672",
+      "file": "server/proxy.lua",
+      "find": "Security = CisDefaults.merge(CisDefaults.security(), CisDefaults.sanitize(security))",
+      "replace": "Security = CisDefaults.sanitize(security)",
+      "why": "A supplied Security replaces the defaults outright again, so leaving out DropPlayer silently turns kicks off."
+    },
+    {
+      "id": "M673",
+      "file": "server/proxy.lua",
+      "find": "Security = CisDefaults.merge(CisDefaults.security(), CisDefaults.sanitize(security))",
+      "replace": "Security = CisDefaults.merge(Security, CisDefaults.sanitize(security))",
+      "why": "Each supply merges over the last one, so a second allow-list adds to the first and a DropPlayer = false outlives the supplier that set it."
     }
   ]
 }

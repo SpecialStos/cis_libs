@@ -14,6 +14,12 @@ under **Changed** so nobody upgrades into them blind.
 
 ### Changed
 
+- **`SetConfig`'s `security` is merged over the default `Security`.** It
+  replaced it outright, so a supplier that set only `AuthorizedResources` left
+  `DropPlayer` nil and a player the guard reported was no longer kicked. A key
+  left out now keeps its default. Each supply starts from fresh defaults, so a
+  second supply still replaces the first one's allow-list. A supplier that
+  wants kicks off says `DropPlayer = false`.
 - **A local zone event from another resource must carry that resource's
   prefix.** With `local = true`, a zone created by `shop` may only fire
   `shop:...` events. Before, any resource could have cis_libs fire

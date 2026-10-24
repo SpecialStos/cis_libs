@@ -1927,7 +1927,7 @@ function ServerZoneSphere(center, radius, opts) end
 
 --- Called by cis_core at boot with (config, security, discord). First registration wins; a second is refused and named. When the server convar cis_config_supplier names a resource, only that resource may call it. When cis_authorized_resources or cis_allow_any_resource is set, the security posture comes from the convars and the AuthorizedResources / AllowAnyResource passed here are ignored (DOCUMENTATION.md section 3). `security.AllowAnyResource` is the 1.0.0 opt-in escape hatch: with it true an EMPTY AuthorizedResources stops meaning restrictive, and the console warns on every boot
 ---@param config? table #merged over the defaults and validated on a COPY
----@param security? table #replaces Security outright and is never merged with the default
+---@param security? table #merged over fresh default Security key by key: a key left out keeps its default (DropPlayer stays true), and a second supply replaces the first, it does not add to it
 ---@param discord? table #sanitised into DiscordConfig
 ---@return boolean, string #true once applied; false plus a reason naming the current owner, the pinned supplier, or listing the validation problems
 --- realm: server

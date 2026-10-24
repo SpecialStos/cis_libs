@@ -96,7 +96,10 @@ First successful supplier wins. A second caller gets `false` plus the owner.
 `cis_core` is the intended supplier. Built-in defaults are not a supplier, so
 the first real `SetConfig` is accepted.
 
-`security` **replaces** `Security` outright. It is not merged.
+`security` is merged over the default `Security` key by key, like `config`,
+and always over fresh defaults: a key you leave out keeps its default
+(`DropPlayer` stays `true`), and a second supply replaces the first one's
+`AuthorizedResources` instead of adding to it.
 
 ```lua example
 exports['cis_libs']:SetConfig({

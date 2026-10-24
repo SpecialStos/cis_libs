@@ -246,8 +246,10 @@ exports('SetConfig', function(config, security, discord)
         Config = merged
     end
     if type(security) == 'table' then
-        -- Deliberately NOT merged with the default Security.
-        Security = CisDefaults.sanitize(security)
+        -- Merged over FRESH defaults, like `config`: a supplier that leaves out
+        -- DropPlayer keeps kicks on, and a second supply still replaces the
+        -- first one's allow-list instead of adding to it.
+        Security = CisDefaults.merge(CisDefaults.security(), CisDefaults.sanitize(security))
         Security.EventPrefix = Security.EventPrefix or 'cis_libs'
         Security.AuthorizedResources = Security.AuthorizedResources or {}
     end

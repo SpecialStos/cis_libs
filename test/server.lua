@@ -5417,6 +5417,47 @@ local function callbackEnv(opts)
     return env
 end
 
+-- ============================ S6b. a supplied Security keeps the defaults it leaves out
+--
+-- SetConfig's `security` replaced Security outright, so a supplier that set
+-- only its allow-list left DropPlayer nil, and a player the guard reported was
+-- no longer kicked. It is merged over the defaults now, like `config`, and
+-- always over fresh defaults, so a second supply still replaces the first.
+do
+    local env = newEnv({})
+    local dropped = {}
+    env.saved[#env.saved + 1] = { name = 'DropPlayer', value = rawget(_G, 'DropPlayer') }
+    function DropPlayer(src) dropped[#dropped + 1] = src end
+    env.players[7] = true
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+
+    env.invoking = 'cis_core'
+    local ok, why = env.EXPORTS.SetConfig(nil, { AuthorizedResources = { 'cis_core' } })
+    check(ok == true, 'S6b: a Security with only an allow-list is accepted: ' .. tostring(why))
+    check(Security.DropPlayer == true, 'S6b: and the default DropPlayer = true is kept')
+    check(Security.EventPrefix == 'cis_libs' and Security.AllowAnyResource == false,
+        'S6b: and so are the other defaults it left out')
+    check(#Security.AuthorizedResources == 1 and Security.AuthorizedResources[1] == 'cis_core',
+        'S6b: and the supplied allow-list is used as given')
+    CisSecurityReport(7, 'test')
+    check(#dropped == 1 and dropped[1] == 7, 'S6b: so a reported player is still kicked')
+
+    env.EXPORTS.SetConfig(nil, { AuthorizedResources = { 'cis_keys' }, DropPlayer = false })
+    check(Security.DropPlayer == false, 'S6b: a supplier that turns kicks off still can')
+    check(#Security.AuthorizedResources == 1 and Security.AuthorizedResources[1] == 'cis_keys',
+        'S6b: a second supply replaces the allow-list, it does not add to it')
+    CisSecurityReport(7, 'test')
+    check(#dropped == 1, 'S6b: and with kicks off nobody is kicked')
+
+    env.EXPORTS.SetConfig(nil, { AuthorizedResources = { 'cis_keys' } })
+    check(Security.DropPlayer == true,
+        'S6b: each supply starts from the defaults, not from the one before it')
+    env.reset()
+end
+
 -- ============================ CB7. a missing export, a stuck handler, a taken name
 --
 -- invoke looked up exports[res][name] outside any pcall. FiveM RAISES on a
