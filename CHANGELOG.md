@@ -460,6 +460,13 @@ which is forgotten when that resource stops.
   page now takes messages only from the NUI root), and a fetch could confirm
   an alert, pick a context or radial option, fill an input dialog or pass a
   skill check by counting ids from 1.
+- **Exploitable:** the NUI's `escape` and `ready` callbacks carried no token,
+  so any frame could cancel the top dialog through `escape`, or reset and
+  close every open component through `ready`. The page now gets a session
+  token from Lua in a handshake (a tokenless `ready` is answered with a
+  `hello` only the cis_libs page receives, and only the `ready` that echoes
+  it is acted on), and every Escape carries it. A page that has loaded
+  ignores a later `hello`, so a forged `ready` cannot make it reset.
 - Every centred NUI panel (top and bottom toasts, centred text UI, progress,
   skill check) sat half its size off centre in FiveM: the standalone
   `translate` / `rotate` properties are Chromium 104, and CEF is 103. They are

@@ -136,8 +136,12 @@ function F.clear()
     apply()
 end
 
-I.on('escape', {}, function()
-    F.escape()
+-- Only the live page's Escape: it carries the session token (nui.lua), so
+-- another frame posting here cannot cancel the top dialog.
+I.on('escape', { token = '?string' }, function(data)
+    if I.isSession(data.token) then
+        F.escape()
+    end
 end)
 
 I.onStop(function(resource, all)

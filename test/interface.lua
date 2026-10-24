@@ -234,6 +234,20 @@ local function newEnv()
         fn(data, function(r) reply = r end)
         return reply
     end
+    -- What the page does on load: post ready, take the token Lua's hello
+    -- offers, and post ready again echoing it. The token is the page session
+    -- every later escape carries.
+    function env.boot()
+        env.post('ready', {})
+        local hello = env.last('hello')
+        if hello then
+            env.session = hello.token
+            return env.post('ready', { token = hello.token })
+        end
+    end
+    function env.escape()
+        return env.post('escape', { token = env.session })
+    end
     function env.msgs(action)
         local out = {}
         for _, m in ipairs(env.messages) do
@@ -372,7 +386,7 @@ local function newEnv()
     function env.load(ready)
         for _, rel in ipairs(FILES) do loadModule(rel) end
         if ready ~= false then
-            env.post('ready', {})
+            env.boot()
         end
     end
 
@@ -447,9 +461,12 @@ do
     check(env.X.Toast({ description = 'early' }) == true, 'bridge: a toast before the page loads is accepted')
     check(#env.messages == 0, 'bridge: nothing is sent to a page that has not loaded')
     env.X.SetUiTheme({ accent = '#ff0000' })
-    env.post('ready', {})
-    check(env.messages[1] and env.messages[1].action == 'init', 'bridge: ready is answered with init first')
-    check(env.messages[1].data.theme.accent == '#ff0000', 'bridge: init carries the theme set before load')
+    env.boot()
+    -- The handshake's hello goes first; init is the first thing the live page gets.
+    local first = env.messages[1]
+    if first and first.action == 'hello' then first = env.messages[2] end
+    check(first and first.action == 'init', 'bridge: ready is answered with init first')
+    check(first.data.theme.accent == '#ff0000', 'bridge: init carries the theme set before load')
     local early = env.msgs('notify')
     check(#early == 1 and early[1].description == 'early', 'bridge: the buffered toast is delivered after init')
 
@@ -526,7 +543,7 @@ do
     check(got[1] == 'cancel', 'alert: any result other than confirm is cancel')
 
     env.spawn(function() got = { env.X.AlertDialog({ header = 'x' }) } end)
-    env.post('escape', {})
+    env.escape()
     env.step()
     check(got[1] == 'cancel' and lastFocus(env).focus == false, 'alert: Escape resolves it as cancel and releases focus')
 
@@ -551,7 +568,7 @@ do
 
     -- The page reloading: what it showed is gone, so the caller must not hang.
     env.spawn(function() got = { env.X.AlertDialog({ header = 'reload' }) } end)
-    env.post('ready', {})
+    env.boot()
     env.step()
     check(got[1] == 'cancel' and lastFocus(env).focus == false, 'alert: a page reload cancels it and releases focus')
     check(#env.threadErrors == 0, 'alert: no thread raised (' .. tostring(env.threadErrors[1]) .. ')')
@@ -657,7 +674,7 @@ do
     got = nil
 
     env.spawn(function() got = { env.X.InputDialog('Form', { 'a' }, { allowCancel = false }) } end)
-    env.post('escape', {})
+    env.escape()
     env.step()
     check(CisInterface.focus.top() == 'input', 'input: Escape does nothing when allowCancel is false')
     env.X.CloseInputDialog()
@@ -911,7 +928,7 @@ do
     local open, text = env.X.IsTextUIOpen()
     check(open == true and text == '[E] Open', 'textui: isOpen answers true and the text')
     check(env.X.ShowTextUI('') == false, 'textui: empty text is refused')
-    env.post('ready', {})
+    env.boot()
     check(#env.msgs('textui:show') == 2, 'textui: re-drawn after a page reload')
     env.fire('onResourceStop', 'res_t')
     check(env.X.IsTextUIOpen() == false and env.last('textui:hide') ~= nil, 'textui: hidden when the resource that showed it stops')
@@ -992,16 +1009,16 @@ do
     local got
     env.spawn(function() got = { env.X.AlertDialog({ header = 'over the menu' }) } end)
     check(CisInterface.focus.top() == 'alert', 'context+alert: the dialog is on top of the menu')
-    env.post('escape', {})
+    env.escape()
     env.step()
     check(got[1] == 'cancel' and env.X.GetOpenContextMenu() == 'main', 'context+alert: Escape cancels the dialog and leaves the menu')
     check(lastFocus(env).focus == true, 'context+alert: the menu keeps focus after the dialog closes')
-    env.post('escape', {})
+    env.escape()
     check(env.X.GetOpenContextMenu() == nil and exited == 1, 'context+alert: a second Escape closes the menu and runs onExit')
     check(lastFocus(env).focus == false, 'context+alert: focus released at the bottom of the stack')
 
     env.X.ShowContext('locked')
-    env.post('escape', {})
+    env.escape()
     env.post('context', { token = env.last('context:open').token, action = 'close' })
     check(env.X.GetOpenContextMenu() == 'locked', 'context: canClose = false ignores Escape and the close button')
     check(env.X.HideContext(false) == true and env.X.GetOpenContextMenu() == nil, 'context: HideContext still closes it')
@@ -1163,7 +1180,7 @@ do
     check(env.last('radial:open').token == sub.token, 'radial: disabled, the key does not open it')
     env.X.DisableRadial(false)
     env.commands['+cis_libs_radial']()
-    env.post('escape', {})
+    env.escape()
     check(lastFocus(env).focus == false, 'radial: Escape closes it')
 
     env.commands['+cis_libs_radial']()
@@ -1186,7 +1203,7 @@ do
     check(#now.items == 64 and now.items[1].label == '1', 'radial: and none of it was applied (the item it would replace is untouched)')
     check(now.items[1].icon == 'box', 'radial: an icon given as a list is sent as its name')
     check(env.X.AddRadialItem({ id = 'i1', label = 'one' }) == true, 'radial: replacing an item at the cap is allowed')
-    env.post('escape', {})
+    env.escape()
     env.step()
     env.reset()
 end
@@ -1309,6 +1326,77 @@ do
     check(lastFocus(env).focus == false and lastFocus(env).cursor == false, 'stop: focus and cursor released')
     check(env.X.GetOpenContextMenu() == nil and env.X.IsTextUIOpen() == false, 'stop: menus and text UI closed')
     check(env.live() == 0, 'stop: no thread survives')
+    env.reset()
+end
+
+-- ===================================================== 16. the page session: ready and escape carry a token
+-- Any frame can post to https://cis_libs/<callback>. Without a token, a
+-- forged escape cancelled the top dialog and a forged ready reset and closed
+-- every open component.
+do
+    local env = newEnv()
+    env.load(false)
+    -- Before any handshake there is no session, and a tokenless escape must
+    -- not match the absent one.
+    local probed = false
+    CisInterface.focus.push('probe', { onEscape = function() probed = true end })
+    local early = env.post('escape', {})
+    check(early ~= nil and probed == false, 'session: an escape before the handshake cancels nothing')
+    CisInterface.focus.pop('probe')
+    local reply = env.post('ready', {})
+    local hello = env.last('hello')
+    local offered = hello and hello.token
+    check(reply ~= nil, 'session: a tokenless ready is still answered')
+    check(type(offered) == 'string' and #offered >= 16, 'session: a tokenless ready is answered with a hello to the page carrying a token')
+    check(CisInterface.ready == false and env.last('init') == nil, 'session: a tokenless ready does not mark the page ready')
+    reply = env.post('ready', { token = 'guess' })
+    check(reply ~= nil and CisInterface.ready == false, 'session: a ready with a guessed token is refused')
+    env.post('ready', {})
+    local again = env.last('hello')
+    check(again ~= nil and again.token == offered, 'session: a second tokenless ready re-offers the same token, so a forged one cannot strand the real page')
+    env.post('ready', { token = offered })
+    env.session = offered
+    check(CisInterface.ready == true and env.last('init') ~= nil, 'session: the ready that echoes the offered token marks the page ready and sends init')
+
+    local got
+    env.spawn(function() got = { env.X.AlertDialog({ header = 'x' }) } end)
+    local rejected = CisInterface.stats.rejected
+    reply = env.post('escape', {})
+    env.step()
+    check(reply ~= nil and got == nil and CisInterface.focus.top() == 'alert', 'session: an escape with no token cancels nothing and is still answered')
+    reply = env.post('escape', { token = 'guess' })
+    env.step()
+    check(reply ~= nil and got == nil and CisInterface.focus.top() == 'alert', 'session: an escape with a wrong token cancels nothing and is still answered')
+    check(CisInterface.stats.rejected == rejected + 2, 'session: both forged escapes are counted as rejected')
+
+    local inits = #env.msgs('init')
+    reply = env.post('ready', {})
+    env.step()
+    check(reply ~= nil and got == nil and CisInterface.focus.top() == 'alert' and #env.msgs('init') == inits,
+        'session: a tokenless ready while the page is live resets nothing')
+    env.post('ready', { token = offered })
+    env.step()
+    check(got == nil and CisInterface.focus.top() == 'alert' and #env.msgs('init') == inits,
+        'session: replaying the consumed token resets nothing')
+    env.escape()
+    env.step()
+    check(got and got[1] == 'cancel', 'session: an escape with the session token still cancels')
+
+    -- A real reload after a forged ready: the page takes the token on offer.
+    got = nil
+    env.spawn(function() got = { env.X.AlertDialog({ header = 'y' }) } end)
+    env.boot()
+    env.step()
+    check(env.session ~= offered and got and got[1] == 'cancel' and #env.msgs('init') == inits + 1,
+        'session: a real reload gets a fresh token and resets what was open')
+    got = nil
+    env.spawn(function() got = { env.X.AlertDialog({ header = 'z' }) } end)
+    env.post('escape', { token = offered })
+    env.step()
+    check(got == nil and CisInterface.focus.top() == 'alert', 'session: the token from before the reload no longer cancels')
+    env.escape()
+    env.step()
+    check(got and got[1] == 'cancel' and #env.threadErrors == 0, 'session: the new token does')
     env.reset()
 end
 

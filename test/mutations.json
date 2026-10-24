@@ -3424,6 +3424,71 @@
       "find": "fx_version 'cerulean'",
       "replace": "fx_version 'cerulean'\nprovide 'oxmysql'",
       "why": "cis_libs claims to be oxmysql, so its dependents start against a library that serves none of its exports."
+    },
+    {
+      "id": "M700",
+      "file": "client/interface/focus.lua",
+      "find": "    if I.isSession(data.token) then\n        F.escape()\n",
+      "replace": "    if true then\n        F.escape()\n",
+      "why": "Escape stops checking the session token, so any frame posting to cis_libs/escape cancels the top dialog again."
+    },
+    {
+      "id": "M701",
+      "file": "client/interface/nui.lua",
+      "find": "    if session ~= nil and token == session then\n",
+      "replace": "    if token == session then\n",
+      "why": "Before the handshake the session is nil, so a tokenless escape matches it and cancels whatever holds focus."
+    },
+    {
+      "id": "M702",
+      "file": "client/interface/theme.lua",
+      "find": "    if I.acceptReady(data.token) then\n",
+      "replace": "    I.acceptReady(data.token)\n    do\n",
+      "why": "Every ready is acted on again: a forged tokenless ready resets and closes every open component."
+    },
+    {
+      "id": "M703",
+      "file": "client/interface/nui.lua",
+      "find": "        offered = offered or I.nextId()\n",
+      "replace": "        offered = I.nextId()\n",
+      "why": "Each tokenless ready replaces the offered token, so a forged ready racing the real one strands the page with a token Lua no longer accepts."
+    },
+    {
+      "id": "M704",
+      "file": "client/interface/nui.lua",
+      "find": "        session, offered = offered, nil\n",
+      "replace": "        session = offered\n",
+      "why": "The used token stays on offer, so replaying the ready that carried it resets everything again."
+    },
+    {
+      "id": "M705",
+      "file": "client/interface/nui.lua",
+      "find": "    if offered ~= nil and token == offered then\n",
+      "replace": "    if token ~= nil then\n",
+      "why": "Any token is accepted as the echo, so a guessed one completes the handshake and resets the page."
+    },
+    {
+      "id": "M706",
+      "file": "client/interface/nui.lua",
+      "find": "    I.stats.rejected = I.stats.rejected + 1\n    return false\nend\n\n-- true when this ready",
+      "replace": "    return false\nend\n\n-- true when this ready",
+      "why": "A forged escape is dropped silently instead of counted, so the diagnostics stop showing it."
+    },
+    {
+      "id": "M707",
+      "file": "web/js/app.js",
+      "find": "  if (live || typeof d.token !== 'string') return\n",
+      "replace": "  if (typeof d.token !== 'string') return\n",
+      "why": "The live page answers every hello, so a forged tokenless ready makes the real page complete a new handshake and reset everything.",
+      "check": "web"
+    },
+    {
+      "id": "M708",
+      "file": "web/js/app.js",
+      "find": "post('escape', { token: session })",
+      "replace": "post('escape', {})",
+      "why": "The page stops echoing the session token on Escape, so Lua refuses every real Escape.",
+      "check": "web"
     }
   ]
 }

@@ -121,8 +121,11 @@ local function setUiLocale(strings)
     return true
 end
 
-I.on('ready', {}, function()
-    I.markReady({ theme = theme, locale = locale })
+-- A handshake, not a single post: see I.acceptReady (nui.lua).
+I.on('ready', { token = '?string' }, function(data)
+    if I.acceptReady(data.token) then
+        I.markReady({ theme = theme, locale = locale })
+    end
 end)
 
 exports('SetUiTheme', setUiTheme)

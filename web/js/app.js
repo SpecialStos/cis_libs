@@ -10,7 +10,20 @@ import './menu.js'
 import './radial.js'
 import './skillcheck.js'
 
+// THE PAGE SESSION (client/interface/nui.lua, I.acceptReady). Lua answers a
+// tokenless ready with a hello only this page receives; echoing its token is
+// the ready Lua acts on, and every Escape carries it. Once init has arrived a
+// later hello is ignored: it came from a ready this page did not send.
+let session = null
+let live = false
+on('hello', (d) => {
+  if (live || typeof d.token !== 'string') return
+  session = d.token
+  post('ready', { token: session })
+})
+
 on('init', (d) => {
+  live = true
   setLocale(d.locale)
   setTheme(d.theme)
   applySettings()
@@ -22,7 +35,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     e.preventDefault()
     // A held key repeats: one press must close one layer, not the whole stack.
-    if (!e.repeat) post('escape', {})
+    if (!e.repeat) post('escape', { token: session })
   }
 })
 

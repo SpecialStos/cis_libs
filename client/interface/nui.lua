@@ -224,6 +224,55 @@ local function runAll(list, ...)
     end
 end
 
+-- THE PAGE SESSION. `escape` and `ready` name no open component, so before
+-- this any frame could post them: a forged escape cancelled the top dialog,
+-- and a forged ready reset and closed everything open. Both now carry a
+-- session token the page can only have learned from Lua.
+--
+-- `ready` is the bootstrap, and Lua cannot tell a real page reload from a
+-- forged ready, so "accept the first ready per load" has nothing to count
+-- loads by. Instead it is a handshake: a ready with no token is only a
+-- request, answered by a `hello` carrying a token. SendNuiMessage reaches
+-- this resource's own page and no other frame, and the page takes it only
+-- from the NUI root (core.js fromGame), so a forged frame can trigger the
+-- offer but never read it. The page echoes the token in a second ready, and
+-- only that one is acted on. A page that already got `init` ignores a later
+-- hello, so a forged tokenless ready leaves the live page alone; a page that
+-- really reloaded has no token and takes the one on offer.
+--
+-- The offered token is kept until it is used: a forged ready racing the real
+-- page's first one re-offers the same token instead of replacing it, so it
+-- cannot strand the page with a token Lua no longer accepts. A used token is
+-- never accepted again, so a replayed ready resets nothing.
+local session = nil
+local offered = nil
+
+-- true when the page's token is the current session; a missing or wrong one
+-- is counted as rejected.
+function I.isSession(token)
+    if session ~= nil and token == session then
+        return true
+    end
+    I.stats.rejected = I.stats.rejected + 1
+    return false
+end
+
+-- true when this ready is the real page echoing the offered token.
+function I.acceptReady(token)
+    if token == nil then
+        offered = offered or I.nextId()
+        I.stats.sent = I.stats.sent + 1
+        SendNuiMessage(json.encode({ action = 'hello', data = { token = offered } }))
+        return false
+    end
+    if offered ~= nil and token == offered then
+        session, offered = offered, nil
+        return true
+    end
+    I.stats.rejected = I.stats.rejected + 1
+    return false
+end
+
 function I.markReady(initial)
     local wasReady = I.ready
     I.ready = true
