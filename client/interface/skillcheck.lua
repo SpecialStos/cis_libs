@@ -91,10 +91,11 @@ local function settle(s, success)
     return true
 end
 
+-- Answers false and why when the page refused the round (over the NUI cap).
 local function startRound(s)
     s.round = makeRound(s.rounds[s.index], s.keys)
     s.t0 = GetGameTimer()
-    I.send('skill:round', {
+    local sent, why = I.send('skill:round', {
         id = s.id,
         index = s.index,
         count = #s.rounds,
@@ -103,6 +104,10 @@ local function startRound(s)
         key = s.round.key,
         degPerMs = s.round.degPerMs,
     })
+    if sent == false and I.ready then
+        return false, why or 'the page refused the message'
+    end
+    return true
 end
 
 -- One frame of the active check: read the keys, judge, move on or finish.
@@ -130,7 +135,9 @@ local function frame(s, now, frameMs)
             settle(s, true)
         else
             s.index = s.index + 1
-            startRound(s)
+            if not startRound(s) then
+                settle(s, false)
+            end
         end
     end
 end
@@ -177,7 +184,11 @@ local function skillCheck(difficulty, inputs)
     end
     local s = { id = I.nextId(), owner = owner, keys = keys, rounds = rounds, index = 1, p = promise.new() }
     current = s
-    startRound(s)
+    local started, why = startRound(s)
+    if not started then
+        settle(s, false)
+        return false, ('skill check failed to start: %s'):format(tostring(why))
+    end
     CreateThread(function()
         local last = GetGameTimer()
         while current == s do

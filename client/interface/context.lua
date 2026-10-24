@@ -163,8 +163,10 @@ local function close(callExit)
     return true
 end
 
+-- Raises when the page refuses the message (over the NUI cap), so both callers
+-- run their cleanup: showContext releases focus, redraw closes the menu.
 local function sendOpen(ctx, token)
-    I.send('context:open', {
+    local sent, why = I.send('context:open', {
         token = token,
         id = ctx.id,
         title = ctx.title,
@@ -172,6 +174,9 @@ local function sendOpen(ctx, token)
         hasBack = ctx.menu ~= nil and contexts[ctx.menu] ~= nil,
         options = view(ctx),
     })
+    if sent == false and I.ready then
+        error(why or 'the page refused the message', 0)
+    end
 end
 
 local function showContext(id)

@@ -4280,6 +4280,34 @@
       "find": "            return ...\n",
       "replace": "            return (...)\n",
       "why": "Body keeps only the first return value of the loop body, so a tick that answers several values loses the rest."
+    },
+    {
+      "id": "M736",
+      "file": "client/interface/alert.lua",
+      "find": "if sent == false and I.ready then",
+      "replace": "if false then",
+      "why": "An alert the page refuses (over the NUI cap) keeps NUI focus with nothing drawn."
+    },
+    {
+      "id": "M737",
+      "file": "client/interface/context.lua",
+      "find": "if sent == false and I.ready then",
+      "replace": "if false then",
+      "why": "A context menu the page refuses (over the NUI cap) counts as open and keeps NUI focus with nothing drawn."
+    },
+    {
+      "id": "M738",
+      "file": "client/interface/radial.lua",
+      "find": "if sent == false and I.ready then",
+      "replace": "if false then",
+      "why": "A radial the page refuses (over the NUI cap) keeps focus, keepInput and its control thread with nothing drawn."
+    },
+    {
+      "id": "M739",
+      "file": "client/interface/menu.lua",
+      "find": "if sent == false and I.ready then",
+      "replace": "if false then",
+      "why": "A list menu the page refuses (over the NUI cap) counts as open and disables the player's controls for a menu nobody sees."
     }
   ]
 }

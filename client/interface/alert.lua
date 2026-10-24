@@ -56,7 +56,7 @@ local function alertDialog(data)
             owner = owner,
             onEscape = function() settle(s, 'cancel') end,
         })
-        I.send('alert:open', {
+        local sent, why = I.send('alert:open', {
             id = s.id,
             header = header,
             content = content,
@@ -65,6 +65,12 @@ local function alertDialog(data)
             size = SIZES[data.size] and data.size or nil,
             labels = labels(data.labels),
         })
+        if sent == false and I.ready then
+            -- The page never got it (a message over the NUI cap): fail the open
+            -- so the cleanup below releases focus instead of keeping a cursor up
+            -- for nothing on screen.
+            error(why or 'the page refused the message', 0)
+        end
     end)
     if not ok then
         I.log('error', ('alert dialog failed to open: %s'):format(tostring(err)))

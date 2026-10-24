@@ -333,6 +333,10 @@ Check these first; each is a line under **Changed** or **Deprecated**.
 - **`class` copies `__newindex` and `__gc` down to a subclass, and a parent
   `__index` function keeps answering after the subclass's own methods** (A-L9).
   A read-only parent was writable through a subclass.
+- **Progress props are local objects.** `ProgressBar` / `ProgressCircle` created their props
+  networked, which needs the server's entity policy to allow client-created entities (strict
+  entity lockdown refuses them) and takes a network slot per prop. They are now created
+  non-networked, as ox_lib creates them; other players see the animation without the prop.
 
 ### Added
 
@@ -788,6 +792,12 @@ which is forgotten when that resource stops.
   cache, zone and point passes every frame, packed each result into a new table only to unpack it;
   the results now pass straight through. Return values (nil holes included) and the nil after a
   raise are unchanged, and now tested.
+- **A UI the page refuses no longer strands the player.** `I.send` answers `false` and a reason
+  when the page does not take a message (one NUI message is capped at 1 MiB). The alert, input,
+  context, radial, list menu, skill check, progress and text UI openers ignored that answer, so an
+  over-cap open kept NUI focus, keepInput or a control-disabling thread for a component nothing
+  drew. Each now fails the open: focus and threads are released, an anim or props already started
+  by a progress are undone, and the caller gets `false` (or `nil` for the dialogs) and a reason.
 
 ### Security
 

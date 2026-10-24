@@ -96,7 +96,11 @@ local function spawnProps(s, ped)
         local hash = type(p.model) == 'string' and joaat(p.model) or p.model
         if loadModel(hash) and current == s then
             local c = GetEntityCoords(ped)
-            local obj = CreateObject(hash, c.x, c.y, c.z + 0.2, true, true, true)
+            -- Local, not networked, as ox_lib creates them: a networked object
+            -- needs the server's entity policy to allow client creation (strict
+            -- entity lockdown refuses it) and takes a slot in the network pool,
+            -- for a prop that only decorates the animation.
+            local obj = CreateObject(hash, c.x, c.y, c.z + 0.2, false, false, false)
             -- Recorded before anything else can fail, so cleanup sees it.
             s.spawned[#s.spawned + 1] = obj
             local px, py, pz = vec(p.pos)
@@ -289,7 +293,7 @@ local function run(kind, data)
         return false, 'cancelled'
     end
     s.endsAt = GetGameTimer() + s.duration
-    I.send('progress:start', {
+    local sent, why = I.send('progress:start', {
         kind = kind,
         label = I.str(data.label, 256),
         duration = s.duration,
@@ -297,6 +301,12 @@ local function run(kind, data)
             or I.defaults.progressPosition,
         canCancel = s.canCancel,
     })
+    if sent == false and I.ready then
+        -- No bar drawn (over the NUI cap): undo the anim and props rather than
+        -- run an invisible progress the player cannot see to cancel.
+        finish(s, false)
+        return false, ('progress failed to start: %s'):format(tostring(why or 'the page refused the message'))
+    end
     CreateThread(function()
         while current == s do
             frame(s)

@@ -86,7 +86,12 @@ local function draw()
         close()
         return
     end
-    I.send('radial:open', { token = open.token, items = view(open.list), hasBack = #open.path > 0 })
+    local sent, why = I.send('radial:open', { token = open.token, items = view(open.list), hasBack = #open.path > 0 })
+    if sent == false and I.ready then
+        -- Not drawn (over the NUI cap): close, so no cursor stays up for nothing.
+        I.log('error', ('radial menu not drawn: %s'):format(tostring(why)))
+        close()
+    end
 end
 
 local function show()

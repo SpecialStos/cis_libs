@@ -328,9 +328,9 @@ local function newEnv()
     function HasModelLoaded() return true end
     function SetModelAsNoLongerNeeded() end
     function GetEntityCoords() return { x = 1.0, y = 2.0, z = 3.0 } end
-    function CreateObject(model)
+    function CreateObject(model, _, _, _, isNetwork, netMission)
         env.nextEntity = env.nextEntity + 1
-        env.created[#env.created + 1] = { handle = env.nextEntity, model = model }
+        env.created[#env.created + 1] = { handle = env.nextEntity, model = model, network = isNetwork, mission = netMission }
         env.alive = env.alive or {}
         env.alive[env.nextEntity] = true
         return env.nextEntity
@@ -706,6 +706,10 @@ do
     check(env.live() == 2, 'progress: exactly one frame thread (plus the parked caller) while active')
     check(#env.created == 2 and env.attached[1].bone == 18905, 'progress: both props spawned and attached to the asked bone')
     check(env.attached[2].bone == 60309, 'progress: a prop with no bone uses the default hand bone')
+    -- L9: local objects, as ox_lib creates them: no network id, no entity
+    -- lockdown refusal, nothing in the server's entity pool for a cosmetic prop.
+    check(env.created[1].network == false and env.created[2].network == false
+        and env.created[1].mission == false, 'progress L9: the props are created non-networked')
     check(env.anims[1] and env.anims[1].dict == 'amb@x' and env.anims[1].flag == 49, 'progress: the animation is played with the default flag')
     local start = env.last('progress:start')
     check(start and start.kind == 'bar' and start.duration == 1000 and start.canCancel == true, 'progress: the page is told to draw a bar')
@@ -1438,6 +1442,84 @@ do
     check(env.live() == 0, 'errors: and starts no thread')
     env.failSend = nil
     check(#env.logged > 0, 'errors: each failure is logged')
+    env.reset()
+end
+
+-- ============================== 13b. a message the page refuses (the NUI size cap)
+--
+-- I.send answers false and a reason when it refuses a message (one NUI message
+-- is capped at 1 MiB). An opener that ignored that answer kept NUI focus, or a
+-- control-disabling thread, for a component the page never drew: the player
+-- was left with a cursor and nothing on screen. Every opener now treats a
+-- refused open as a failure to open.
+do
+    local env = newEnv()
+    env.load()
+    local realSend = CisInterface.send
+    local refuse
+    CisInterface.send = function(action, data, buffer)
+        if action == refuse then return false, 'message too large' end
+        return realSend(action, data, buffer)
+    end
+    local function released(what)
+        check(lastFocus(env) == nil or lastFocus(env).focus == false,
+            ('cap: %s refused by the page does not keep NUI focus'):format(what))
+        check(#CisInterface.focus.stack() == 0, ('cap: and leaves nothing on the focus stack (%s)'):format(what))
+    end
+
+    refuse = 'alert:open'
+    local got
+    env.spawn(function() got = { env.X.AlertDialog({ header = 'big' }) } end)
+    check(got and got[1] == nil and type(got[2]) == 'string', 'cap: an alert the page refuses returns nil and a reason')
+    released('an alert')
+
+    refuse = 'input:open'
+    got = nil
+    env.spawn(function() got = { env.X.InputDialog('big', { 'a' }) } end)
+    check(got and got[1] == nil and type(got[2]) == 'string', 'cap: an input dialog the page refuses returns nil and a reason')
+    released('an input dialog')
+
+    refuse = 'context:open'
+    env.X.RegisterContext({ id = 'big', options = { { title = 'x' } } })
+    local okC, whyC = env.X.ShowContext('big')
+    check(okC == false and type(whyC) == 'string' and env.X.GetOpenContextMenu() == nil,
+        'cap: a context menu the page refuses reports false, a reason, and is not open')
+    released('a context menu')
+
+    refuse = 'radial:open'
+    env.X.AddRadialItem({ id = 'big', label = 'big' })
+    env.commands['+cis_libs_radial']()
+    check(env.keep == false or env.keep == nil, 'cap: a radial the page refuses releases keepInput')
+    released('a radial')
+    check(env.live() == 0, 'cap: and the radial starts no control thread')
+
+    refuse = 'menu:open'
+    env.X.RegisterMenu({ id = 'bigm', title = 'Big', options = { { label = 'a' } } }, function() end)
+    local okM, whyM = env.X.ShowMenu('bigm')
+    check(okM == false and type(whyM) == 'string' and env.X.GetOpenMenu() == nil and env.live() == 0,
+        'cap: a list menu the page refuses reports false, a reason, is not open and runs no thread')
+
+    refuse = 'skill:round'
+    got = nil
+    env.spawn(function() got = { env.X.SkillCheck('easy') } end)
+    check(got and got[1] == false and type(got[2]) == 'string' and env.X.SkillCheckActive() == false,
+        'cap: a skill check the page refuses returns false and a reason, and is not active')
+    check(env.live() == 0, 'cap: and runs no input thread')
+
+    refuse = 'progress:start'
+    got = nil
+    env.spawn(function() got = { env.X.ProgressBar({ duration = 1000, label = 'big', prop = { model = 'p' } }) } end)
+    check(got and got[1] == false and type(got[2]) == 'string' and env.X.ProgressActive() == false,
+        'cap: a progress bar the page refuses returns false and a reason, and is not active')
+    check(env.live() == 0, 'cap: and runs no frame thread')
+
+    refuse = 'textui:show'
+    local okT, whyT = env.X.ShowTextUI('big')
+    check(okT == false and type(whyT) == 'string' and env.X.IsTextUIOpen() == false,
+        'cap: a text UI the page refuses reports false, a reason, and is not open')
+
+    refuse = nil
+    CisInterface.send = realSend
     env.reset()
 end
 
