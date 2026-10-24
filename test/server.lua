@@ -6714,6 +6714,39 @@ do
     env.reset()
 end
 
+-- ============================ W2g. a dropped player's bad-payload ledger goes with them
+--
+-- playerDropped clears schemaReported[src]; nothing checked it (M382 survived).
+-- Server ids are reused, so a ledger kept past the drop would mute the first
+-- bad payload of whoever connects next on that id.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    exports.bank = { Withdraw = function() end }
+    loadModule('server/security.lua')
+    local reported = 0
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_ENV, 'CisSecurityReport') }
+    function CisSecurityReport() reported = reported + 1; return true end
+    env.invoking = 'bank'
+    CisNetOn('bank:w2g', 'bank:Withdraw', {
+        schema = { amount = { type = 'number', min = 1, max = 1000 } }, maxHits = 50,
+    })
+    env.emit('bank:w2g', 9, { amount = 'lots' })
+    env.clock = env.clock + 100
+    env.emit('bank:w2g', 9, { amount = 'lots' })
+    check(reported == 1, ('W2g: two bad payloads in one run are one report (reports=%d)'):format(reported))
+    local savedSource = rawget(_ENV, 'source')
+    source = 9
+    env.fire('playerDropped', 'quit')
+    source = savedSource
+    env.clock = env.clock + 100
+    env.emit('bank:w2g', 9, { amount = 'lots' })
+    check(reported == 2,
+        ('W2g: after src 9 drops, a bad payload from src 9 is reported again at once (reports=%d)'):format(reported))
+    env.reset()
+end
+
 -- ==================================================================== report
 -- Named, not just counted. A suite that reports "failed=3" and exits tells you
 -- something broke and nothing about what, and the fix is to re-run with a print
