@@ -37,8 +37,9 @@ function duplicateIds(rows) {
 }
 
 // What a gate that CAUGHT a defect looks like in its output: a suite FAIL line,
-// a `failed=N` summary, a validator E-code, or node:test's `not ok` / `# fail`.
-const TEST_FAILURE = /(^|\n)\s*(FAIL|not ok)\b|FAIL\(|failed=[1-9]|\[E\d+\]|# fail [1-9]/
+// a `failed=N` summary, a validator E-code, or node:test's `not ok` / `# fail`
+// (TAP) and its spec reporter's `✖ name` / `ℹ fail N` lines.
+const TEST_FAILURE = /(^|\n)\s*(FAIL|not ok)\b|FAIL\(|failed=[1-9]|\[E\d+\]|# fail [1-9]|\u2139 fail [1-9]|\u2716 /
 
 // A non-zero exit is only evidence that a mutation was caught when the gate says
 // it found a failure. A spawn error (the runner could not start), a signal or

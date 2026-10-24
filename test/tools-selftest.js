@@ -156,6 +156,7 @@ check('mutate: a test failure is a kill, whichever runner reported it', () => {
     '[E070] client-only stub missing\n',
     'not ok 3 - the page\n',
     '# fail 1\n',
+    '✖ a message from another frame is dropped (28.29ms)\nℹ fail 2\n',
     'FAIL the Lua 5.4 driver passed a broken suite\n',
   ]) {
     assert.strictEqual(mutate.classify({ code: 1, out }).state, 'failed', out)
