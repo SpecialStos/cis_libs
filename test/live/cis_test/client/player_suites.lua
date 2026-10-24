@@ -289,7 +289,11 @@ P.RegisterSuite('zones', {
             -- Reading the first handed it the zone table, whose `.x` is nil, and
             -- the message format raised instead of reporting the pass. The case
             -- had been reporting this failure for the whole project.
-            local haveCoords = type(first) == 'table' and type(first.x) == 'number'
+            -- A VECTOR3 IS NOT A TABLE: removal hands a vector3, which CfxLua
+            -- types as 'vector3', so `type(first) == 'table'` refused the very
+            -- coords it was waiting for (run-20261024-114446, "coords MISSING"
+            -- with one exit). `true` is NoteExit's stand-in for no coords.
+            local haveCoords = first ~= nil and first ~= true and type(first.x) == 'number'
             local coordsText = haveCoords
                 and ('%.1f, %.1f, %.1f'):format(first.x, first.y, first.z)
                 or 'MISSING'
