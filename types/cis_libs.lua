@@ -655,7 +655,7 @@ local CisWeaponData = {}
 ---@field newest fun(w: table): any, number|nil # The newest value without removing it.
 ---@field oldest fun(w: table): any, number|nil # The oldest value without removing it.
 ---@field each fun(w: table, fn: fun(value: any, time: number|nil, index: integer)): integer # Walk from oldest to newest, calling `fn(value, time, index)`.
----@field clear fun(w: table) # Empty the ring, keeping its allocated capacity.
+---@field clear fun(w: table) # Empty the ring, keeping its capacity.
 ---@field newDedupe fun(windowSec: number): table # A per-key "seen recently" filter over a time window.
 ---@field seen fun(d: table, key: any, now: number): boolean # Would this key be ACCEPTED right now?
 ---@field isSeen fun(d: table, key: any, now: number): boolean # Is a key currently inside its window?

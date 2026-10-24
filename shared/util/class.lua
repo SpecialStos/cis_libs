@@ -23,7 +23,9 @@
 -- ancestor) defines `toString`, which is then used. Other metamethods (__eq,
 -- __lt, __add, ...) defined on a parent BEFORE the subclass is created are
 -- copied down, because Lua reads metamethods with rawget and never follows
--- __index for them.
+-- __index for them. __newindex and __gc are copied the same way, so a read-only
+-- parent stays read-only through a subclass; a parent __index FUNCTION is wrapped
+-- so it still answers after the subclass's own methods.
 --
 -- PRIVATE FIELDS. `class.privates()` returns an accessor bound to a weak-keyed
 -- table. Keep it local to the file that defines the class: only code holding
@@ -42,7 +44,7 @@ local classes = setmetatable({}, { __mode = 'k' })
 local METAMETHODS = {
     '__eq', '__lt', '__le', '__add', '__sub', '__mul', '__div', '__mod', '__pow',
     '__unm', '__idiv', '__band', '__bor', '__bxor', '__shl', '__shr', '__bnot',
-    '__concat', '__len', '__call', '__close',
+    '__concat', '__len', '__call', '__close', '__newindex', '__gc',
 }
 
 -- The address part of the default tostring, read without the class's own
@@ -103,6 +105,16 @@ function M.new(name, super)
         for _, mm in ipairs(METAMETHODS) do
             local f = rawget(super, mm)
             if f ~= nil then cls[mm] = f end
+        end
+    end
+    -- A parent whose __index is a function (a computed field) keeps answering for the
+    -- subclass: the subclass's own methods first, then the parent's function.
+    local inheritedIndex = super and rawget(super, '__index')
+    if type(inheritedIndex) == 'function' then
+        cls.__index = function(t, k)
+            local v = cls[k]
+            if v ~= nil then return v end
+            return inheritedIndex(t, k)
         end
     end
     -- The class's own metatable: inherited lookups go to the parent, and calling

@@ -219,9 +219,9 @@ end
 --- Thousands separators: 1234567.891 -> '1,234,567.891'.
 ---@param n number|string  a number, or a numeric string (kept exactly as written)
 ---@param sep? string  default ','
----@param decimals? integer  fix the number of decimals first (numbers only)
+---@param decimals? integer  fix the number of decimals first (numbers only); a whole number from 0 to 99
 ---@return string|nil
----@return string|nil  why
+---@return string|nil  why, also for a decimals outside 0 to 99
 function M.groupDigits(n, sep, decimals)
     sep = sep or ','
     local text
@@ -230,7 +230,19 @@ function M.groupDigits(n, sep, decimals)
             return tostring(n)
         end
         if decimals ~= nil then
-            text = ('%.' .. tostring(math.floor(decimals)) .. 'f'):format(n)
+            -- string.format takes 0 to 99 places; anything else would raise.
+            if type(decimals) ~= 'number' or decimals ~= decimals or decimals < 0 or decimals >= 100 then
+                return nil, ('decimals must be a number from 0 to 99, got %s'):format(tostring(decimals))
+            end
+            local places = math.floor(decimals)
+            if math.type(n) == 'integer' then
+                -- Written out: through a float the digits past 2^53 change.
+                text = ('%d'):format(n) .. (places > 0 and '.' .. ('0'):rep(places) or '')
+            else
+                text = ('%.' .. tostring(places) .. 'f'):format(n)
+            end
+        elseif math.type(n) == 'integer' then
+            text = ('%d'):format(n)
         elseif n % 1 == 0 and math.abs(n) < 1e21 then
             text = ('%.0f'):format(n)
         else

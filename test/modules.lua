@@ -3416,6 +3416,94 @@ do
     expect(S.best({ '1.0.0', 'garbage' }, '*') == nil, 'semver: best refuses a malformed candidate')
 end
 
+-- ====================================================== re-audit lows (A-L8..A-L14)
+do
+    -- A-L8: an unbounded ring clears, and a dedupe without a clock refuses.
+    local W = CisWindow
+    local ring = W.new(math.huge)
+    for i = 1, 3 do W.push(ring, i * 10, i) end
+    debug.sethook(function() error('HUNG', 0) end, '', 2000000)
+    local okClear = pcall(W.clear, ring)
+    debug.sethook()
+    expect(okClear and ring.size == 0 and W.newest(ring) == nil,
+        'window: clear on a ring of infinite capacity returns instead of walking every slot')
+    W.push(ring, 7, 1)
+    expect(W.newest(ring) == 7 and ring.size == 1, 'window: a cleared infinite ring takes pushes again')
+    local d = W.newDedupe(5)
+    W.seen(d, 'k', 100)
+    local okSeen, seenNil = pcall(W.isSeen, d, 'k', nil)
+    local okPrune, pruned = pcall(W.prune, d, nil)
+    expect(okSeen and seenNil == false, 'window: isSeen with no clock answers false instead of raising')
+    expect(okPrune and pruned == 0 and d.size == 1, 'window: prune with no clock removes nothing instead of raising')
+
+    -- A-L11: a limit of 0 is a limit of 0, and a key that cannot index is refused.
+    local zeroFixed = CisRate.newFixed({ limit = 0, windowSec = 1 })
+    local zeroSliding = CisRate.newSliding({ limit = 0, windowSec = 1 })
+    expect(zeroFixed.limit == 0 and zeroSliding.limit == 0, 'rate: limit = 0 is kept, not turned into 10')
+    expect(CisRate.allow(zeroFixed, 'a', 100) == false and CisRate.allow(zeroSliding, 'a', 100) == false,
+        'rate: a limiter with limit 0 allows nothing')
+    expect(CisRate.peek(zeroFixed, 'a', 100).retryAfter == math.huge
+        and CisRate.peek(zeroSliding, 'a', 100).retryAfter == math.huge,
+        'rate: a limit of 0 never recovers, so retryAfter is infinite')
+    expect(CisRate.newFixed({ limit = -3 }).limit == 10 and CisRate.newFixed({ limit = 0 / 0 }).limit == 10,
+        'rate: a negative or NaN limit still falls back to the default')
+    for _, kind in ipairs({ 'newFixed', 'newSliding', 'newTokenBucket' }) do
+        local r = CisRate[kind]({})
+        local okA, allowed = pcall(CisRate.allow, r, nil, 100)
+        local okN, allowedN = pcall(CisRate.allow, r, 0 / 0, 100)
+        local okP, peeked = pcall(CisRate.peek, r, nil, 100)
+        expect(okA and allowed == false and okN and allowedN == false and r.size == 0,
+            ('rate: %s refuses a nil or NaN key instead of raising'):format(kind))
+        expect(okP and peeked.allowed == false and peeked.remaining == 0,
+            ('rate: %s peek on a nil key reports no allowance'):format(kind))
+    end
+
+    -- A-L12: the uniqueness suffix counts toward maxLength.
+    local used = { abcdefgh = true }
+    local seen, within = {}, true
+    for _ = 1, 12 do
+        local key = CisId.normaliseName('abcdefgh', used, { maxLength = 8 })
+        within = within and key ~= nil and #key <= 8 and not seen[key]
+        used[key or '?'] = true
+        seen[key or '?'] = true
+    end
+    expect(within, 'id: every suffixed key stays within maxLength and unique')
+    expect(CisId.normaliseName('abcdefgh', { abcdefgh = true }, { maxLength = 8 }) == 'abcdef_2',
+        'id: the name is trimmed to make room for _2')
+    local none, noneWhy = CisId.normaliseName('ab', { ab = true }, { maxLength = 2 })
+    expect(none == nil and type(noneWhy) == 'string', 'id: no room for the suffix is a refusal with a reason')
+
+    -- A-L13: a duration too large for a double is refused, not returned as infinity.
+    local big, bigWhy = CisTime.parseDuration(('9'):rep(400) .. 's')
+    local bigBare, bigBareWhy = CisTime.parseDuration(('9'):rep(400))
+    expect(big == nil and type(bigWhy) == 'string' and bigBare == nil and type(bigBareWhy) == 'string',
+        'time: parseDuration refuses a number too large to hold')
+    expect(CisTime.parseDuration('1w') == 604800 and CisTime.parseDuration('99999999999999999999999w') ~= nil,
+        'time: a large but finite duration still parses')
+
+    -- A-L14: a draw is redrawn until accepted, not folded onto the top value after 8.
+    local M1 = 4294967087.0
+    local n = 2147483649.0
+    local limit = M1 - (M1 % n)
+    local checked = 0
+    for seed = 1, 30000 do
+        local mirror = CisRandom.newGenerator(seed)
+        local rejected, accepted = 0, nil
+        for _ = 1, 40 do
+            local v = mirror:next()
+            if v > limit then rejected = rejected + 1 else accepted = v break end
+        end
+        if rejected >= 9 and accepted then
+            local got = CisRandom.newGenerator(seed):int(0, n - 1)
+            expect(got == math.floor((accepted - 1) % n),
+                ('random: seed %d, %d rejected draws, still lands on the first accepted one'):format(seed, rejected))
+            checked = checked + 1
+            if checked >= 3 then break end
+        end
+    end
+    expect(checked >= 1, 'random: the scan found a seed whose first nine draws are all rejected')
+end
+
 io.write(('module tests: passed=%d failed=%d\n'):format(passed, failed))
 if failed > 0 then
     os.exit(1)

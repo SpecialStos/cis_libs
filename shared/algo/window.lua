@@ -108,14 +108,13 @@ function M.each(w, fn)
     return n
 end
 
---- Empty the ring, keeping its allocated capacity.
+--- Empty the ring, keeping its capacity.
 ---@param w table
 ---@return nil  it empties the ring in place
 function M.clear(w)
-    for i = 1, w.capacity do
-        w.values[i] = nil
-        w.times[i] = nil
-    end
+    -- Fresh tables, not a walk over `capacity` slots: a capacity of math.huge never ends.
+    w.values = {}
+    w.times = {}
     w.size = 0
     w.start = 1
 end
@@ -166,6 +165,10 @@ end
 ---@param now number
 ---@return boolean  true while the key is inside its window
 function M.isSeen(d, key, now)
+    -- As in `seen`, a non-numeric or NaN `now` is refused rather than compared.
+    if type(now) ~= 'number' or now ~= now then
+        return false
+    end
     local last = d.entries[key]
     if last == nil then
         return false
@@ -190,8 +193,11 @@ end
 --- Drop every key whose window has expired.
 ---@param d table
 ---@param now number
----@return integer  how many keys were reclaimed
+---@return integer  how many keys were reclaimed; none for a non-numeric or NaN `now`
 function M.prune(d, now)
+    if type(now) ~= 'number' or now ~= now then
+        return 0
+    end
     local removed = 0
     for key, last in pairs(d.entries) do
         if now - last >= d.windowSec or now < last then

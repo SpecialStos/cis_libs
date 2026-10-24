@@ -61,6 +61,25 @@ re-audit numbers in `reaudit-modules.md`.
 - **`cron.next` and `cron.matches` answer `nil, reason` for a time the platform
   cannot convert, and `matches` for one that is not a number** (A-L4). They
   raised from `os.date`, `math.floor` or inside the date arithmetic.
+- **`mathx.groupDigits` returns `nil, reason` for a `decimals` outside 0 to 99**
+  (A-L5); `string.format` raised for it. An integer is written out digit for
+  digit, not through a float.
+- **`string.padStart` and `padEnd` floor a fractional width and return the text
+  unchanged for a missing, NaN or infinite one** (A-L6); they raised.
+- **`rate.newFixed` and `newSliding` keep `limit = 0`** (A-L11), which allows
+  nothing and reports an infinite `retryAfter`. It used to become 10. A
+  negative or NaN limit still takes the default. `allow` refuses a nil or NaN
+  key, and `peek` reports it with no allowance; both raised.
+- **`window.isSeen` answers false and `window.prune` removes nothing when `now`
+  is not a number** (A-L8), as `seen` already refuses it.
+- **`id.normaliseName` keeps the uniqueness suffix inside `maxLength`** (A-L12)
+  by trimming the name to make room, and answers `nil, reason` when even the
+  suffix does not fit.
+- **`time.parseDuration` answers `nil, reason` for a number too large for a
+  double** (A-L13); it returned infinity.
+- **`class` copies `__newindex` and `__gc` down to a subclass, and a parent
+  `__index` function keeps answering after the subclass's own methods** (A-L9).
+  A read-only parent was writable through a subclass.
 
 ### Fixed
 
@@ -77,3 +96,11 @@ re-audit numbers in `reaudit-modules.md`.
   next, or the one it was asked about (A-L3).
 - A late `window.record` no longer moves the newest bucket backwards, which
   made live samples read as expired (A-M6).
+- `array.sum` leaves the integers instead of wrapping once a sum passes the
+  integer range, and `array.flat` keeps a table that contains itself as an
+  element instead of overflowing the stack at an unbounded depth (A-L7).
+- `window.clear` on a ring of infinite capacity returns; it walked every slot
+  (A-L8).
+- The seeded generator redraws up to 64 times instead of 8 before it folds a
+  rejected draw. After 8 rejections the fold put roughly 1 draw in 512 of a
+  half-period range on the top value (A-L14).

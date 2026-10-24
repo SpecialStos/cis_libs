@@ -337,12 +337,16 @@ end
 
 --- Pad on the left to `width`. Text longer than `width` is returned unchanged --
 ---@param s any
----@param width integer
+---@param width integer  a fraction is floored; a missing, NaN or infinite width pads nothing
 ---@param fill? string
 ---@return string  padded on the left to a BYTE width; unchanged when already long enough
 function M.padStart(s, width, fill)
     s = type(s) == 'string' and s or tostring(s)
     fill = (type(fill) == 'string' and fill ~= '') and fill or ' '
+    if type(width) ~= 'number' or width ~= width or width == math.huge then
+        return s
+    end
+    width = math.floor(width)
     if #s >= width then
         return s
     end
@@ -352,12 +356,16 @@ end
 
 --- Pad on the right to `width`.
 ---@param s any
----@param width integer
+---@param width integer  a fraction is floored; a missing, NaN or infinite width pads nothing
 ---@param fill? string
 ---@return string  padded on the right to a BYTE width
 function M.padEnd(s, width, fill)
     s = type(s) == 'string' and s or tostring(s)
     fill = (type(fill) == 'string' and fill ~= '') and fill or ' '
+    if type(width) ~= 'number' or width ~= width or width == math.huge then
+        return s
+    end
+    width = math.floor(width)
     if #s >= width then
         return s
     end

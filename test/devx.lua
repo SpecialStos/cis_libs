@@ -1032,6 +1032,73 @@ do
     os.time = realTime -- luacheck: ignore 122
 end
 
+-- ====================================================== re-audit lows (A-L5..A-L9)
+do
+    local X = load('shared/util/mathx.lua')
+    local Str = load('shared/util/string.lua')
+    local A = load('shared/util/array.lua')
+    local C = load('shared/util/class.lua')
+
+    -- A-L5: an integer is formatted as an integer, and a bad decimals is a refusal.
+    local want = math.maxinteger > 2 ^ 40 and '9,223,372,036,854,775,807' or '2,147,483,647'
+    expect(X.groupDigits(math.maxinteger) == want,
+        'mathx: groupDigits writes math.maxinteger digit for digit, not through a float')
+    local wantMin = math.maxinteger > 2 ^ 40 and '-9,223,372,036,854,775,808' or '-2,147,483,648'
+    expect(X.groupDigits(math.mininteger) == wantMin, 'mathx: groupDigits writes math.mininteger exactly')
+    for _, bad in ipairs({ 'x', -1, 100, 0 / 0, math.huge, {} }) do
+        local ok, out, why = pcall(X.groupDigits, 1234.5, ',', bad)
+        expect(ok and out == nil and type(why) == 'string',
+            ('mathx: groupDigits refuses decimals %s with a reason instead of raising'):format(tostring(bad)))
+    end
+    expect(X.groupDigits(1234.5, ',', 2.9) == '1,234.50', 'mathx: a fractional decimals still floors')
+
+    -- A-L6: a width that is not a whole number is floored, and a missing one pads nothing.
+    expect(Str.padStart('a', 2.5) == ' a' and Str.padEnd('a', 2.5) == 'a ',
+        'string: pad floors a fractional width')
+    expect(Str.padStart('a') == 'a' and Str.padEnd('a') == 'a' and Str.padStart('a', 'x') == 'a'
+        and Str.padStart('a', 0 / 0) == 'a' and Str.padEnd('a', math.huge) == 'a',
+        'string: pad with no usable width returns the text unchanged')
+
+    -- A-L7: the sum leaves the integers instead of wrapping, and flat survives a cycle.
+    local total = A.sum({ math.maxinteger, 1 })
+    expect(total == math.maxinteger + 1.0, 'array: sum past the integer range goes to a float, not a wrapped negative')
+    local low = A.sum({ math.mininteger, -1 })
+    expect(low == math.mininteger - 1.0, 'array: sum below the integer range goes to a float too')
+    expect(A.sum({ 1, 2, 3 }) == 6 and math.type(A.sum({ 1, 2, 3 })) == 'integer',
+        'array: a sum that fits stays an integer')
+    local cyc = { 1 }
+    cyc[2] = cyc
+    cyc[3] = { 2, cyc }
+    local okFlat, flat = pcall(A.flat, cyc, math.huge)
+    expect(okFlat and flat[1] == 1 and flat[2] == cyc and flat[3] == 2 and flat[4] == cyc,
+        'array: flat keeps a reference to a table it is already inside, instead of overflowing the stack')
+    local shared = { 7 }
+    local twice = A.flat({ shared, shared }, math.huge)
+    expect(twice[1] == 7 and twice[2] == 7, 'array: flat still spreads the same table met twice, side by side')
+
+    -- A-L9: a subclass keeps the parent's guards.
+    local Base = C.new('Base')
+    Base.__newindex = function(_, k) error('read-only: ' .. tostring(k), 0) end
+    Base.__gc = function() end
+    local Sub = C.new('Sub', Base)
+    expect(not pcall(function() Sub:new().x = 1 end), 'class: a read-only parent stays read-only through a subclass')
+    expect(rawget(Sub, '__gc') == Base.__gc, 'class: __gc is copied down to a subclass')
+    local Dyn = C.new('Dyn')
+    function Dyn:hello() return 'hi' end
+    Dyn.__index = function(_, k)
+        local m = rawget(Dyn, k)
+        if m ~= nil then return m end
+        return 'dyn:' .. tostring(k)
+    end
+    local Kid = C.new('Kid', Dyn)
+    function Kid:own() return 'own' end
+    local kid = Kid:new()
+    expect(kid.anything == 'dyn:anything' and kid:hello() == 'hi' and kid:own() == 'own',
+        'class: a parent __index function still answers for a subclass instance, and methods still resolve')
+    local plain = C.new('Plain', C.new('Root'))
+    expect(rawget(plain, '__index') == plain, 'class: a plain parent leaves the subclass __index as the class itself')
+end
+
 io.write(('devx module tests: passed=%d failed=%d\n'):format(passed, failed))
 if failed > 0 then
     os.exit(1)

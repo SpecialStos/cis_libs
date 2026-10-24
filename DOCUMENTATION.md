@@ -718,7 +718,7 @@ Source: `shared/algo/window.lua`.
 
 | Function | Signature | Summary |
 |---|---|---|
-| `clear` | `(w: table) → nil` | Empty the ring, keeping its allocated capacity. |
+| `clear` | `(w: table) → nil` | Empty the ring, keeping its capacity. |
 | `count` | `(stats: table, key: any, now: number) → integer` | Alias of `samples`. The number of live SAMPLES for `key` inside the window. |
 | `dedupeCount` | `(d: table) → integer` | How many keys are being tracked, including expired ones not yet pruned. |
 | `each` | `(w: table, fn: fun(value: any, time: number\|nil, index: integer)) → integer` | Walk from oldest to newest, calling `fn(value, time, index)`. |

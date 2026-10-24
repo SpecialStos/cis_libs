@@ -356,28 +356,32 @@ function M.concat(a, ...)
     return out
 end
 
-local function flatInto(out, k, a, depth)
+-- `active` holds the arrays being spread right now: one met again inside itself is a
+-- cycle, and is kept as an element rather than followed forever.
+local function flatInto(out, k, a, depth, active)
+    active[a] = true
     for i = 1, len(a) do
         local v = a[i]
-        if depth > 0 and M.isArrayLike(v) then
-            k = flatInto(out, k, v, depth - 1)
+        if depth > 0 and not active[v] and M.isArrayLike(v) then
+            k = flatInto(out, k, v, depth - 1, active)
         else
             k = k + 1
             out[k] = v
         end
     end
+    active[a] = nil
     return k
 end
 
 --- Nested array-likes spread into one array, to a depth.
 ---@param a table
 ---@param depth? integer  default 1; math.huge flattens fully
----@return table  a NEW array
+---@return table  a NEW array; a table that contains itself is kept as an element where the cycle closes
 function M.flat(a, depth)
     checkArray(a, 'flat')
     if depth == nil then depth = 1 end
     local out = make(0)
-    out.n = flatInto(out, 0, a, depth)
+    out.n = flatInto(out, 0, a, depth, {})
     return out
 end
 
@@ -570,7 +574,13 @@ function M.sum(a)
             if type(v) ~= 'number' then
                 return nil, ('element %s is a %s, not a number'):format(tostring(i), type(v))
             end
-            total = total + v
+            local nextTotal = total + v
+            -- Integer addition wraps; once it would, the rest is summed as floats.
+            if math.type(total) == 'integer' and math.type(v) == 'integer'
+                and ((v > 0 and nextTotal < total) or (v < 0 and nextTotal > total)) then
+                nextTotal = (total + 0.0) + v
+            end
+            total = nextTotal
         end
     end
     return total

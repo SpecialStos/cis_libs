@@ -3599,6 +3599,153 @@
       "find": "        if distance == math.huge or distance == -math.huge then\n            distance = 0\n        end\n",
       "replace": "",
       "why": "pointAtXYZ on a closed path takes inf % length, which is NaN, and reports ok = true."
+    },
+    {
+      "id": "M546",
+      "file": "shared/util/mathx.lua",
+      "find": "if type(decimals) ~= 'number' or decimals ~= decimals or decimals < 0 or decimals >= 100 then",
+      "replace": "if false then",
+      "why": "groupDigits hands a bad decimals to string.format, which raises instead of the function refusing with a reason."
+    },
+    {
+      "id": "M547",
+      "file": "shared/util/string.lua",
+      "find": "function M.padStart(s, width, fill)\n    s = type(s) == 'string' and s or tostring(s)\n    fill = (type(fill) == 'string' and fill ~= '') and fill or ' '\n    if type(width) ~= 'number' or width ~= width or width == math.huge then\n        return s\n    end\n    width = math.floor(width)\n",
+      "replace": "function M.padStart(s, width, fill)\n    s = type(s) == 'string' and s or tostring(s)\n    fill = (type(fill) == 'string' and fill ~= '') and fill or ' '\n",
+      "why": "padStart with a missing or fractional width raises."
+    },
+    {
+      "id": "M548",
+      "file": "shared/util/string.lua",
+      "find": "function M.padEnd(s, width, fill)\n    s = type(s) == 'string' and s or tostring(s)\n    fill = (type(fill) == 'string' and fill ~= '') and fill or ' '\n    if type(width) ~= 'number' or width ~= width or width == math.huge then\n        return s\n    end\n    width = math.floor(width)\n",
+      "replace": "function M.padEnd(s, width, fill)\n    s = type(s) == 'string' and s or tostring(s)\n    fill = (type(fill) == 'string' and fill ~= '') and fill or ' '\n",
+      "why": "padEnd with a missing or fractional width raises."
+    },
+    {
+      "id": "M549",
+      "file": "shared/util/array.lua",
+      "find": "nextTotal = (total + 0.0) + v",
+      "replace": "nextTotal = nextTotal",
+      "why": "array.sum keeps adding integers past the integer range, so the total wraps to a negative number."
+    },
+    {
+      "id": "M550",
+      "file": "shared/util/array.lua",
+      "find": "if depth > 0 and not active[v] and M.isArrayLike(v) then",
+      "replace": "if depth > 0 and M.isArrayLike(v) then",
+      "why": "flat follows a table into itself, so a cyclic array with an unbounded depth overflows the stack."
+    },
+    {
+      "id": "M551",
+      "file": "shared/util/class.lua",
+      "find": "'__close', '__newindex', '__gc',",
+      "replace": "'__close', '__gc',",
+      "why": "A subclass of a read-only parent is writable, because __newindex is not copied down."
+    },
+    {
+      "id": "M552",
+      "file": "shared/util/class.lua",
+      "find": "'__close', '__newindex', '__gc',",
+      "replace": "'__close', '__newindex',",
+      "why": "A parent finalizer is not inherited, because __gc is not copied down."
+    },
+    {
+      "id": "M553",
+      "file": "shared/util/class.lua",
+      "find": "if type(inheritedIndex) == 'function' then",
+      "replace": "if false then",
+      "why": "A parent whose __index is a function stops answering for subclass instances."
+    },
+    {
+      "id": "M554",
+      "file": "shared/algo/window.lua",
+      "find": "    w.values = {}\n    w.times = {}\n    w.size = 0",
+      "replace": "    for i = 1, w.capacity do\n        w.values[i] = nil\n        w.times[i] = nil\n    end\n    w.size = 0",
+      "why": "clear walks every slot up to the capacity, so a ring of infinite capacity never returns."
+    },
+    {
+      "id": "M555",
+      "file": "shared/algo/window.lua",
+      "find": "    -- As in `seen`, a non-numeric or NaN `now` is refused rather than compared.\n    if type(now) ~= 'number' or now ~= now then\n        return false\n    end\n",
+      "replace": "",
+      "why": "isSeen compares a nil now and raises."
+    },
+    {
+      "id": "M556",
+      "file": "shared/algo/window.lua",
+      "find": "function M.prune(d, now)\n    if type(now) ~= 'number' or now ~= now then\n        return 0\n    end\n",
+      "replace": "function M.prune(d, now)\n",
+      "why": "prune compares a nil now and raises."
+    },
+    {
+      "id": "M557",
+      "file": "shared/algo/rate.lua",
+      "find": "    if n == 0 then return 0 end\n",
+      "replace": "",
+      "why": "A limit of 0 silently becomes the default limit of 10."
+    },
+    {
+      "id": "M558",
+      "file": "shared/algo/rate.lua",
+      "find": "    if key == nil or key ~= key then\n        return false\n    end\n",
+      "replace": "",
+      "why": "allow indexes the key table with a nil or NaN key and raises."
+    },
+    {
+      "id": "M559",
+      "file": "shared/algo/rate.lua",
+      "find": "    if key == nil or key ~= key then\n        local budget",
+      "replace": "    if false then\n        local budget",
+      "why": "peek reports a full allowance for a nil key that allow refuses."
+    },
+    {
+      "id": "M560",
+      "file": "shared/algo/rate.lua",
+      "find": "(r.limit < 1 and math.huge or (finish - now))",
+      "replace": "(finish - now)",
+      "why": "A limit-0 fixed window reports a retry time at the next window, when it never recovers."
+    },
+    {
+      "id": "M561",
+      "file": "shared/algo/rate.lua",
+      "find": "        if remaining < 1 then\n            retry = perSec > 0 and (1 - remaining) / perSec or math.huge\n        end",
+      "replace": "        if remaining < 1 and perSec > 0 then\n            retry = (1 - remaining) / perSec\n        end",
+      "why": "A limit-0 sliding window reports retryAfter 0 while refusing."
+    },
+    {
+      "id": "M562",
+      "file": "shared/util/id.lua",
+      "find": "if #base + #tail > maxLength then",
+      "replace": "if false then",
+      "why": "The uniqueness suffix is added after the name is trimmed, so the key exceeds maxLength."
+    },
+    {
+      "id": "M563",
+      "file": "shared/util/id.lua",
+      "find": "        if base == '' then\n            return nil, ('no unused key",
+      "replace": "        if false then\n            return nil, ('no unused key",
+      "why": "With no room for the suffix the key is the bare suffix instead of a refusal."
+    },
+    {
+      "id": "M564",
+      "file": "shared/util/time.lua",
+      "find": "        if total == math.huge then",
+      "replace": "        if false then",
+      "why": "parseDuration returns infinity for a unit number too large for a double."
+    },
+    {
+      "id": "M565",
+      "file": "shared/util/time.lua",
+      "find": "        if value == math.huge then",
+      "replace": "        if false then",
+      "why": "parseDuration returns infinity for a bare number too large for a double."
+    },
+    {
+      "id": "M566",
+      "file": "shared/algo/random.lua",
+      "find": "local MAX_RETRIES = 64",
+      "replace": "local MAX_RETRIES = 8",
+      "why": "After 8 rejections a draw folds onto the top of the range, so 1 in 512 draws of a half-period range land on one value."
     }
   ]
 }

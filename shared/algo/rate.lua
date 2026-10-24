@@ -32,14 +32,21 @@ local function clock(now)
 end
 
 
+-- A limit of 0 is a real limit (nothing passes); only a missing, negative or NaN one
+-- takes the default.
+local function limitOf(n)
+    if n == 0 then return 0 end
+    return math.floor(positive(n, 10))
+end
+
 --- A counter that resets on an aligned boundary.
----@param opts? table  { limit, windowSec, anchored }
+---@param opts? table  { limit, windowSec, anchored }; limit 0 allows nothing
 ---@return table  the limiter
 function M.newFixed(opts)
     opts = opts or {}
     return {
         kind = 'fixed',
-        limit = math.floor(positive(opts.limit, 10)),
+        limit = limitOf(opts.limit),
         windowSec = positive(opts.windowSec, 1),
         anchored = opts.anchored and true or false,
         keys = {},
@@ -86,7 +93,7 @@ function M.newSliding(opts)
     local window = positive(opts.windowSec, 1)
     return {
         kind = 'sliding',
-        limit = math.floor(positive(opts.limit, 10)),
+        limit = limitOf(opts.limit),
         windowSec = window,
         sliceSec = window / sub,
         -- Stored on the limiter because `sumSlices` needs both and is called from
@@ -212,12 +219,15 @@ end
 
 --- Try to spend `cost` from a key's budget.
 ---@param r table
----@param key any
+---@param key any  a nil or NaN key cannot be tracked and is refused
 ---@param now? number  seconds; nil reads GetGameTimer()/1000 (os.time() outside FiveM); NaN or a non-number raises
 ---@param cost? number  events to spend, default 1. Must be >= 1; a
 ---@return boolean  true when allowed; a refusal spends nothing
 function M.allow(r, key, now, cost)
     now = clock(now)
+    if key == nil or key ~= key then
+        return false
+    end
     if type(cost) ~= 'number' or cost ~= cost or cost < 1 then
         cost = 1
     end
@@ -256,6 +266,10 @@ end
 ---@return table  { allowed, remaining, limit, retryAfter, resetAt }
 function M.peek(r, key, now)
     now = clock(now)
+    if key == nil or key ~= key then
+        local budget = r.kind == 'token' and r.capacity or r.limit
+        return { allowed = false, remaining = 0, limit = budget, retryAfter = math.huge, resetAt = nil }
+    end
     local e = r.keys[key]
     if not e then
         -- An unknown key is a key with its full allowance: a fixed or sliding window
@@ -274,7 +288,7 @@ function M.peek(r, key, now)
             allowed = remaining >= 1,
             remaining = remaining,
             limit = r.limit,
-            retryAfter = remaining >= 1 and 0 or (finish - now),
+            retryAfter = remaining >= 1 and 0 or (r.limit < 1 and math.huge or (finish - now)),
             resetAt = finish,
         }
 
@@ -285,8 +299,8 @@ function M.peek(r, key, now)
         -- The estimate falls by `limit / windowSec` per second on average, so that is
         local perSec = r.limit / r.windowSec
         local retry = 0
-        if remaining < 1 and perSec > 0 then
-            retry = (1 - remaining) / perSec
+        if remaining < 1 then
+            retry = perSec > 0 and (1 - remaining) / perSec or math.huge
         end
         return {
             allowed = remaining >= 1,
