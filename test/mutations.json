@@ -4941,6 +4941,30 @@
       "find": "    local list = 'group.admin'\n",
       "replace": "    local list = ''\n",
       "why": "With the convar unset, group.admin is still provisioned; an empty default would silently stop every grant that worked before."
+    },
+    {
+      "id": "M838",
+      "file": "tools/mutate.js",
+      "check": "tools",
+      "find": "return rows.filter((_, i) => i % shard.n === shard.k - 1)",
+      "replace": "return rows.filter(() => true)",
+      "why": "Every shard runs every row: the matrix does N times the work and still never finishes inside its timeout."
+    },
+    {
+      "id": "M839",
+      "file": "tools/mutate.js",
+      "check": "tools",
+      "find": "return rows.filter((_, i) => i % shard.n === shard.k - 1)",
+      "replace": "return rows.filter((_, i) => i % shard.n === shard.k % shard.n - 1)",
+      "why": "Shards counted from 1 against an index counted from 0 with the wrong wrap: a row lands in no shard and is never mutated."
+    },
+    {
+      "id": "M840",
+      "file": "tools/mutate.js",
+      "check": "tools",
+      "find": "  if (k > n) throw new Error(`shard ${k}/${n}: K must not be greater than N`)\n",
+      "replace": "",
+      "why": "A shard past N is accepted, selects no row, and a typo in the matrix passes while testing nothing."
     }
   ]
 }

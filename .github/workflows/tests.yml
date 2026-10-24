@@ -101,12 +101,22 @@ jobs:
         run: npm run test:all
 
   mutate:
-    name: mutation gate (every known defect must break the suite)
+    name: mutation gate, shard ${{ matrix.shard }}/20 (every known defect must break the suite)
     runs-on: ubuntu-24.04
     # Not on every push: it copies the tree and runs the suite once per row.
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-    # One full suite run per mutation row: minutes, and it grows with the rows.
+    # One full suite run per mutation row, about 30 to 40 seconds each. Run as a
+    # single job the rows took hours and could not finish inside any sane
+    # timeout, so the table is split into 20 shards (tools/mutate.js --shard=K/N)
+    # and each shard holds a twentieth of the rows (about 34 at 671 rows, roughly 23 minutes). Raise the shard count, here
+    # and in the command below, when the rows grow past what 45 minutes covers.
     timeout-minutes: 45
+    strategy:
+      # A survivor in one shard must not hide the others: every shard reports
+      # its own survivors, stale rows and errors.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -136,7 +146,10 @@ jobs:
         # A mutation that still passes is a SURVIVOR and means the check it was
         # written for does not exist. A row whose find no longer matches is
         # STALE and means it stopped testing anything. Both fail the build.
-        run: npm run test:mutate
+        # Every shard checks the whole table for duplicate ids before it picks
+        # its rows. The shards partition the rows (a test in tools-selftest), so
+        # together they run each row exactly once.
+        run: node tools/mutate.js --shard=${{ matrix.shard }}/20
 
   live-server:
     name: live server tier (real headless FXServer, no game client)
