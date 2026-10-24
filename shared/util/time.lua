@@ -278,7 +278,7 @@ function M.roundTo(seconds, unit)
         unit = M.MINUTE
     end
     -- `not (unit > 0)` also refuses NaN; an infinite unit made the answer NaN.
-    if type(unit) ~= 'number' or not (unit > 0) or unit == math.huge then
+    if type(unit) ~= 'number' or unit ~= unit or unit <= 0 or unit == math.huge then
         return 0
     end
     local q = math.floor(seconds / unit + 0.5)

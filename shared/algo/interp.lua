@@ -270,7 +270,7 @@ function M.wrap(v, min, max)
     local range = max - min
     -- `not (range > 0)` also catches a NaN range; an infinite one, or an
     -- infinite v, made `%` answer NaN.
-    if not (range > 0) or range == math.huge or v ~= v or v == math.huge or v == -math.huge then
+    if range ~= range or range <= 0 or range == math.huge or v ~= v or v == math.huge or v == -math.huge then
         return min
     end
     return min + ((v - min) % range + range) % range
@@ -310,7 +310,7 @@ end
 function M.moveTowards(current, target, maxDelta)
     -- `not (>= 0)` also catches NaN, which failed both comparisons below and
     -- jumped straight to target.
-    if not (maxDelta >= 0) then
+    if maxDelta ~= maxDelta or maxDelta < 0 then
         maxDelta = 0
     end
     local d = target - current

@@ -385,7 +385,7 @@ function M.levenshtein(a, b, maxDistance)
     end
     local la, lb = #a, #b
     -- A negative or NaN ceiling used to answer a "distance" of cap + 1 (0 for -1).
-    if maxDistance ~= nil and (type(maxDistance) ~= 'number' or not (maxDistance >= 0)) then
+    if maxDistance ~= nil and (type(maxDistance) ~= 'number' or maxDistance ~= maxDistance or maxDistance < 0) then
         return nil, ('maxDistance must be a number 0 or more, got %s'):format(tostring(maxDistance))
     end
     local cap = math.max(la, lb)
@@ -474,7 +474,7 @@ function M.suggest(word, candidates, opts)
     local maxDistance = opts.maxDistance
     if maxDistance == nil then
         maxDistance = math.floor(#word / 2) + 1
-    elseif type(maxDistance) ~= 'number' or not (maxDistance >= 0) then
+    elseif type(maxDistance) ~= 'number' or maxDistance ~= maxDistance or maxDistance < 0 then
         -- A negative one raised a compare error on the nil levenshtein answer.
         return nil, ('opts.maxDistance must be a number 0 or more, got %s'):format(tostring(maxDistance))
     end

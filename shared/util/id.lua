@@ -57,7 +57,7 @@ function M.draw(count, alphabet, rng)
         return nil, 'alphabet must be a non-empty string'
     end
     -- NaN slipped past `count < 1` and drew an empty id; math.huge never ended.
-    if type(count) ~= 'number' or not (count >= 1) or count > MAX_COUNT then
+    if type(count) ~= 'number' or count ~= count or count < 1 or count > MAX_COUNT then
         return nil, ('count must be a number from 1 to %d, got %s'):format(MAX_COUNT, tostring(count))
     end
     local n = #alphabet
@@ -202,7 +202,7 @@ function M.normaliseName(raw, used, opts)
     end
     local maxLength = opts.maxLength or 32
     -- A negative or NaN maxLength used to be ignored; a fraction raised in sub().
-    if type(maxLength) ~= 'number' or not (maxLength >= 1) then
+    if type(maxLength) ~= 'number' or maxLength ~= maxLength or maxLength < 1 then
         return nil, ('maxLength must be a number 1 or more, got %s'):format(tostring(maxLength))
     end
     if maxLength ~= math.huge then
