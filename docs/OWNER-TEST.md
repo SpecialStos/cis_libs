@@ -17,8 +17,9 @@ list is `CHANGELOG.md` [Unreleased]; the decisions taken for you are in
   `Detect*` exports) still work, and log one warning per calling resource. They
   are removed in 2.0.0, after cis_bridge stops using them.
 - **Security.**
-  - A forged resource start can no longer replay another resource's
-    registrations into cis_libs.
+  - On the client, a forged resource start can no longer replay another
+    resource's registrations into cis_libs. The server has no such guard
+    yet (D26).
   - A callback's echoed key is bounded (64 characters).
   - Every `SecureNetOn` event's payload is bounded before its schema runs: 32
     arguments, 4096-byte strings, 256 entries, depth 8.
@@ -91,7 +92,8 @@ ssh CisFiveM 'fivem-switch esx'
 ssh CisFiveM 'fivem-status'
 ```
 
-Wait until `fivem-status` ends with `health: health ok`, then:
+Run it again until its output has a line `health: health ok` (alerts and the
+last log lines print after it), then:
 
 ```bash
 ssh CisFiveM 'fivem-console refresh; fivem-console ensure cis_libs; fivem-console ensure cis_libs_ownertest'
