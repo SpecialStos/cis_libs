@@ -1,4 +1,4 @@
-# A tag matching v* runs the full gate and the mutation gate, builds
+# A tag matching v* runs the full gate and the mutation gate (20 shards), builds
 # dist/cis_libs-<version>.zip with a SHA256SUMS file beside it, and attaches both
 # to a *draft* GitHub release. Publishing the draft is a manual step.
 #
@@ -88,9 +88,6 @@ jobs:
       - name: Full gate
         run: npm run test:all
 
-      - name: Mutation gate
-        run: npm run test:mutate
-
       - name: Write SHA256SUMS
         # Relative names, so `sha256sum -c SHA256SUMS` works wherever the two
         # files are downloaded together.
@@ -113,9 +110,44 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  mutate:
+    name: mutation gate, shard ${{ matrix.shard }}/20
+    # The same 20-shard split as the mutate job in tests.yml: the whole table in
+    # one job takes hours and cannot finish inside the timeout. Keep the shard
+    # count here and there the same. publish needs every shard green.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Lua 5.4
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.4
+          lua5.4 -v
+
+      - name: Apply this shard's mutations and require the suite to fail
+        run: node tools/mutate.js --shard=${{ matrix.shard }}/20
+
   publish:
     name: draft release
-    needs: build
+    needs: [build, mutate]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

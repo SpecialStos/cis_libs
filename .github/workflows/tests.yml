@@ -108,8 +108,9 @@ jobs:
     # One full suite run per mutation row, about 30 to 40 seconds each. Run as a
     # single job the rows took hours and could not finish inside any sane
     # timeout, so the table is split into 20 shards (tools/mutate.js --shard=K/N)
-    # and each shard holds a twentieth of the rows (about 34 at 671 rows, roughly 23 minutes). Raise the shard count, here
-    # and in the command below, when the rows grow past what 45 minutes covers.
+    # and each shard holds a twentieth of the rows (about 35 at 704 rows,
+    # roughly 23 minutes). Raise the shard count, here, in the command below
+    # and in release.yml, when the rows grow past what 45 minutes covers.
     timeout-minutes: 45
     strategy:
       # A survivor in one shard must not hide the others: every shard reports
