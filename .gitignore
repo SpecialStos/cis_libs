@@ -37,7 +37,7 @@ tools/natives/natives_gta.json
 tools/natives/natives_cfx.json
 
 # Built resource zip from npm run package.
-dist/
+/dist/
 
 # Live server connection for tools/fx.js. Paths and ports, not committed.
 .live-env.json
