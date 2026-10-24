@@ -200,8 +200,8 @@
     {
       "id": "M32",
       "file": "server/sync.lua",
-      "find": "    local entity = handles[key]\n    if entity then\n        handles[key] = nil\n        destroyEntity(entity)\n    end\n    local lock = inflight[key]",
-      "replace": "    local entity = handles[key]\n    if entity then\n        handles[key] = nil\n    end\n    local lock = inflight[key]",
+      "find": "    local entity = handles[key]\n    if entity then\n        handles[key] = nil\n        destroyEntity(entity)\n        announceNet(key, false)\n    end\n    local lock = inflight[key]",
+      "replace": "    local entity = handles[key]\n    if entity then\n        handles[key] = nil\n        announceNet(key, false)\n    end\n    local lock = inflight[key]",
       "why": "Remove the record without deleting the entity it owns. A networked entity belongs to the server, so telling clients to despawn it only asks them to drop a reference to something still standing in the world, owned by nobody, for the rest of the session."
     },
     {
@@ -2035,8 +2035,8 @@
     {
       "id": "M297",
       "file": "client/sync.lua",
-      "find": "    if source == nil or source == '' then\n        return\n    end\n",
-      "replace": "",
+      "find": "    -- source == '' and would spawn and delete synced entities at will.\n    if source == nil or source == '' then\n        return\n    end\n",
+      "replace": "    -- source == '' and would spawn and delete synced entities at will.\n",
       "why": "Accept a local TriggerEvent of cis_libs:client:syncBatch. Any client resource spawns local entities and deletes synced ones."
     },
     {
@@ -5025,6 +5025,132 @@
       "find": "        if sent == false then\n            close(s, nil, false)\n",
       "replace": "        if false then\n            close(s, nil, false)\n",
       "why": "A menu whose redraw on ready the page refuses stays open with nothing drawn, so the player's controls stay disabled."
+    },
+    {
+      "id": "M850",
+      "file": "client/sync.lua",
+      "find": "    if not netId or entityOfNetId(netId) ~= entity then\n        return\n    end\n",
+      "replace": "",
+      "why": "A cis_sync bag counts with no announcement at all: a modded client puts a real key on its own ped, every client evicts the real record and runs spawn hooks with the forged value."
+    },
+    {
+      "id": "M851",
+      "file": "client/sync.lua",
+      "find": "    if not netId or entityOfNetId(netId) ~= entity then\n",
+      "replace": "    if not netId then\n",
+      "why": "A bag naming an announced key counts on ANY entity: the owner of some other entity steals the real record by writing its key."
+    },
+    {
+      "id": "M852",
+      "file": "client/sync.lua",
+      "find": "    if source == nil or source == '' then\n        return\n    end\n    if type(list) ~= 'table' then\n",
+      "replace": "    if type(list) ~= 'table' then\n",
+      "why": "A local TriggerEvent of cis_libs:client:syncNet points a real key at any entity, defeating the announcement check from inside the client."
+    },
+    {
+      "id": "M853",
+      "file": "client/sync.lua",
+      "find": "    if deleted or type(value) ~= 'table' or type(value.key) ~= 'string' then\n        return\n    end\n",
+      "replace": "    if deleted or type(value) ~= 'table' or type(value.key) ~= 'string' then\n        for k, t in pairs(netTracked) do\n            if t.entity == entity then\n                untrackNet(k)\n                break\n            end\n        end\n        return\n    end\n",
+      "why": "The owner of a real networked entity clears or garbles its bag and every client drops the record and fires onDespawn."
+    },
+    {
+      "id": "M854",
+      "file": "client/sync.lua",
+      "find": "    if t and t.entity ~= entity then\n        untrackNet(key)\n    end\n    if entity == 0 or netTracked[key] then\n",
+      "replace": "    if entity == 0 or netTracked[key] then\n",
+      "why": "A key re-announced on a new entity stays bound to the old one, whose bag is then no longer checked against the announcement."
+    },
+    {
+      "id": "M855",
+      "file": "client/sync.lua",
+      "find": "    if ok and type(bag) == 'table' and bag.key == key then\n        onNetBag(entity, bag, true, false)\n    end\n",
+      "replace": "",
+      "why": "A bag that arrived before its announcement is never accepted: the networked record never spawns on that client."
+    },
+    {
+      "id": "M856",
+      "file": "client/sync.lua",
+      "find": "        announced[key] = nil\n        untrackNet(key)\n        return\n",
+      "replace": "        announced[key] = nil\n        return\n",
+      "why": "A revoked key stays tracked on its old entity: onDespawn never fires and GetSyncedEntity keeps returning a dead handle."
+    },
+    {
+      "id": "M857",
+      "file": "server/sync.lua",
+      "find": "    elseif sameValue(value, mine, 0) then\n        return\n    end\n",
+      "replace": "    end\n",
+      "why": "Any write equal to the server's own value is treated as a forgery: false warnings and a restore write for every echo."
+    },
+    {
+      "id": "M858",
+      "file": "server/sync.lua",
+      "find": "        SetTimeout(delay, function() restoreBag(entity) end)\n",
+      "replace": "        restoreBag(entity)\n",
+      "why": "Restored inside the change handler, before the forged value is stored: the forged value lands after the restore and wins."
+    },
+    {
+      "id": "M859",
+      "file": "server/sync.lua",
+      "find": "    if record.netId then\n        announceNet(key, record.netId)\n    end\n",
+      "replace": "",
+      "why": "A networked key is never announced, so no client accepts its bag and the entity never counts as synced."
+    },
+    {
+      "id": "M860",
+      "file": "server/sync.lua",
+      "find": "        destroyEntity(entity)\n        announceNet(key, false)\n    end\n    local lock = inflight[key]",
+      "replace": "        destroyEntity(entity)\n    end\n    local lock = inflight[key]",
+      "why": "A removed record's key is never revoked: its network id is reused and a bag on the new entity is accepted for the dead key."
+    },
+    {
+      "id": "M861",
+      "file": "server/sync.lua",
+      "find": "        destroyEntity(entity)\n        announceNet(key, false)\n    end\n\n    rec.wire = buildWire(rec)",
+      "replace": "        destroyEntity(entity)\n    end\n\n    rec.wire = buildWire(rec)",
+      "why": "A record that stops being networked keeps its announcement, so a bag on whatever entity reuses the network id is accepted."
+    },
+    {
+      "id": "M862",
+      "file": "server/sync.lua",
+      "find": "    handles[key] = nil\n    -- Revoked at once: the network id is free for any entity now.\n    announceNet(key, false)\n",
+      "replace": "    handles[key] = nil\n",
+      "why": "An entity removed behind the library's back leaves its key announced on a free network id that any player entity can take."
+    },
+    {
+      "id": "M863",
+      "file": "server/sync.lua",
+      "find": "    if map then\n        sendNet(src, map)\n    end\n",
+      "replace": "",
+      "why": "A joining client is never told where networked keys live and rejects every legitimate bag."
+    },
+    {
+      "id": "M864",
+      "file": "server/sync.lua",
+      "find": "    if entry and now - entry.at < FORGE_LOG_MS then\n",
+      "replace": "    if false then\n",
+      "why": "One warning per forged write: a client writing every tick floods the server log."
+    },
+    {
+      "id": "M865",
+      "file": "server/sync.lua",
+      "find": "    local delay = window.n > RESTORE_MAX and RESTORE_BACKOFF_MS or 0\n",
+      "replace": "    local delay = 0\n",
+      "why": "No backoff: a client forging on every tick drives a write-per-tick replication loop with the server."
+    },
+    {
+      "id": "M866",
+      "file": "server/sync.lua",
+      "find": "    if mine == nil then\n        if value == nil then\n            return\n        end\n    elseif",
+      "replace": "    if mine == nil then\n        return\n    elseif",
+      "why": "A cis_sync bag put on an entity the server never wrote one to is left in place."
+    },
+    {
+      "id": "M879",
+      "file": "client/sync.lua",
+      "find": "    -- source == '' and could point a real key at any entity.\n    if source == nil or source == '' then\n        return\n    end\n",
+      "replace": "    -- source == '' and could point a real key at any entity.\n",
+      "why": "Accept a local TriggerEvent of cis_libs:client:syncNet. Any client resource can point a real networked key at an entity it owns, and its forged cis_sync bag is then trusted."
     }
   ]
 }

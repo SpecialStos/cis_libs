@@ -29,7 +29,7 @@ std = "lua54"
 -- both lists would be read-only here and writable below, and luacheck
 -- resolves that to read-only.
 --
--- 341 names, from 248 natives in use.
+-- 343 names, from 250 natives in use.
 read_globals = {
     "AddCommand", "AddDoorToSystem", "AddEventHandler", "AddStateBagChangeHandler",
     "AddTextComponentString", "AddTextComponentSubstringPlayerName", "AttachEntityToEntity",
@@ -88,6 +88,7 @@ read_globals = {
     "IsPlayerFreeAiming", "IsPrincipalAceAllowed", "IsToggleModOn", "IsVehicleDoorDamaged",
     "IsVehicleExtraTurnedOn", "IsVehicleNeonLightEnabled", "IsVehicleTyreBurst",
     "IsVehicleWindowIntact", "Load", "LoadResourceFile", "LoadResourceFileAsync",
+    "NetworkDoesNetworkIdExist", "NetworkGetEntityFromNetworkId",
     "NetworkGetEntityIsNetworked", "NetworkGetEntityOwner", "NetworkGetNetworkIdFromEntity",
     "NetworkHasControlOfEntity", "NetworkRequestControlOfEntity", "PerformHttpRequest",
     "PerformHttpRequestAsync", "PlaySoundFrontend", "Player", "PlayerId", "PlayerPed",

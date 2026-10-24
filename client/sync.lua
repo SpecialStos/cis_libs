@@ -554,17 +554,37 @@ local function watchNet()
     netWatching = false
 end
 
+-- THE SERVER SAYS WHERE EACH NETWORKED KEY LIVES. The owning client of a
+-- networked entity can write that entity's state bags with replication, so a
+-- `cis_sync` bag on its own proves nothing: a modded client could put one
+-- naming a real key on its own ped. The server announces key -> network id
+-- over `cis_libs:client:syncNet`, and a bag counts only on the entity behind
+-- the announced id. Anything else is ignored: no hook, no eviction.
+-- key -> netId
+local announced = {}
+
+local function entityOfNetId(netId)
+    if not NetworkDoesNetworkIdExist(netId) then
+        return 0
+    end
+    local entity = NetworkGetEntityFromNetworkId(netId)
+    if not entity or entity == 0 or not DoesEntityExist(entity) then
+        return 0
+    end
+    return entity
+end
+
 local function onNetBag(entity, value, _replicated, deleted)
+    -- A cleared or malformed bag untracks nothing: the server restores its own
+    -- value, and it revokes a key over the announcement channel.
     if deleted or type(value) ~= 'table' or type(value.key) ~= 'string' then
-        for key, t in pairs(netTracked) do
-            if t.entity == entity then
-                untrackNet(key)
-                break
-            end
-        end
         return
     end
     local key = value.key
+    local netId = announced[key]
+    if not netId or entityOfNetId(netId) ~= entity then
+        return
+    end
     local t = netTracked[key]
     if t and t.entity ~= entity then
         -- Re-created by the server (entityRemoved): a new entity for the same record.
@@ -591,6 +611,54 @@ local function onNetBag(entity, value, _replicated, deleted)
         CreateThread(watchNet)
     end
 end
+
+-- One announced entry. `false` revokes the key. An entity that is already
+-- here may have delivered its bag before the announcement, so its live bag
+-- is read now rather than waited for.
+local function announce(key, netId)
+    if netId == false then
+        announced[key] = nil
+        untrackNet(key)
+        return
+    end
+    announced[key] = netId
+    local t = netTracked[key]
+    local entity = entityOfNetId(netId)
+    if t and t.entity ~= entity then
+        untrackNet(key)
+    end
+    if entity == 0 or netTracked[key] then
+        return
+    end
+    local ok, bag = pcall(function() return Entity(entity).state.cis_sync end)
+    if ok and type(bag) == 'table' and bag.key == key then
+        onNetBag(entity, bag, true, false)
+    end
+end
+
+-- The most entries one announcement may carry; the server sends at most 64.
+local MAX_ANNOUNCE = 256
+
+RegisterNetEvent('cis_libs:client:syncNet', function(list)
+    -- FROM THE SERVER, OR NOT AT ALL: a local TriggerEvent arrives with
+    -- source == '' and could point a real key at any entity.
+    if source == nil or source == '' then
+        return
+    end
+    if type(list) ~= 'table' then
+        return
+    end
+    for i = 1, math.min(#list, MAX_ANNOUNCE) do
+        local entry = list[i]
+        if type(entry) == 'table' and type(entry[1]) == 'string' then
+            local netId = entry[2]
+            if netId == false or (type(netId) == 'number' and netId > 0
+                and netId <= MAX_BATCH and netId == math.floor(netId)) then
+                announce(entry[1], netId)
+            end
+        end
+    end
+end)
 
 if CisStatebagOnEntity then
     CisStatebagOnEntity('cis_sync', onNetBag)

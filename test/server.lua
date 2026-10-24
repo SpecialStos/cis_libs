@@ -6759,6 +6759,221 @@ do
     env.reset()
 end
 
+-- ============================ N3. the server owns the cis_sync bag
+--
+-- The owning client of a networked entity can write that entity's state bags.
+-- The server watches `cis_sync`, restores its own value over a write it did
+-- not make (or clears a bag it never wrote), and tells clients which network
+-- id each networked key lives on, so a client can ignore a bag anywhere else.
+do
+    local env = newEnv({
+        players = { [1] = { coords = { x = 5.0, y = 0.0, z = 0.0 } } },
+        netOk = true,
+    })
+    for _, name in ipairs({ 'AddStateBagChangeHandler', 'GetEntityFromStateBagName',
+        'NetworkGetEntityOwner' }) do
+        env.saved[#env.saved + 1] = { name = name, value = rawget(_ENV, name) }
+    end
+    env.bagHandlers = {}
+    function AddStateBagChangeHandler(keyFilter, bagFilter, fn)
+        env.bagHandlers[#env.bagHandlers + 1] = { key = keyFilter, bag = bagFilter, fn = fn }
+        return #env.bagHandlers
+    end
+    function GetEntityFromStateBagName(name)
+        local netId = tonumber(tostring(name):match('^entity:(%d+)$'))
+        return netId and env.byNetId[netId] or 0
+    end
+    env.owner = 9
+    function NetworkGetEntityOwner() return env.owner end
+    -- The engine's order: every change handler runs while the OLD value is
+    -- still stored, then the new value lands. A restore made inside the handler
+    -- would be overwritten, which is why the server defers it.
+    local function landBag(entity, key, value, replicated)
+        local netId = 4000 + entity
+        env.byNetId[netId] = entity
+        for _, h in ipairs(env.bagHandlers) do
+            if h.key == nil or h.key == key then
+                h.fn('entity:' .. netId, key, value, 0, replicated)
+            end
+        end
+        env.bags[entity] = env.bags[entity] or {}
+        env.bags[entity][key] = { value = value, replicated = replicated }
+    end
+    env.bagWrites = 0
+    function Entity(entity)
+        return {
+            state = {
+                set = function(_, key, value, replicated)
+                    env.bagWrites = env.bagWrites + 1
+                    landBag(entity, key, value, replicated)
+                end,
+            },
+        }
+    end
+    local function clientWrites(entity, value) landBag(entity, 'cis_sync', value, true) end
+    -- Timers QUEUE here: a restore runs on the next tick, after the forged
+    -- value has landed, exactly as in production.
+    env.timers = {}
+    function SetTimeout(ms, fn) env.timers[#env.timers + 1] = { ms = ms, fn = fn } end
+    local function runTimers()
+        local guard = 0
+        while #env.timers > 0 and guard < 100 do
+            guard = guard + 1
+            table.remove(env.timers, 1).fn()
+        end
+    end
+    local function forgeLines()
+        local n = 0
+        for _, line in ipairs(env.lines) do
+            if line:find('written by someone other than the server', 1, true) then n = n + 1 end
+        end
+        return n
+    end
+    local function netEntries(target)
+        local out = {}
+        for _, ev in ipairs(env.raw) do
+            if ev.name == 'cis_libs:client:syncNet' and ev.target == target then
+                for _, entry in ipairs(ev.args[1] or {}) do out[#out + 1] = entry end
+            end
+        end
+        return out
+    end
+    local function announced(target, key, netId)
+        for _, entry in ipairs(netEntries(target)) do
+            if entry[1] == key and entry[2] == netId then return true end
+        end
+        return false
+    end
+
+    loadSync(env)
+    local watching = false
+    for _, h in ipairs(env.bagHandlers) do
+        if h.key == 'cis_sync' then watching = true end
+    end
+    check(watching, 'N3: the server watches writes to the cis_sync state bag')
+
+    env.EXPORTS.SyncCreate('ped', {
+        id = 'shop_ped', model = 'mp_m_shopkeep_01', coords = { x = 0.0, y = 0.0, z = 0.0 },
+        networked = true, clientData = { price = 5 },
+    })
+    runTimers()
+    local made = callsNamed(env, 'CreatePed')
+    local e = made[1] and made[1].entity or 0
+    local real = env.bags[e] and env.bags[e].cis_sync and env.bags[e].cis_sync.value
+    check(real ~= nil and real.id == 'shop_ped', 'N3: the networked ped carries the server\'s bag')
+    real = real or { key = '?', rev = 0 }
+    check(env.bagWrites == 1 and forgeLines() == 0,
+        ('N3: the server\'s own write is not a forgery: no restore, no warning (writes %d)')
+            :format(env.bagWrites))
+    check(announced(-1, real.key, 4000 + e),
+        'N3: the server announces the networked key and its network id to every client')
+
+    -- A forged write from the entity's owner.
+    clientWrites(e, { key = real.key, id = 'shop_ped', kind = 'ped', rev = real.rev,
+        clientData = { price = 0 } })
+    check(env.bags[e].cis_sync.value.clientData.price == 0,
+        'N3: the forged value lands first (engine order), so the restore below is not vacuous')
+    runTimers()
+    local now = env.bags[e].cis_sync.value
+    check(now and now.clientData and now.clientData.price == 5 and now.rev == real.rev,
+        'N3: the server restores its own value over a forged cis_sync write')
+    check(forgeLines() == 1, ('N3: and logs it once (%d lines)'):format(forgeLines()))
+    local writesAfterRestore = env.bagWrites
+
+    -- Again from the same owner: restored, not logged again inside the window.
+    clientWrites(e, { key = real.key, id = 'evil' })
+    runTimers()
+    check(env.bags[e].cis_sync.value.id == 'shop_ped' and forgeLines() == 1,
+        'N3: a second forgery from the same source is restored but not logged again')
+    check(env.bagWrites == writesAfterRestore + 1,
+        'N3: each restore is ONE write; the server does not react to its own restore')
+
+    -- A write that puts back exactly the server's value (an echo of its own
+    -- write) is not a forgery: nothing is restored.
+    local function deepCopy(v)
+        if type(v) ~= 'table' then return v end
+        local o = {}
+        for k, x in pairs(v) do o[k] = deepCopy(x) end
+        return o
+    end
+    local writesBeforeEcho = env.bagWrites
+    local logsBeforeEcho = forgeLines()
+    clientWrites(e, deepCopy(env.bags[e].cis_sync.value))
+    runTimers()
+    check(env.bagWrites == writesBeforeEcho and forgeLines() == logsBeforeEcho,
+        'N3: a write equal to the server\'s own value is not treated as a forgery')
+
+    -- A forged bag on an entity the server never wrote one to is cleared.
+    env.entities[999] = { alive = true }
+    env.owner = 10
+    clientWrites(999, { key = real.key, id = 'shop_ped', kind = 'ped', rev = 1 })
+    runTimers()
+    check(env.bags[999].cis_sync.value == nil,
+        'N3: a cis_sync bag on an entity the server never wrote is cleared')
+    check(forgeLines() == 2, 'N3: a different source is logged on its own')
+    -- Clearing it does not loop: the clear is the only write.
+    local writes = env.bagWrites
+    runTimers()
+    check(env.bagWrites == writes and #env.timers == 0, 'N3: the clear schedules nothing further')
+
+    -- A burst is restored with backoff, so a client writing on every tick is
+    -- not a write-per-tick loop.
+    env.timers = {}
+    local delays = {}
+    for i = 1, 7 do
+        clientWrites(e, { key = real.key, id = 'burst' .. i })
+        delays[#delays + 1] = env.timers[#env.timers] and env.timers[#env.timers].ms or -1
+        runTimers()
+    end
+    check(delays[1] == 0 and delays[7] >= 1000,
+        ('N3: restores past the budget wait (first %s ms, seventh %s ms)')
+            :format(tostring(delays[1]), tostring(delays[7])))
+
+    -- A joining client is sent the whole map with its snapshot.
+    env.emit('cis_libs:server:syncSnapshot', 1)
+    check(announced(1, real.key, 4000 + e),
+        'N3: a snapshot request is answered with every networked key and its network id')
+
+    -- Removal revokes the key.
+    env.EXPORTS.SyncRemove('shop_ped')
+    runTimers()
+    check(announced(-1, real.key, false), 'N3: removing a networked record revokes its key')
+
+    -- An entity removed behind the library's back revokes its key at once
+    -- (respawn = false drops the record; the entity is already gone).
+    env.EXPORTS.SyncCreate('prop', {
+        id = 'gate', model = 'prop_gate', coords = { x = 0.0, y = 0.0, z = 0.0 },
+        networked = true, respawn = false,
+    })
+    runTimers()
+    local gates = callsNamed(env, 'CreateObjectNoOffset')
+    local g = gates[#gates] and gates[#gates].entity or 0
+    local gateBag = env.bags[g] and env.bags[g].cis_sync
+    local gateKey = gateBag and gateBag.value and gateBag.value.key
+    if env.entities[g] then env.entities[g].alive = false end
+    env.fire('entityRemoved', g)
+    runTimers()
+    check(gateKey ~= nil and announced(-1, gateKey, false),
+        'N3: an entity removed behind the library\'s back revokes its key')
+
+    -- A record that stops being networked revokes its key.
+    env.EXPORTS.SyncCreate('prop', {
+        id = 'sign', model = 'prop_sign', coords = { x = 1.0, y = 0.0, z = 0.0 }, networked = true,
+    })
+    runTimers()
+    local signs = callsNamed(env, 'CreateObjectNoOffset')
+    local sg = signs[#signs] and signs[#signs].entity or 0
+    local signBag = env.bags[sg] and env.bags[sg].cis_sync
+    local signKey = signBag and signBag.value and signBag.value.key
+    env.EXPORTS.SyncCreate('prop', {
+        id = 'sign', model = 'prop_sign', coords = { x = 1.0, y = 0.0, z = 0.0 }, networked = false,
+    })
+    runTimers()
+    check(signKey ~= nil and announced(-1, signKey, false),
+        'N3: a record that stops being networked revokes its key')
+    env.reset()
+end
+
 -- ==================================================================== report
 -- Named, not just counted. A suite that reports "failed=3" and exits tells you
 -- something broke and nothing about what, and the fix is to re-run with a print

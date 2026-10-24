@@ -40,7 +40,7 @@ local inflight = {}
 -- contentKey -> true while an idless upsert for that content may yield.
 local inflightContent = {}
 
-local stats = { networkedFailed = 0, respawned = 0, truncated = 0, snapshotsRefused = 0 }
+local stats = { networkedFailed = 0, respawned = 0, truncated = 0, snapshotsRefused = 0, forgedBags = 0 }
 
 -- THE NAMESPACE. Every record is stored and streamed under owner plus id.
 local function recordKey(owner, id)
@@ -382,6 +382,205 @@ local function send(src, ups, rems)
     end
 end
 
+-- ------------------------------------------------- networked keys, announced
+-- The owning client of a networked entity can write that entity's state bags
+-- with replication, so a `cis_sync` bag proves nothing on its own. The server
+-- tells every client which network id each networked key lives on, and a
+-- client accepts a bag only on that entity. `false` revokes a key. Batched to
+-- the next tick like the record pushes, the latest value per key winning.
+local NET_ANNOUNCE_CHUNK = 64
+local netQueue, netOrder, netArmed = {}, {}, false
+
+local function sendNet(target, list)
+    for i = 1, #list, NET_ANNOUNCE_CHUNK do
+        local chunk = {}
+        for j = i, math.min(i + NET_ANNOUNCE_CHUNK - 1, #list) do
+            chunk[#chunk + 1] = list[j]
+        end
+        TriggerClientEvent('cis_libs:client:syncNet', target, chunk)
+    end
+end
+
+local function flushNet()
+    netArmed = false
+    local list = {}
+    for i = 1, #netOrder do
+        local key = netOrder[i]
+        list[#list + 1] = { key, netQueue[key] }
+    end
+    netQueue, netOrder = {}, {}
+    if #list > 0 then
+        sendNet(-1, list)
+    end
+end
+
+local function announceNet(key, netId)
+    if netQueue[key] == nil then
+        netOrder[#netOrder + 1] = key
+    end
+    netQueue[key] = netId or false
+    if netArmed then
+        return
+    end
+    if type(SetTimeout) == 'function' then
+        netArmed = true
+        SetTimeout(0, flushNet)
+    else
+        flushNet()
+    end
+end
+
+-- ------------------------------------------------- the server owns the bag
+-- entity -> the last `cis_sync` bag the server wrote to it
+local ourBags = {}
+-- True while the server itself is writing, so its own change is not a forgery.
+local writingBag = false
+-- entity -> true while a restore is scheduled; entity -> { since, n } for the budget
+local restoring, restoreLog = {}, {}
+-- src -> { at, suppressed }: one warning per source per minute
+local forgeLog = {}
+local FORGE_LOG_MS = 60000
+local RESTORE_WINDOW_MS = 10000
+local RESTORE_MAX = 5
+local RESTORE_BACKOFF_MS = 1000
+local SAME_MAX_DEPTH = 8
+
+local function setBag(entity, bag)
+    if not Entity then
+        return
+    end
+    writingBag = true
+    local state = Entity(entity).state
+    local ok, err = pcall(state.set, state, 'cis_sync', bag, true)
+    writingBag = false
+    if not ok then
+        Logging.Error(('Cis.sync: writing the cis_sync bag of entity %s raised: %s')
+            :format(tostring(entity), tostring(err)))
+    end
+end
+
+local function writeBag(entity, bag)
+    ourBags[entity] = bag
+    setBag(entity, bag)
+end
+
+local function forgetBag(entity)
+    ourBags[entity] = nil
+    restoring[entity] = nil
+    restoreLog[entity] = nil
+end
+
+-- Deep equality, bounded: a value from a client is compared key by key with
+-- what the server wrote, never walked further than the server's own bag.
+local function sameValue(a, b, depth)
+    if type(a) ~= 'table' or type(b) ~= 'table' then
+        return a == b
+    end
+    if depth >= SAME_MAX_DEPTH then
+        return false
+    end
+    local n = 0
+    for k, v in pairs(b) do
+        n = n + 1
+        if not sameValue(a[k], v, depth + 1) then
+            return false
+        end
+    end
+    for _ in pairs(a) do
+        n = n - 1
+        if n < 0 then
+            return false
+        end
+    end
+    return n == 0
+end
+
+local function restoreBag(entity)
+    restoring[entity] = nil
+    if type(DoesEntityExist) == 'function' and not DoesEntityExist(entity) then
+        return
+    end
+    -- The server's own value, or nothing at all on an entity it never wrote.
+    setBag(entity, ourBags[entity])
+end
+
+local function scheduleRestore(entity)
+    if restoring[entity] then
+        return
+    end
+    restoring[entity] = true
+    local now = GetGameTimer()
+    local window = restoreLog[entity]
+    if not window or now - window.since >= RESTORE_WINDOW_MS then
+        window = { since = now, n = 0 }
+        restoreLog[entity] = window
+    end
+    window.n = window.n + 1
+    -- Past the budget a restore waits, so a client writing every tick is not a
+    -- write-per-tick loop between it and the server.
+    local delay = window.n > RESTORE_MAX and RESTORE_BACKOFF_MS or 0
+    -- Never inside the handler: the forged value is stored AFTER it returns.
+    if type(SetTimeout) == 'function' then
+        SetTimeout(delay, function() restoreBag(entity) end)
+    else
+        CreateThread(function()
+            Wait(delay)
+            restoreBag(entity)
+        end)
+    end
+end
+
+local function noteForgery(entity)
+    stats.forgedBags = stats.forgedBags + 1
+    -- Only the entity's owner can write its bag, so the owner is the suspect.
+    local src = -1
+    if type(NetworkGetEntityOwner) == 'function' then
+        src = tonumber(NetworkGetEntityOwner(entity)) or -1
+    end
+    local now = GetGameTimer()
+    local entry = forgeLog[src]
+    if entry and now - entry.at < FORGE_LOG_MS then
+        entry.suppressed = entry.suppressed + 1
+        return
+    end
+    local suppressed = entry and entry.suppressed or 0
+    forgeLog[src] = { at = now, suppressed = 0 }
+    Logging.Warn(('Cis.sync: the cis_sync bag of entity %s was written by someone other than the '
+        .. 'server (entity owner: player %s%s); the server value is restored')
+        :format(tostring(entity), tostring(src),
+            suppressed > 0 and (', %d more since the last warning'):format(suppressed) or ''))
+end
+
+-- Every change to a `cis_sync` bag. The handler cannot refuse a change (the old
+-- value is still stored while it runs), so a forged one is put right on the
+-- next tick.
+local function onBagWrite(bagName, key, value)
+    if writingBag or key ~= 'cis_sync' then
+        return
+    end
+    if type(GetEntityFromStateBagName) ~= 'function' then
+        return
+    end
+    local entity = GetEntityFromStateBagName(bagName)
+    if not entity or entity == 0 then
+        return
+    end
+    local mine = ourBags[entity]
+    if mine == nil then
+        if value == nil then
+            return
+        end
+    elseif sameValue(value, mine, 0) then
+        return
+    end
+    noteForgery(entity)
+    scheduleRestore(entity)
+end
+
+if type(AddStateBagChangeHandler) == 'function' then
+    AddStateBagChangeHandler('cis_sync', nil, onBagWrite)
+end
+
 -- Spawn a networked entity ONCE, on the server, and return its handle.
 
 -- The vehicle type the server setter native takes as a string.
@@ -482,6 +681,7 @@ local function destroyEntity(entity)
         return
     end
     byEntity[entity] = nil
+    forgetBag(entity)
     if type(DoesEntityExist) == 'function' and not DoesEntityExist(entity) then
         return
     end
@@ -526,9 +726,7 @@ local function applyServerSide(entity, record, previous)
         and type(SetEntityDistanceCullingRadius) == 'function' then
         SetEntityDistanceCullingRadius(entity, record.scope + 0.0)
     end
-    if Entity then
-        Entity(entity).state:set('cis_sync', buildBag(record), true)
-    end
+    writeBag(entity, buildBag(record))
 end
 
 local function attach(key, record, entity)
@@ -536,6 +734,9 @@ local function attach(key, record, entity)
     byEntity[entity] = key
     if type(NetworkGetNetworkIdFromEntity) == 'function' then
         record.netId = NetworkGetNetworkIdFromEntity(entity)
+    end
+    if record.netId then
+        announceNet(key, record.netId)
     end
 end
 
@@ -714,6 +915,7 @@ local function unlink(key)
     if entity then
         handles[key] = nil
         destroyEntity(entity)
+        announceNet(key, false)
     end
     local lock = inflight[key]
     if lock then
@@ -808,6 +1010,7 @@ local function upsertLocked(rec, key, print_)
         local entity = handles[key]
         handles[key] = nil
         destroyEntity(entity)
+        announceNet(key, false)
     end
 
     rec.wire = buildWire(rec)
@@ -1142,6 +1345,19 @@ CisNetOn('cis_libs:server:syncSnapshot', function(src, held)
         return
     end
     lastSnapshot[src] = now
+    -- Where every networked key lives, so this client can tell a real bag from
+    -- one a player wrote.
+    local map = nil
+    for key in pairs(handles) do
+        local record = records[key]
+        if record and record.netId then
+            map = map or {}
+            map[#map + 1] = { key, record.netId }
+        end
+    end
+    if map then
+        sendNet(src, map)
+    end
     snapshotFor(src, held)
 end)
 
@@ -1207,6 +1423,7 @@ AddEventHandler('playerDropped', function()
     refused[source] = nil
     batchSeq[source] = nil
     lastSnapshot[source] = nil
+    forgeLog[source] = nil
 end)
 
 -- A NETWORKED ENTITY REMOVED BEHIND THE LIBRARY'S BACK: a client deleted it, a
@@ -1215,6 +1432,7 @@ end)
 -- asked for `respawn = false`, and re-creation is budgeted so something that
 -- deletes it on sight cannot turn this into a spawn loop.
 AddEventHandler('entityRemoved', function(entity)
+    forgetBag(entity)
     local key = byEntity[entity]
     if not key then
         return
@@ -1224,6 +1442,8 @@ AddEventHandler('entityRemoved', function(entity)
         return
     end
     handles[key] = nil
+    -- Revoked at once: the network id is free for any entity now.
+    announceNet(key, false)
     local record = records[key]
     if not record then
         return
@@ -1403,7 +1623,7 @@ CisDiagnostics.Register('server', 'syncRecords', function()
         total = 0, byOwner = {}, networked = 0, clientLocal = 0,
         entities = 0, refused = stats.networkedFailed, dynamic = 0,
         respawned = stats.respawned, truncated = stats.truncated,
-        snapshotsRefused = stats.snapshotsRefused,
+        snapshotsRefused = stats.snapshotsRefused, forgedBags = stats.forgedBags,
     }
     for _, record in pairs(records) do
         local owner = record.owner or '<none>'

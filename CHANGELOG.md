@@ -840,6 +840,18 @@ which is forgotten when that resource stops.
 
 ### Security
 
+- **A player can no longer hijack a networked sync record through its state
+  bag.** The owning client of a networked entity can write that entity's
+  `cis_sync` bag, and every client took any such bag at face value: a modded
+  client could put a real key on its own ped, evict the real record on every
+  client, make `GetSyncedEntity` return its entity and run spawn hooks with
+  its value. The server now announces each networked key's network id
+  (`cis_libs:client:syncNet`) and a client accepts the bag only on that
+  entity; a cleared or garbled bag no longer untracks anything. The server
+  also watches the bag, puts its own value back over any write it did not
+  make (clears one it never wrote), logs once per player per minute and backs
+  off a client that keeps writing. `Diagnostics` counts these as
+  `syncRecords.forgedBags`.
 - **Every GitHub Action is pinned by full commit SHA**, with the tag it came
   from in a trailing comment, in `tests.yml` and `release.yml`. A moved or
   compromised tag can no longer change what runs.

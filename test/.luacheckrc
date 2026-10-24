@@ -27,7 +27,7 @@ self = false
 -- In shipped code an unused parameter is a real smell and stays reported.
 unused_args = false
 
--- 527 names writable in this directory.
+-- 528 names writable in this directory.
 globals = {
     "AddCommand", "AddDoorToSystem", "AddEventHandler", "AddStateBagChangeHandler",
     "AddTextComponentString", "AddTextComponentSubstringPlayerName", "AttachEntityToEntity",
@@ -116,15 +116,16 @@ globals = {
     "IsPlayerFreeAiming", "IsPrincipalAceAllowed", "IsToggleModOn", "IsVehicleDoorDamaged",
     "IsVehicleExtraTurnedOn", "IsVehicleNeonLightEnabled", "IsVehicleTyreBurst",
     "IsVehicleWindowIntact", "Load", "LoadResourceFile", "LoadResourceFileAsync", "Logging",
-    "NetworkDoesNetworkIdExist", "NetworkGetEntityIsNetworked", "NetworkGetEntityOwner",
-    "NetworkGetNetworkIdFromEntity", "NetworkHasControlOfEntity",
-    "NetworkRequestControlOfEntity", "PerformHttpRequest", "PerformHttpRequestAsync",
-    "PlaySoundFrontend", "Player", "PlayerId", "PlayerPed", "PlayerPedId", "RandomFloat",
-    "RegisterCommand", "RegisterKeyMapping", "RegisterNUICallback", "RegisterNetEvent",
-    "ReleaseNamedScriptAudioBank", "RemoveAnimDict", "RemoveAnimSet", "RemoveCommand",
-    "RemoveEventHandler", "RemoveNamedPtfxAsset", "RemoveStateBagChangeHandler",
-    "RemoveVehicleWindow", "RemoveWeaponAsset", "RequestAnimDict", "RequestAnimSet",
-    "RequestModel", "RequestModelTimeout", "RequestNamedPtfxAsset", "RequestScaleformMovie",
+    "NetworkDoesNetworkIdExist", "NetworkGetEntityFromNetworkId",
+    "NetworkGetEntityIsNetworked", "NetworkGetEntityOwner", "NetworkGetNetworkIdFromEntity",
+    "NetworkHasControlOfEntity", "NetworkRequestControlOfEntity", "PerformHttpRequest",
+    "PerformHttpRequestAsync", "PlaySoundFrontend", "Player", "PlayerId", "PlayerPed",
+    "PlayerPedId", "RandomFloat", "RegisterCommand", "RegisterKeyMapping",
+    "RegisterNUICallback", "RegisterNetEvent", "ReleaseNamedScriptAudioBank",
+    "RemoveAnimDict", "RemoveAnimSet", "RemoveCommand", "RemoveEventHandler",
+    "RemoveNamedPtfxAsset", "RemoveStateBagChangeHandler", "RemoveVehicleWindow",
+    "RemoveWeaponAsset", "RequestAnimDict", "RequestAnimSet", "RequestModel",
+    "RequestModelTimeout", "RequestNamedPtfxAsset", "RequestScaleformMovie",
     "RequestScriptAudioBank", "RequestStreamedTextureDict", "RequestWeaponAsset",
     "RestartResource", "RollDownWindow", "RollUpWindow", "Round", "SUITE_NAMES",
     "SaveResourceFile", "ScaleformMovieMethodAddParamBool",

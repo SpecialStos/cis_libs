@@ -2965,6 +2965,10 @@ return {
             since = '1.0.0',
             payload = 'client to server: (held) sent when the client\'s sync scripts load, `held` being { [key] = rev } of what it still holds (nothing, on a fresh start). The server reconciles what it believed this player held against the claim, answers with one capped batch and lets the pass deliver the rest. Honoured once per 10 s per player.',
         },
+        ['cis_libs:client:syncNet'] = {
+            since = '1.1.0',
+            payload = 'server to client: (list) where each NETWORKED record lives, as { { key, netId }, ... }, at most 64 entries per event; `netId` false revokes the key. Sent to every client when a networked entity is created, removed or re-created, and to one client with its snapshot. A client accepts a `cis_sync` state bag only on the entity behind its key\'s announced network id, so a bag a player wrote on its own entity is ignored. The client applies it only from the server (a local TriggerEvent is ignored).',
+        },
         ['cis_libs:server:syncGaveUp'] = {
             since = '1.0.0',
             payload = 'client to server: (key) the client could not load that record\'s model after its retries. The server stops believing the client holds it and holds back that revision for 30 s.',

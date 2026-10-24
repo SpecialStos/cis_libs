@@ -772,7 +772,32 @@ local function syncEnv(opts)
     function TriggerServerEvent(name, ...)
         env.serverEvents[#env.serverEvents + 1] = { name = name, args = table.pack(...) }
     end
+    -- THE NETWORK IDS THE SERVER ANNOUNCES. `env.netIds[netId] = entity` is
+    -- what this client can resolve; `env.entityState[entity]` is that entity's
+    -- replicated state bag, read when an announcement lands after its bag.
+    env.netIds = {}
+    env.entityState = {}
+    env.save('NetworkGetEntityFromNetworkId')
+    env.save('Entity')
+    function NetworkDoesNetworkIdExist(netId) return env.netIds[netId] ~= nil end
+    function NetworkGetEntityFromNetworkId(netId) return env.netIds[netId] or 0 end
+    function Entity(e) return { state = env.entityState[e] or {} } end
     loadModule('client/sync.lua')
+    -- The server's announcement of which network id each networked key lives
+    -- on, delivered as the network delivers it (source 65535), or forged by a
+    -- local TriggerEvent (source ''). False when the handler is missing, so a
+    -- case reads as a failed check rather than aborting the suite.
+    local function deliverNet(src, list)
+        local fn = env.netEvents['cis_libs:client:syncNet']
+        if not fn then return false end
+        local saved = rawget(_ENV, 'source')
+        source = src
+        fn(list)
+        rawset(_ENV, 'source', saved)
+        return true
+    end
+    env.announce = function(list) return deliverNet(65535, list) end
+    env.forgeAnnounce = function(list) return deliverNet('', list) end
     -- THE WIRE IS A NUMBERED BATCH. `upsert` and `remove` are the one-entry
     -- batches most tests want; `batch` sends exactly what the server would.
     -- Delivered the way the network delivers it: `source` is the server's net id
@@ -911,9 +936,12 @@ do
     -- deleted it. A green result here has to mean the guard in despawn stopped
     -- it, not that nothing was reachable.
     env.alive[555] = true
-    -- It is found through its `cis_sync` state bag: the watcher hands the entity.
+    -- It is found through its `cis_sync` state bag: the watcher hands the entity,
+    -- on the network id the server announced for that key.
     check(env.bagWatch ~= nil and env.bagWatch.key == 'cis_sync',
         '4.5: the client watches the cis_sync state bag for networked records')
+    env.netIds[4555] = 555
+    env.announce({ { wireKeyOf('prop_net'), 4555 } })
     env.bagWatch.fn(555, { key = wireKeyOf('prop_net'), id = 'prop_net', kind = 'prop', rev = 1 },
         true, false)
     local tracked = env.EXPORTS.GetSyncedEntities()
@@ -3709,7 +3737,9 @@ do
     local owner = 7
     function NetworkGetEntityOwner() return owner end
     function PlayerId() return 3 end
-    env.bagWatch.fn(901, { key = wireKeyOf('car'), id = 'car', kind = 'vehicle', rev = 4,
+    env.netIds[4901] = 901
+    env.announce({ { wireKeyOf('car'), 4901 } })
+    env.bagWatch.fn(901,{ key = wireKeyOf('car'), id = 'car', kind = 'vehicle', rev = 4,
         invincible = true, props = { plate = 'X' } }, true, false)
     check(#spawned == 1 and spawned[1] == 901, '4.6f: the bag resolves to the entity and fires onSpawn')
     check(#invincible == 0 and #props == 0,
@@ -3737,6 +3767,133 @@ do
         if n.name == 'DeleteEntity' then deletes = deletes + 1 end
     end
     check(deletes == 0, '4.6f: and nothing is deleted: the entity was the server\'s')
+    env.reset()
+end
+
+-- ============================ N3 · a cis_sync bag counts only where the server put it
+--
+-- The owning client of a networked entity can write that entity's state bags
+-- with replication. A modded client could put `cis_sync = { key = 'shop_ped' }`
+-- on its own ped and every client used to evict its real shop ped, return the
+-- forger's ped from GetSyncedEntity and run spawn hooks with the forger's
+-- value. A bag now counts only on the network id the SERVER announced for that
+-- key, over a server-only event.
+do
+    local env = syncEnv({})
+    local spawned, despawned = {}, {}
+    env.EXPORTS.AddSyncSpawnHandler(function(key, record, entity)
+        spawned[#spawned + 1] = { key = key, record = record, entity = entity }
+    end)
+    env.EXPORTS.AddSyncDespawnHandler(function(key) despawned[#despawned + 1] = key end)
+    local shop = wireKeyOf('shop_ped')
+    local function bag(key, extra)
+        local v = { key = key, id = 'shop_ped', kind = 'ped', rev = 3, clientData = { price = 5 } }
+        for k, x in pairs(extra or {}) do v[k] = x end
+        return v
+    end
+    local function countOf(list, key)
+        local n = 0
+        for _, item in ipairs(list) do
+            if (type(item) == 'table' and item.key or item) == key then n = n + 1 end
+        end
+        return n
+    end
+    local function deletes()
+        local n = 0
+        for _, call in ipairs(env.natives) do
+            if call.name == 'DeleteEntity' then n = n + 1 end
+        end
+        return n
+    end
+    env.alive[666] = true -- the forger's own ped
+    env.netIds[4666] = 666
+
+    -- (1) A forged bag on an entity the server never announced.
+    env.bagWatch.fn(666, bag(shop, { clientData = { price = 0 } }), true, false)
+    check(#spawned == 0, 'N3: a cis_sync bag on an unannounced entity fires no onSpawn')
+    check(env.EXPORTS.GetSyncedEntity(shop) == nil,
+        'N3: and GetSyncedEntity does not return the forger\'s entity')
+
+    -- (2) The server announces the real entity; the real bag is accepted.
+    env.alive[700] = true
+    env.netIds[4100] = 700
+    check(env.announce({ { shop, 4100 } }) == true,
+        'N3: the client listens for the server\'s networked-key announcement')
+    check(#spawned == 0, 'N3: an announcement alone, before the entity\'s bag, spawns nothing')
+    env.bagWatch.fn(700, bag(shop), true, false)
+    check(#spawned == 1 and spawned[1].entity == 700 and env.EXPORTS.GetSyncedEntity(shop) == 700,
+        'N3: a legitimate bag AFTER the announcement is accepted and fires onSpawn once')
+
+    -- (3) A forged bag for that real key on a different entity.
+    env.bagWatch.fn(666, bag(shop, { rev = 99, clientData = { price = 0 } }), true, false)
+    check(#spawned == 1 and #despawned == 0 and env.EXPORTS.GetSyncedEntity(shop) == 700,
+        ('N3: a forged bag for a real key on another entity is ignored and the real record kept '
+            .. '(spawned %d, despawned %d)'):format(#spawned, #despawned))
+    -- A bag cleared or garbled on the real entity evicts nothing either: the
+    -- server restores its own value, and the revoke is the server's to send.
+    env.bagWatch.fn(700, nil, true, true)
+    env.bagWatch.fn(700, 'junk', true, false)
+    check(#despawned == 0 and env.EXPORTS.GetSyncedEntity(shop) == 700,
+        'N3: a cleared or malformed bag on the real entity does not untrack it')
+
+    -- (4) A forged bag naming a CLIENT-LOCAL record's key.
+    env.upsert(wirePayload('door_local', {
+        kind = 'prop', model = 'prop_barrel_01',
+        coords = { x = 0.0, y = 0.0, z = 0.0 }, networked = false,
+    }))
+    local localEntity = env.EXPORTS.GetSyncedEntity(wireKeyOf('door_local'))
+    local deletesBefore = deletes()
+    env.bagWatch.fn(666, { key = wireKeyOf('door_local'), id = 'door_local', kind = 'prop', rev = 1 },
+        true, false)
+    check(localEntity ~= nil and env.EXPORTS.GetSyncedEntity(wireKeyOf('door_local')) == localEntity
+            and deletes() == deletesBefore,
+        'N3: a forged bag naming a client-local record does not evict or delete it')
+
+    -- (5) The bag arrives BEFORE the announcement: ignored, then accepted from
+    -- the entity's live state when the announcement lands.
+    local car = wireKeyOf('car')
+    local carBag = { key = car, id = 'car', kind = 'vehicle', rev = 2 }
+    env.alive[701] = true
+    env.entityState[701] = { cis_sync = carBag }
+    env.bagWatch.fn(701, carBag, true, false)
+    check(env.EXPORTS.GetSyncedEntity(car) == nil, 'N3: a bag before its announcement is held back')
+    env.netIds[4101] = 701
+    env.announce({ { car, 4101 } })
+    check(env.EXPORTS.GetSyncedEntity(car) == 701 and countOf(spawned, car) == 1,
+        'N3: a legitimate bag BEFORE the announcement is accepted when the announcement lands')
+
+    -- (6) An announcement forged by a local TriggerEvent counts for nothing.
+    env.forgeAnnounce({ { shop, 4666 } })
+    env.bagWatch.fn(666, bag(shop, { rev = 100 }), true, false)
+    check(env.EXPORTS.GetSyncedEntity(shop) == 700 and #despawned == 0,
+        'N3: an announcement from a local TriggerEvent is ignored')
+    -- Garbage on the real channel is ignored without raising.
+    local ok = pcall(env.announce, { 'x', { 1, 2 }, { shop, 'abc' }, { shop, -1 }, { shop, 1.5 } })
+    check(ok and env.EXPORTS.GetSyncedEntity(shop) == 700,
+        'N3: malformed announcement entries are skipped without raising')
+    pcall(env.announce, 'not a list')
+
+    -- (7) The server re-created the car under a new network id: the old entity
+    -- is untracked and the new one taken from its bag.
+    env.alive[702] = true
+    env.netIds[4102] = 702
+    env.entityState[702] = { cis_sync = { key = car, id = 'car', kind = 'vehicle', rev = 5 } }
+    env.announce({ { car, 4102 } })
+    check(env.EXPORTS.GetSyncedEntity(car) == 702 and countOf(despawned, car) == 1
+            and countOf(spawned, car) == 2,
+        'N3: a key announced under a new network id moves to the new entity')
+    env.bagWatch.fn(701, carBag, true, false)
+    check(env.EXPORTS.GetSyncedEntity(car) == 702,
+        'N3: and the old entity\'s bag no longer counts')
+
+    -- (8) A revoke untracks, fires onDespawn, deletes nothing, and the key's bag
+    -- stops counting.
+    env.announce({ { shop, false } })
+    check(env.EXPORTS.GetSyncedEntity(shop) == nil and countOf(despawned, shop) == 1,
+        'N3: a revoked key is untracked and onDespawn fires')
+    env.bagWatch.fn(700, bag(shop, { rev = 4 }), true, false)
+    check(env.EXPORTS.GetSyncedEntity(shop) == nil and deletes() == deletesBefore,
+        'N3: after a revoke the bag no longer counts, and nothing was deleted')
     env.reset()
 end
 

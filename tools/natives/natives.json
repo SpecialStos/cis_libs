@@ -5,14 +5,14 @@
     "gta": "https://runtime.fivem.net/doc/natives.json"
   },
   "counts": {
-    "shippedFiles": 71,
-    "nativesUsed": 248,
+    "shippedFiles": 72,
+    "nativesUsed": 250,
     "byRealm": {
-      "client": 166,
+      "client": 167,
       "server": 6,
-      "shared": 76
+      "shared": 77
     },
-    "unresolvedPascalCaseGlobals": 86
+    "unresolvedPascalCaseGlobals": 91
   },
   "natives": {
     "AddDoorToSystem": {
@@ -47,9 +47,11 @@
       ],
       "namespaces": [],
       "usedIn": [
+        "server",
         "shared"
       ],
       "files": [
+        "server/sync.lua",
         "shared/statebag.lua"
       ]
     },
@@ -499,7 +501,8 @@
         "client"
       ],
       "files": [
-        "client/core/streaming.lua"
+        "client/core/streaming.lua",
+        "client/interface/progress.lua"
       ]
     },
     "DoesEntityExist": {
@@ -871,7 +874,10 @@
       "files": [
         "client/cache.lua",
         "client/callback.lua",
+        "client/core/keybind.lua",
+        "client/interface/context.lua",
         "client/interface/nui.lua",
+        "client/interface/radial.lua",
         "client/proxy.lua",
         "client/sync.lua",
         "client/target.lua",
@@ -884,7 +890,8 @@
         "server/selfcheck.lua",
         "server/sync.lua",
         "server/zones.lua",
-        "shared/hooks.lua"
+        "shared/hooks.lua",
+        "shared/owned.lua"
       ]
     },
     "GetDistanceBetweenCoords": {
@@ -979,9 +986,11 @@
       ],
       "namespaces": [],
       "usedIn": [
+        "server",
         "shared"
       ],
       "files": [
+        "server/sync.lua",
         "shared/statebag.lua"
       ]
     },
@@ -1130,6 +1139,7 @@
         "client/interface/menu.lua",
         "client/interface/nui.lua",
         "client/interface/progress.lua",
+        "client/interface/skillcheck.lua",
         "client/vehicle.lua",
         "init.lua",
         "server/callback.lua",
@@ -1536,9 +1546,11 @@
       ],
       "namespaces": [],
       "usedIn": [
+        "client",
         "server"
       ],
       "files": [
+        "client/core/keybind.lua",
         "server/command.lua"
       ]
     },
@@ -1598,7 +1610,8 @@
         "server/command.lua",
         "server/initialize.lua",
         "server/proxy.lua",
-        "server/selfcheck.lua"
+        "server/selfcheck.lua",
+        "shared/owned.lua"
       ]
     },
     "GetSelectedPedWeapon": {
@@ -2928,6 +2941,44 @@
         "init.lua"
       ]
     },
+    "NetworkDoesNetworkIdExist": {
+      "realm": "client",
+      "evidence": [
+        "client"
+      ],
+      "sources": [
+        "gta"
+      ],
+      "namespaces": [
+        "NETWORK"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/sync.lua"
+      ]
+    },
+    "NetworkGetEntityFromNetworkId": {
+      "realm": "shared",
+      "evidence": [
+        "client",
+        "server"
+      ],
+      "sources": [
+        "gta",
+        "cfx"
+      ],
+      "namespaces": [
+        "NETWORK"
+      ],
+      "usedIn": [
+        "client"
+      ],
+      "files": [
+        "client/sync.lua"
+      ]
+    },
     "NetworkGetEntityIsNetworked": {
       "realm": "client",
       "evidence": [
@@ -2956,10 +3007,12 @@
       ],
       "namespaces": [],
       "usedIn": [
-        "client"
+        "client",
+        "server"
       ],
       "files": [
-        "client/sync.lua"
+        "client/sync.lua",
+        "server/sync.lua"
       ]
     },
     "NetworkGetNetworkIdFromEntity": {
@@ -4732,6 +4785,8 @@
     "CisKeybindRemove",
     "CisLog",
     "CisNetOn",
+    "CisOnResourceStop",
+    "CisPayloadWithinLimits",
     "CisPointsCreate",
     "CisPointsGetAll",
     "CisPointsGetClosest",
@@ -4745,6 +4800,7 @@
     "CisRealStop",
     "CisRegisterCallback",
     "CisRememberJob",
+    "CisReportBadPayload",
     "CisSecurityDigests",
     "CisSecurityPinned",
     "CisSecurityPosture",
@@ -4766,6 +4822,8 @@
     "CisUiTextUIHide",
     "CisUiTextUIIsOpen",
     "CisUiTextUIShow",
+    "CisValidateNetSchema",
+    "CisWhenRealStop",
     "CisWorldClosest",
     "CisWorldNearby",
     "CisZonesContains",
