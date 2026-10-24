@@ -4287,6 +4287,27 @@
       "find": "    return ok and allowed == true",
       "replace": "    return false",
       "why": "A stop by an invoker holding command.stop (txAdmin restarting a resource) must release at once, not wait on a state check a same-tick restart defeats."
+    },
+    {
+      "id": "M787",
+      "file": "server/command.lua",
+      "find": "    if ok and held == true then\n        return false, 'granted'",
+      "replace": "    if false then\n        return false, 'granted'",
+      "why": "A grant the operator already wrote must not be marked provisioned, or CommandRemove runs remove_ace on it and takes the operator's own access away."
+    },
+    {
+      "id": "M788",
+      "file": "server/command.lua",
+      "find": "    if not aceGroupListed(entry.restricted) then\n        return false, 'unlisted'",
+      "replace": "    if false then\n        return false, 'unlisted'",
+      "why": "Any CommandAdd caller could otherwise have cis_libs grant its command to group.user; only groups on cis_command_ace_groups are provisioned."
+    },
+    {
+      "id": "M789",
+      "file": "server/command.lua",
+      "find": "    local list = 'group.admin'\n",
+      "replace": "    local list = ''\n",
+      "why": "With the convar unset, group.admin is still provisioned; an empty default would silently stop every grant that worked before."
     }
   ]
 }

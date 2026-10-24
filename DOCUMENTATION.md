@@ -139,6 +139,7 @@ back to what `SetConfig` supplied when that convar is unset or blank:
 | `cis_cb_max_inflight` | `Config.CallbackLimits.MaxInFlight` | 8 |
 | `cis_cb_max_string_len` | `Config.CallbackLimits.MaxStringLen` | 4096 |
 | `cis_check_version` | `Config.CheckVersion` (`true` / `false`) | unset |
+| `cis_command_ace_groups` | the groups `CommandAdd` may write `add_ace` for (comma or space separated); a group the principal already holds the ACE for is never re-granted or removed | `group.admin` |
 
 Precedence for the posture, in order:
 

@@ -815,6 +815,13 @@ which is forgotten when that resource stops.
   later, and only if the resource is no longer `started`. Limitation: an
   untrusted script that stops and restarts a resource in the same tick leaves
   the old instance's records in place until its next stop.
+- `CommandAdd` no longer takes back an ACE it did not grant: when the restricted
+  group already holds `command.<name>` (the operator's own `add_ace`), cis_libs
+  neither re-writes it nor runs `remove_ace` on it when the command is removed.
+  It also provisions only the groups listed in the new convar
+  `cis_command_ace_groups` (default `group.admin`), so a resource calling
+  `CommandAdd` can no longer have cis_libs grant its command to `group.user`;
+  any other group gets a warning and the exact `add_ace` line to run.
 
 ## [1.0.0] — 2026-10-07
 

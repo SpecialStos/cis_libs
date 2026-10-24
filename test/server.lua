@@ -6097,9 +6097,15 @@ do
     env.reset()
 end
 
--- K5. A restricted group is provisioned when cis_libs may run add_ace.
+-- K5. A restricted group is provisioned when cis_libs may run add_ace and the
+-- operator lists it in cis_command_ace_groups.
 do
     local env = commandEnv({})
+    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_G, 'GetConvar') }
+    function GetConvar(name, default)
+        if name == 'cis_command_ace_groups' then return 'group.mod' end
+        return default
+    end
     exports.CommandAdd('cis_nogrant', { restricted = 'group.mod' }, function() end)
     check(#env.executed == 0, 'K5: without the add_ace grant nothing is executed')
 
@@ -6665,6 +6671,43 @@ do
     env.invoking = 'w2e_victim'
     list = env.EXPORTS.SyncList()
     check(type(list) == 'table' and #list == 0, 'W2e: a real stop still takes them down')
+    env.reset()
+end
+
+-- ============================ W2f. cis_libs never takes back an ACE it did not grant
+--
+-- (a) An operator who had already written `add_ace group.admin command.x allow`
+-- lost it when the command was removed: cis_libs "provisioned" over the
+-- existing grant and then ran remove_ace on it. (b) Any group.* principal was
+-- provisioned, so a CommandAdd caller could have cis_libs grant a command to
+-- group.user (on many servers, every player). Only groups the operator lists
+-- in cis_command_ace_groups (default group.admin) are provisioned now.
+do
+    local env = commandEnv({})
+    env.aceGrants['resource.cis_libs command.add_ace'] = true
+    env.aceGrants['group.admin command.cis_pre'] = true
+    check(exports.CommandAdd('cis_pre', { restricted = 'group.admin' }, function() end) == true,
+        'W2f: a command whose ACE the operator already granted registers')
+    exports.CommandRemove('cis_pre')
+    check(#env.executed == 0,
+        ('W2f: an existing grant is neither re-granted nor removed (%s)'):format(tostring(env.executed[1])))
+
+    exports.CommandAdd('cis_usercmd', { restricted = 'group.user' }, function() end)
+    check(#env.executed == 0,
+        ('W2f: a group off cis_command_ace_groups is not provisioned (%s)'):format(tostring(env.executed[1])))
+
+    exports.CommandAdd('cis_admincmd', { restricted = 'group.admin' }, function() end)
+    check(env.executed[1] == 'add_ace group.admin command.cis_admincmd allow',
+        ('W2f: group.admin is provisioned by default (%s)'):format(tostring(env.executed[1])))
+
+    env.saved[#env.saved + 1] = { name = 'GetConvar', value = rawget(_G, 'GetConvar') }
+    function GetConvar(name, default)
+        if name == 'cis_command_ace_groups' then return 'group.admin, group.user' end
+        return default
+    end
+    exports.CommandAdd('cis_usercmd2', { restricted = 'group.user' }, function() end)
+    check(env.executed[2] == 'add_ace group.user command.cis_usercmd2 allow',
+        ('W2f: a group the operator lists is provisioned (%s)'):format(tostring(env.executed[2])))
     env.reset()
 end
 
