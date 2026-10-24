@@ -153,15 +153,19 @@ After a `cis_libs` restart, they reconnect. Never log player names or IPs.
 
 Three tiers, from cheapest to most real:
 
-- **Stubbed** (`npm run test:all`, every push): the suites under fengari and a
-  real Lua 5.4 against hand-written native stubs.
-- **Live server** (the `live-server` CI job, every pull request): a real
-  headless Linux FXServer boots with cis_libs and the harness in
-  `test/live/`, and runs the `server` and `lifecycle` tiers on FiveM's own
-  natives. Any FAIL, script error or boot error fails the build. To turn it
-  on, add a licence key from <https://portal.cfx.re> as the repository secret
-  `FIVEM_LICENSE_KEY` (Settings → Secrets and variables → Actions). Without it
-  the job is skipped with a notice, as it is for pull requests from forks.
+- **Stubbed** (`npm run test:all`, the `test` CI job on every pull request,
+  every push to main and nightly): the suites under fengari and a real Lua 5.4
+  against hand-written native stubs.
+- **Live server** (the `live-server` CI job, started on every pull request and
+  push to main but skipped until the secret below exists): a real headless
+  Linux FXServer boots with cis_libs and the harness in `test/live/`, and runs
+  the `server` and `lifecycle` tiers on FiveM's own natives. Any FAIL, script
+  error or boot error fails the build. To turn it on, add a licence key from
+  <https://portal.cfx.re> as the repository secret `FIVEM_LICENSE_KEY`
+  (Settings → Secrets and variables → Actions). Without it the job is skipped
+  with a notice, as it is for pull requests from forks. That secret is not set
+  on this repository today, so the job skips on every run and CI does not
+  exercise this tier yet.
 - **Player** (`npm run live:run -- player`, by hand): zones, points, the debug
   draw, the client sync spawn path and the `perf` tier need a real game
   client, which CI does not have.

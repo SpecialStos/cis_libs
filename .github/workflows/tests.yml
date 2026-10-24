@@ -9,6 +9,11 @@ name: tests
 # which is too slow to sit in front of every push but too important to leave to
 # a nightly nobody reads.
 #
+# Every action is pinned by full commit SHA, with the tag it was taken from in a
+# trailing comment, so a moved or compromised tag cannot change what runs here.
+# To update one: git ls-remote --tags <repo> <tag>, take the commit (peel an
+# annotated tag with ^{}), and change the SHA and the comment together.
+#
 # The live server tier is the other exception: it boots a real FXServer, so it
 # needs the FIVEM_LICENSE_KEY secret, and a run without one (a fork's pull
 # request) skips it with a notice rather than failing.
@@ -33,9 +38,12 @@ permissions:
 # Superseded runs are cancelled rather than queued: ten pushes to a pull
 # request should cost the last one, not all ten. Keyed on the PR number when
 # there is one, so a PR's runs share a group whatever ref the event names.
+# The nightly run has a group of its own: its ref is main, the same as a push to
+# main, and a push would otherwise cancel the one run whose job is to notice a
+# FiveM release that changed the natives.
 concurrency:
-  group: tests-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: tests-${{ github.event_name == 'schedule' && 'nightly' || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
 env:
   # luacheck 1.2.0 exactly. The lint result is part of the release gate, so a
@@ -51,11 +59,16 @@ jobs:
     # file before, and a green run on two different images is not evidence
     # about either of them.
     runs-on: ubuntu-24.04
+    # test:all takes a few minutes. A hang is reported by the timeout, not by
+    # six hours of runner time.
+    timeout-minutes: 30
     steps:
       # v7 is the newest major of both actions (git ls-remote --tags, 2026-10).
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '24'
           cache: npm
@@ -92,10 +105,14 @@ jobs:
     runs-on: ubuntu-24.04
     # Not on every push: it copies the tree and runs the suite once per row.
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    # One full suite run per mutation row: minutes, and it grows with the rows.
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '24'
           cache: npm
@@ -139,10 +156,12 @@ jobs:
             printf '### Live server tier: SKIPPED\n\n%s\n' "$msg" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         if: steps.key.outputs.present == 'true'
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         if: steps.key.outputs.present == 'true'
         with:
           node-version: '24'
@@ -164,7 +183,7 @@ jobs:
       - name: Restore the FXServer artifact
         if: steps.key.outputs.present == 'true'
         id: fxcache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/cis-fxserver/${{ steps.pin.outputs.build }}
           key: ${{ steps.pin.outputs.key }}
@@ -177,7 +196,7 @@ jobs:
 
       - name: Save the FXServer artifact
         if: steps.key.outputs.present == 'true' && steps.fxcache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/cis-fxserver/${{ steps.pin.outputs.build }}
           key: ${{ steps.pin.outputs.key }}
@@ -194,7 +213,7 @@ jobs:
 
       - name: Upload the console log and results
         if: always() && steps.key.outputs.present == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: live-server-${{ github.run_id }}-${{ github.run_attempt }}
           # out/ only: console.log (ANSI stripped, key redacted), one results

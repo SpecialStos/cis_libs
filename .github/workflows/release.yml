@@ -1,6 +1,16 @@
 # A tag matching v* runs the full gate and the mutation gate, builds
-# dist/cis_libs-<version>.zip, and attaches it to a *draft* GitHub release.
-# Publishing the draft is a manual step.
+# dist/cis_libs-<version>.zip with a SHA256SUMS file beside it, and attaches both
+# to a *draft* GitHub release. Publishing the draft is a manual step.
+#
+# Two jobs, so the token that can write to the repository never sits beside code
+# that runs untrusted steps:
+#   build    read-only token, checkout keeps no credentials; runs npm ci and the
+#            gates, then hands over dist/ as a workflow artifact
+#   publish  contents: write, NO checkout and no repository code; it verifies
+#            the checksum file and creates the draft release
+#
+# Every action is pinned by full commit SHA with the tag it was taken from in a
+# comment, so a moved or compromised tag cannot change what runs here.
 
 name: release
 
@@ -8,7 +18,7 @@ on:
   push:
     tags: ['v*']
 
-# Read-only by default; the one job that creates the release asks for write.
+# Read-only by default; only the publish job asks for write.
 permissions:
   contents: read
 
@@ -20,14 +30,33 @@ env:
   LUACHECK_VERSION: 1.2.0
 
 jobs:
-  release:
-    name: draft release
+  build:
+    name: build and gate
     # A literal: `runs-on` cannot read the `env` context.
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     permissions:
-      contents: write
+      contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # No token left in .git/config while npm ci and the tests run.
+          persist-credentials: false
+          # Full history, so the next step can ask whether the tag is on main.
+          fetch-depth: 0
+
+      - name: Tag must be on main
+        # A v* tag pushed from a side branch would otherwise build and draft a
+        # release of code that never went through review. The tag's commit must
+        # be an ancestor of origin/main. fetch-depth 0 above already fetched
+        # every branch, and the credentials are gone, so nothing is fetched here.
+        run: |
+          git rev-parse --verify --quiet refs/remotes/origin/main >/dev/null \
+            || { echo "::error::origin/main was not fetched"; exit 1; }
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "::error::tag ${GITHUB_REF_NAME} (${GITHUB_SHA}) is not on main"
+            exit 1
+          fi
 
       - name: Tag must match package.json
         # A v1.0.1 tag on a tree whose package.json still says 1.0.0 would
@@ -41,7 +70,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '24'
           cache: npm
@@ -62,16 +91,59 @@ jobs:
       - name: Mutation gate
         run: npm run test:mutate
 
+      - name: Write SHA256SUMS
+        # Relative names, so `sha256sum -c SHA256SUMS` works wherever the two
+        # files are downloaded together.
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          ZIP="cis_libs-${VERSION}.zip"
+          test -f "dist/${ZIP}"
+          cd dist
+          sha256sum "${ZIP}" | tee SHA256SUMS
+          sha256sum -c SHA256SUMS
+
+      - name: Hand dist/ to the publish job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-dist
+          path: |
+            dist/cis_libs-*.zip
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: draft release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      # No checkout: nothing from the repository runs with the write token. The
+      # zip and its checksum file come from the build job.
+      - name: Fetch the build output
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: release-dist
+          path: dist
+
       - name: Attach draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          VERSION=$(node -p "require('./package.json').version")
-          ZIP="dist/cis_libs-${VERSION}.zip"
-          test -f "$ZIP"
-          sha256sum "$ZIP"
-          gh release create "${GITHUB_REF_NAME}" "$ZIP" \
+          cd dist
+          # The checksum is verified again here, on the files about to be
+          # attached, so a damaged hand-over cannot be published.
+          sha256sum -c SHA256SUMS
+          ZIP=$(ls cis_libs-*.zip)
+          VERSION="${ZIP#cis_libs-}"
+          VERSION="${VERSION%.zip}"
+          gh release create "${GITHUB_REF_NAME}" "${ZIP}" SHA256SUMS \
+            --repo "${GITHUB_REPOSITORY}" \
+            --verify-tag \
             --draft \
             --title "cis_libs ${VERSION}" \
-            --notes "Draft. Contract api=1. See CHANGELOG.md."
+            --notes "Draft. Contract api=1. See CHANGELOG.md. Verify the download with sha256sum -c SHA256SUMS."

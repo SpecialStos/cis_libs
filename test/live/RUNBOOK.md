@@ -321,11 +321,14 @@ a `.cis_deploy` marker into it and stops asking.
 
 ## CI
 
-The `live-server` job in `.github/workflows/tests.yml` boots a **real headless
-Linux FXServer** on every pull request and push to main, deploys cis_libs and
-the harness into it, and runs the `server` and `lifecycle` tiers. No game
-client, no txAdmin, no VPS. Any FAIL or ERROR case, any error line in the
-console, a boot that never finishes or a timeout fails the build.
+The `live-server` job in `.github/workflows/tests.yml` is started on every pull
+request and push to main (and nightly). When `FIVEM_LICENSE_KEY` exists it boots
+a **real headless Linux FXServer**, deploys cis_libs and the harness into it,
+and runs the `server` and `lifecycle` tiers. No game client, no txAdmin, no VPS.
+Any FAIL or ERROR case, any error line in the console, a boot that never
+finishes or a timeout fails the build. **That secret is not set on this
+repository today, so the job skips on every run and CI does not exercise this
+tier yet.**
 
 ### Turning it on
 
