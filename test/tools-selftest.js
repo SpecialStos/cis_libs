@@ -193,6 +193,60 @@ check('mutate: test/mutations.json has no duplicate id', () => {
   assert.deepStrictEqual(mutate.duplicateIds(spec.mutations), [])
 })
 
+check('mutate: a row whose find matches 0 or 2 times, or whose file is gone, is stale', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cis-stale-'))
+  try {
+    fs.writeFileSync(path.join(dir, 'a.lua'), 'local x = 1\nlocal x = 1\nlocal y = 2\r\nreturn y\r\n')
+    const rows = [
+      { id: 'M1', file: 'a.lua', find: 'local y = 2\nreturn y' },
+      { id: 'M2', file: 'a.lua', find: 'local x = 1' },
+      { id: 'M3', file: 'a.lua', find: 'local z' },
+      { id: 'M4', file: 'gone.lua', find: 'x' },
+      { id: 'M5', file: 'a.lua', find: '' },
+    ]
+    assert.deepStrictEqual(mutate.staleRows(rows, dir).map(r => r.id), ['M2', 'M3', 'M4', 'M5'])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+check('mutate: a tree that fails unmutated is refused before any row runs', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cis-baseline-'))
+  try {
+    fs.mkdirSync(path.join(dir, 'test'))
+    fs.writeFileSync(path.join(dir, 'test', 'run.js'), "console.log('FAIL(server): broken before any mutation'); process.exit(1)\n")
+    assert.match(mutate.baselineFailure(dir, [{ id: 'M1' }]), /test\/run\.js/)
+    fs.writeFileSync(path.join(dir, 'test', 'run.js'), "console.log('suite server failed=0')\n")
+    assert.strictEqual(mutate.baselineFailure(dir, [{ id: 'M1' }]), null)
+    assert.match(mutate.baselineFailure(dir, [{ id: 'M1', check: 'nope' }]), /unknown check/)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// The cheap half of the mutation gate. Stale rows otherwise surface only inside
+// the hours-long sharded CI run, which is how three merges in a row broke rows
+// unnoticed.
+check('mutate: no row in test/mutations.json is stale', () => {
+  const spec = JSON.parse(fs.readFileSync(path.join(root, 'test', 'mutations.json'), 'utf8'))
+  assert.deepStrictEqual(mutate.staleRows(spec.mutations, root), [])
+})
+
+// The matrix list and the `/N` in the command are kept by hand in two
+// workflows. A list of 1..19 with `/20` drops every twentieth row and nothing
+// fails, so both are read and compared here.
+check('mutate: each workflow shards over 1..N with the same N in its command', () => {
+  for (const wf of ['tests.yml', 'release.yml']) {
+    const text = fs.readFileSync(path.join(root, '.github', 'workflows', wf), 'utf8')
+    const list = /shard:\s*\[([\d,\s]+)\]/.exec(text)
+    const cmd = /--shard=\$\{\{\s*matrix\.shard\s*\}\}\/(\d+)/.exec(text)
+    assert.ok(list && cmd, `${wf}: no shard matrix or no --shard command`)
+    const shards = list[1].split(',').map(s => Number(s.trim()))
+    const n = Number(cmd[1])
+    assert.deepStrictEqual(shards, Array.from({ length: n }, (_, i) => i + 1), `${wf}: matrix is not 1..${n}`)
+  }
+})
+
 check('mutate: --shard=K/N is parsed, and a malformed shard is refused', () => {
   assert.strictEqual(mutate.parseShard(['M1', '--no-copy-modules']), null)
   assert.deepStrictEqual(mutate.parseShard(['--shard=3/16']), { k: 3, n: 16 })

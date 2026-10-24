@@ -36,6 +36,16 @@ Check these first; each is a line under **Changed** or **Deprecated**.
 
 ### Changed
 
+- **`RateOk` buckets belong to the calling resource.** The export shared its
+  keys with the net events cis_libs limits itself, so `RateOk(src, name)` with
+  a cis_libs event name spent that event's budget, and two resources using one
+  name shared a bucket. Each resource now has its own buckets; the limits and
+  return values are unchanged.
+- **`StatebagOnEntity` and `StatebagOnPlayer` refuse with `false, reason`**,
+  not `nil, reason`. A bare `nil` first value truncates an export's return
+  list, so the reason never reached the caller. `if not cookie` still works.
+- **`PublishInventory` names every refusal.** A bad `src` and a failed
+  inventory provider call answered a bare `false`; both now carry a reason.
 - **The server zone pass runs only while a zone exists.** Its loop woke every
   500 ms from boot, with no zone and no player (0.05 to 0.08 ms each on the
   VPS profile). The first zone starts it, and it ends once the last zone is
@@ -493,6 +503,20 @@ which is forgotten when that resource stops.
 
 ### Fixed
 
+- **The mutation gate catches its own blind spots.** `tools/mutate.js
+  --stale-only` checks every row's `find` in milliseconds, and the tool
+  self-test runs it inside `test:all`, so a merge that moves the code a row
+  describes fails locally instead of inside one CI shard. Each run first checks
+  that the unmutated tree passes, so a branch that is already red no longer
+  counts every row as killed. A self-test checks that both workflows shard
+  over 1..N with the same N in the command.
+- A live-tier report in which every case was SKIP or MANUAL counted as a pass.
+  It now fails: a run that passed nothing proved nothing.
+- `SetMenuOptions` on an open menu ignored a list the page refused (over the
+  NUI cap): the old options stayed drawn while the input thread acted on the
+  new ones. It now closes the menu and returns `false, reason`. A menu shown
+  before the page loaded whose redraw on ready is refused also closes, so the
+  player's controls are never disabled behind an empty screen.
 - The restrictive-posture warning printed
   `Security.AuthorizedResources is empty` twice in a row, as the reason and
   again in the explanation. It prints it once.

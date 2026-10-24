@@ -71,3 +71,50 @@ RegisterCommand('cis_ownertest_clear', function()
     clear()
     say('cleared: no zone, no point, no text UI')
 end, false)
+
+-- `/cis_ownertest_ui` exercises the NUI page under its CSP: a context menu
+-- whose options run a progress bar with a held prop and fire this resource's
+-- own event. An option firing another resource's event must be refused.
+AddEventHandler('cis_libs_ownertest:picked', function(args)
+    say(('own event fired: %s'):format(tostring(args and args.n)))
+end)
+
+RegisterCommand('cis_ownertest_ui', function()
+    local okForeign, whyForeign = Cis.ui.context.register({
+        id = 'cis_libs_ownertest_foreign',
+        title = 'foreign',
+        options = { { title = 'x', event = 'esx:showNotification' } },
+    })
+    say(('foreign event option refused: %s (%s)'):format(tostring(okForeign == false), tostring(whyForeign)))
+    local ok, why = Cis.ui.context.register({
+        id = 'cis_libs_ownertest_ui',
+        title = 'cis_libs owner test',
+        options = {
+            {
+                title = 'Progress bar with a prop',
+                description = '3 s, a cone in the right hand; X cancels',
+                onSelect = function()
+                    CreateThread(function()
+                        local done = Cis.ui.progress({
+                            duration = 3000,
+                            label = 'Holding a cone',
+                            canCancel = true,
+                            prop = { model = 'prop_roadcone02a' },
+                        })
+                        say(('progress finished: %s'):format(tostring(done)))
+                    end)
+                end,
+            },
+            {
+                title = 'Fire this resource\'s own event',
+                event = 'cis_libs_ownertest:picked',
+                args = { n = 1 },
+            },
+        },
+    })
+    if not ok then
+        say('context refused: ' .. tostring(why))
+        return
+    end
+    Cis.ui.context.show('cis_libs_ownertest_ui')
+end, false)

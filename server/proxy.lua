@@ -660,7 +660,7 @@ end)
 
 exports('PublishInventory', function(src)
     if type(src) ~= 'number' or src <= 0 then
-        return false
+        return false, ('src must be a player id; got %s'):format(tostring(src))
     end
     -- On the allow-list, because this writes state a CLIENT acts on.
     if not CisInvokingAllowed() then
@@ -668,7 +668,7 @@ exports('PublishInventory', function(src)
     end
     local ok, snapshot = CisRegistry.call('inventory', 'snapshot', src)
     if not ok then
-        return false
+        return false, ('the inventory snapshot failed: %s'):format(tostring(snapshot))
     end
     TriggerClientEvent('cis_libs:client:inventory', src, snapshot)
     return true

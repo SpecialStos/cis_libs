@@ -763,6 +763,18 @@ do
     check(env.EXPORTS.RateOk(1, 'cis:test:a', 1000, 2) == true, 'RateOk allows up to the limit')
     check(env.EXPORTS.RateOk(1, 'cis:test:a', 1000, 2) == false, 'RateOk refuses past the limit')
     check(env.EXPORTS.RateOk(1, 'cis:test:b', 1000, 1) == true, 'RateOk budgets per event name')
+    -- The export's buckets are the caller's own: a net event cis_libs limits, and
+    -- another resource using the same name, each keep their own budget.
+    check(CisRateOk(1, 'cis:test:c', 1000, 1) == true, 'the internal limiter allows its first hit')
+    check(CisRateOk(1, 'cis:test:c', 1000, 1) == false, 'the internal limiter is spent')
+    env.invoking = 'cis_a'
+    check(env.EXPORTS.RateOk(1, 'cis:test:c', 1000, 1) == true,
+        'RateOk does not share a bucket with a net event of the same name')
+    check(env.EXPORTS.RateOk(1, 'cis:test:c', 1000, 1) == false, 'RateOk spends its own bucket')
+    env.invoking = 'cis_b'
+    check(env.EXPORTS.RateOk(1, 'cis:test:c', 1000, 1) == true,
+        'RateOk does not share a bucket between two resources')
+    check(env.EXPORTS.RateOk(1, nil, 1000, 1) == false, 'RateOk still refuses a nil name')
     env.invoking = false
     check(env.EXPORTS.SecurityReport(0, 'test') == false, 'SecurityReport refuses a non-player source')
     env.invoking = 'cis_libs'
@@ -857,6 +869,15 @@ do
     env.invoking = 'res_a'
     check(env.EXPORTS.InvokingAllowed() == false,
         'supplying an empty list again makes the install strict again')
+
+    -- PublishInventory: every refusal carries a reason, not a bare false.
+    env.invoking = 'cis_libs'
+    local okBad, whyBad = env.EXPORTS.PublishInventory(0)
+    check(okBad == false and type(whyBad) == 'string' and whyBad:find('player id', 1, true) ~= nil,
+        'PublishInventory refuses a bad src with a reason: ' .. tostring(whyBad))
+    local okNone, whyNone = env.EXPORTS.PublishInventory(1)
+    check(okNone == false and type(whyNone) == 'string' and whyNone:find('snapshot failed', 1, true) ~= nil,
+        'PublishInventory names a failed provider call: ' .. tostring(whyNone))
     CisInvokingAllowed = nil
     env.reset()
 end

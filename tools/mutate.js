@@ -60,6 +60,27 @@ function selectShard(rows, shard) {
   return rows.filter((_, i) => i % shard.n === shard.k - 1)
 }
 
+// The STALE half of the gate, on its own: every row's `find` must match its
+// file exactly once. Reading the files takes milliseconds, against hours for the
+// sharded run, so tools-selftest runs it inside test:all -- a merge that moves
+// the code a row describes then fails locally, not deep inside one CI shard.
+// Returns the stale rows as { id, file, detail }; `dir` is the tree to read.
+function staleRows(rows, dir) {
+  const out = []
+  for (const m of rows) {
+    const target = path.join(dir, m.file)
+    if (!fs.existsSync(target)) {
+      out.push({ id: m.id, file: m.file, detail: `${m.file} does not exist` })
+      continue
+    }
+    const text = fs.readFileSync(target, 'utf8')
+    const find = text.includes('\r\n') ? m.find.replace(/\n/g, '\r\n') : m.find
+    const n = find === '' ? 0 : text.split(find).length - 1
+    if (n !== 1) out.push({ id: m.id, file: m.file, detail: `find matched ${n} times, expected 1` })
+  }
+  return out
+}
+
 // What a gate that CAUGHT a defect looks like in its output: a suite FAIL line,
 // a `failed=N` summary, a validator E-code, or node:test's `not ok` / `# fail`
 // (TAP) and its spec reporter's `✖ name` / `ℹ fail N` lines.
@@ -74,6 +95,8 @@ const CHECKS = {
   // The validator's own fixtures (test/api/broken): rules the real manifest never trips.
   'api-selftest': ['tools/validate-api.js', '--selftest'],
   tools: ['test/tools-selftest.js'],
+  // The live-report judge and its fake-server end-to-end run (npm run test:ci).
+  ci: ['--test', 'test/ci/ci-live.test.js', 'test/ci/ci-live-e2e.test.js'],
 }
 
 const NO_INTERPRETER = /no Lua 5\.4 interpreter found/
@@ -135,6 +158,22 @@ function runSuite(dir) {
   }
 }
 
+// The unmutated copy must pass every gate the rows will use. If it does not --
+// a file missing from the copy, a suite already red on this branch -- every row
+// "fails" for that reason alone and counts as killed, and the run reports a
+// perfect gate that proved nothing. Returns null when clean, else what failed.
+function baselineFailure(dir, rows) {
+  const suite = classify(runSuite(dir))
+  if (suite.state !== 'passed') return `test/run.js: ${suite.detail || 'a suite failed'}`
+  for (const name of new Set(rows.map(m => m.check).filter(Boolean))) {
+    const args = CHECKS[name]
+    if (!args) return `unknown check '${name}'`
+    const c = spawnSync(process.execPath, args, { cwd: dir, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+    if (c.error || c.status !== 0) return `check '${name}' exits ${c.error ? c.error.message : c.status}`
+  }
+  return null
+}
+
 function main() {
   let shard
   try {
@@ -156,6 +195,12 @@ function main() {
     console.error(`no mutations matched ${JSON.stringify(only)}`)
     process.exit(2)
   }
+  if (process.argv.includes('--stale-only')) {
+    const stale = staleRows(filtered, root)
+    for (const r of stale) console.log(`  ${r.id}  ${r.file}  ${r.detail}`)
+    console.log(`${filtered.length} rows: ${stale.length} stale`)
+    process.exit(stale.length ? 1 : 0)
+  }
   const rows = selectShard(filtered, shard)
   const shardLabel = shard ? ` (shard ${shard.k}/${shard.n} of ${filtered.length} rows)` : ''
   if (!rows.length) {
@@ -175,6 +220,13 @@ function main() {
     copyTree(root, tmpRoot, skipNodeModules
       ? ['.git', '.claude', 'node_modules', '.live-env.json']
       : ['.git', '.claude', '.live-env.json'])
+
+    const broken = baselineFailure(tmpRoot, rows)
+    if (broken) {
+      console.log(`ERROR -- the unmutated tree fails its own gate, so no row proves anything: ${broken}`)
+      process.exitCode = 1
+      return
+    }
 
     for (const m of rows) {
       const target = path.join(tmpRoot, m.file)
@@ -301,4 +353,4 @@ function main() {
 
 if (require.main === module) main()
 
-module.exports = { classify, duplicateIds, parseShard, selectShard, CHECKS }
+module.exports = { classify, duplicateIds, parseShard, selectShard, staleRows, baselineFailure, CHECKS }

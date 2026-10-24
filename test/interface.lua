@@ -1500,6 +1500,15 @@ do
     check(okM == false and type(whyM) == 'string' and env.X.GetOpenMenu() == nil and env.live() == 0,
         'cap: a list menu the page refuses reports false, a reason, is not open and runs no thread')
 
+    refuse = nil
+    check(env.X.ShowMenu('bigm') == true and env.X.GetOpenMenu() == 'bigm', 'cap: the menu opens once the page accepts it')
+    refuse = 'menu:state'
+    local okS, whyS = env.X.SetMenuOptions('bigm', { { label = 'huge' } })
+    check(okS == false and type(whyS) == 'string' and env.X.GetOpenMenu() == nil,
+        'cap: new menu options the page refuses report false, a reason, and close the menu')
+    env.step()
+    check(env.live() == 0, 'cap: and the closed menu thread ends on its next frame')
+
     refuse = 'skill:round'
     got = nil
     env.spawn(function() got = { env.X.SkillCheck('easy') } end)
@@ -1520,6 +1529,27 @@ do
         'cap: a text UI the page refuses reports false, a reason, and is not open')
 
     refuse = nil
+    CisInterface.send = realSend
+    env.reset()
+end
+
+-- A menu opened before the page loaded is drawn on ready; if the page refuses
+-- that redraw, nothing is on screen, so the menu closes instead of holding the
+-- player's controls.
+do
+    local env = newEnv()
+    env.load(false)
+    local realSend = CisInterface.send
+    CisInterface.send = function(action, data, buffer)
+        if action == 'menu:open' and CisInterface.ready then return false, 'message too large' end
+        return realSend(action, data, buffer)
+    end
+    env.X.RegisterMenu({ id = 'early', title = 'Early', options = { { label = 'a' } } }, function() end)
+    check(env.X.ShowMenu('early') == true and env.X.GetOpenMenu() == 'early', 'cap: a menu shown before the page is ready counts as open')
+    env.post('ready', {})
+    local hello = env.last('hello')
+    env.post('ready', { token = hello and hello.token })
+    check(CisInterface.ready == true and env.X.GetOpenMenu() == nil, 'cap: a menu whose redraw on ready the page refuses closes')
     CisInterface.send = realSend
     env.reset()
 end

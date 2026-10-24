@@ -177,6 +177,9 @@ function judgeReport(input) {
   }
   if ((cases && cases.length === 0) || emptyObject) {
     problems.push('the run recorded zero cases, which proves nothing')
+  } else if (counts.pass === 0) {
+    // Every case SKIP or MANUAL is a run that exercised nothing either.
+    problems.push('no case passed: every case was skipped or manual, which proves nothing')
   }
   const t = report.tally || {}
   if ((Number(t.fail) || 0) > 0 && counts.fail === 0) problems.push(`tally says fail ${t.fail} but no case is FAIL`)

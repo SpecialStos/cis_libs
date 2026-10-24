@@ -606,7 +606,7 @@ return {
             use = 'exports.cis_libs:SetMenuOptions(id, options, index)',
             realm = 'client',
             params = { { name = 'id', type = 'string', doc = 'a registered menu id' }, { name = 'options', type = 'table', doc = 'the full option list, or one option when index is given' }, { name = 'index', type = 'integer', optional = true, doc = 'replace (or append, one past the end) this option only' } },
-            returns = { { type = 'boolean, string|nil', doc = 'true once replaced; an open menu is redrawn' } }
+            returns = { { type = 'boolean, string|nil', doc = 'true once replaced; an open menu is redrawn, or closed with false plus a reason when the page refuses the new list' } }
         },
         AddRadialItem = {
             since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
@@ -760,14 +760,14 @@ return {
             use = 'Cis.statebag.onEntity(key, handler, timeoutMs)',
             realm = 'both',
             params = { { name = 'key', type = 'string', doc = 'the state key, or the * wildcard. NOT empty' }, { name = 'handler', type = 'fun(entity: integer, value: any, replicated: boolean, deleted: boolean)', doc = 'a function, or one passed from another resource (it arrives as a callable reference). The entity is RESOLVED from the bag with GetEntityFromStateBagName -- never the netId in its name -- and a PLAYER bag resolves to that player\'s ped. deleted is value == nil, which is the only shape a delete has' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'how long the CLIENT keeps a change whose entity does not exist yet, default 2000. Waiting changes share one bounded queue and the newest value per bag wins; the server never waits' } },
-            returns = { { type = 'integer|nil, string|nil', doc = 'a COOKIE, not a boolean. The watcher belongs to the resource that registered it and is removed when that resource stops' } }
+            returns = { { type = 'integer|false, string|nil', doc = 'a COOKIE, not a boolean, or false plus a reason. The watcher belongs to the resource that registered it and is removed when that resource stops' } }
         },
         StatebagOnPlayer = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
             use = 'Cis.statebag.onPlayer(key, handler, timeoutMs)',
             realm = 'both',
             params = { { name = 'key', type = 'string', doc = 'the state key or *' }, { name = 'handler', type = 'fun(player: integer, value: any, replicated: boolean, deleted: boolean)', doc = 'as on the entity watcher, with the player SERVER id on both sides (resolved with GetPlayerFromStateBagName; a client turns the handle it answers back into the server id)' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'accepted for symmetry and unused: a server id is known from the bag, so nothing waits' } },
-            returns = { { type = 'integer|nil, string|nil', doc = 'a cookie, or nil plus a reason' } }
+            returns = { { type = 'integer|false, string|nil', doc = 'a cookie, or false plus a reason' } }
         },
         RemoveStatebagHandler = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
@@ -1257,7 +1257,7 @@ return {
             use = 'deprecated since 1.1.0; use the cis_bridge inventory API',
             realm = 'server',
             params = { { name = 'src', type = 'integer', doc = 'a connected player id above 0' } },
-            returns = { { type = 'boolean, string|nil', doc = 'true after the snapshot is pushed; false with no reason for a bad src or a failed provider call, a reason naming the allow-list otherwise' } },
+            returns = { { type = 'boolean, string|nil', doc = 'true after the snapshot is pushed; false plus a reason for a bad src, a failed provider call, or a caller not on the allow-list' } },
         },
 
         -- ---------------------------------------------------------- framework
@@ -1332,9 +1332,9 @@ return {
         },
         RateOk = {
             since = '1.0.0', ['until'] = false, stable = true, deprecated = false,
-            use = 'no proxy equivalent; a resource may share the library rate limiter',
+            use = 'no proxy equivalent; the library rate limiter, with buckets per calling resource',
             realm = 'server',
-            params = { { name = 'src', type = 'integer|string', doc = 'the bucket owner, and the player id for a public handler. A key that is not a connected player (a license string, a stale id) is bounded separately, since playerDropped never frees it' }, { name = 'name', type = 'string', doc = 'the bucket key inside that src; the rate is per (src, name), never shared across names' }, { name = 'windowMs', type = 'integer', optional = true, doc = 'the window in ms, default 1000 -- a fixed window, not a sliding one' }, { name = 'maxHits', type = 'integer', optional = true, doc = 'the hits allowed inside it, default 8' } },
+            params = { { name = 'src', type = 'integer|string', doc = 'the bucket owner, and the player id for a public handler. A key that is not a connected player (a license string, a stale id) is bounded separately, since playerDropped never frees it' }, { name = 'name', type = 'string', doc = 'the bucket key inside that src; the rate is per (calling resource, src, name), never shared across names, with another resource, or with the net events cis_libs limits itself' }, { name = 'windowMs', type = 'integer', optional = true, doc = 'the window in ms, default 1000 -- a fixed window, not a sliding one' }, { name = 'maxHits', type = 'integer', optional = true, doc = 'the hits allowed inside it, default 8' } },
             returns = { { type = 'boolean, string|nil', doc = 'true on an allowed hit, and true is not free: it consumes a slot in the (src, name) window. false with the reason limited when the hit exceeds maxHits; false with the reason cap when the src holds 256 live buckets and this name is new (expired buckets are evicted first), or when the src is not a connected player and 1024 such keys are live (idle ones are swept first; a connected player is never refused for that bound). false plus a reason, never a raise, for a src that is not a finite number or a non-empty string, a name that is not a non-empty string, or a windowMs or maxHits that is not a finite number of at least 1 (maxHits) or above 0 (windowMs). A string src is the same player as its number' } },
         },
         GetLibsPrefix = {
@@ -2371,14 +2371,14 @@ return {
         realm = 'both',
         forwardsTo = 'StatebagOnEntity',
         params = { { name = 'key', type = 'string', doc = 'the key or *' }, { name = 'handler', type = 'function', doc = 'called (entity, value, replicated, deleted); crosses the boundary as a callable reference and is released when the calling resource stops' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'how long the client keeps a change whose entity has not streamed in, default 2000. The server does not wait' } },
-        returns = { { type = 'integer|nil, string|nil', doc = 'a cookie for Cis.statebag.remove, or nil plus a reason. From a consumer the watcher is made again, under the same cookie, when cis_libs restarts' } },
+        returns = { { type = 'integer|false, string|nil', doc = 'a cookie for Cis.statebag.remove, or false plus a reason. From a consumer the watcher is made again, under the same cookie, when cis_libs restarts' } },
     },
     ['Cis.statebag.onPlayer'] = {
         since = '1.0.0',
         realm = 'both',
         forwardsTo = 'StatebagOnPlayer',
         params = { { name = 'key', type = 'string', doc = 'the key or *' }, { name = 'handler', type = 'function', doc = 'called (serverId, value, replicated, deleted); released when the calling resource stops' }, { name = 'timeoutMs', type = 'number', optional = true, doc = 'unused: a player watcher never waits' } },
-        returns = { { type = 'integer|nil, string|nil', doc = 'a cookie for Cis.statebag.remove, or nil plus a reason. From a consumer the watcher is made again, under the same cookie, when cis_libs restarts' } },
+        returns = { { type = 'integer|false, string|nil', doc = 'a cookie for Cis.statebag.remove, or false plus a reason. From a consumer the watcher is made again, under the same cookie, when cis_libs restarts' } },
     },
     ['Cis.statebag.remove'] = {
         since = '1.0.0',

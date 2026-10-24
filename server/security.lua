@@ -923,7 +923,13 @@ exports('InvokingAllowed', function()
     return invokingAllowed()
 end)
 
+-- A consumer's buckets are its own. The export used to share keys with the net
+-- events cis_libs limits itself, so RateOk(src, 'cis_libs:x') spent (or reset the
+-- window of) a real event's budget, and two resources picking one name shared it.
 exports('RateOk', function(src, name, windowMs, maxHits)
+    if (type(name) == 'string' and name ~= '') or (type(name) == 'number' and isFinite(name)) then
+        name = ('export:%s:%s'):format(GetInvokingResource() or 'cis_libs', tostring(name))
+    end
     return rateOk(src, name, windowMs, maxHits)
 end)
 

@@ -137,6 +137,19 @@ test('SKIP and MANUAL are listed but neither pass nor fail', () => {
   assert.equal(v.counts.manual, 1)
 })
 
+test('a run where every case was skipped or manual fails', () => {
+  const v = lib.judgeReport({
+    ...PASSING,
+    cases: [
+      { suite: 'player', case: '<whole suite>', status: 'SKIP', skipReason: 'no player connected' },
+      { suite: 'draw', case: 'look', status: 'MANUAL', manual: 'look at it' },
+    ],
+    tally: { pass: 0, fail: 0, skip: 1, manual: 1, error: 0, ms: 1 },
+  })
+  assert.equal(v.ok, false)
+  assert.ok(v.problems.some(p => /no case passed/.test(p)))
+})
+
 test('a run with zero cases fails, whichever way the encoder wrote the empty table', () => {
   for (const cases of [[], {}]) {
     const v = lib.judgeReport({ ...PASSING, cases })

@@ -5706,9 +5706,9 @@ do
     check(again == false, '7.7: a cookie that was already removed answers false')
 
     local bad = exports.StatebagOnEntity('', function() end)
-    check(bad == nil, '7.7: an empty key is refused')
+    check(bad == false, '7.7: an empty key is refused with false, not a bare nil')
     local notFn = exports.StatebagOnEntity('locked', 'nope')
-    check(notFn == nil, '7.7: a handler that is not callable is refused')
+    check(notFn == false, '7.7: a handler that is not callable is refused with false')
     env.reset()
 end
 

@@ -188,10 +188,10 @@ end
 
 local function watch(key, handler, resolve, timeoutMs, waits)
     if type(key) ~= 'string' or key == '' then
-        return nil, ('key must be a non-empty string; the "*" wildcard is allowed: got %s'):format(tostring(key))
+        return false, ('key must be a non-empty string; the "*" wildcard is allowed: got %s'):format(tostring(key))
     end
     if not CisCallable(handler) then
-        return nil, ('handler must be a function; got %s'):format(type(handler))
+        return false, ('handler must be a function; got %s'):format(type(handler))
     end
     local wait = tonumber(timeoutMs) or DEFAULT_WAIT_MS
     if wait ~= wait or wait < 0 then

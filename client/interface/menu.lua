@@ -300,7 +300,13 @@ local function setMenuOptions(id, options, index)
             end
             if index == nil or index == i then s.checked[i] = o.checked end
         end
-        I.send('menu:state', { selected = s.selected, options = view(s) })
+        -- A list the page refuses (over the NUI cap) leaves the old options
+        -- drawn while the input thread acts on the new ones: close instead.
+        local sent, why = I.send('menu:state', { selected = s.selected, options = view(s) })
+        if sent == false and I.ready then
+            close(s, nil, false)
+            return false, ('menu %s options were not drawn, so it closed: %s'):format(id, tostring(why or 'the page refused the message'))
+        end
     end
     return true
 end
@@ -325,10 +331,14 @@ end)
 I.onReady(function()
     if open then
         local s = open
-        I.send('menu:open', {
+        local sent = I.send('menu:open', {
             id = s.id, title = s.menu.title, position = s.menu.position or I.defaults.menuPosition,
             options = view(s), selected = s.selected,
         })
+        -- Refused on redraw: nothing is drawn, so stop disabling controls.
+        if sent == false then
+            close(s, nil, false)
+        end
     end
 end)
 

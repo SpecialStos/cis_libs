@@ -1666,7 +1666,7 @@ function Ptfx(name, timeout) end
 ---@deprecated
 --- deprecated since 1.1.0; use the cis_bridge inventory API
 ---@param src integer #a connected player id above 0
----@return boolean, string|nil #true after the snapshot is pushed; false with no reason for a bad src or a failed provider call, a reason naming the allow-list otherwise
+---@return boolean, string|nil #true after the snapshot is pushed; false plus a reason for a bad src, a failed provider call, or a caller not on the allow-list
 --- realm: server
 function PublishInventory(src) end
 
@@ -1691,9 +1691,9 @@ function PublishPlayerLoaded(job, src) end
 --- realm: client
 function RandomFloat(lower, greater) end
 
---- no proxy equivalent; a resource may share the library rate limiter
+--- no proxy equivalent; the library rate limiter, with buckets per calling resource
 ---@param src integer|string #the bucket owner, and the player id for a public handler. A key that is not a connected player (a license string, a stale id) is bounded separately, since playerDropped never frees it
----@param name string #the bucket key inside that src; the rate is per (src, name), never shared across names
+---@param name string #the bucket key inside that src; the rate is per (calling resource, src, name), never shared across names, with another resource, or with the net events cis_libs limits itself
 ---@param windowMs? integer #the window in ms, default 1000 -- a fixed window, not a sliding one
 ---@param maxHits? integer #the hits allowed inside it, default 8
 ---@return boolean, string|nil #true on an allowed hit, and true is not free: it consumes a slot in the (src, name) window. false with the reason limited when the hit exceeds maxHits; false with the reason cap when the src holds 256 live buckets and this name is new (expired buckets are evicted first), or when the src is not a connected player and 1024 such keys are live (idle ones are swept first; a connected player is never refused for that bound). false plus a reason, never a raise, for a src that is not a finite number or a non-empty string, a name that is not a non-empty string, or a windowMs or maxHits that is not a finite number of at least 1 (maxHits) or above 0 (windowMs). A string src is the same player as its number
@@ -1943,7 +1943,7 @@ function SetDropPlayerHandler(provider) end
 ---@param id string #a registered menu id
 ---@param options table #the full option list, or one option when index is given
 ---@param index? integer #replace (or append, one past the end) this option only
----@return boolean, string|nil #true once replaced; an open menu is redrawn
+---@return boolean, string|nil #true once replaced; an open menu is redrawn, or closed with false plus a reason when the page refuses the new list
 --- realm: client
 function SetMenuOptions(id, options, index) end
 
@@ -2003,7 +2003,7 @@ function SkillCheckActive() end
 ---@param key string #the state key, or the * wildcard. NOT empty
 ---@param handler fun(entity: integer, value: any, replicated: boolean, deleted: boolean) #a function, or one passed from another resource (it arrives as a callable reference). The entity is RESOLVED from the bag with GetEntityFromStateBagName -- never the netId in its name -- and a PLAYER bag resolves to that player's ped. deleted is value == nil, which is the only shape a delete has
 ---@param timeoutMs? number #how long the CLIENT keeps a change whose entity does not exist yet, default 2000. Waiting changes share one bounded queue and the newest value per bag wins; the server never waits
----@return integer|nil, string|nil #a COOKIE, not a boolean. The watcher belongs to the resource that registered it and is removed when that resource stops
+---@return integer|false, string|nil #a COOKIE, not a boolean, or false plus a reason. The watcher belongs to the resource that registered it and is removed when that resource stops
 --- realm: both
 function StatebagOnEntity(key, handler, timeoutMs) end
 
@@ -2011,7 +2011,7 @@ function StatebagOnEntity(key, handler, timeoutMs) end
 ---@param key string #the state key or *
 ---@param handler fun(player: integer, value: any, replicated: boolean, deleted: boolean) #as on the entity watcher, with the player SERVER id on both sides (resolved with GetPlayerFromStateBagName; a client turns the handle it answers back into the server id)
 ---@param timeoutMs? number #accepted for symmetry and unused: a server id is known from the bag, so nothing waits
----@return integer|nil, string|nil #a cookie, or nil plus a reason
+---@return integer|false, string|nil #a cookie, or false plus a reason
 --- realm: both
 function StatebagOnPlayer(key, handler, timeoutMs) end
 
@@ -2838,7 +2838,7 @@ function Cis.security.report(src, reason) end
 ---@param key string #the key or *
 ---@param handler function #called (entity, value, replicated, deleted); crosses the boundary as a callable reference and is released when the calling resource stops
 ---@param timeoutMs? number #how long the client keeps a change whose entity has not streamed in, default 2000. The server does not wait
----@return integer|nil, string|nil #a cookie for Cis.statebag.remove, or nil plus a reason. From a consumer the watcher is made again, under the same cookie, when cis_libs restarts
+---@return integer|false, string|nil #a cookie for Cis.statebag.remove, or false plus a reason. From a consumer the watcher is made again, under the same cookie, when cis_libs restarts
 function Cis.statebag.onEntity(key, handler, timeoutMs) end
 
 ---@class Cis.statebag.onPlayer
@@ -2848,7 +2848,7 @@ function Cis.statebag.onEntity(key, handler, timeoutMs) end
 ---@param key string #the key or *
 ---@param handler function #called (serverId, value, replicated, deleted); released when the calling resource stops
 ---@param timeoutMs? number #unused: a player watcher never waits
----@return integer|nil, string|nil #a cookie for Cis.statebag.remove, or nil plus a reason. From a consumer the watcher is made again, under the same cookie, when cis_libs restarts
+---@return integer|false, string|nil #a cookie for Cis.statebag.remove, or false plus a reason. From a consumer the watcher is made again, under the same cookie, when cis_libs restarts
 function Cis.statebag.onPlayer(key, handler, timeoutMs) end
 
 ---@class Cis.statebag.remove

@@ -11,8 +11,8 @@
     {
       "id": "M02",
       "file": "server/security.lua",
-      "find": "    maxHits = maxHits or 8\n",
-      "replace": "    maxHits = maxHits or 8000\n",
+      "find": "    maxHits = maxHits == nil and 8 or maxHits\n",
+      "replace": "    maxHits = maxHits == nil and 8000 or maxHits\n",
       "why": "Make the default rate limit effectively unlimited. The limiter still exists and still works; it simply never refuses, which is the failure mode a limit that defaults to permissive always produces."
     },
     {
@@ -207,7 +207,7 @@
     {
       "id": "M33",
       "file": "server/sync.lua",
-      "find": "                stats.networkedFailed = stats.networkedFailed + 1\n                Logging.Error(('Cis.sync.%s networked: %s'):format(\n                    tostring(rec.id), tostring(why)))\n                return nil, why\n",
+      "find": "                stats.networkedFailed = stats.networkedFailed + 1\n                Logging.Error(('Cis.sync.%s networked: %s'):format(\n                    tostring(rec.id), tostring(why)))\n                return false, why\n",
       "replace": "                stats.networkedFailed = stats.networkedFailed + 1\n                Logging.Error(('Cis.sync.%s networked: %s'):format(\n                    tostring(rec.id), tostring(why)))\n                created = 0\n",
       "why": "Store a networked record whose entity the server could not create, which is what the code did: the caller asked for one shared entity and got a record claiming one exists, with no netId -- the shape that made every client spawn its own networked copy. (Rewritten: the old `unsupported` branch it targeted now refuses through the same path as any failed creation, so dropping it alone changes nothing.)"
     },
@@ -347,8 +347,8 @@
     {
       "id": "M55",
       "file": "server/sync.lua",
-      "find": "exports('SyncList', function()\n    if not CisInvokingAllowed() then\n        return nil, 'this resource is not in Security.AuthorizedResources'\n    end\n    local owner = GetInvokingResource() or 'cis_libs'\n    local out = {}\n    for _, record in pairs(records) do\n        if record.owner == owner then",
-      "replace": "        if true then\n            -- The CALLERS OWN ID, never the namespaced key.",
+      "find": "        if record.owner == owner then\n            -- The CALLER'S OWN ID",
+      "replace": "        if true then\n            -- The CALLER'S OWN ID",
       "why": "List every resource records instead of the callers own. A list that names another resources entities is a map of every prop on the server handed to whichever resource asked."
     },
     {
@@ -361,15 +361,15 @@
     {
       "id": "M57",
       "file": "server/sync.lua",
-      "find": "exports('SyncList', function()\n    if not CisInvokingAllowed() then\n        return nil, 'this resource is not in Security.AuthorizedResources'\n    end",
-      "replace": "exports('SyncList', function()\n    if false then\n        return nil, 'this resource is not in Security.AuthorizedResources'\n    end",
+      "find": "exports('SyncList', function()\n    if not CisInvokingAllowed() then",
+      "replace": "exports('SyncList', function()\n    if false then",
       "why": "Drop the allow-list from SyncList. The list exists to keep an unapproved resource out of the sync system, and a read path that ignores it is the way past it."
     },
     {
       "id": "M58",
       "file": "server/sync.lua",
-      "find": "exports('SyncClear', function()\n    if not CisInvokingAllowed() then\n        return nil, 'this resource is not in Security.AuthorizedResources'\n    end",
-      "replace": "exports('SyncClear', function()\n    if false then\n        return nil, 'this resource is not in Security.AuthorizedResources'\n    end",
+      "find": "exports('SyncClear', function()\n    if not CisInvokingAllowed() then",
+      "replace": "exports('SyncClear', function()\n    if false then",
       "why": "Drop the allow-list from SyncClear. SyncCreate refuses an unapproved resource, so this path would be the one that does not -- and it is the one that deletes."
     },
     {
@@ -1538,8 +1538,8 @@
     {
       "id": "M226",
       "file": "shared/util/table.lua",
-      "find": "        out[k] = M.deepCopy(v, seen)",
-      "replace": "        out[M.deepCopy(k, seen)] = M.deepCopy(v, seen)",
+      "find": "                out[k] = copy\n            else\n                out[k] = v\n",
+      "replace": "                out[type(k) == 'table' and {} or k] = copy\n            else\n                out[type(k) == 'table' and {} or k] = v\n",
       "why": "deepCopy copies table KEYS, so a copy of an identity-keyed table cannot be looked up by the original keys."
     },
     {
@@ -1790,7 +1790,7 @@
     {
       "id": "M262",
       "file": "shared/util/array.lua",
-      "find": "    local n = rawget(a, 'n')\n    if type(n) == 'number' then\n        return n\n    end\n    return rawlen(a)",
+      "find": "    local n = rawget(a, 'n')\n    -- A NaN or infinite `n` is not a length: `for i = 1, math.huge` never ended.\n    if type(n) == 'number' and n == n and n ~= math.huge and n ~= -math.huge then\n        return n\n    end\n    return rawlen(a)",
       "replace": "    return rawlen(a)",
       "why": "Measure with #t and ignore `n`. A trailing hole or a hole in the middle shortens the array, which is the whole failure the module exists to prevent."
     },
@@ -2126,15 +2126,15 @@
     {
       "id": "M310",
       "file": "shared/hooks.lua",
-      "find": "        -- A forged stop from another client script is ignored (shared/owned.lua).\n        if not CisRealStop(resource) then\n            return\n        end\n",
-      "replace": "",
+      "find": "        CisWhenRealStop(resource, CisHooks.releaseOwner)\n",
+      "replace": "        CisHooks.releaseOwner(resource)\n",
       "why": "Trust a forged onResourceStop in shared/hooks.lua. TriggerEvent('onResourceStop', 'victim') from any client script releases the victim's hooks."
     },
     {
       "id": "M311",
       "file": "shared/statebag.lua",
-      "find": "    -- A forged stop from another client script is ignored (shared/owned.lua).\n    if not CisRealStop(resource) then\n        return\n    end\n",
-      "replace": "",
+      "find": "CisOnResourceStop(function(resource)\n    local freed = CisOwned.release(owned, resource)",
+      "replace": "AddEventHandler('onResourceStop', function(resource)\n    local freed = CisOwned.release(owned, resource)",
       "why": "Trust a forged onResourceStop in shared/statebag.lua. TriggerEvent('onResourceStop', 'victim') from any client script releases the victim's statebag watchers."
     },
     {
@@ -2651,8 +2651,8 @@
     {
       "id": "M385",
       "file": "server/security.lua",
-      "find": "    src = tonumber(src) or src\n    local now = GetGameTimer()",
-      "replace": "    local now = GetGameTimer()",
+      "find": "    src = tonumber(src) or src\n    if type(src) == 'number' then",
+      "replace": "    if type(src) == 'number' then",
       "why": "Key a string src apart from its number. Buckets made with a GetPlayers() id are never freed on drop."
     },
     {
@@ -3013,8 +3013,8 @@
     {
       "id": "M435",
       "file": "shared/grid.lua",
-      "find": "        if v < -LIMIT or v > LIMIT then",
-      "replace": "        if false then",
+      "find": "        if v < -LIMIT or v > LIMIT then\n            return nil, ('the AABB has a bound of",
+      "replace": "        if false then\n            return nil, ('the AABB has a bound of",
       "why": "Admit an AABB with an infinite or 1e21 x/y bound. The insert walks for x = -inf, inf forever and hangs the client; far coordinates also collide in the cell key."
     },
     {
@@ -3577,8 +3577,8 @@
     {
       "id": "M692",
       "file": "server/security.lua",
-      "find": "    perSrc[name] = now\n    local quiet",
-      "replace": "    perSrc[name] = last or now\n    local quiet",
+      "find": "    perSrc[ledgerKey] = now\n    local quiet",
+      "replace": "    perSrc[ledgerKey] = last or now\n    local quiet",
       "why": "Refresh the bad-payload latch only when it reports. A flood that lasts longer than the quiet interval is then reported again every interval, one provider call each."
     },
     {
@@ -3752,8 +3752,8 @@
     {
       "id": "M522",
       "file": "shared/util/locale.lua",
-      "find": "    if ok then\n        return formatted\n    end\n    warnOnce(key .. '#format'",
-      "replace": "    if ok and nargs >= from then\n        return formatted\n    end\n    warnOnce(key .. '#format'",
+      "find": "    if ok then\n        return formatted\n    end\n    warnOnce(tostring(key) .. '#format'",
+      "replace": "    if ok and select('#', ...) >= from then\n        return formatted\n    end\n    warnOnce(tostring(key) .. '#format'",
       "why": "A table with no positional argument skips string.format, so %% stays doubled there but collapses beside a positional argument."
     },
     {
@@ -3948,8 +3948,8 @@
     {
       "id": "M550",
       "file": "shared/util/array.lua",
-      "find": "if depth > 0 and not active[v] and M.isArrayLike(v) then",
-      "replace": "if depth > 0 and M.isArrayLike(v) then",
+      "find": "if d > 0 and not active[v] and M.isArrayLike(v) then",
+      "replace": "if d > 0 and M.isArrayLike(v) then",
       "why": "flat follows a table into itself, so a cyclic array with an unbounded depth overflows the stack."
     },
     {
@@ -4483,8 +4483,8 @@
     {
       "id": "M739",
       "file": "client/interface/menu.lua",
-      "find": "if sent == false and I.ready then",
-      "replace": "if false then",
+      "find": "if sent == false and I.ready then\n        return false, ('menu %s failed to open",
+      "replace": "if false then\n        return false, ('menu %s failed to open",
       "why": "A list menu the page refuses (over the NUI cap) counts as open and disables the player's controls for a menu nobody sees."
     },
     {
@@ -4965,6 +4965,73 @@
       "find": "  if (k > n) throw new Error(`shard ${k}/${n}: K must not be greater than N`)\n",
       "replace": "",
       "why": "A shard past N is accepted, selects no row, and a typo in the matrix passes while testing nothing."
+    },
+    {
+      "id": "M870",
+      "file": "server/security.lua",
+      "find": "        name = ('export:%s:%s'):format(GetInvokingResource() or 'cis_libs', tostring(name))\n",
+      "replace": "",
+      "why": "The RateOk export shares buckets with cis_libs' own net events and with every other resource that picks the same name, so a consumer can spend or reset a real event's budget."
+    },
+    {
+      "id": "M871",
+      "file": "tools/mutate.js",
+      "check": "tools",
+      "find": "    if (n !== 1) out.push({ id: m.id, file: m.file, detail: `find matched ${n} times, expected 1` })",
+      "replace": "    if (n > 1) out.push({ id: m.id, file: m.file, detail: `find matched ${n} times, expected 1` })",
+      "why": "The cheap stale check misses a row whose find no longer matches at all, the usual way a merge breaks a row."
+    },
+    {
+      "id": "M872",
+      "file": "tools/mutate.js",
+      "check": "tools",
+      "find": "  if (suite.state !== 'passed') return `test/run.js:",
+      "replace": "  if (suite.state === 'error') return `test/run.js:",
+      "why": "A tree whose suite already fails unmutated passes the baseline, and every row then counts as killed for that reason alone."
+    },
+    {
+      "id": "M873",
+      "file": "tools/ci-live-lib.js",
+      "check": "ci",
+      "find": "  } else if (counts.pass === 0) {",
+      "replace": "  } else if (false) {",
+      "why": "A live report whose every case was SKIP or MANUAL passes the live tier, though it exercised nothing."
+    },
+    {
+      "id": "M874",
+      "file": ".github/workflows/tests.yml",
+      "check": "tools",
+      "find": "        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]",
+      "replace": "        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]",
+      "why": "A shard dropped from the matrix while the command still divides by 20: every twentieth row never runs and nothing fails."
+    },
+    {
+      "id": "M875",
+      "file": "shared/statebag.lua",
+      "find": "        return false, ('key must be a non-empty string; the \"*\" wildcard is allowed",
+      "replace": "        return nil, ('key must be a non-empty string; the \"*\" wildcard is allowed",
+      "why": "A refused statebag watcher answers a bare nil first, which truncates the export's return list so the reason never reaches the caller."
+    },
+    {
+      "id": "M876",
+      "file": "server/proxy.lua",
+      "find": "        return false, ('the inventory snapshot failed: %s'):format(tostring(snapshot))\n",
+      "replace": "        return false\n",
+      "why": "PublishInventory refuses a failed provider call with a bare false, so the caller cannot tell a broken inventory provider from a bad src."
+    },
+    {
+      "id": "M877",
+      "file": "client/interface/menu.lua",
+      "find": "        if sent == false and I.ready then\n            close(s, nil, false)\n",
+      "replace": "        if false then\n            close(s, nil, false)\n",
+      "why": "New menu options the page refuses leave the old list drawn while the input thread acts on the new one, and SetMenuOptions still reports true."
+    },
+    {
+      "id": "M878",
+      "file": "client/interface/menu.lua",
+      "find": "        if sent == false then\n            close(s, nil, false)\n",
+      "replace": "        if false then\n            close(s, nil, false)\n",
+      "why": "A menu whose redraw on ready the page refuses stays open with nothing drawn, so the player's controls stay disabled."
     }
   ]
 }
