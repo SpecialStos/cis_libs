@@ -796,8 +796,8 @@ Generated from `api.lua`. Do not edit between the markers.
 
 | Export | Realm | Signature | Since | Notes |
 |---|---|---|---|---|
-| `AddDoorGroup` | both | `()` | 1.0.0 | no proxy equivalent; exports["cis_libs"]:AddDoorGroup(groupData) |
-| `AddDoorToSystem` | both | `()` | 1.0.0 | Cis.doors.add(doorData) |
+| `AddDoorGroup` | both | `()` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge doors API **deprecated** |
+| `AddDoorToSystem` | both | `()` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge doors API **deprecated** |
 | `AddRadialItem` | client | `(data)` | 1.1.0 | exports.cis_libs:AddRadialItem(data) |
 | `AddSyncDespawnHandler` | client | `(fn)` | 1.0.0 | Cis.sync.onDespawn(fn) unstable |
 | `AddSyncSpawnHandler` | client | `(fn)` | 1.0.0 | Cis.sync.onSpawn(fn) unstable |
@@ -808,7 +808,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `AutoLogError` | both | `()` | 1.0.0 | Cis.log.error(message) from inside a pcall |
 | `AwaitCallback` | both | `()` | 1.0.0 | Cis.callback.await(name, ...) |
 | `AwaitCallbackClient` | server | `(name, target, ...)` | 1.0.0 | Cis.callback.awaitClient(src, name, ...) |
-| `BreakDoor` | server | `(identifier)` | 1.0.0 | no proxy equivalent; exports["cis_libs"]:BreakDoor(identifier) |
+| `BreakDoor` | server | `(identifier)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge doors API **deprecated** |
 | `CallCallback` | both | `()` | 1.0.0 | Cis.callback.call(name, cb, ...) |
 | `CallCallbackClient` | server | `(name, target, cb?, ...)` | 1.0.0 | Cis.callback.callClient(src, name, cb, ...) |
 | `CancelProgress` | client | `()` | 1.1.0 | exports.cis_libs:CancelProgress() |
@@ -826,22 +826,22 @@ Generated from `api.lua`. Do not edit between the markers.
 | `CommandRemove` | server | `(name)` | 1.0.0 | Cis.command.remove(name) |
 | `CreatePed` | client | `(model, coords, heading?, options?)` | 1.0.0 | no proxy equivalent; returns 0 on an invalid or unloaded model. The Lua global is CisCreatePed -- the CreatePed native keeps its own name |
 | `CreatePoint` | client | `(data)` | 1.0.0 | Cis.points.add({ coords, distance, onEnter, onExit, nearby }) |
-| `CreateTarget` | client | `(zoneType, name, coords, size, options?)` | 1.0.0 | Cis.target.add(zoneType, name, coords, size, options) |
+| `CreateTarget` | client | `(zoneType, name, coords, size, options?)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge target API **deprecated** |
 | `CreateZone` | client | `(kind, name, a, b, options?)` | 1.0.0 | Cis.zones.box / Cis.zones.poly / Cis.zones.sphere |
-| `DbInsert` | server | `(sql, params?)` | 1.0.0 | Cis.db.insert(sql, params) |
-| `DbQuery` | server | `(sql, params?)` | 1.0.0 | Cis.db.query(sql, params) |
-| `DbScalar` | server | `(sql, params?)` | 1.0.0 | Cis.db.scalar(sql, params) |
-| `DbSingle` | server | `(sql, params?)` | 1.0.0 | Cis.db.single(sql, params) |
-| `DbTransaction` | server | `(queries)` | 1.0.0 | Cis.db.transaction(queries). Driver-shaped list of { query, values } entries |
-| `DbUpdate` | server | `(sql, params?)` | 1.0.0 | Cis.db.update(sql, params) |
+| `DbInsert` | server | `(sql, params?)` | 1.0.0 | deprecated since 1.1.0; use the oxmysql API (MySQL.insert.await), served by oxmysql or cis_database **deprecated** |
+| `DbQuery` | server | `(sql, params?)` | 1.0.0 | deprecated since 1.1.0; use the oxmysql API (MySQL.query.await), served by oxmysql or cis_database **deprecated** |
+| `DbScalar` | server | `(sql, params?)` | 1.0.0 | deprecated since 1.1.0; use the oxmysql API (MySQL.scalar.await), served by oxmysql or cis_database **deprecated** |
+| `DbSingle` | server | `(sql, params?)` | 1.0.0 | deprecated since 1.1.0; use the oxmysql API (MySQL.single.await), served by oxmysql or cis_database **deprecated** |
+| `DbTransaction` | server | `(queries)` | 1.0.0 | deprecated since 1.1.0; use the oxmysql API (MySQL.transaction.await), served by oxmysql or cis_database **deprecated** |
+| `DbUpdate` | server | `(sql, params?)` | 1.0.0 | deprecated since 1.1.0; use the oxmysql API (MySQL.update.await), served by oxmysql or cis_database **deprecated** |
 | `DebugLog` | client | `(message)` | 1.0.0 | Cis.log.debug(message) |
-| `DetectDatabase` | both | `(configured?)` | 1.0.0 | Asks the server which driver is running. Returns { name, resource, version, how, reason } |
-| `DetectFramework` | both | `()` | 1.0.0 | Asks the server what framework it is actually running. Returns { name, resource, version, how, reason } |
+| `DetectDatabase` | both | `(configured?)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge detection **deprecated** |
+| `DetectFramework` | both | `()` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge detection **deprecated** |
 | `DisableRadial` | client | `(state)` | 1.1.0 | exports.cis_libs:DisableRadial(state) |
 | `DrawText3D` | client | `(x, y, z, text, settings?)` | 1.0.0 | no proxy equivalent |
-| `FixDoor` | server | `(identifier)` | 1.0.0 | no proxy equivalent; exports["cis_libs"]:FixDoor(identifier) |
+| `FixDoor` | server | `(identifier)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge doors API **deprecated** |
 | `FollowCacheHeading` | client | `()` | 1.1.0 | Cis.player.on("heading", fn) -- init.lua calls it for the first heading listener |
-| `GetAllDoorData` | server | `()` | 1.0.0 | no proxy equivalent; the full door and group tables |
+| `GetAllDoorData` | server | `()` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge doors API **deprecated** |
 | `GetAllPoints` | client | `()` | 1.1.0 | Cis.points.getAll() |
 | `GetAllZones` | client | `()` | 1.1.0 | Cis.zones.getAll() |
 | `GetAuditLog` | server | `(limit?)` | 1.0.0 | The capability and configuration change log, newest last. Gated on Security.AuthorizedResources like every other mutating call. Entries carry resource and slot names and never a player name, identifier or IP. Bounded by Config.AuditLines, default 500 |
@@ -856,7 +856,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `GetCapabilities` | both | `()` | 1.0.0 | The one call that answers "which of my four resources is actually running". Returns { [slot] = { owner, resolved } } |
 | `GetClientConfig` | client | `()` | 1.0.0 | no proxy equivalent; the config the server sent to this client |
 | `GetClientLogging` | client | `()` | 1.0.0 | Cis.log.debug / info / warn / error |
-| `GetClosestDoor` | client | `()` | 1.0.0 | no proxy equivalent; exports["cis_libs"]:GetClosestDoor() |
+| `GetClosestDoor` | client | `()` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge doors API **deprecated** |
 | `GetClosestPoint` | client | `()` | 1.0.0 | Cis.points.getClosest() |
 | `GetClosestVehicle` | client | `()` | 1.0.0 | no proxy equivalent; a 5 unit forward ray, then the nearest vehicle in the CVehicle pool within 5 units. The Lua global is CisGetClosestVehicle; the native GetClosestVehicle is left alone |
 | `GetConfigSummary` | server | `()` | 1.0.0 | no proxy equivalent; the non-secret half of the server config |
@@ -866,14 +866,14 @@ Generated from `api.lua`. Do not edit between the markers.
 | `GetDiscordConfig` | server | `()` | 1.0.0 | The outbound/webhook configuration SetConfig was handed, for the capability that does the sending. Server realm only -- it holds webhook URLs and is deliberately not on the client payload whitelist |
 | `GetDiscordQueueDepth` | server | `()` | 1.0.0 | no proxy equivalent; queued message count and dropped count |
 | `GetDistanceBetweenCoords` | client | `(x1, y1, z1, x2, y2, z2, useZ?)` | 1.0.0 | no proxy equivalent |
-| `GetDoorState` | both | `()` | 1.0.0 | Cis.doors.get(id) |
-| `GetKnownTargets` | both | `()` | 1.0.0 | The ordered framework and driver tables detection uses. Shared so a product cannot disagree with the debug output about what is running |
+| `GetDoorState` | both | `()` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge doors API **deprecated** |
+| `GetKnownTargets` | both | `()` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge detection **deprecated** |
 | `GetLastRefusal` | server | `()` | 1.0.0 | Read after a nil/false answer from a capability export to learn WHY it was refused. Returns a sentence naming the missing or failing capability, or nil when the last call succeeded. Additive: no existing return shape changes |
 | `GetLibsPrefix` | server | `()` | 1.0.0 | no proxy equivalent; the configured Security.EventPrefix |
 | `GetLogging` | server | `()` | 1.0.0 | Cis.log.debug / info / warn / error |
 | `GetNearbyPoints` | client | `()` | 1.1.0 | Cis.points.getNearby() |
 | `GetNearbyZones` | client | `(coords?, radius?)` | 1.1.0 | Cis.zones.getNearby(coords, radius) |
-| `GetNormalizedPlayer` | server | `(src)` | 1.0.0 | Cis.framework.player(src) |
+| `GetNormalizedPlayer` | server | `(src)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge player API **deprecated** |
 | `GetOnlineJobCount` | server | `(jobs)` | 1.0.0 | no proxy equivalent; the callback cis_libs:getOnlineJobCount |
 | `GetOpenContextMenu` | client | `()` | 1.1.0 | exports.cis_libs:GetOpenContextMenu() |
 | `GetOpenMenu` | client | `()` | 1.1.0 | exports.cis_libs:GetOpenMenu() |
@@ -893,10 +893,10 @@ Generated from `api.lua`. Do not edit between the markers.
 | `HookRemove` | both | `(id)` | 1.0.0 | Cis.hooks.remove(id) |
 | `HookRun` | both | `(name, payload?)` | 1.0.0 | Cis.hooks.run(name, payload) |
 | `InputDialog` | client | `(heading, rows, options?)` | 1.1.0 | exports.cis_libs:InputDialog(heading, rows, options) |
-| `InventoryAdd` | server | `(src, item, amount, metadata?)` | 1.0.0 | Cis.inventory.add(src, item, amount, metadata) |
-| `InventoryCount` | both | `()` | 1.0.0 | Cis.inventory.count(item) on the client, Cis.inventory.count(src, item) on the server |
-| `InventoryHas` | both | `()` | 1.0.0 | Cis.inventory.has(...) |
-| `InventoryRemove` | server | `(src, item, amount)` | 1.0.0 | Cis.inventory.remove(src, item, amount) |
+| `InventoryAdd` | server | `(src, item, amount, metadata?)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge inventory API **deprecated** |
+| `InventoryCount` | both | `()` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge inventory API **deprecated** |
+| `InventoryHas` | both | `()` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge inventory API **deprecated** |
+| `InventoryRemove` | server | `(src, item, amount)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge inventory API **deprecated** |
 | `InvokingAllowed` | server | `()` | 1.0.0 | no proxy equivalent; ask before mutating. This is the supported way to avoid a refusal |
 | `IsReady` | client | `()` | 1.0.0 | Cis.isReady, or Cis.ready(cb) |
 | `IsTextUIOpen` | client | `()` | 1.1.0 | exports.cis_libs:IsTextUIOpen() |
@@ -906,7 +906,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `KeybindIsPressed` | client | `(id)` | 1.0.0 | no proxy equivalent; the id-based form of handle:isPressed() |
 | `KeybindRemove` | client | `(id)` | 1.0.0 | no proxy equivalent; the id-based form of handle:destroy() |
 | `Keybinds` | client | `()` | 1.0.0 | no proxy equivalent; every binding this library registered |
-| `LockDoors` | server | `(identifier)` | 1.0.0 | Cis.doors.setState(identifier, true) |
+| `LockDoors` | server | `(identifier)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge doors API **deprecated** |
 | `LogDebug` | both | `()` | 1.0.0 | Cis.log.debug(message) |
 | `LogError` | both | `()` | 1.0.0 | Cis.log.error(message) |
 | `LogInfo` | both | `()` | 1.0.0 | Cis.log.info(message) |
@@ -924,7 +924,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `ProgressBar` | client | `(data)` | 1.1.0 | exports.cis_libs:ProgressBar(data) |
 | `ProgressCircle` | client | `(data)` | 1.1.0 | exports.cis_libs:ProgressCircle(data) |
 | `Ptfx` | client | `(name, timeout?)` | 1.0.0 | Cis.streaming.ptfx(name, timeout) |
-| `PublishInventory` | server | `(src)` | 1.0.0 | Called by the inventory service. Pushes cis_libs:client:inventory to one player |
+| `PublishInventory` | server | `(src)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge inventory API **deprecated** |
 | `PublishJobUpdate` | server | `(job, src?)` | 1.0.0 | Called by cis_core when a player changes job. Fires cis_libs:jobUpdated, so the event name stays owned by this library |
 | `PublishPlayerLoaded` | server | `(job, src?)` | 1.0.0 | Called by cis_core when a player object exists. Fires cis_libs:playerLoaded |
 | `RandomFloat` | client | `(lower, greater)` | 1.0.0 | no proxy equivalent |
@@ -942,12 +942,12 @@ Generated from `api.lua`. Do not edit between the markers.
 | `RemovePoint` | client | `(id)` | 1.0.0 | Cis.points.remove(id) |
 | `RemoveRadialItem` | client | `(id)` | 1.1.0 | exports.cis_libs:RemoveRadialItem(id) |
 | `RemoveStatebagHandler` | both | `(cookie)` | 1.0.0 | Cis.statebag.remove(cookie) |
-| `RemoveTarget` | client | `(name, isPed?)` | 1.0.0 | Cis.target.remove(name, isPed) |
+| `RemoveTarget` | client | `(name, isPed?)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge target API **deprecated** |
 | `RemoveZone` | client | `(name)` | 1.0.0 | Cis.zones.remove(name) |
-| `RequestInventorySync` | client | `()` | 1.0.0 | Cis.inventory.count is a hint. This asks for a fresh one. Client only |
-| `RequestLockDoors` | client | `(identifier)` | 1.0.0 | Cis.doors.setState(id, true) on the client |
+| `RequestInventorySync` | client | `()` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge inventory API **deprecated** |
+| `RequestLockDoors` | client | `(identifier)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge doors API **deprecated** |
 | `RequestModelTimeout` | client | `(model, timeout?)` | 1.0.0 | Cis.streaming.model(model, timeout) |
-| `RequestUnlockDoors` | client | `(identifier)` | 1.0.0 | Cis.doors.setState(id, false) on the client |
+| `RequestUnlockDoors` | client | `(identifier)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge doors API **deprecated** |
 | `Round` | client | `(num, numDecimalPlaces?)` | 1.0.0 | no proxy equivalent; math round to n places |
 | `Scaleform` | client | `(name, timeout?)` | 1.0.0 | Cis.streaming.scaleform(name, timeout) |
 | `SecureNetOn` | server | `(name, fn, opts?)` | 1.0.0 | Cis.net.on(name, fn, opts) -> true when the event was bound |
@@ -976,8 +976,8 @@ Generated from `api.lua`. Do not edit between the markers.
 | `SyncCreate` | server | `(kind, data)` | 1.0.0 | Cis.sync.ped / Cis.sync.prop / Cis.sync.vehicle |
 | `SyncList` | server | `()` | 1.0.0 | Cis.sync.list() |
 | `SyncRemove` | server | `(id?)` | 1.0.0 | Cis.sync.remove(id) |
-| `TargetAvailable` | client | `()` | 1.0.0 | no proxy equivalent; true when a configured target provider is started |
-| `TargetExists` | client | `(name)` | 1.0.0 | Cis.target.exists(name) |
+| `TargetAvailable` | client | `()` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge target API **deprecated** |
+| `TargetExists` | client | `(name)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge target API **deprecated** |
 | `TextureDict` | client | `(name, timeout?)` | 1.0.0 | Cis.streaming.textureDict(name, timeout) |
 | `Toast` | client | `(data)` | 1.1.0 | exports.cis_libs:Toast(data). The library's own NUI notification; Cis.ui.notify routes here when no ui provider is registered. Not Notify: that export is the framework notify, a different signature |
 | `TriggerLibCallback` | client | `(name, cb?, ...)` | 1.0.0 | the client-to-server round trip whose callback receives only the results |
@@ -990,9 +990,9 @@ Generated from `api.lua`. Do not edit between the markers.
 | `UiTextUIHide` | client | `()` | 1.0.0 | Cis.ui.textUI.hide() |
 | `UiTextUIIsOpen` | client | `()` | 1.0.0 | Cis.ui.textUI.isOpen() |
 | `UiTextUIShow` | client | `(text, opts?)` | 1.0.0 | Cis.ui.textUI.show(text, opts) |
-| `UnlockDoors` | server | `(identifier)` | 1.0.0 | Cis.doors.setState(identifier, false) |
+| `UnlockDoors` | server | `(identifier)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge doors API **deprecated** |
 | `UnregisterCapability` | server | `(slot)` | 1.0.0 | Called by a product on shutdown or handover. Only the slot owner may release it |
-| `UpdateTarget` | client | `(name, newOptions?)` | 1.0.0 | Cis.target.update(name, options) |
+| `UpdateTarget` | client | `(name, newOptions?)` | 1.0.0 | deprecated since 1.1.0; use the cis_bridge target API **deprecated** |
 | `WaitCapability` | server | `(slot, timeoutMs?)` | 1.0.0 | Waits up to timeoutMs for a capability slot to be filled. Returns true and the owner, or nil and a reason naming the slot. No proxy equivalent -- a consumer waits from its own resource. |
 | `WaitReady` | both | `(timeout?)` | 1.0.0 | Cis.ready(cb, timeout) or Cis.wait(timeout) |
 | `WatchNear` | client | `(coords, distance?, onEnter?, onExit?, onEnterEvent?, onExitEvent?)` | 1.0.0 | Cis.player.near(coords, distance, onEnter, onExit, onEnterEvent, onExitEvent) |

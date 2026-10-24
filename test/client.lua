@@ -6269,6 +6269,42 @@ do
     env.reset()
 end
 
+-- ============================ D1. client detection and deprecated slots warn once per caller
+do
+    local env = newEnv({})
+    env.saved[#env.saved + 1] = { name = 'CisReadyState', value = rawget(_ENV, 'CisReadyState') }
+    env.saved[#env.saved + 1] = { name = 'Logging', value = rawget(_ENV, 'Logging') }
+    CisReadyState = { wait = function() return true end, ready = true }
+    local warns = {}
+    Logging = setmetatable({}, {
+        __index = function(_, key)
+            return function(message)
+                if key == 'Warn' then warns[#warns + 1] = tostring(message) end
+            end
+        end,
+    })
+    local function count(needle)
+        local n = 0
+        for _, line in ipairs(warns) do
+            if line:find('deprecated', 1, true) and line:find(needle, 1, true) then n = n + 1 end
+        end
+        return n
+    end
+    loadModule('client/proxy.lua')
+    env.invoking = 'cis_hud'
+    exports.DetectFramework()
+    exports.DetectFramework()
+    exports.DetectDatabase()
+    check(count('DetectFramework') == 1 and count('DetectDatabase') == 1,
+        ('D1: client DetectFramework and DetectDatabase warn cis_hud once each (got %d, %d)')
+            :format(count('DetectFramework'), count('DetectDatabase')))
+    env.invoking = 'cis_hud'
+    exports.InventoryCount('water')
+    exports.InventoryCount('water')
+    check(count('"inventory"') == 1, ('D1: a client inventory call warns once (got %d)'):format(count('"inventory"')))
+    env.reset()
+end
+
 -- ==================================================================== report
 for i = 1, #failures do
     io.stderr:write('FAIL(client): ' .. failures[i] .. '\n')

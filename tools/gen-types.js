@@ -373,6 +373,12 @@ function buildSurface(api, block, title, kind) {
       if (d.since) L.push(`---@field since string ${d.since}`)
       L.push(`---@field realm "${d.realm || r}"`)
       if (d.forwardsTo) L.push(`---@field forwardsTo string ${d.forwardsTo}`)
+      // A proxy is exactly as deprecated as the export it forwards to.
+      const target = d.forwardsTo && (api.exports || {})[d.forwardsTo]
+      if (target && target.deprecated) {
+        L.push('---@deprecated')
+        if (target.use) L.push(`--- ${oneLine(target.use)}`)
+      }
     } else {
       if (d.deprecated) L.push('---@deprecated')
       if (d.use) L.push(`--- ${oneLine(d.use)}`)

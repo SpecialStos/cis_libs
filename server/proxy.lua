@@ -382,6 +382,7 @@ end)
 AddEventHandler('onResourceStop', function(resource)
     -- The resource's refusal goes with it.
     lastRefusal[resource] = nil
+    CisRegistry.forgetDeprecationCaller(resource)
     for _, slot in ipairs(CisRegistry.releaseOwner(resource)) do
         warned = {}
         Logging.Warn(('cis_libs: capability %q released: %s stopped'):format(slot, resource))
@@ -424,11 +425,13 @@ end
 
 --- Decide which framework this server runs.
 exports('DetectFramework', function(configured, custom)
+    CisRegistry.warnDeprecated('DetectFramework', GetInvokingResource())
     return CisDetect.framework(configured, custom, isStarted, resourceVersion, probe)
 end)
 
 --- Decide which database driver is in use.
 exports('DetectDatabase', function(configured)
+    CisRegistry.warnDeprecated('DetectDatabase', GetInvokingResource())
     return CisDetect.database(configured, isStarted, resourceVersion)
 end)
 

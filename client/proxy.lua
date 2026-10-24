@@ -120,6 +120,7 @@ AddEventHandler('onResourceStop', function(resource)
     if not CisRealStop(resource) then
         return
     end
+    CisRegistry.forgetDeprecationCaller(resource)
     for i = #held, 1, -1 do
         if held[i].owner == resource then
             table.remove(held, i)
@@ -154,10 +155,12 @@ local function clientProbe(name, exportName)
 end
 
 exports('DetectFramework', function(configured, custom)
+    CisRegistry.warnDeprecated('DetectFramework', GetInvokingResource())
     return CisDetect.framework(configured, custom, clientIsStarted, clientVersion, clientProbe)
 end)
 
 exports('DetectDatabase', function(configured)
+    CisRegistry.warnDeprecated('DetectDatabase', GetInvokingResource())
     return CisDetect.database(configured, clientIsStarted, clientVersion)
 end)
 

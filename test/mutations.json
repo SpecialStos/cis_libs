@@ -3277,6 +3277,69 @@
       "find": "    local v = negative and -(n + 0.0) or n",
       "replace": "    local v = negative and -n or n",
       "why": "-math.mininteger wraps back to itself again, and toHex loops forever on it."
+    },
+    {
+      "id": "M650",
+      "file": "shared/registry.lua",
+      "find": "        CisRegistry.warnDeprecated(slot, owner)\n",
+      "replace": "",
+      "why": "Registering a deprecated slot is silent again, so the provider never hears it is going."
+    },
+    {
+      "id": "M651",
+      "file": "shared/registry.lua",
+      "find": "            CisRegistry.warnDeprecated(slot, caller)\n",
+      "replace": "",
+      "why": "A consumer calling a deprecated slot is never told."
+    },
+    {
+      "id": "M652",
+      "file": "shared/registry.lua",
+      "find": "    seen[name] = true\n",
+      "replace": "",
+      "why": "The notice repeats on every call instead of once per caller."
+    },
+    {
+      "id": "M653",
+      "file": "shared/registry.lua",
+      "find": "        if caller and caller ~= selfName() then",
+      "replace": "        if caller then",
+      "why": "cis_libs warns about its own internal calls."
+    },
+    {
+      "id": "M654",
+      "file": "server/proxy.lua",
+      "find": "    CisRegistry.warnDeprecated('DetectFramework', GetInvokingResource())\n",
+      "replace": "",
+      "why": "Server DetectFramework stops naming its replacement."
+    },
+    {
+      "id": "M655",
+      "file": "client/proxy.lua",
+      "find": "    CisRegistry.warnDeprecated('DetectDatabase', GetInvokingResource())\n",
+      "replace": "",
+      "why": "Client DetectDatabase stops naming its replacement."
+    },
+    {
+      "id": "M656",
+      "file": "shared/registry.lua",
+      "find": "    deprecationSeen[caller] = nil\n",
+      "replace": "",
+      "why": "A stopped caller is never forgotten, so a restarted one is never told again."
+    },
+    {
+      "id": "M657",
+      "file": "shared/registry.lua",
+      "find": "    if not use or type(caller) ~= 'string' then",
+      "replace": "    if type(caller) ~= 'string' then",
+      "why": "A slot that stays (ui, discord) gets a deprecation notice."
+    },
+    {
+      "id": "M658",
+      "file": "shared/registry.lua",
+      "find": " and not NOTICE_EXEMPT[slot .. '.' .. (...)] then",
+      "replace": " then",
+      "why": "Notify, which stays, warns its callers that framework is going."
     }
   ]
 }

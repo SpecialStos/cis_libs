@@ -2167,6 +2167,118 @@ do
     env.reset()
 end
 
+-- ============================ D1. deprecated slots and detection warn once per caller
+--
+-- 1.1.0 moves framework, inventory, target, doors, database, dataProbe and
+-- migration to cis_bridge / cis_core (docs/V1.md, Deprecations). They keep
+-- working until 2.0.0, and the first use from each resource says where to go.
+do
+    local env = newEnv({})
+    local logged = {}
+    env.saved[#env.saved + 1] = { name = 'Logging', value = rawget(_G, 'Logging') }
+    Logging = setmetatable({}, {
+        __index = function(_, key)
+            return function(message)
+                logged[#logged + 1] = { key = key, message = tostring(message) }
+            end
+        end,
+    })
+    local function notices(needle)
+        local n = 0
+        for _, entry in ipairs(logged) do
+            if entry.key == 'Warn' and entry.message:find('deprecated', 1, true)
+                and entry.message:find(needle, 1, true) then
+                n = n + 1
+            end
+        end
+        return n
+    end
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    Security.AuthorizedResources = { 'cis_bridge' }
+    loadModule('server/security.lua')
+    loadModule('server/proxy.lua')
+
+    check(type(CisRegistry.DEPRECATED) == 'table' and CisRegistry.DEPRECATED.framework
+        and CisRegistry.DEPRECATED.database and CisRegistry.DEPRECATED.target
+        and CisRegistry.DEPRECATED.doors and CisRegistry.DEPRECATED.inventory
+        and CisRegistry.DEPRECATED.inventoryProvider and CisRegistry.DEPRECATED.doorsClient
+        and CisRegistry.DEPRECATED.dataProbe and CisRegistry.DEPRECATED.migration,
+        'D1: every moved slot is listed as deprecated')
+    check(CisRegistry.DEPRECATED.ui == nil and CisRegistry.DEPRECATED.discord == nil
+        and CisRegistry.DEPRECATED.security == nil,
+        'D1: ui, discord and security stay, so they are not deprecated')
+
+    -- A deprecated slot still registers, and its provider is told once.
+    env.invoking = 'cis_bridge'
+    check(env.EXPORTS.RegisterCapability('framework', 'cis_bridge:Framework') == true,
+        'D1: a deprecated slot still registers')
+    check(notices('"framework"') == 1 and notices('2.0.0') >= 1 and notices('cis_bridge') >= 1,
+        ('D1: registering it logs one deprecation naming the removal and the replacement (got %d)')
+            :format(notices('"framework"')))
+    CisRegistry.unregister('framework', 'cis_bridge')
+    env.EXPORTS.RegisterCapability('framework', 'cis_bridge:Framework')
+    check(notices('"framework"') == 1, 'D1: a second registration by the same resource is quiet')
+    CisRegistry.unregister('framework', 'cis_bridge')
+
+    -- A consumer calling a deprecated slot still gets the answer, and one line.
+    CisRegistry.register('inventory', function(method) return 7 end, nil, 'cis_bridge')
+    env.invoking = 'cis_shop'
+    check(env.EXPORTS.InventoryCount(1, 'water') == 7, 'D1: a deprecated slot still answers')
+    env.EXPORTS.InventoryCount(1, 'water')
+    check(notices('cis_shop') == 1, ('D1: and warns cis_shop exactly once (got %d)'):format(notices('cis_shop')))
+    env.invoking = 'cis_garage'
+    env.EXPORTS.InventoryCount(1, 'water')
+    check(notices('cis_garage') == 1, 'D1: a second consumer gets its own line')
+    CisRegistry.unregister('inventory', 'cis_bridge')
+
+    -- cis_libs' own internal calls do not warn about themselves.
+    local before = #logged
+    env.invoking = nil
+    CisRegistry.call('framework', 'HasPermission', 1, 'admin')
+    check(#logged == before, 'D1: an internal call into a deprecated slot logs nothing')
+    env.invoking = 'cis_libs'
+    CisRegistry.call('framework', 'HasPermission', 1, 'admin')
+    check(#logged == before, 'D1: nor does a call cis_libs reports as its own')
+
+    -- Notify is kept: routing it through the framework slot is not the caller's use.
+    CisRegistry.register('framework', function() return true end, nil, 'cis_bridge')
+    env.invoking = 'cis_shop'
+    CisRegistry.call('framework', 'Notify', 1, 'hi', 'info')
+    check(notices('"framework"') == 1, 'D1: Notify through the framework slot does not warn the caller')
+    CisRegistry.call('framework', 'NormalizedPlayer', 1)
+    check(notices('cis_shop uses "framework"') == 1, 'D1: but another framework method does')
+    CisRegistry.unregister('framework', 'cis_bridge')
+
+    -- A slot that stays is silent.
+    CisRegistry.register('discord', function() return true end, nil, 'cis_core')
+    env.invoking = 'cis_shop'
+    CisRegistry.call('discord', 'log')
+    check(notices('"discord"') == 0, 'D1: a kept slot never warns')
+    CisRegistry.unregister('discord', 'cis_core')
+
+    -- Detection moved to cis_bridge: still answers, warns once per caller.
+    env.invoking = 'cis_shop'
+    local fw = env.EXPORTS.DetectFramework()
+    env.EXPORTS.DetectFramework()
+    env.EXPORTS.DetectDatabase()
+    check(fw ~= nil, 'D1: DetectFramework still answers')
+    check(notices('DetectFramework') == 1 and notices('DetectDatabase') == 1,
+        ('D1: and each detection export warns once (got %d, %d)')
+            :format(notices('DetectFramework'), notices('DetectDatabase')))
+
+    -- The memory is per caller and goes when the caller stops.
+    check(CisRegistry.deprecationNotice('framework', 'cis_shop2') ~= nil
+        and CisRegistry.deprecationNotice('framework', 'cis_shop2') == nil,
+        'D1: deprecationNotice answers once per name and caller')
+    CisRegistry.forgetDeprecationCaller('cis_shop2')
+    check(CisRegistry.deprecationNotice('framework', 'cis_shop2') ~= nil,
+        'D1: and again after that caller is forgotten')
+    check(CisRegistry.deprecationNotice('ui', 'cis_shop2') == nil,
+        'D1: a name that is not deprecated has no notice')
+    env.reset()
+end
+
 -- ==================================================================== report
 for i = 1, #failures do
     io.stderr:write('FAIL(server): ' .. failures[i] .. '\n')

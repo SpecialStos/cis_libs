@@ -302,6 +302,37 @@ under **Changed** so nobody upgrades into them blind.
   (`tools/ci-fxserver.sh`, `tools/ci-live.js`, `npm run live:ci`,
   `npm run test:ci`; test/live/RUNBOOK.md, "CI").
 
+### Deprecated
+
+Since 1.1.0 and removed in 2.0.0. Everything below still works unchanged
+until then. cis_libs logs one warning per calling resource and per name,
+which is forgotten when that resource stops.
+
+- **The framework, inventory, inventoryProvider, target, doors and
+  doorsClient slots** move to cis_bridge, which detects the framework,
+  inventory and target and exposes its own player, inventory, target and
+  doors API. The raw exports `GetNormalizedPlayer`, `InventoryCount`,
+  `InventoryHas`, `InventoryAdd`, `InventoryRemove`, `RequestInventorySync`,
+  `PublishInventory`, `CreateTarget`, `RemoveTarget`, `UpdateTarget`,
+  `TargetExists`, `TargetAvailable`, `AddDoorToSystem`, `AddDoorGroup`,
+  `GetDoorState`, `GetAllDoorData`, `LockDoors`, `UnlockDoors`, `BreakDoor`,
+  `FixDoor`, `RequestLockDoors`, `RequestUnlockDoors` and `GetClosestDoor`
+  are deprecated with them, and so are the `Cis.framework.player`,
+  `Cis.inventory.*`, `Cis.target.*` and `Cis.doors.*` proxies.
+  `Notify` and `ShowNotification` stay: they never warn, because the
+  notification has a built-in fallback that does not need a framework.
+- **The database slot and the `Db*` exports** (`DbQuery`, `DbSingle`,
+  `DbScalar`, `DbInsert`, `DbUpdate`, `DbTransaction`, and `Cis.db.*`).
+  Call the oxmysql API (`MySQL.query.await` and its siblings) directly; it is
+  served by oxmysql or by cis_database.
+- **The dataProbe and migration slots** move to cis_core.
+- **`DetectFramework`, `DetectDatabase` and `GetKnownTargets`** move to the
+  cis_bridge detection.
+- The `security`, `ui` and `discord` slots and the generic registry are not
+  deprecated. Registering a deprecated slot from another resource also warns
+  once. The types file marks every deprecated export and proxy
+  `---@deprecated` with its replacement.
+
 ### Fixed
 
 - **`mathx.toHex(math.mininteger)` looped forever**: `-n` wrapped back to a

@@ -101,6 +101,73 @@ CisRegistry.SLOTS = {
     },
 }
 
+-- SLOTS THAT MOVED OUT (docs/V1.md, Deprecations). Third-party behaviour is
+-- cis_bridge's job and framework concerns are cis_core's, so these slots, and the
+-- DetectFramework / DetectDatabase exports, are deprecated in 1.1.0 and removed in
+-- 2.0.0. Until then each one still works, and the first use from each resource
+-- logs one line naming what to call instead.
+CisRegistry.DEPRECATED_SINCE = '1.1.0'
+CisRegistry.DEPRECATED_UNTIL = '2.0.0'
+CisRegistry.DEPRECATED = {
+    framework = 'the cis_bridge player API',
+    inventory = 'the cis_bridge inventory API',
+    inventoryProvider = 'the cis_bridge inventory API',
+    target = 'the cis_bridge target API',
+    doors = 'the cis_bridge doors API',
+    doorsClient = 'the cis_bridge doors API',
+    database = 'the oxmysql API, served by oxmysql or cis_database',
+    dataProbe = 'cis_core',
+    migration = 'cis_core',
+    DetectFramework = 'the cis_bridge detection',
+    DetectDatabase = 'the cis_bridge detection',
+}
+
+-- Methods a kept export forwards through a deprecated slot.
+local NOTICE_EXEMPT = { ['framework.Notify'] = true, ['framework.ShowNotification'] = true }
+
+-- caller -> { [name] = true }: who has been told, so each resource hears it once.
+local deprecationSeen = {}
+
+--- The one-time notice for a deprecated slot or export used by `caller`.
+--- @param name string    a slot name or export name
+--- @param caller string  the resource using it
+--- @return string|nil    the line to log, or nil when not deprecated or already told
+function CisRegistry.deprecationNotice(name, caller)
+    local use = CisRegistry.DEPRECATED[name]
+    if not use or type(caller) ~= 'string' then
+        return nil
+    end
+    local seen = deprecationSeen[caller]
+    if not seen then
+        seen = {}
+        deprecationSeen[caller] = seen
+    end
+    if seen[name] then
+        return nil
+    end
+    seen[name] = true
+    return ('cis_libs: %s uses %q, deprecated since %s and removed in %s. Use %s instead.')
+        :format(caller, name, CisRegistry.DEPRECATED_SINCE, CisRegistry.DEPRECATED_UNTIL, use)
+end
+
+--- Forget what a resource was told, when it stops.
+function CisRegistry.forgetDeprecationCaller(caller)
+    deprecationSeen[caller] = nil
+end
+
+-- Log the notice through whichever logger this realm has loaded.
+function CisRegistry.warnDeprecated(name, caller)
+    local line = CisRegistry.deprecationNotice(name, caller)
+    if not line then
+        return
+    end
+    if type(Logging) == 'table' and Logging.Warn then
+        Logging.Warn(line)
+    else
+        print(line)
+    end
+end
+
 -- The provider-side function name a slot method answers to: the leading identifier of
 local function declaredName(slot, method)
     local spec = CisRegistry.SLOTS[slot] and CisRegistry.SLOTS[slot][method]
@@ -117,6 +184,15 @@ local function invokingResource()
         return nil
     end
     return type(name) == 'string' and name ~= '' and name or nil
+end
+
+-- This resource's own name: its internal calls are not a consumer's use.
+local function selfName()
+    if type(GetCurrentResourceName) ~= 'function' then
+        return 'cis_libs'
+    end
+    local ok, name = pcall(GetCurrentResourceName)
+    return ok and name or 'cis_libs'
 end
 
 -- The realm a declared method is limited to, read off its contract string.
@@ -268,6 +344,9 @@ function CisRegistry.register(slot, provider, contract, asOwner)
     -- A re-registration by the OWNER (the onResourceStart-after-restart case) that
     local recorded = contract or (held and held.contract) or nil
     slots[slot] = { owner = owner, ref = provider, contract = recorded }
+    if owner ~= selfName() then
+        CisRegistry.warnDeprecated(slot, owner)
+    end
     -- T9. Announced HERE, at the one place a slot changes hands, rather than by each
     CisRegistry.announce(slot, 'registered', wasResolved and held.owner or nil, owner)
     return true
@@ -471,6 +550,15 @@ function CisRegistry.call(slot, ...)
     -- A method name is REQUIRED, and its absence is a refusal rather than an exception.
     if select('#', ...) < 1 or type((...)) ~= 'string' then
         return false, 'method name required'
+    end
+    -- A deprecated slot used by another resource (not cis_libs' own code) says so once.
+    -- Notify stays a cis_libs export, so routing it through `framework` is not the
+    -- caller's use of a deprecated slot.
+    if CisRegistry.DEPRECATED[slot] and not NOTICE_EXEMPT[slot .. '.' .. (...)] then
+        local caller = invokingResource()
+        if caller and caller ~= selfName() then
+            CisRegistry.warnDeprecated(slot, caller)
+        end
     end
     local held = slots[slot]
     local provider = held and held.resolved or CisRegistry.resolve(slot)

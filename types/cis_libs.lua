@@ -820,7 +820,8 @@ function AwaitCallback.client(name, ...) end
 --- realm: server
 function AwaitCallbackClient(name, target, ...) end
 
---- no proxy equivalent; exports["cis_libs"]:BreakDoor(identifier)
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge doors API
 ---@param identifier string|integer #the door identifier. Allow-list gated like every other door mutation
 ---@return any, string|nil #the provider's value; nil when no doors provider is registered, and the nil is preserved on purpose rather than normalised to false; nil plus a reason naming Security.AuthorizedResources when the caller is not on the allow-list 
 -- Why `any`: the provider's value, and the nil-when-no-provider answer is preserved on purpose rather than normalised to false
@@ -951,7 +952,8 @@ function CreatePed(model, coords, heading, options) end
 --- realm: client
 function CreatePoint(data) end
 
---- Cis.target.add(zoneType, name, coords, size, options)
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge target API
 ---@param zoneType string #'box', 'sphere' or 'ped'; anything else is refused by name
 ---@param name string #a non-empty name -- the key, and the handle remove and update take
 ---@param coords vector3|table #the centre; ONLY nil is checked, and the value goes to the provider as spec.coords unexamined
@@ -971,7 +973,8 @@ function CreateTarget(zoneType, name, coords, size, options) end
 --- realm: client
 function CreateZone(kind, name, a, b, options) end
 
---- Cis.db.insert(sql, params)
+---@deprecated
+--- deprecated since 1.1.0; use the oxmysql API (MySQL.insert.await), served by oxmysql or cis_database
 ---@param sql string #the statement
 ---@param params? table|any #the driver's bind parameters, passed through unchanged and never inspected here 
 -- Why `any`: the driver's own bind-parameter format, passed through unexamined -- this is the seam to whatever driver is registered, and a library that typed it would be typing somebody else's API
@@ -979,7 +982,8 @@ function CreateZone(kind, name, a, b, options) end
 --- realm: server
 function DbInsert(sql, params) end
 
---- Cis.db.query(sql, params)
+---@deprecated
+--- deprecated since 1.1.0; use the oxmysql API (MySQL.query.await), served by oxmysql or cis_database
 ---@param sql string #the statement
 ---@param params? table|any #the driver's bind parameters, passed through unchanged and never inspected here 
 -- Why `any`: the driver's own bind-parameter format, passed through unexamined -- this is the seam to whatever driver is registered, and a library that typed it would be typing somebody else's API
@@ -987,7 +991,8 @@ function DbInsert(sql, params) end
 --- realm: server
 function DbQuery(sql, params) end
 
---- Cis.db.scalar(sql, params)
+---@deprecated
+--- deprecated since 1.1.0; use the oxmysql API (MySQL.scalar.await), served by oxmysql or cis_database
 ---@param sql string #the statement
 ---@param params? table|any #the driver's bind parameters, passed through unchanged and never inspected here 
 -- Why `any`: the driver's own bind-parameter format, passed through unexamined -- this is the seam to whatever driver is registered, and a library that typed it would be typing somebody else's API
@@ -996,7 +1001,8 @@ function DbQuery(sql, params) end
 --- realm: server
 function DbScalar(sql, params) end
 
---- Cis.db.single(sql, params)
+---@deprecated
+--- deprecated since 1.1.0; use the oxmysql API (MySQL.single.await), served by oxmysql or cis_database
 ---@param sql string #the statement
 ---@param params? table|any #the driver's bind parameters, passed through unchanged and never inspected here 
 -- Why `any`: the driver's own bind-parameter format, passed through unexamined -- this is the seam to whatever driver is registered, and a library that typed it would be typing somebody else's API
@@ -1004,13 +1010,15 @@ function DbScalar(sql, params) end
 --- realm: server
 function DbSingle(sql, params) end
 
---- Cis.db.transaction(queries). Driver-shaped list of { query, values } entries
+---@deprecated
+--- deprecated since 1.1.0; use the oxmysql API (MySQL.transaction.await), served by oxmysql or cis_database
 ---@param queries table #a LIST of queries, not (sql, params) -- the one deliberate asymmetry in the database block
 ---@return boolean, string #the deliberate exception: refusal is false plus a reason, because a driver without transactions would otherwise hold the caller for the full timeout and answer nil -- indistinguishable from a lost query
 --- realm: server
 function DbTransaction(queries) end
 
---- Cis.db.update(sql, params)
+---@deprecated
+--- deprecated since 1.1.0; use the oxmysql API (MySQL.update.await), served by oxmysql or cis_database
 ---@param sql string #the statement
 ---@param params? table|any #the driver's bind parameters, passed through unchanged and never inspected here 
 -- Why `any`: the driver's own bind-parameter format, passed through unexamined -- this is the seam to whatever driver is registered, and a library that typed it would be typing somebody else's API
@@ -1063,7 +1071,8 @@ function DisableRadial(state) end
 --- realm: client
 function DrawText3D(x, y, z, text, settings) end
 
---- no proxy equivalent; exports["cis_libs"]:FixDoor(identifier)
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge doors API
 ---@param identifier string|integer #the door identifier. Allow-list gated like every other door mutation
 ---@return any, string|nil #the provider's value; nil when no doors provider is registered; nil plus a reason when the caller is not on the allow-list 
 -- Why `any`: the provider's value, and the nil-when-no-provider answer is preserved on purpose rather than normalised to false
@@ -1075,7 +1084,8 @@ function FixDoor(identifier) end
 --- realm: client
 function FollowCacheHeading() end
 
---- no proxy equivalent; the full door and group tables
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge doors API
 ---@return table|nil #the provider's FULL door table, to whoever asks. Deprecated because Cis.doors.list() is scoped to the calling resource and refuses one that is not authorised, while this hands over the whole table
 --- realm: server
 function GetAllDoorData() end
@@ -1154,7 +1164,8 @@ function GetClientConfig() end
 --- realm: client
 function GetClientLogging() end
 
---- no proxy equivalent; exports["cis_libs"]:GetClosestDoor()
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge doors API
 ---@return table|nil, string|nil #the provider's { id, distance, door } -- the NEAREST door to the LOCAL player, and it takes no coordinates. On refusal nil plus the reason, so count the arity before reading slot two
 --- realm: client
 function GetClosestDoor() end
@@ -1262,7 +1273,8 @@ function GetNearbyPoints() end
 --- realm: client
 function GetNearbyZones(coords, radius) end
 
---- Cis.framework.player(src)
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge player API
 ---@param src integer #the player id, handed to the provider with no local check
 ---@return table|nil #the provider's record. The reason cannot ride in the return list: a nil FIRST value truncates it at the exports boundary, so a no-provider refusal is structurally incapable of carrying one
 --- realm: server
@@ -1379,7 +1391,8 @@ function HookRun(name, payload) end
 --- realm: client
 function InputDialog(heading, rows, options) end
 
---- Cis.inventory.add(src, item, amount, metadata)
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge inventory API
 ---@param src integer #the player id
 ---@param item string #the provider's item key
 ---@param amount integer #the quantity, neither defaulted nor clamped here
@@ -1413,7 +1426,8 @@ function InventoryCount.client(item) end
 function InventoryHas.server(src, item, amount) end
 function InventoryHas.client(item, amount) end
 
---- Cis.inventory.remove(src, item, amount)
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge inventory API
 ---@param src integer #the player id
 ---@param item string #the provider's item key
 ---@param amount integer #the quantity
@@ -1472,7 +1486,8 @@ function KeybindRemove(id) end
 --- realm: client
 function Keybinds() end
 
---- Cis.doors.setState(identifier, true)
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge doors API
 ---@param identifier string|integer #the group or door identifier
 ---@return integer, string|nil #0 when no doors provider is registered; 0 plus a reason naming Security.AuthorizedResources when the caller is not on the allow-list
 --- realm: server
@@ -1632,7 +1647,8 @@ function ProgressCircle(data) end
 --- realm: client
 function Ptfx(name, timeout) end
 
---- Called by the inventory service. Pushes cis_libs:client:inventory to one player
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge inventory API
 ---@param src integer #a connected player id above 0
 ---@return boolean, string|nil #true after the snapshot is pushed; false with no reason for a bad src or a failed provider call, a reason naming the allow-list otherwise
 --- realm: server
@@ -1768,7 +1784,8 @@ function RemoveRadialItem(id) end
 --- realm: both
 function RemoveStatebagHandler(cookie) end
 
---- Cis.target.remove(name, isPed)
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge target API
 ---@param name string #the name; a miss is refused with the name in the reason
 ---@param isPed? boolean #asserts the target was created for a LOCAL entity. Its ABSENCE is how a box or sphere target removes
 ---@return boolean, string #true on success; every refusal is false plus a reason, including a target owned by another resource (only the owner, or cis_libs, may remove it)
@@ -1781,12 +1798,14 @@ function RemoveTarget(name, isPed) end
 --- realm: client
 function RemoveZone(name) end
 
---- Cis.inventory.count is a hint. This asks for a fresh one. Client only
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge inventory API
 ---@return boolean #true once the server event was fired; false, and nothing sent, when the 15s ready wait fails
 --- realm: client
 function RequestInventorySync() end
 
---- Cis.doors.setState(id, true) on the client
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge doors API
 ---@param identifier string #the group or door identifier, sent to the doorsClient provider as RequestState with lock = true
 ---@return any, string|nil #nil when the ready wait fails; with a provider, its value plus a reason on refusal; with NO provider, the raw TriggerServerEvent return, whose value this body does not define 
 -- Why `any`: with a provider, its value; with no provider, the raw TriggerServerEvent return, whose value this body does not define
@@ -1800,7 +1819,8 @@ function RequestLockDoors(identifier) end
 --- realm: client
 function RequestModelTimeout(model, timeout) end
 
---- Cis.doors.setState(id, false) on the client
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge doors API
 ---@param identifier string #the group or door identifier, sent to the doorsClient provider as RequestState with lock = false
 ---@return any, string|nil #the same three-way shape as RequestLockDoors 
 -- Why `any`: with a provider, its value; with no provider, the raw TriggerServerEvent return, whose value this body does not define
@@ -2002,12 +2022,14 @@ function SyncList() end
 --- realm: server
 function SyncRemove(id) end
 
---- no proxy equivalent; true when a configured target provider is started
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge target API
 ---@return boolean #false when target support is disabled by config, or when no provider answered available == true
 --- realm: client
 function TargetAvailable() end
 
---- Cis.target.exists(name)
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge target API
 ---@param name string #the name
 ---@return boolean #true only while this library believes it created the target; the provider is never consulted
 --- realm: client
@@ -2101,7 +2123,8 @@ function UiTextUIIsOpen() end
 --- realm: client
 function UiTextUIShow(text, opts) end
 
---- Cis.doors.setState(identifier, false)
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge doors API
 ---@param identifier string|integer #the group or door identifier
 ---@return integer, string|nil #0 when no doors provider is registered; 0 plus a reason naming Security.AuthorizedResources when the caller is not on the allow-list
 --- realm: server
@@ -2113,7 +2136,8 @@ function UnlockDoors(identifier) end
 --- realm: server
 function UnregisterCapability(slot) end
 
---- Cis.target.update(name, options)
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge target API
 ---@param name string #the name; a name that is not live is refused
 ---@param newOptions? table #the new options, passed straight to a create -- update is a remove and re-create, not a patch on the provider
 ---@return boolean, string #false with NO reason for an unknown name; false plus a reason when another resource owns it; otherwise whatever the implicit create returned
@@ -2312,6 +2336,8 @@ function Cis.controls.isDisabled(control) end
 ---@field since string 1.0.0
 ---@field realm "server"
 ---@field forwardsTo string DbInsert
+---@deprecated
+--- deprecated since 1.1.0; use the oxmysql API (MySQL.insert.await), served by oxmysql or cis_database
 ---@param sql string #the statement
 ---@param params? table|any #the bind parameters 
 -- Why `any`: the driver's own bind-parameter format, passed through unexamined. This is the seam to whatever driver is registered, and a library that typed it would be typing somebody else's API
@@ -2322,6 +2348,8 @@ function Cis.db.insert(sql, params) end
 ---@field since string 1.0.0
 ---@field realm "server"
 ---@field forwardsTo string DbQuery
+---@deprecated
+--- deprecated since 1.1.0; use the oxmysql API (MySQL.query.await), served by oxmysql or cis_database
 ---@param sql string #the statement
 ---@param params? table|any #the driver's bind parameters, passed through unexamined 
 -- Why `any`: the driver's own bind-parameter format, passed through unexamined. This is the seam to whatever driver is registered, and a library that typed it would be typing somebody else's API
@@ -2332,6 +2360,8 @@ function Cis.db.query(sql, params) end
 ---@field since string 1.0.0
 ---@field realm "server"
 ---@field forwardsTo string DbScalar
+---@deprecated
+--- deprecated since 1.1.0; use the oxmysql API (MySQL.scalar.await), served by oxmysql or cis_database
 ---@param sql string #the statement
 ---@param params? table|any #the bind parameters 
 -- Why `any`: the driver's own bind-parameter format, passed through unexamined. This is the seam to whatever driver is registered, and a library that typed it would be typing somebody else's API
@@ -2343,6 +2373,8 @@ function Cis.db.scalar(sql, params) end
 ---@field since string 1.0.0
 ---@field realm "server"
 ---@field forwardsTo string DbSingle
+---@deprecated
+--- deprecated since 1.1.0; use the oxmysql API (MySQL.single.await), served by oxmysql or cis_database
 ---@param sql string #the statement
 ---@param params? table|any #the bind parameters 
 -- Why `any`: the driver's own bind-parameter format, passed through unexamined. This is the seam to whatever driver is registered, and a library that typed it would be typing somebody else's API
@@ -2353,6 +2385,8 @@ function Cis.db.single(sql, params) end
 ---@field since string 1.0.0
 ---@field realm "server"
 ---@field forwardsTo string DbTransaction
+---@deprecated
+--- deprecated since 1.1.0; use the oxmysql API (MySQL.transaction.await), served by oxmysql or cis_database
 ---@param queries table #a LIST of queries, not (sql, params) -- the one deliberate asymmetry in the database block
 ---@return boolean, string #the ONE database call that refuses loudly rather than yielding: without transaction support a driver would hold the caller for the full timeout and answer nil, indistinguishable from a lost query. false, reason is answerable; nil is not
 function Cis.db.transaction(queries) end
@@ -2361,6 +2395,8 @@ function Cis.db.transaction(queries) end
 ---@field since string 1.0.0
 ---@field realm "server"
 ---@field forwardsTo string DbUpdate
+---@deprecated
+--- deprecated since 1.1.0; use the oxmysql API (MySQL.update.await), served by oxmysql or cis_database
 ---@param sql string #the statement
 ---@param params? table|any #the bind parameters 
 -- Why `any`: the driver's own bind-parameter format, passed through unexamined. This is the seam to whatever driver is registered, and a library that typed it would be typing somebody else's API
@@ -2371,6 +2407,8 @@ function Cis.db.update(sql, params) end
 ---@field since string 1.0.0
 ---@field realm "both"
 ---@field forwardsTo string AddDoorToSystem
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge doors API
 ---@param data table #the door record, handed to the doors provider unexamined
 ---@return boolean, string #true once registered, false plus a reason when it is refused -- on the server because the caller is off Security.AuthorizedResources, and on the client because no provider answered
 function Cis.doors.add(data) end
@@ -2379,6 +2417,8 @@ function Cis.doors.add(data) end
 ---@field since string 1.0.0
 ---@field realm "both"
 ---@field forwardsTo string GetDoorState
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge doors API
 ---@param id string #the door id
 ---@return boolean|nil, string|nil #the CACHED state, and on the client it is a hint rather than authority: the server re-checks job permission and distance before applying anything. nil = no such door, false = unlocked, and the two are kept distinct
 function Cis.doors.get(id) end
@@ -2387,6 +2427,8 @@ function Cis.doors.get(id) end
 ---@field since string 1.0.0
 ---@field realm "both"
 ---@field forwardsTo string LockDoors
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge doors API
 ---@param id string #the group or door identifier
 ---@param locked boolean #true to lock, false to unlock
 ---@return boolean, string #a REQUEST on the client -- the server re-checks -- and a direct apply on the server. Either way the answer is not the current state; read Cis.doors.get for that
@@ -2416,6 +2458,8 @@ function Cis.framework.notify.client(message, kind) end
 ---@field since string 1.0.0
 ---@field realm "server"
 ---@field forwardsTo string GetNormalizedPlayer
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge player API
 ---@param src integer #the player id
 ---@return table|nil #the provider's normalised record, or nil when no framework is registered -- and the reason cannot ride in the return list, because a nil FIRST value truncates it
 function Cis.framework.player(src) end
@@ -2452,6 +2496,8 @@ function Cis.hooks.run(name, payload) end
 ---@field since string 1.0.0
 ---@field realm "server"
 ---@field forwardsTo string InventoryAdd
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge inventory API
 ---@param src integer #the player id
 ---@param item string #the item name
 ---@param amount integer #the amount
@@ -2488,6 +2534,8 @@ function Cis.inventory.has.client(item, amount) end
 ---@field since string 1.0.0
 ---@field realm "server"
 ---@field forwardsTo string InventoryRemove
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge inventory API
 ---@param src integer #the player id
 ---@param item string #the item name
 ---@param amount integer #the amount
@@ -2937,6 +2985,8 @@ function Cis.sync.vehicle(data) end
 ---@field since string 1.0.0
 ---@field realm "client"
 ---@field forwardsTo string CreateTarget
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge target API
 ---@param zoneType string #box, sphere or ped
 ---@param name string #the target name
 ---@param coords vector3|table #the centre
@@ -2949,6 +2999,8 @@ function Cis.target.add(zoneType, name, coords, size, options) end
 ---@field since string 1.0.0
 ---@field realm "client"
 ---@field forwardsTo string TargetExists
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge target API
 ---@param name string #the target name
 ---@return boolean #true only while this library believes it created it; the provider is never consulted
 function Cis.target.exists(name) end
@@ -2957,6 +3009,8 @@ function Cis.target.exists(name) end
 ---@field since string 1.0.0
 ---@field realm "client"
 ---@field forwardsTo string RemoveTarget
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge target API
 ---@param name string #the target name
 ---@param isPed? boolean #asserts the target was created for a LOCAL entity; its absence is how a box or sphere target removes
 ---@return boolean, string #true, or false plus a reason
@@ -2966,6 +3020,8 @@ function Cis.target.remove(name, isPed) end
 ---@field since string 1.0.0
 ---@field realm "client"
 ---@field forwardsTo string UpdateTarget
+---@deprecated
+--- deprecated since 1.1.0; use the cis_bridge target API
 ---@param name string #the target name
 ---@param options? CisTargetOptions #the new options
 ---@return boolean, string #false with NO reason for an unknown name; false plus a reason when another resource owns it; otherwise whatever the implicit create returned
