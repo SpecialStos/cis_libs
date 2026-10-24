@@ -69,15 +69,23 @@ function M.round(n, decimals)
     return r
 end
 
---- Clamp into [lo, hi]. A NaN value or reversed bounds are refused, as CisInterp.clamp and CisValidate.clamp refuse them.
+--- Clamp into [lo, hi]. A NaN value, a NaN bound, a non-number or reversed bounds are refused, as CisInterp.clamp and CisValidate.clamp refuse them.
 ---@param v number
 ---@param lo number
 ---@param hi number
 ---@return number|nil  v limited to [lo, hi]
----@return string|nil  why, for a NaN v or lo > hi
+---@return string|nil  why, for a non-number, a NaN v or bound, or lo > hi
 function M.clamp(v, lo, hi)
+    if type(v) ~= 'number' or type(lo) ~= 'number' or type(hi) ~= 'number' then
+        return nil, ('mathx.clamp: v, lo and hi must be numbers, got %s, %s and %s')
+            :format(type(v), type(lo), type(hi))
+    end
     if v ~= v then
         return nil, 'mathx.clamp: v is NaN, which cannot be clamped'
+    end
+    -- A NaN bound fails every comparison, so v came back unclamped.
+    if lo ~= lo or hi ~= hi then
+        return nil, 'mathx.clamp: a bound is NaN, which is not a range'
     end
     if lo > hi then
         return nil, ('mathx.clamp: lo %s is greater than hi %s'):format(tostring(lo), tostring(hi))
@@ -219,9 +227,9 @@ end
 --- Thousands separators: 1234567.891 -> '1,234,567.891'.
 ---@param n number|string  a number, or a numeric string (kept exactly as written)
 ---@param sep? string  default ','
----@param decimals? integer  fix the number of decimals first (numbers only); a whole number from 0 to 99
+---@param decimals? integer  fix the number of decimals first (numbers only); 0 to 99, a fraction floored
 ---@return string|nil
----@return string|nil  why, also for a decimals outside 0 to 99
+---@return string|nil  why: a string that is not a number, or a decimals outside 0 to 99
 function M.groupDigits(n, sep, decimals)
     sep = sep or ','
     local text
@@ -257,6 +265,11 @@ function M.groupDigits(n, sep, decimals)
     if not int then
         return nil, ('%q does not start with digits'):format(text)
     end
+    -- Only a fraction and an exponent may follow the digits: '1234abc' was
+    -- grouped into '1,234abc', as if it were a number.
+    if not (rest == '' or rest:find('^%.%d*$') or rest:find('^%.?%d*[eE][+-]?%d+$')) then
+        return nil, ('%q is not a number'):format(text)
+    end
     -- An exponent means the digits are not the number's digits; leave it alone.
     if rest:find('[eE]') then
         return text
@@ -287,7 +300,7 @@ local function draw01(rng)
     return v
 end
 
---- A weighted random choice. Reproducible: pass a generator from Cis.require('random').newGenerator(seed).
+--- A weighted random choice. Reproducible: pass a generator from Cis.require('random').newGenerator(seed). An infinite weight always wins (the first one), as in CisRandom.weighted.
 ---@param entries table  an array of { value, weight } pairs, or a map value -> weight (walked in sorted key order, so the same seed picks the same entry)
 ---@param rng? table|fun(): number  a CisRandom generator, a function returning [0, 1), or nil for math.random
 ---@return any  the chosen value, or nil when no weight is positive
@@ -319,20 +332,38 @@ function M.weightedPick(entries, rng)
             values[n], weights[n] = keys[i], entries[keys[i]]
         end
     end
-    local total = 0
+    -- An infinite weight means "always this one", the first such entry, as in
+    -- CisRandom.weighted; it used to be skipped as if it were 0.
+    local total, largest = 0, 0
     for i = 1, n do
         local w = weights[i]
-        if isNumber(w) and w > 0 and w ~= math.huge then total = total + w end
+        if isNumber(w) and w > 0 then
+            if w == math.huge then return values[i], i end
+            total = total + w
+            if w > largest then largest = w end
+        end
     end
     if total <= 0 then
         return nil, nil
+    end
+    -- Finite weights can sum past 1.8e308: the total read as infinite, every
+    -- comparison failed, and the LAST entry won every draw. Dividing by the
+    -- largest weight keeps the proportions; a sum that fits is left alone.
+    local scale = 1
+    if total == math.huge then
+        scale = largest
+        total = 0
+        for i = 1, n do
+            local w = weights[i]
+            if isNumber(w) and w > 0 then total = total + w / scale end
+        end
     end
     local target = draw01(rng) * total
     local acc, last = 0, nil
     for i = 1, n do
         local w = weights[i]
-        if isNumber(w) and w > 0 and w ~= math.huge then
-            acc = acc + w
+        if isNumber(w) and w > 0 then
+            acc = acc + (scale == 1 and w or w / scale)
             last = i
             if target < acc then return values[i], i end
         end

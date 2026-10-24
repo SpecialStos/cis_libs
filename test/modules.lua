@@ -717,8 +717,9 @@ do
         -- give, so the generator refuses instead of returning a plausible one.
         -- Pinning that here is the point: a fix that quietly answered `lo`
         -- would pass every assertion above.
-        local ok, err = pcall(function() return wide:int(0, 1e18) end)
-        expect(not ok and type(err) == 'string',
+        -- Refused as nil and why (it used to raise).
+        local ok, res, err = pcall(function() return wide:int(0, 1e18) end)
+        expect(ok and res == nil and type(err) == 'string',
             'gen:int refuses a range wider than it can represent, rather than answering')
 
         -- THE INTEGER BOUNDS, where `hi - lo + 1` wraps. integer(0, maxinteger)
@@ -737,11 +738,11 @@ do
         expect(nonZero and drawsInRange and seenTop > 0,
             ('integer(0, math.maxinteger) draws across the range, not 0 every time (upper half %d of 64)'):format(seenTop))
         local g4 = CisRandom.newGenerator(77)
-        local okFn, fnRes = pcall(CisRandom.integer, 0, maxI, function() return g4:float() end)
-        local okGen, genRes = pcall(CisRandom.integer, minI, maxI, CisRandom.newGenerator(78))
+        local okFn, fnRes, fnWhy = pcall(CisRandom.integer, 0, maxI, function() return g4:float() end)
+        local okGen, genRes, genWhy = pcall(CisRandom.integer, minI, maxI, CisRandom.newGenerator(78))
         if wideInts then
-            expect(not okFn and tostring(fnRes):find('2^53', 1, true) ~= nil
-                and not okGen and tostring(genRes):find('2^53', 1, true) ~= nil,
+            expect(okFn and fnRes == nil and tostring(fnWhy):find('2^53', 1, true) ~= nil
+                and okGen and genRes == nil and tostring(genWhy):find('2^53', 1, true) ~= nil,
                 ('the 64-bit integer range is refused by an injected generator, not answered (%s / %s)')
                     :format(tostring(fnRes), tostring(genRes)))
         else
