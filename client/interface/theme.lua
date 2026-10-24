@@ -30,7 +30,7 @@ local LOCALE_KEYS = {
     'confirm', 'cancel', 'close', 'back', 'more', 'notifications', 'progressCancel',
     'required', 'invalid', 'invalidNumber', 'min', 'max', 'minLength', 'maxLength',
     'maxSelected', 'invalidColor', 'invalidDate', 'minDate', 'maxDate', 'invalidRange',
-    'from', 'to', 'pressKey',
+    'from', 'to', 'pressKey', 'lang',
 }
 
 -- The defaults components fall back to when a call names no position.

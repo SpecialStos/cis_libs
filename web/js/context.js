@@ -1,4 +1,4 @@
-import { h, icon, imageUrl, inline, on, post, t, layer, pct } from './core.js'
+import { h, icon, imageUrl, inline, on, post, t, layer, pct, raise } from './core.js'
 import { step, first, last, keyIntent } from './nav.js'
 
 // Reports an index only; Lua decides what it does (no event names here).
@@ -56,6 +56,7 @@ on('context:open', (d) => {
     d.canClose !== false && h('button', { class: 'cis-iconbtn', type: 'button', 'aria-label': t('close'), onclick: () => send('close') }, icon('x')))
   current = h('div', { class: 'cis-context cis-anim' }, h('div', { class: 'cis-context-panel' }, head, list), aside)
   layer('cis-context').appendChild(current)
+  raise('cis-context')
   if (active >= 0) focus(active)
   else (head.querySelector('button') || list).focus()
 })

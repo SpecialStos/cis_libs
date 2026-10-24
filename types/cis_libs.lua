@@ -1948,7 +1948,7 @@ function SetDropPlayerHandler(provider) end
 function SetMenuOptions(id, options, index) end
 
 --- exports.cis_libs:SetUiLocale(strings)
----@param strings table #built-in labels by key (confirm, cancel, close, back, required, min, max, ...); unknown keys are ignored. English by default
+---@param strings table #built-in labels by key (confirm, cancel, close, back, required, min, max, ...), plus lang (the page language, a BCP 47 tag such as de or pt-BR); unknown keys are ignored. English by default
 ---@return boolean, string|nil #true once sent
 --- realm: client
 function SetUiLocale(strings) end

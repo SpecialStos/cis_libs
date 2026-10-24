@@ -176,7 +176,6 @@ test('theme: only safe values reach CSS custom properties', () => {
 })
 
 test('idle: nothing on screen after everything closes', () => {
-  dom.send('notify:clear', {})
   dom.send('textui:hide', {})
   dom.send('progress:stop', {})
   dom.send('context:close', {})
@@ -264,4 +263,59 @@ test('progress: a bar reports how far it is, not 0 until it ends', async () => {
   await new Promise((r) => setTimeout(r, 300))
   assert.ok(Number(bar.getAttribute('aria-valuenow')) > 0, `aria-valuenow is ${bar.getAttribute('aria-valuenow')}`)
   dom.send('progress:stop', {})
+})
+
+test('reports: error and warn posts carry the session token, as escape does', async () => {
+  const { reportError, icon } = await import('../../web/js/core.js')
+  reportError(new Error('boom'))
+  const err = dom.posts.filter((p) => p.name === 'error').at(-1)
+  assert.equal(err.body.token, 'tok-1')
+  assert.match(err.body.message, /boom/)
+  icon('another-unknown-icon')
+  const warn = dom.posts.filter((p) => p.name === 'warn').at(-1)
+  assert.equal(warn.body.token, 'tok-1')
+})
+
+test('a11y: a select is labelled by aria-labelledby, not by a <label for> it cannot take', () => {
+  dom.send('input:open', { id: 'lb', heading: 'F', rows: [{ type: 'select', label: 'Pick', options: ['a', 'b'] }, { type: 'input', label: 'Name' }] })
+  const dialog = everything().find((n) => n.nodeType === 1 && n.getAttribute('role') === 'dialog')
+  const labels = []
+  walk(dialog, (n) => { if (n.nodeType === 1 && n.tagName === 'LABEL') labels.push(n) })
+  const box = dialog.querySelectorAll('[role=listbox]')[0]
+  const by = box.getAttribute('aria-labelledby')
+  const lab = labels.find((l) => l.getAttribute('id') === by)
+  assert.ok(by && lab, 'the listbox names its label by id')
+  assert.equal(lab.textContent, 'Pick')
+  assert.equal(lab.getAttribute('for'), null, 'no for= pointing at a div')
+  const input = dialog.querySelectorAll('input')[0]
+  assert.ok(labels.some((l) => l.getAttribute('for') === input.getAttribute('id')), 'a real input keeps its <label for>')
+  dom.send('input:close', { id: 'lb' })
+})
+
+test('a11y: SetUiLocale can name the page language; junk is ignored', () => {
+  const html = dom.doc.documentElement
+  dom.send('locale', { lang: 'de-DE' })
+  assert.equal(html.getAttribute('lang'), 'de-DE')
+  dom.send('locale', { lang: 'en"><script>' })
+  assert.equal(html.getAttribute('lang'), 'de-DE')
+  dom.send('locale', { lang: 'en' })
+  assert.equal(html.getAttribute('lang'), 'en')
+})
+
+// Paint order follows Lua's focus stack: whatever opened last is on top, so a
+// context menu opened over a dialog is above the dialog's backdrop (it used to
+// sit under it, unclickable) and a dialog opened from a context option is
+// above the menu it came from.
+test('layers: the context menu and dialogs paint in the order they opened', () => {
+  const z = (id) => Number(dom.doc.layers[id].style.getPropertyValue('z-index') || 0)
+  dom.send('alert:open', { id: 'z1', header: 'h', content: 'c' })
+  dom.send('context:open', { token: 'Z', title: 'M', options: [{ title: 'a' }] })
+  assert.ok(z('cis-context') > z('cis-dialogs'), 'a context opened over a dialog is above it')
+  dom.send('context:close', {})
+  dom.send('alert:close', { id: 'z1' })
+  dom.send('context:open', { token: 'Z2', title: 'M', options: [{ title: 'a' }] })
+  dom.send('alert:open', { id: 'z2', header: 'h', content: 'c' })
+  assert.ok(z('cis-dialogs') > z('cis-context'), 'a dialog opened from a context is above it')
+  dom.send('alert:close', { id: 'z2' })
+  dom.send('context:close', {})
 })

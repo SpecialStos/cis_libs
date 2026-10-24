@@ -29,8 +29,25 @@ window.addEventListener('message', (e) => {
   try { fn(m.data && typeof m.data === 'object' ? m.data : {}) } catch (err) { reportError(err) }
 })
 
+// PAGE REPORTS (error, warn) carry the session token, as escape does: Lua
+// drops any report without it (client/interface/nui.lua, pageReport). Until
+// init has given the page its session, the first few are held, then sent.
+let session = null
+const early = []
+function report(name, message) {
+  if (session === null) {
+    if (early.length < 8) early.push([name, message])
+    return
+  }
+  post(name, { token: session, message })
+}
+export function setSession(token) {
+  session = token
+  for (const [name, message] of early.splice(0)) report(name, message)
+}
+
 export function reportError(err) {
-  post('error', { message: String((err && (err.stack || err.message)) || err).slice(0, 1000) })
+  report('error', String((err && (err.stack || err.message)) || err).slice(0, 1000))
 }
 window.addEventListener('error', (e) => reportError(e.error || e.message))
 window.addEventListener('unhandledrejection', (e) => reportError(e.reason))
@@ -191,7 +208,7 @@ export function icon(name, color) {
   } else if (imageUrl(name)) el = h('img', { class: 'cis-icon', src: name, alt: '' })
   else if ([...name].length <= 4 && !/[\u0000-\u007f]/.test(name)) el = h('span', { class: 'cis-icon', text: name })
   else {
-    if (!warned.has(key) && warned.size < 64) { warned.add(key); post('warn', { message: `unknown icon ${key.slice(0, 64)}` }) }
+    if (!warned.has(key) && warned.size < 64) { warned.add(key); report('warn', `unknown icon ${key.slice(0, 64)}`) }
     return null
   }
   el.setAttribute('aria-hidden', 'true')
@@ -215,11 +232,16 @@ export function t(key, params) {
   return params ? s.replace(/\{(\w+)\}/g, (m, k) => (k in params ? String(params[k]) : m)) : s
 }
 
+// `lang` is the page language for screen readers (a BCP 47 tag such as
+// 'de' or 'pt-BR'); anything else is ignored and the page stays 'en'.
+const LANG = /^[a-z]{2,3}(?:-[a-z0-9]{2,8}){0,3}$/i
 export function setLocale(table) {
   for (const k of Object.keys(LOCALE)) {
     const v = table && table[k]
     if (typeof v === 'string' && v.length <= 200) strings[k] = v
   }
+  const lang = table && table.lang
+  if (typeof lang === 'string' && LANG.test(lang)) document.documentElement.setAttribute('lang', lang)
 }
 
 const settings = { notifyPosition: 'top-right', textUIPosition: 'right-center', progressPosition: 'bottom', menuPosition: 'top-left', notifyMax: 5 }
@@ -249,6 +271,19 @@ export function setTheme(th) {
 }
 
 export const layer = (id) => document.getElementById(id)
+
+// PAINT ORDER FOLLOWS THE FOCUS STACK. The layers stack in document order, so
+// a context menu opened while a dialog was up sat under the dialog's backdrop
+// and could not be clicked. A layer that opens is raised above the others
+// that were raised before it; z-index stays small (one step per layer), and
+// the toasts stay above all of them (style.css #cis-notify).
+const raised = []
+export function raise(id) {
+  const i = raised.indexOf(id)
+  if (i >= 0) raised.splice(i, 1)
+  raised.push(id)
+  raised.forEach((r, n) => layer(r).style.setProperty('z-index', String(n + 1)))
+}
 
 export const focusables = (el) => [...el.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')]
   .filter((x) => !x.disabled && !x.hidden && x.offsetParent !== null)

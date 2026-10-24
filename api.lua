@@ -676,7 +676,7 @@ return {
             since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
             use = 'exports.cis_libs:SetUiLocale(strings)',
             realm = 'client',
-            params = { { name = 'strings', type = 'table', doc = 'built-in labels by key (confirm, cancel, close, back, required, min, max, ...); unknown keys are ignored. English by default' } },
+            params = { { name = 'strings', type = 'table', doc = 'built-in labels by key (confirm, cancel, close, back, required, min, max, ...), plus lang (the page language, a BCP 47 tag such as de or pt-BR); unknown keys are ignored. English by default' } },
             returns = { { type = 'boolean, string|nil', doc = 'true once sent' } }
         },
         NotifyPlayer = {

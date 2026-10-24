@@ -1,4 +1,4 @@
-import { h, icon, markdown, on, post, t, focusables, layer } from './core.js'
+import { h, icon, markdown, on, post, t, focusables, layer, raise } from './core.js'
 import { normalizeRow, initialValue, coerce, validateAll, resultValues } from './validate.js'
 import { trapTab, step, keyIntent } from './nav.js'
 
@@ -30,6 +30,7 @@ function modal(kind, d, title, body, buttons) {
   }, h('h2', { id: tid, text: title }), body, h('div', { class: 'cis-actions' }, buttons))
   const el = h('div', { class: 'cis-backdrop' }, dialog)
   layer('cis-dialogs').appendChild(el)
+  raise('cis-dialogs')
   open.set(kind, { id: d.id, el, before })
 }
 
@@ -138,7 +139,12 @@ on('input:open', (d) => {
     const target = ctl.matches('input,textarea,[role=listbox]') ? ctl : ctl.querySelector('input,textarea,[role=listbox]')
     target?.setAttribute('aria-describedby', desc ? `${id}-desc ${id}-err` : `${id}-err`)
     fields.push({ err, target })
-    const lab = h('label', { for: id }, icon(r.icon), r.label, r.required && h('span', { class: 'cis-req', 'aria-hidden': 'true', text: ' *' }))
+    // A listbox is a div, and <label for> names only form controls: it is
+    // named by aria-labelledby instead, and a click on the label focuses it.
+    const listy = target?.getAttribute('role') === 'listbox'
+    const lab = h('label', { id: `${id}-label`, for: !listy && id, onclick: listy && (() => target.focus()) },
+      icon(r.icon), r.label, r.required && h('span', { class: 'cis-req', 'aria-hidden': 'true', text: ' *' }))
+    if (listy) target.setAttribute('aria-labelledby', `${id}-label`)
     form.appendChild(h('div', { class: 'cis-field' }, r.type === 'checkbox' ? h('div', { class: 'cis-check' }, ctl, lab) : [lab, ctl], desc, err))
   })
   const submit = (e) => {
