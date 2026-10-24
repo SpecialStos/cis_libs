@@ -4231,6 +4231,55 @@
       "find": "    if not Target.Available() then\n        missingOnce()\n        return false, 'no target provider started'\n    end\n    local removed",
       "replace": "    local removed",
       "why": "UpdateTarget with no provider started forgets the target before the create fails, so the caller loses it."
+    },
+    {
+      "id": "M729",
+      "file": "shared/grid.lua",
+      "find": "if z == nil or ((aabb.minZ == nil or z >= aabb.minZ)\n                    and (aabb.maxZ == nil or z <= aabb.maxZ)) then",
+      "replace": "if z == nil or (z >= aabb.minZ and z <= aabb.maxZ) then",
+      "why": "queryPoint compares z with a nil minZ or maxZ, so a 2D AABB raises the first time it is queried with a z."
+    },
+    {
+      "id": "M730",
+      "file": "shared/grid.lua",
+      "find": "if z == nil or ((aabb.minZ == nil or z >= aabb.minZ)\n                                    and (aabb.maxZ == nil or z <= aabb.maxZ)) then",
+      "replace": "if z == nil or (z >= aabb.minZ and z <= aabb.maxZ) then",
+      "why": "queryNeighbors compares z with a nil minZ or maxZ, so a 2D AABB raises the first time it is queried with a z."
+    },
+    {
+      "id": "M731",
+      "file": "shared/grid.lua",
+      "find": "        if type(v) ~= 'number' then\n            return nil, ('an AABB z bound is",
+      "replace": "        if false then\n            return nil, ('an AABB z bound is",
+      "why": "A non-number z bound is admitted, then raises on every query of its cell."
+    },
+    {
+      "id": "M732",
+      "file": "shared/grid.lua",
+      "find": "if minZ ~= nil and maxZ ~= nil and minZ > maxZ then",
+      "replace": "if minZ ~= nil and maxZ ~= nil and minZ > maxZ and false then",
+      "why": "An AABB with minZ above maxZ is admitted and can never match."
+    },
+    {
+      "id": "M733",
+      "file": "client/core/dui.lua",
+      "find": "    for _, page in pairs(self.live) do\n        if page:destroy() then n = n + 1 end\n    end",
+      "replace": "    for _ in pairs(self.live) do\n        n = n + 1\n    end",
+      "why": "releaseAll counts the open pages but destroys none, so a stopped consumer leaves its DUI browsers running."
+    },
+    {
+      "id": "M734",
+      "file": "client/core/scaleform.lua",
+      "find": "    for _, movie in pairs(self.live) do\n        if movie:dispose() then n = n + 1 end\n    end",
+      "replace": "    for _ in pairs(self.live) do\n        n = n + 1\n    end",
+      "why": "releaseAll counts the held movies but disposes none, so a stopped consumer leaves its scaleforms resident."
+    },
+    {
+      "id": "M735",
+      "file": "shared/loopguard.lua",
+      "find": "            return ...\n",
+      "replace": "            return (...)\n",
+      "why": "Body keeps only the first return value of the loop body, so a tick that answers several values loses the rest."
     }
   ]
 }

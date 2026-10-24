@@ -6482,6 +6482,155 @@ do
     env.reset()
 end
 
+-- ================================================= C13. the grid's z bounds
+--
+-- checkAabb lets minZ and maxZ be nil ("no z test"), but both queries compared
+-- `z >= aabb.minZ` whenever the caller passed a z, so a 2D AABB raised on a
+-- number-vs-nil compare the first time anything queried it with a z. And the z
+-- bounds were never typed: a string minZ was stored, then raised on every query
+-- of its cell, taking every other item in that cell down with it.
+do
+    local savedGrid = CisGrid
+    load(readSource('shared/grid.lua'), '@shared/grid.lua')()
+    local G = CisGrid
+    CisGrid = savedGrid
+
+    local g = G.new()
+    check(G.insert(g, 'flat', { minX = -5, maxX = 5, minY = -5, maxY = 5 }) == true,
+        'grid C13: an AABB with no z bounds is admitted')
+    check(G.insert(g, 'floor', { minX = -5, maxX = 5, minY = -5, maxY = 5, minZ = 10 }) == true,
+        'grid C13: an AABB with only a minZ is admitted')
+    check(G.insert(g, 'ceil', { minX = -5, maxX = 5, minY = -5, maxY = 5, maxZ = 20 }) == true,
+        'grid C13: an AABB with only a maxZ is admitted')
+    local function hits(query, z)
+        local got = {}
+        local ok, err = pcall(query, g, 0.0, 0.0, z, function(id) got[id] = true end)
+        return ok, got, err
+    end
+    for _, q in ipairs({ { 'queryPoint', G.queryPoint }, { 'queryNeighbors', G.queryNeighbors } }) do
+        local ok, got, err = hits(q[2], 15.0)
+        check(ok and got.flat and got.floor and got.ceil,
+            ('grid C13: %s with a z inside every bound matches the 2D and half-open AABBs (%s)'):format(q[1], tostring(err)))
+        ok, got = hits(q[2], 5.0)
+        check(ok and got.flat and not got.floor and got.ceil,
+            ('grid C13: %s below a lone minZ misses that AABB only'):format(q[1]))
+        ok, got = hits(q[2], 25.0)
+        check(ok and got.flat and got.floor and not got.ceil,
+            ('grid C13: %s above a lone maxZ misses that AABB only'):format(q[1]))
+    end
+
+    local bad = {
+        { { minZ = 'low' }, 'a string minZ' },
+        { { maxZ = true }, 'a boolean maxZ' },
+        { { minZ = 0 / 0 }, 'a NaN minZ' },
+        { { maxZ = 0 / 0, minZ = 1 }, 'a NaN maxZ beside a number minZ' },
+        { { minZ = 30, maxZ = 10 }, 'minZ above maxZ' },
+        { { minZ = -1e9 }, 'a minZ past the limit' },
+    }
+    for _, b in ipairs(bad) do
+        local aabb = { minX = 0, maxX = 1, minY = 0, maxY = 1 }
+        for k, v in pairs(b[1]) do aabb[k] = v end
+        local ok, why = G.insert(g, 'bad', aabb)
+        check(ok == false and type(why) == 'string',
+            ('grid C13: %s is refused, with a reason (got %s, %s)'):format(b[2], tostring(ok), tostring(why)))
+    end
+    check(g.items.bad == nil, 'grid C13: and none of the refused AABBs was stored')
+end
+
+-- ===================================== loop guard: Body without a per-tick table
+--
+-- Body runs every frame for the cache, zone and point passes. It packed every
+-- result into a fresh table (table.pack) only to unpack it again; the results
+-- now pass straight through. What the caller sees must not change: every
+-- return value, nil holes and the count included, and nil after a raise.
+do
+    local saved = { CisLoopGuard = CisLoopGuard, CisDiagnostics = CisDiagnostics,
+        GetGameTimer = GetGameTimer, Logging = Logging }
+    local logged = {}
+    CisDiagnostics = { Register = function() end, Inc = function() end }
+    GetGameTimer = function() return 0 end
+    Logging = { Error = function(m) logged[#logged + 1] = m end }
+    load(readSource('shared/loopguard.lua'), '@shared/loopguard.lua')()
+    local LG = CisLoopGuard
+
+    local tick = LG.Body('test.body', function() return 1, nil, 3 end)
+    local n = select('#', tick())
+    local a, b, c = tick()
+    check(n == 3 and a == 1 and b == nil and c == 3,
+        ('loopguard: Body passes every return value through, nil holes included (n=%d)'):format(n))
+    check(select('#', LG.Body('test.none', function() end)()) == 0,
+        'loopguard: a body that returns nothing returns nothing')
+    local raising = LG.Body('test.raise', function() error('boom', 0) end)
+    local r1 = { raising() }
+    raising()
+    check(#r1 == 0 and select('#', raising()) == 1 and LG.Raises['test.raise'] == 3,
+        ('loopguard: a raise answers one nil and is counted (raises=%s)'):format(tostring(LG.Raises['test.raise'])))
+    check(#logged == 1 and logged[1]:find('boom', 1, true) ~= nil,
+        ('loopguard: and is logged once per window, with the error (logged %d)'):format(#logged))
+
+    for k, v in pairs(saved) do _ENV[k] = v end
+end
+
+-- ============================================ dui / scaleform: releaseAll
+--
+-- init.lua runs releaseAll on each factory when the consumer stops (contracts.lua
+-- section 19 drives that path). Here the factories themselves: every live object
+-- is freed exactly once, a disposed one is not freed again, the count is right,
+-- and a second releaseAll frees nothing.
+do
+    local NAMES = { 'CreateDui', 'GetDuiHandle', 'CreateRuntimeTxd', 'CreateRuntimeTextureFromDuiHandle',
+        'DestroyDui', 'GetGameTimer', 'SetScaleformMovieAsNoLongerNeeded', 'BeginScaleformMovieMethod',
+        'EndScaleformMovieMethod', 'DrawScaleformMovieFullscreen' }
+    local saved = {}
+    for _, n in ipairs(NAMES) do saved[n] = rawget(_ENV, n) end
+    local destroyed, released = {}, {}
+    local nextDui = 900
+    CreateDui = function() nextDui = nextDui + 1; return nextDui end
+    GetDuiHandle = function(o) return 'dui://' .. o end
+    CreateRuntimeTxd = function() return 1 end
+    CreateRuntimeTextureFromDuiHandle = function() return 1 end
+    DestroyDui = function(o) destroyed[#destroyed + 1] = o end
+    GetGameTimer = function() return 1234 end
+    SetScaleformMovieAsNoLongerNeeded = function(h) released[#released + 1] = h end
+    local methods = 0
+    BeginScaleformMovieMethod = function() methods = methods + 1; return true end
+    EndScaleformMovieMethod = function() end
+    DrawScaleformMovieFullscreen = function() methods = methods + 1 end
+
+    local Dui = load(readSource('client/core/dui.lua'), '@client/core/dui.lua')()
+    local duis = Dui.new({ resource = 'res_d' })
+    local p1 = duis:create({ url = 'https://a.invalid' })
+    local p2 = duis:create({ url = 'https://b.invalid' })
+    local p3 = duis:create({ url = 'https://c.invalid' })
+    check(p1 and p2 and p3, 'releaseAll: three DUI pages open')
+    check(p2:destroy() == true and #destroyed == 1, 'releaseAll: one is destroyed by its owner first')
+    check(duis:releaseAll() == 2, 'releaseAll: the DUI factory frees the two still open, and says 2')
+    table.sort(destroyed)
+    check(#destroyed == 3 and destroyed[1] == 901 and destroyed[2] == 902 and destroyed[3] == 903,
+        ('releaseAll: every browser was destroyed exactly once (%d calls)'):format(#destroyed))
+    check(p1:isAvailable() == false and p1:setUrl('https://x.invalid') == false,
+        'releaseAll: a released page is inert')
+    check(duis:releaseAll() == 0 and #destroyed == 3, 'releaseAll: a second DUI releaseAll frees nothing')
+
+    local handles = 40
+    local streaming = { request = function(kind, name)
+        handles = handles + 1
+        return true, handles
+    end }
+    local Scaleform = load(readSource('client/core/scaleform.lua'), '@client/core/scaleform.lua')()
+    local movies = Scaleform.new({ streaming = streaming })
+    local m1 = movies:create('one')
+    local m2 = movies:create('two')
+    check(m1 and m2 and m1:dispose() == true and #released == 1,
+        'releaseAll: two movies held, one disposed by its owner')
+    check(movies:releaseAll() == 1 and #released == 2 and released[2] == 42,
+        'releaseAll: the scaleform factory releases the one still held, and says 1')
+    check(m2:call('SHOW') == false and m2:draw() == false and methods == 0, 'releaseAll: a released movie is inert')
+    check(movies:releaseAll() == 0 and #released == 2, 'releaseAll: a second scaleform releaseAll releases nothing')
+
+    for _, n in ipairs(NAMES) do _ENV[n] = saved[n] end
+end
+
 -- ==================================================================== report
 for i = 1, #failures do
     io.stderr:write('FAIL(client): ' .. failures[i] .. '\n')

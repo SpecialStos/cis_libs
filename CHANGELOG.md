@@ -778,6 +778,16 @@ which is forgotten when that resource stops.
   a missing provider answer `false` plus a reason with the target untouched, a
   refused create puts the old target back, and cis_libs updating a consumer's
   target no longer takes it from that consumer.
+- **The spatial grid no longer raises on an AABB without z bounds.** `CisGrid.queryPoint` and
+  `queryNeighbors` compared a caller's z with `aabb.minZ` and `aabb.maxZ` even when the AABB left
+  them nil (which `insert` allows, and documents as "no z test"), so a 2D or half-open AABB raised
+  the first time anything queried its cell with a z. A nil bound is now skipped. `insert` also
+  checks each z bound on its own: a non-number z bound and `minZ > maxZ` are refused with a reason
+  (a string bound used to be stored and then raise on every query of its cell).
+- **The loop guard no longer builds a table every tick.** `CisLoopGuard.Body`, which wraps the
+  cache, zone and point passes every frame, packed each result into a new table only to unpack it;
+  the results now pass straight through. Return values (nil holes included) and the nil after a
+  raise are unchanged, and now tested.
 
 ### Security
 

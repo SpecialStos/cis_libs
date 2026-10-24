@@ -40,30 +40,35 @@ end
 function CisLoopGuard.Body(name, body)
     local label = tostring(name)
     local lastLogged = nil
-    return function()
-        local packed = table.pack(pcall(body))
-        if not packed[1] then
-            local err = packed[2]
-            CisLoopGuard.Raises[label] = (CisLoopGuard.Raises[label] or 0) + 1
-            if CisDiagnostics and CisDiagnostics.Inc then
-                CisDiagnostics.Inc('loopErrors', 1)
-            end
-            local now = GetGameTimer()
-            if lastLogged == nil or (now - lastLogged) >= LOG_EVERY_MS then
-                lastLogged = now
-                local message = ('cis_libs: loop %s raised %s time(s); last: %s')
-                    :format(label, tostring(CisLoopGuard.Raises[label]), tostring(err))
-                if Logging and Logging.Error then
-                    Logging.Error(message)
-                else
-                    print(message)
-                end
-            end
-            -- nil, so a caller written as `Wait(tick() or default)` falls back to its
-            return nil
+    -- The pcall results pass through a vararg, not a table: this runs every frame
+    -- for the cache, zone and point passes, and table.pack made a table a tick.
+    local function finish(ok, ...)
+        if ok then
+            -- THE BODY'S OWN RETURN VALUES, NOT `true`.
+            return ...
         end
-        -- THE BODY'S OWN RETURN VALUE, NOT `true`.
-        return table.unpack(packed, 2, packed.n)
+        local err = ...
+        CisLoopGuard.Raises[label] = (CisLoopGuard.Raises[label] or 0) + 1
+        if CisDiagnostics and CisDiagnostics.Inc then
+            CisDiagnostics.Inc('loopErrors', 1)
+        end
+        local now = GetGameTimer()
+        if lastLogged == nil or (now - lastLogged) >= LOG_EVERY_MS then
+            lastLogged = now
+            local message = ('cis_libs: loop %s raised %s time(s); last: %s')
+                :format(label, tostring(CisLoopGuard.Raises[label]), tostring(err))
+            if Logging and Logging.Error then
+                Logging.Error(message)
+            else
+                print(message)
+            end
+        end
+        -- nil, so a caller written as `Wait(tick() or default)` falls back to its
+        -- default.
+        return nil
+    end
+    return function()
+        return finish(pcall(body))
     end
 end
 
