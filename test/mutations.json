@@ -1040,7 +1040,7 @@
     },
     {
       "id": "M155",
-      "file": "server/callback.lua",
+      "file": "server/security.lua",
       "find": "    if kind == 'string' then\n        return #value <= maxLen\n    end\n",
       "replace": "    if kind == 'string' then\n        return true\n    end\n",
       "why": "Drop the string-length cap. A client can send a multi-megabyte string as one argument, which every other bound counts as a single value, and every handler that logs or stores it pays for it."
@@ -2623,8 +2623,8 @@
     {
       "id": "M381",
       "file": "server/security.lua",
-      "find": "            if not perSrc[name] then\n                perSrc[name] = true\n                CisSecurityReport(src, ('bad net payload %s: %s')",
-      "replace": "            if true then\n                perSrc[name] = true\n                CisSecurityReport(src, ('bad net payload %s: %s')",
+      "find": "    if last == nil or now - last >= quiet or now < last then\n",
+      "replace": "    if true then\n",
       "why": "Report every bad payload. A flood of malformed events is a console line and a provider call each."
     },
     {
@@ -3489,6 +3489,97 @@
       "replace": "post('escape', {})",
       "why": "The page stops echoing the session token on Escape, so Lua refuses every real Escape.",
       "check": "web"
+    },
+    {
+      "id": "M680",
+      "file": "server/security.lua",
+      "find": "    if not CisPayloadWithinLimits(packed, opts.maxArgs,\n",
+      "replace": "    if false and not CisPayloadWithinLimits(packed, opts.maxArgs,\n",
+      "why": "Skip the size bound on net events. A client can hand any handler 200 arguments, a 4 MB string or a table nested a thousand deep, and the handler walks it before any schema runs."
+    },
+    {
+      "id": "M681",
+      "file": "server/security.lua",
+      "find": "opts.maxStringLen or CisCallbackLimits().maxStringLen, opts.maxEntries, opts.maxDepth)",
+      "replace": "CisCallbackLimits().maxStringLen)",
+      "why": "Ignore the per-handler limits. A handler that declared it needs a bigger payload has every such payload refused and its player reported."
+    },
+    {
+      "id": "M682",
+      "file": "server/security.lua",
+      "find": "    if depth > budget.maxDepth then\n",
+      "replace": "    if false then\n",
+      "why": "Drop the nesting bound. A table nested thousands deep is walked recursively by the guard itself and then by the handler."
+    },
+    {
+      "id": "M683",
+      "file": "server/security.lua",
+      "find": "        if budget.n > budget.maxEntries then\n",
+      "replace": "        if false then\n",
+      "why": "Count entries per table only, not across the payload. Many arguments each just under the cap add up to an unbounded walk."
+    },
+    {
+      "id": "M684",
+      "file": "server/security.lua",
+      "find": "    if packed.n > (maxArgs or MAX_PAYLOAD_ARGS) then\n",
+      "replace": "    if false then\n",
+      "why": "Drop the argument-count bound. A client can send any number of arguments to every net event and callback."
+    },
+    {
+      "id": "M685",
+      "file": "server/security.lua",
+      "find": "        reportBadPayload(src, name, 'payload too large', opts.windowMs)\n",
+      "replace": "",
+      "why": "Refuse an oversized net payload silently. It is then neither counted as netSchemaRefused nor reported, so a client probing the bound is invisible to the operator."
+    },
+    {
+      "id": "M686",
+      "file": "server/security.lua",
+      "find": "        if value ~= nil and (type(value) ~= 'number' or value ~= value or value < 1) then\n",
+      "replace": "        if value ~= nil and type(value) ~= 'number' then\n",
+      "why": "Accept a NaN or non-positive limit option. A NaN limit compares false everywhere, so a typo silently turns the bound off."
+    },
+    {
+      "id": "M687",
+      "file": "server/security.lua",
+      "find": "                    if (v == math.huge or v == -math.huge) and (integer or rule.finite ~= false) then\n",
+      "replace": "                    if false then\n",
+      "why": "Let infinity through the schema. +inf passes any rule without a max, and -inf any without a min, so amount=-inf reaches a payout handler."
+    },
+    {
+      "id": "M688",
+      "file": "server/security.lua",
+      "find": " and (integer or rule.finite ~= false) then\n",
+      "replace": " and integer then\n",
+      "why": "Ignore finite = false. A rule that opted in to infinity has every infinite value refused and its player reported."
+    },
+    {
+      "id": "M689",
+      "file": "server/security.lua",
+      "find": "                    if integer and (v > MAX_SAFE_INTEGER or v < -MAX_SAFE_INTEGER) then\n",
+      "replace": "                    if false then\n",
+      "why": "Drop the safe-integer range. 2^60 passes an integer rule, and past 2^53 a double cannot hold the integer the client sent."
+    },
+    {
+      "id": "M690",
+      "file": "server/security.lua",
+      "find": "                    if integer and math.floor(v) ~= v then\n",
+      "replace": "                    if false then\n",
+      "why": "Drop the whole-number check. A count of 2.5 passes an integer rule."
+    },
+    {
+      "id": "M691",
+      "file": "server/security.lua",
+      "find": "                if integer then\n                    want = 'number'\n                end\n",
+      "replace": "",
+      "why": "Compare integer as a Lua type name. No value has type \"integer\", so every integer rule refuses every payload."
+    },
+    {
+      "id": "M692",
+      "file": "server/security.lua",
+      "find": "    perSrc[name] = now\n    local quiet",
+      "replace": "    perSrc[name] = last or now\n    local quiet",
+      "why": "Refresh the bad-payload latch only when it reports. A flood that lasts longer than the quiet interval is then reported again every interval, one provider call each."
     }
   ]
 }

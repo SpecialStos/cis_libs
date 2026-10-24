@@ -374,8 +374,12 @@ local function warnRateLimited(src, name)
     end
 end
 
--- src -> name -> true once a bad payload of that event has been reported.
+-- src -> name -> GetGameTimer() of the last bad payload of that event. A bad
+-- payload is reported when there is no entry, or when the last one is at least
+-- a quiet interval old; every bad payload refreshes it, so a flood that keeps
+-- going stays one report and a repeat after a pause is a new strike.
 local schemaReported = {}
+local BAD_PAYLOAD_QUIET_MS = 5000
 
 -- A player who drops takes their rate buckets, their bucket COUNT and their warning
 AddEventHandler('playerDropped', function()
@@ -394,7 +398,14 @@ local netBindings = {}
 -- event once per restart, and a payout handler paid out N+1 times.
 local netRegistered = {}
 
--- 7.11. opts.schema is a map of field -> { type, min, max, maxLen, optional }.
+-- The largest whole number a double holds exactly. Past it, 2^53 + 1 reads back
+-- as 2^53, so an "integer" there is not the integer the client meant.
+local MAX_SAFE_INTEGER = 2 ^ 53
+
+-- 7.11. opts.schema is a map of field -> { type, min, max, maxLen, optional, finite }.
+-- `type` is a Lua type name, plus 'integer': a whole, finite number within
+-- +-2^53. A number is refused when it is NaN, and when it is infinite unless
+-- the rule says `finite = false`.
 local function checkNetSchema(schema, payload)
     if type(schema) ~= 'table' then
         return false, 'schema must be a table'
@@ -411,12 +422,25 @@ local function checkNetSchema(schema, payload)
                 end
             else
                 local want = rule.type
+                local integer = want == 'integer'
+                if integer then
+                    want = 'number'
+                end
                 if type(want) == 'string' and type(v) ~= want then
-                    return false, ('%s expected %s, got %s'):format(field, want, type(v))
+                    return false, ('%s expected %s, got %s'):format(field, rule.type, type(v))
                 end
                 if type(v) == 'number' then
                     if v ~= v then
                         return false, ('%s is NaN'):format(field)
+                    end
+                    if (v == math.huge or v == -math.huge) and (integer or rule.finite ~= false) then
+                        return false, ('%s is not finite'):format(field)
+                    end
+                    if integer and (v > MAX_SAFE_INTEGER or v < -MAX_SAFE_INTEGER) then
+                        return false, ('%s expected integer within +-2^53, got %s'):format(field, tostring(v))
+                    end
+                    if integer and math.floor(v) ~= v then
+                        return false, ('%s expected integer, got %s'):format(field, tostring(v))
                     end
                     if type(rule.min) == 'number' and v < rule.min then
                         return false, ('%s below min %s'):format(field, tostring(rule.min))
@@ -443,6 +467,99 @@ end
 -- implementation, so a net event and a callback cannot disagree about a payload.
 function CisCheckNetSchema(schema, payload)
     return checkNetSchema(schema, payload)
+end
+
+-- How much of a client's payload is worth walking before it is refused. The
+-- same bounds for a net event and a callback; a net event may raise its own.
+local MAX_PAYLOAD_ARGS = 32
+local MAX_TABLE_KEYS = 256
+local MAX_NESTING = 8
+
+-- Walks a packed argument list ONCE, bounded on every axis, so the guard cannot itself
+-- be the expensive part. Strings are measured too, keys and values both: a 4 MB
+-- string is one "key" to every other bound here and costs every consumer that logs it.
+local function withinLimits(value, budget, depth, maxLen)
+    local kind = type(value)
+    if kind == 'string' then
+        return #value <= maxLen
+    end
+    if kind ~= 'table' then
+        return true
+    end
+    if depth > budget.maxDepth then
+        return false
+    end
+    local seen = 0
+    for k, v in pairs(value) do
+        seen = seen + 1
+        if seen > budget.maxEntries then
+            return false
+        end
+        budget.n = budget.n + 1
+        if budget.n > budget.maxEntries then
+            return false
+        end
+        if not withinLimits(k, budget, depth + 1, maxLen) then
+            return false
+        end
+        if not withinLimits(v, budget, depth + 1, maxLen) then
+            return false
+        end
+    end
+    return true
+end
+
+--- Whether a packed argument list fits: at most maxArgs arguments, every string
+--- (key or value) at most maxLen bytes, tables at most maxDepth deep and at most
+--- maxEntries entries counted across the whole payload. maxArgs, maxEntries and
+--- maxDepth default to 32, 256 and 8.
+--- @return boolean
+function CisPayloadWithinLimits(packed, maxArgs, maxLen, maxEntries, maxDepth)
+    if packed.n > (maxArgs or MAX_PAYLOAD_ARGS) then
+        return false
+    end
+    local budget = { n = 0, maxEntries = maxEntries or MAX_TABLE_KEYS, maxDepth = maxDepth or MAX_NESTING }
+    for i = 1, packed.n do
+        if not withinLimits(packed[i], budget, 1, maxLen) then
+            return false
+        end
+    end
+    return true
+end
+
+-- The per-handler payload limits a net binding may carry. Each is a positive
+-- number; anything else is a refusal that names itself.
+local NET_LIMIT_OPTIONS = { 'maxArgs', 'maxStringLen', 'maxEntries', 'maxDepth' }
+
+local function readNetLimits(name, opts)
+    for i = 1, #NET_LIMIT_OPTIONS do
+        local key = NET_LIMIT_OPTIONS[i]
+        local value = opts[key]
+        if value ~= nil and (type(value) ~= 'number' or value ~= value or value < 1) then
+            return false, ('Cis.net.on("%s"): opts.%s must be a positive number, got %s')
+                :format(tostring(name), key, tostring(value))
+        end
+    end
+    return true
+end
+
+-- ONE REPORT per player and event per run of bad payloads; the rest are counted
+-- only. A run ends after a quiet interval, so a repeat after a pause is reported
+-- as a new strike, and a provider that bans after N strikes sees strike two.
+local function reportBadPayload(src, name, why, windowMs)
+    CisDiagnostics.Inc(CisDiagnostics.NAMES.NET_SCHEMA_REFUSED)
+    local perSrc = schemaReported[src]
+    if not perSrc then
+        perSrc = {}
+        schemaReported[src] = perSrc
+    end
+    local now = GetGameTimer()
+    local last = perSrc[name]
+    perSrc[name] = now
+    local quiet = math.max(BAD_PAYLOAD_QUIET_MS, 2 * (windowMs or 1000))
+    if last == nil or now - last >= quiet or now < last then
+        CisSecurityReport(src, ('bad net payload %s: %s'):format(tostring(name), tostring(why)))
+    end
 end
 
 local function dispatch(name, ...)
@@ -485,21 +602,21 @@ local function dispatch(name, ...)
         end
         return
     end
+    -- THEN THE SIZE, before the schema and the handler walk any of it. A net event
+    -- used to get only the first argument's schema: 200 arguments, a 4 MB string
+    -- or a table nested a thousand deep all reached the handler.
+    local opts = live.opts
+    local packed = table.pack(...)
+    if not CisPayloadWithinLimits(packed, opts.maxArgs,
+            opts.maxStringLen or CisCallbackLimits().maxStringLen, opts.maxEntries, opts.maxDepth) then
+        reportBadPayload(src, name, 'payload too large', opts.windowMs)
+        return
+    end
     if live.opts.schema ~= nil then
         local payload = ...
         local schemaOk, schemaWhy = checkNetSchema(live.opts.schema, payload)
         if not schemaOk then
-            CisDiagnostics.Inc(CisDiagnostics.NAMES.NET_SCHEMA_REFUSED)
-            -- ONE REPORT per player and event; the rest are counted only.
-            local perSrc = schemaReported[src]
-            if not perSrc then
-                perSrc = {}
-                schemaReported[src] = perSrc
-            end
-            if not perSrc[name] then
-                perSrc[name] = true
-                CisSecurityReport(src, ('bad net payload %s: %s'):format(tostring(name), tostring(schemaWhy)))
-            end
+            reportBadPayload(src, name, schemaWhy, opts.windowMs)
             return
         end
     end
@@ -519,6 +636,15 @@ end
 
 function CisNetOn(name, fn, opts)
     opts = opts or {}
+    if type(opts) ~= 'table' then
+        Logging.Error(('Cis.net.on("%s"): opts must be a table, got %s'):format(tostring(name), type(opts)))
+        return false
+    end
+    local limitsOk, limitsWhy = readNetLimits(name, opts)
+    if not limitsOk then
+        Logging.Error(limitsWhy)
+        return false
+    end
 
     -- THE OWNER IS THE CALLER, never the reference string. Parsed from
     -- 'bank:anyExport', any resource could pass the owner check below and replace

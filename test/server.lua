@@ -1591,6 +1591,158 @@ do
     env.reset()
 end
 
+-- 10e. NET EVENTS ARE BOUNDED LIKE CALLBACKS. A net event got only the first
+-- argument's schema, so a client could hand any handler 200 arguments, a 4 MB
+-- string or a table nested a thousand deep, and the handler walked it. Refused
+-- before the schema and before the handler, counted and reported as a bad payload.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    local hits = 0
+    exports.cis_big = { OnEv = function() hits = hits + 1 end }
+    loadModule('server/security.lua')
+    local reasons = {}
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_G, 'CisSecurityReport') }
+    function CisSecurityReport(_, why) reasons[#reasons + 1] = tostring(why); return true end
+
+    env.invoking = 'cis_big'
+    check(CisNetOn('big:ev', 'cis_big:OnEv', { maxHits = 1000 }) == true, '10e: an unschema-d event binds')
+    local function nested(levels)
+        local root = {}
+        local at = root
+        for _ = 1, levels do at.x = {}; at = at.x end
+        return root
+    end
+    local function entries(n)
+        local t = {}
+        for i = 1, n do t[i] = i end
+        return t
+    end
+    local args = {}
+    for i = 1, 33 do args[i] = i end
+    local refusedBefore = CisDiagnostics.Count('netSchemaRefused')
+    env.emit('big:ev', 11, table.unpack(args, 1, 33))
+    check(hits == 0, '10e: 33 arguments never reach the handler')
+    env.emit('big:ev', 12, string.rep('a', 5000))
+    check(hits == 0, '10e: a 5000-byte string never reaches the handler')
+    env.emit('big:ev', 13, { [string.rep('k', 5000)] = 1 })
+    check(hits == 0, '10e: nor does a 5000-byte KEY')
+    env.emit('big:ev', 14, nested(12))
+    check(hits == 0, '10e: nor a table nested 12 deep')
+    env.emit('big:ev', 15, entries(300))
+    check(hits == 0, '10e: nor a table of 300 entries')
+    env.emit('big:ev', 16, entries(200), entries(200))
+    check(hits == 0, '10e: nor 400 entries split across two arguments')
+    check(CisDiagnostics.Count('netSchemaRefused') == refusedBefore + 6,
+        ('10e: each oversized payload is counted as a bad payload (%d)')
+            :format(CisDiagnostics.Count('netSchemaRefused') - refusedBefore))
+    check(#reasons == 6 and reasons[1]:find('bad net payload big:ev', 1, true) ~= nil,
+        ('10e: and reported as one (%d reports, first %q)'):format(#reasons, tostring(reasons[1])))
+    env.emit('big:ev', 17, { item = 'bread', count = 2 }, 'x', 3, nested(6), entries(100))
+    check(hits == 1, ('10e: an ordinary payload still reaches the handler (hits=%d)'):format(hits))
+
+    -- A handler that needs more says so in its own options.
+    check(CisNetOn('big:wide', 'cis_big:OnEv', {
+        maxHits = 1000, maxArgs = 40, maxStringLen = 8192, maxEntries = 512, maxDepth = 16,
+    }) == true, '10e: per-handler limits bind')
+    env.emit('big:wide', 18, table.unpack(args, 1, 33))
+    env.emit('big:wide', 18, string.rep('a', 5000))
+    env.emit('big:wide', 18, nested(12))
+    env.emit('big:wide', 18, entries(300))
+    check(hits == 5, ('10e: and each raised limit lets its payload through (hits=%d)'):format(hits))
+    env.emit('big:wide', 19, string.rep('a', 9000))
+    check(hits == 5, '10e: while a payload past the raised limit is still refused')
+    check(CisNetOn('big:bad', 'cis_big:OnEv', { maxStringLen = -1 }) == false,
+        '10e: a malformed limit is refused, not ignored')
+    check(CisNetOn('big:bad2', 'cis_big:OnEv', { maxEntries = 0 / 0 }) == false,
+        '10e: and so is a NaN one')
+
+    -- Refused BEFORE the schema: the reason is the size, not the schema's.
+    reasons = {}
+    check(CisNetOn('big:typed', 'cis_big:OnEv', {
+        maxHits = 1000, schema = { name = { type = 'string' } },
+    }) == true, '10e: a schema-d event binds')
+    env.emit('big:typed', 20, { name = string.rep('n', 5000) })
+    check(hits == 5 and #reasons == 1 and reasons[1]:find('too large', 1, true) ~= nil,
+        ('10e: an oversized payload is refused before the schema runs (%q)'):format(tostring(reasons[1])))
+    env.reset()
+end
+
+-- 10f. THE SCHEMA REFUSES INFINITY AND CAN SAY "INTEGER". NaN was refused but
+-- +inf and -inf went through any rule without a max, and a count of 2.5 or
+-- 2^60 passed `type = 'number'`.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    loadModule('server/security.lua')
+    local schema = {
+        n = { type = 'number' },
+        i = { type = 'integer', min = 1, max = 10 },
+        j = { type = 'integer', optional = true },
+        f = { type = 'number', finite = false, optional = true },
+    }
+    local function ok(payload)
+        return (CisCheckNetSchema(schema, payload))
+    end
+    check(ok({ n = 1.5, i = 3 }) == true, '10f: a finite number and a whole integer pass')
+    check(ok({ n = 1, i = 3.0 }) == true, '10f: a whole float is an integer')
+    check(ok({ n = math.huge, i = 3 }) == false, '10f: +inf is refused for number by default')
+    check(ok({ n = -math.huge, i = 3 }) == false, '10f: and -inf')
+    check(ok({ n = 0 / 0, i = 3 }) == false, '10f: NaN is still refused')
+    check(ok({ n = 1, i = 3, f = math.huge }) == true, '10f: finite = false lets infinity through')
+    check(ok({ n = 1, i = 3, f = 0 / 0 }) == false, '10f: but never NaN')
+    check(ok({ n = 1, i = 2.5 }) == false, '10f: 2.5 is not an integer')
+    check(ok({ n = 1, i = '3' }) == false, '10f: nor is the string "3"')
+    check(ok({ n = 1, i = 11 }) == false, '10f: an integer rule keeps its min and max')
+    check(ok({ n = 1, i = 3, j = math.huge }) == false, '10f: infinity is not an integer')
+    check(ok({ n = 1, i = 3, j = -math.huge }) == false, '10f: nor -infinity')
+    check(ok({ n = 1, i = 3, j = 2 ^ 53 }) == true, '10f: 2^53 is inside the safe range')
+    check(ok({ n = 1, i = 3, j = -(2 ^ 53) }) == true, '10f: and so is -2^53')
+    check(ok({ n = 1, i = 3, j = 2 ^ 60 }) == false, '10f: 2^60 is outside it')
+    check(ok({ n = 1, i = 3, j = -(2 ^ 60) }) == false, '10f: and so is -2^60')
+    local _, why = CisCheckNetSchema(schema, { n = 1, i = 2.5 })
+    check(type(why) == 'string' and why:find('integer', 1, true) ~= nil,
+        ('10f: the refusal says what was wanted (%s)'):format(tostring(why)))
+    env.reset()
+end
+
+-- 10g. A REPEAT AFTER A PAUSE IS A NEW STRIKE. The bad-payload report was once
+-- per player and event for the whole connection, so a security provider that
+-- bans after N strikes never saw strike two. A flood is still one report.
+do
+    local env = newEnv({})
+    Config = CisDefaults.config()
+    Security = CisDefaults.security()
+    exports.bank = { Withdraw = function() end }
+    loadModule('server/security.lua')
+    local reported = 0
+    env.saved[#env.saved + 1] = { name = 'CisSecurityReport', value = rawget(_G, 'CisSecurityReport') }
+    function CisSecurityReport() reported = reported + 1; return true end
+    env.invoking = 'bank'
+    CisNetOn('bank:pay', 'bank:Withdraw', {
+        schema = { amount = { type = 'number', min = 1, max = 1000 } }, maxHits = 2,
+    })
+    -- A run that lasts ten windows, every bad payload inside the rate limit so
+    -- none is dropped before the schema sees it, is still one report.
+    for _ = 1, 20 do
+        env.emit('bank:pay', 9, { amount = 'lots' })
+        env.clock = env.clock + 500
+    end
+    check(reported == 1, ('10g: a ten-second flood of bad payloads is one report (reports=%d)'):format(reported))
+    env.clock = env.clock + 10000
+    env.emit('bank:pay', 9, { amount = 'lots' })
+    check(reported == 2, ('10g: the same bad payload after a quiet pause is reported again (reports=%d)')
+        :format(reported))
+    for _ = 1, 20 do env.emit('bank:pay', 9, { amount = 'lots' }) end
+    check(reported == 2, ('10g: and the flood that follows it is not (reports=%d)'):format(reported))
+    env.clock = env.clock + 10000
+    env.emit('bank:pay', 9, { amount = 0 })
+    check(reported == 3, ('10g: so a provider counting strikes sees the third (reports=%d)'):format(reported))
+    env.reset()
+end
+
 -- 10c. THE BUCKET CAP. Buckets never expired, so a consumer using dynamic
 -- names filled 256 and every new name was refused for the session -- and a
 -- refusal at the cap then escalated like a flood and kicked the player. A string
