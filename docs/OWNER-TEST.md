@@ -29,20 +29,28 @@ list is `CHANGELOG.md` [Unreleased]; the decisions taken for you are in
     that leaves out `DropPlayer` keeps kicks on (D14).
 - **NUI.** The page's `escape` and `ready` messages carry a session token the
   page gets from Lua, so another page cannot close or re-initialise the UI.
+- **Server idle.** The server zone pass runs only while a zone exists, so an
+  idle server no longer wakes cis_libs every 500 ms for it. The restrictive
+  warning says the list is empty once, not twice.
+- **Utilities.** The shared util and algo fixes from the re-audit (A-M2 to
+  A-M10, A-L1 to A-L15 in `CHANGELOG.md`). Two change behaviour a consumer can
+  see: `mathx.clamp` refuses reversed bounds and NaN (D15), and `locale.t`
+  formats whenever an argument is given (D16).
 - **Tooling** (no in-game effect): cis-lint (static checks for the Cisoko
   rules), real test assertions, CI actions pinned by SHA, release checksums,
   and a mutation gate that counts only a test failure as a kill.
 
 ## 2. What the agent already proved
 
-At commit `67c637b` the release zip booted on all four VPS servers with no
+At commit `9c4c632` the release zip booted on all four VPS servers with no
 `SCRIPT ERROR`, `cis_doctor` printed `self-check: ok`, and the server profile
-showed cis_libs at 0.013 to 0.045 ms per frame with no player and no consumer
-(`docs/V1.md` section 10). What is left is the client side: that is this test.
+showed cis_libs at 0.002 to 0.005 ms per frame with no player and no consumer
+(`docs/V1.md` section 10, second run). What is left is the client side: that
+is this test.
 
 ## 3. Before you start
 
-cis_libs `67c637b` and the test consumer `cis_libs_ownertest` are installed in
+cis_libs `9c4c632` and the test consumer `cis_libs_ownertest` are installed in
 `resources/[cis]/` on every server, but neither is in `server.cfg`, so a server
 restart leaves both stopped. Nothing in `server.cfg` was changed.
 
