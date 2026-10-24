@@ -4161,6 +4161,27 @@
       "find": "                    local ok, err = pcall(evalWatcher, watcher, coords)",
       "replace": "                    local ok, err = true, evalWatcher(watcher, coords)",
       "why": "One near watcher that raises ends the tick, so every watcher after it in the table is never checked again."
+    },
+    {
+      "id": "M719",
+      "file": "client/core/zones.lua",
+      "find": "            and vector3(p.x, p.y, p.z)\n            or vector3(zone.cx, zone.cy, zone.cz)",
+      "replace": "            and { x = p.x, y = p.y, z = p.z }\n            or vector3(zone.cx, zone.cy, zone.cz)",
+      "why": "A zone removed while the player is inside hands onExit a plain table, not the vector3 every pass exit hands it, so vector maths in the handler raises."
+    },
+    {
+      "id": "M720",
+      "file": "client/core/points.lua",
+      "find": "            and vector3(p.x, p.y, p.z)\n            or vector3(point.x, point.y, point.z)",
+      "replace": "            and { x = p.x, y = p.y, z = p.z }\n            or vector3(point.x, point.y, point.z)",
+      "why": "A point removed while the player is inside hands onExit a plain table, not the vector3 every pass exit hands it."
+    },
+    {
+      "id": "M721",
+      "file": "client/core/points.lua",
+      "find": "        q[#q + 1] = id\n",
+      "replace": "        self:enter(point, visitCoords)\n",
+      "why": "onEnter runs inside the grid bucket walk, so a point created or removed from the hook changes the table `next` is iterating."
     }
   ]
 }

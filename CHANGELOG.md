@@ -766,6 +766,11 @@ which is forgotten when that resource stops.
   with `nil` plus a reason. A string distance used to raise inside the shared
   near tick, and every watcher after it was never checked again; each watcher
   is now also checked in its own `pcall`.
+- A zone or point removed while the player is inside hands `onExit` a
+  `vector3`, as every pass exit does. It handed a plain table, so vector maths
+  in the handler raised.
+- Point enters run after the grid walk. An `onEnter` that created or removed a
+  point changed the bucket being iterated (zones already queued their edges).
 
 ### Security
 

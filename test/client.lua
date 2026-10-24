@@ -3028,6 +3028,8 @@ do
     check(exited and math.abs(exited.x - 0.0) > 0.001,
         ('3.3: and it is demonstrably NOT the old value, which was %s')
             :format(tostring(exited and exited.x)))
+    check(exited and getmetatable(exited) == getmetatable(vector3(0.0, 0.0, 0.0)),
+        '3.3 C10: and as a vector3, the shape every pass exit hands onExit')
     env.reset()
 end
 
@@ -4481,6 +4483,43 @@ do
     local dbg = exports.GetPointsDebug()
     check(dbg.insideCount == 2 and dbg.insideIds[1] == 1 and dbg.insideIds[2] == 2,
         ('7.1: the debug view is still right when asked (count=%s)'):format(tostring(dbg.insideCount)))
+    env.reset()
+end
+
+-- C10 + N5. A point removed while the player is inside fires onExit with a
+-- vector3, as every pass exit does (it handed a plain table, so `#(coords - x)`
+-- in the handler raised). And no consumer hook runs while the grid bucket is
+-- being walked: an onEnter that created a point inserted into the bucket the
+-- walk was iterating, which is undefined `next` behaviour.
+do
+    local env = pointEnv()
+    local vecMeta = getmetatable(vector3(0.0, 0.0, 0.0))
+    local walking, hookDuringWalk = false, false
+    local realQuery = CisGrid.queryPoint
+    CisGrid.queryPoint = function(...)
+        walking = true
+        local ok, err = pcall(realQuery, ...)
+        walking = false
+        if not ok then error(err, 0) end
+    end
+    local exitCoords, madeInHook
+    local id = exports.CreatePoint({
+        coords = { x = 0.0, y = 0.0, z = 0.0 },
+        distance = 5.0,
+        onEnter = function()
+            if walking then hookDuringWalk = true end
+            madeInHook = exports.CreatePoint({ coords = { x = 0.5, y = 0.0, z = 0.0 }, distance = 5.0 })
+        end,
+        onExit = function(coords) exitCoords = coords end,
+    })
+    local ran, why = pointPass(env)
+    CisGrid.queryPoint = realQuery
+    check(ran ~= nil and type(madeInHook) == 'number', ('7.1 N5: the pass ran and onEnter made a point (%s)'):format(tostring(why)))
+    check(not hookDuringWalk, '7.1 N5: onEnter runs after the grid walk, not inside it')
+    env.coords = { x = 1.0, y = 2.0, z = 0.0 }
+    check(exports.RemovePoint(id) == true, '7.1 C10: the point removes')
+    check(exitCoords ~= nil and getmetatable(exitCoords) == vecMeta and exitCoords.x == 1.0 and exitCoords.y == 2.0,
+        ('7.1 C10: removal fires onExit with the player\'s position as a vector3 (got %s)'):format(tostring(exitCoords)))
     env.reset()
 end
 

@@ -263,10 +263,11 @@ function Points:remove(id, silent)
         return false
     end
     if self.inside[id] then
+        -- A vector3, the shape every pass exit hands the hook.
         local p = GetEntityCoords(PlayerPedId())
         local coords = (p and p.x ~= nil)
-            and { x = p.x, y = p.y, z = p.z }
-            or { x = point.x, y = point.y, z = point.z }
+            and vector3(p.x, p.y, p.z)
+            or vector3(point.x, point.y, point.z)
         if silent then
             -- The event only: the stopping resource's Lua callbacks are dead.
             self:fireEvent(point, 'onExitEvent', coords)
@@ -349,20 +350,41 @@ end
 
 -- The candidate visitor, at file scope so a pass allocates no closure: the
 -- instance and the coords ride in two upvalues set around the query.
-local visitSelf, visitCoords
+--
+-- IT ONLY QUEUES. The enters run after the walk: an onEnter that created or
+-- removed a point changed the grid bucket the walk was iterating, which is
+-- undefined `next` behaviour (zones queue their edges for the same reason).
+-- The queue is made only on a pass that enters something.
+local visitSelf, visitCoords, visitQueue
 local function visitPoint(id)
     local self = visitSelf
     local point = self.points[id]
     if point and not self.inside[id] and distanceTo(point, visitCoords) <= point.distance then
-        self:enter(point, visitCoords)
+        local q = visitQueue
+        if not q then
+            q = {}
+            visitQueue = q
+        end
+        q[#q + 1] = id
     end
 end
 
 function Points:refresh(coords)
     -- The candidates come from the grid, and the containment test runs on each.
-    visitSelf, visitCoords = self, coords
+    visitSelf, visitCoords, visitQueue = self, coords, nil
     self.Grid.queryPoint(self.grid, coords.x, coords.y, coords.z, visitPoint)
-    visitSelf, visitCoords = nil, nil
+    local queue = visitQueue
+    visitSelf, visitCoords, visitQueue = nil, nil, nil
+    if queue then
+        for i = 1, #queue do
+            -- Checked again: an earlier onEnter may have removed this point.
+            local id = queue[i]
+            local point = self.points[id]
+            if point and not self.inside[id] then
+                self:enter(point, coords)
+            end
+        end
+    end
     self:sweepExits(coords)
 end
 
