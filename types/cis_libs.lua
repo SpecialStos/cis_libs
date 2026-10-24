@@ -1933,8 +1933,8 @@ function ServerZoneSphere(center, radius, opts) end
 --- realm: server
 function SetConfig(config, security, discord) end
 
---- Called by whoever ships the config, with "resource:Export". A FUNCTION cannot be sent across the boundary, which is why this exists
----@param provider string #a "resource:Export" string in the same form RegisterCapability takes, for the same reason: a function cannot cross the boundary
+--- Called by whoever ships the config, with "resource:Export". Name the export rather than passing a function: a function arrives as a funcref that raises once its resource stops or restarts, and the name resolves again after the restart
+---@param provider string #a "resource:Export" string in the same form RegisterCapability takes, for the same reason: a function arrives as a funcref that dies with its resource, and the name still resolves after a restart
 ---@return boolean, string #the raw result of the registry register: true, or false plus a reason. Allow-list gated: a caller off Security.AuthorizedResources is refused before the slot is touched, because the first caller takes it
 --- realm: server
 function SetDropPlayerHandler(provider) end

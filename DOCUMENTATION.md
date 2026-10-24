@@ -209,8 +209,9 @@ provider is registered, and `GetLibsPrefix()` reports it.
 - **Zones / points / keybinds** created through `init.lua` run in the calling
   resource (§5.2): their handlers are plain local functions. Through the
   exports (`CreateZone`, `CreatePoint`, `KeybindAdd`) a handler arrives as a
-  funcref, or is an event name. **Hooks** take event names or export
-  references. Server zones exist (`Cis.zones.server.*`) and do not draw.
+  funcref, or is an event name. **Hooks** take a function (a funcref across the
+  boundary) or a `'resource:Export'` string, never an event name, and are
+  removed when the resource that registered them stops. Server zones exist (`Cis.zones.server.*`) and do not draw.
 
 ### 5.1 Modules
 
@@ -966,7 +967,7 @@ Generated from `api.lua`. Do not edit between the markers.
 | `ServerZoneRemove` | server | `(id)` | boolean, string\|nil | 1.0.0 | Cis.zones.server.remove(id) |
 | `ServerZoneSphere` | server | `(center, radius, opts?)` | integer\|false, string\|nil | 1.0.0 | Cis.zones.server.sphere(center, radius, opts) |
 | `SetConfig` | server | `(config?, security?, discord?)` | boolean, string | 1.0.0 | Called by cis_core at boot with (config, security, discord). First registration wins; a second is refused and named. When the server convar cis_config_supplier names a resource, only that resource may call it. When cis_authorized_resources or cis_allow_any_resource is set, the security posture comes from the convars and the AuthorizedResources / AllowAnyResource passed here are ignored (DOCUMENTATION.md section 3). `security.AllowAnyResource` is the 1.0.0 opt-in escape hatch: with it true an EMPTY AuthorizedResources stops meaning restrictive, and the console warns on every boot |
-| `SetDropPlayerHandler` | server | `(provider)` | boolean, string | 1.0.0 | Called by whoever ships the config, with "resource:Export". A FUNCTION cannot be sent across the boundary, which is why this exists |
+| `SetDropPlayerHandler` | server | `(provider)` | boolean, string | 1.0.0 | Called by whoever ships the config, with "resource:Export". Name the export rather than passing a function: a function arrives as a funcref that raises once its resource stops or restarts, and the name resolves again after the restart |
 | `SetMenuOptions` | client | `(id, options, index?)` | boolean, string\|nil | 1.1.0 | exports.cis_libs:SetMenuOptions(id, options, index) |
 | `SetUiLocale` | client | `(strings)` | boolean, string\|nil | 1.1.0 | exports.cis_libs:SetUiLocale(strings) |
 | `SetUiTheme` | client | `(data)` | boolean, string\|nil | 1.1.0 | exports.cis_libs:SetUiTheme(data) |
