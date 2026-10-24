@@ -12,6 +12,28 @@ Correctness, security and performance work across every layer, plus a
 first-party NUI. Several fixes change a documented answer; they are listed
 under **Changed** so nobody upgrades into them blind.
 
+### Upgrading from 1.0.0
+
+Check these first; each is a line under **Changed** or **Deprecated**.
+
+1. **Authorise your resources.** With `Security.AuthorizedResources` (or the
+   `cis_authorized_resources` convar) empty, door mutators, sync writes and
+   `RegisterCapability` are refused. List every resource that needs them.
+2. **Read the second return value.** `RegisterCallback`, `SecureNetOn`,
+   `CommandAdd`, `KeybindAdd`, `HookOn`, the zone constructors, `heap.push`,
+   `lru.put`, `mathx.clamp`, `cron.*` and `time.parseDuration` answer
+   `false` or `nil` plus a reason where 1.0.0 raised, swapped or accepted.
+3. **Names are owned.** A callback, command, keybind or net event name that
+   another resource already holds is refused. Prefix yours with the resource
+   name.
+4. **Deprecated slots and `Detect*` exports** still work and warn once per
+   calling resource. Move to cis_bridge before 2.0.0 removes them.
+5. **A supplied `security` table is merged over the defaults.** To turn kicks
+   off, say `DropPlayer = false`; leaving it out keeps them on.
+6. **Wire events changed.** A resource that listened to
+   `cis_libs:client:syncUpsert` directly, or posted NUI messages to the built-in
+   page, must use the `Cis.*` API instead; the raw events are not a contract.
+
 ### Changed
 
 - **`SetConfig`'s `security` is merged over the default `Security`.** It

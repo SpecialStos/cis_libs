@@ -1,5 +1,10 @@
 # Handoff — cis_libs "everything A" push
 
+> **Historical (2026-10-22).** The counts, grades and open items below are as
+> they stood then. The current state of the v1 work, what is left open and the
+> decisions taken since are in [../V1.md](../V1.md) (Progress, Decisions for
+> the owner). The licence is decided: CSIL-1.0, [../../LICENSE.md](../../LICENSE.md).
+
 Written 2026-10-22 at the end of a cloud session, for picking the work up on a
 local PC. Branch: **`cis-libs-a-grade`** (same commit as
 `claude/vigilant-hamilton-3b0fva`, `e0561a2` + this handoff).
@@ -104,7 +109,7 @@ Do those two files in one stream, or sequence them.
 - Add the `FIVEM_LICENSE_KEY` GitHub secret. The key was pasted in the cloud
   chat — **regenerate it** on the Cfx.re keymaster and use the new one.
 - Decide `Toast` vs `Notify` for the notification export name.
-- Licence decision (open question).
+- ~~Licence decision (open question).~~ Decided: CSIL-1.0 (`LICENSE.md`).
 - Merge or PR this branch to `main` so CI actually runs.
 
 ## Useful commands

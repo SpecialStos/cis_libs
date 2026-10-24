@@ -63,9 +63,12 @@ exports['cis_libs']:GetCapabilities()
 Calling `Export` through a string index on the exports table is the same idea
 done wrong: that table becomes argument 1.
 
-A Lua function cannot cross the FiveM exports boundary. Zone `onEnter`, callback
-handlers, hook bodies, and command handlers that you pass *into* an export arrive
-`nil`. Use an event name (`onEnterEvent`) or `'resource:Export'`.
+A Lua function that you pass *into* an export (a zone `onEnter`, a callback
+handler, a hook body) arrives as a funcref. Each call to it crosses the
+boundary again, and it raises once your resource stops or restarts. Zones,
+points and keybinds made through `init.lua` run in your resource and avoid
+that (§5.2). Elsewhere an event name (`onEnterEvent`) or `'resource:Export'`
+outlives a restart.
 
 Editor types: add `cis_libs/types` to the Lua workspace. The stub is generated.
 Do not edit it.
