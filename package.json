@@ -7,7 +7,7 @@
   "scripts": {
     "test": "node test/run.js",
     "test:web": "node test/web/run.mjs",
-    "test:ci": "node --test test/ci/ci-live.test.js test/ci/ci-live-e2e.test.js",
+    "test:ci": "node --test test/ci/ci-live.test.js test/ci/ci-live-e2e.test.js test/ci/live-remote.test.js",
     "test:api": "node tools/validate-api.js --api api.lua --resource .",
     "test:api-selftest": "node tools/validate-api.js --selftest",
     "test:all": "npm run lint && npm run check:luacheck && npm run check-realms && npm run cis-lint && npm run test:cis-lint && npm run test:syntax && npm run test:tools && npm run test && npm run test:web && npm run test:ci && npm run test:lua54 && npm run test:scanner && npm run test:api-selftest && npm run test:api && npm run gen-types:check && npm run docs-check && npm run package",

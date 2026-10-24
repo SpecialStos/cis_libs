@@ -31,6 +31,11 @@ const OVERRIDES = {
   serverLogPath: 'CIS_LIVE_SERVER_LOG',
   serverCfgPath: 'CIS_LIVE_SERVER_CFG',
   artifactsDir: 'CIS_LIVE_ARTIFACTS_DIR',
+  // mode "cisfivem" (tools/live-remote.js)
+  host: 'CIS_LIVE_HOST',
+  server: 'CIS_LIVE_SERVER',
+  lockOwner: 'CIS_LIVE_LOCK_OWNER',
+  playerWaitMinutes: 'CIS_LIVE_PLAYER_WAIT_MINUTES',
 }
 
 function envFile(environ) {

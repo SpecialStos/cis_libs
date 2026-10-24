@@ -28,6 +28,13 @@
 //   8. copy the results into test/live/results/
 //   9. stop the client, print the summary
 //
+// MODE "cisfivem" (.live-env.json { mode, server, lockOwner, playerWaitMinutes })
+// runs the same steps against the Ubuntu VPS through tools/live-remote.js:
+// deploy over `fivem-deploy`, the sequence over `fivem-console`, the JSON files
+// read over ssh. It starts no client -- a person connects their own -- and it
+// refuses to send anything unless this agent holds the VPS lock and `server`
+// is the one running. Flags: --deploy-only, --no-deploy.
+//
 // EXIT 0 only when no case FAILed. SKIP does not fail the run and is not a
 // pass: it is printed, counted and explained, because a tier that quietly did
 // nothing is how a green run becomes a false claim.
@@ -139,6 +146,17 @@ function readJson(file) {
   }
 }
 
+// A file in the deployed cis_test folder: on disk for a local server, over SSH
+// for CisFiveM (env.remote is the tools/live-remote.js transport).
+function harnessJson(env, file) {
+  return env.remote ? env.remote.readJson('cis_test', file) : readJson(path.join(cisTestDir(env), file))
+}
+
+// One SSH round trip per poll on CisFiveM, so it polls less often.
+function pollMs(env) {
+  return env.remote ? 3000 : POLL_MS
+}
+
 function indent(s, pad) {
   return String(s || '').split('\n').map(l => (pad || '    ') + l).join('\n')
 }
@@ -146,12 +164,12 @@ function indent(s, pad) {
 // --------------------------------------------------------- the commit check
 
 function deployedCommit(env) {
-  const d = readJson(path.join(cisTestDir(env), 'deploy.json'))
+  const d = harnessJson(env, 'deploy.json')
   return d ? { commit: d.commit, branch: d.branch, dirty: !!d.dirty, timestamp: d.timestamp } : null
 }
 
 function readStatus(env) {
-  return readJson(path.join(cisTestDir(env), 'status.json'))
+  return harnessJson(env, 'status.json')
 }
 
 // Waits for status.json to exist at all. cis_test writes it at start, so a
@@ -162,7 +180,7 @@ function waitForStatus(env, timeoutMs) {
   while (Date.now() < deadline) {
     const s = readStatus(env)
     if (s) return s
-    sleep(POLL_MS)
+    sleep(pollMs(env))
   }
   return null
 }
@@ -242,24 +260,27 @@ function waitForPlayer(env, clientCfg) {
     if (s && s.playerConnected) return { connected: true, alreadyConnected: true }
     return { connected: false, why: 'client.mode is "off" and nobody is connected' }
   }
-  const deadline = Date.now() + PLAYER_WAIT_MS
+  // CisFiveM: a person connects their own client; the wait is the config's.
+  const waitMs = env.remote ? env.remote.cfg.playerWaitMs : PLAYER_WAIT_MS
+  const deadline = Date.now() + waitMs
   let announced = false
   while (Date.now() < deadline) {
     const s = readStatus(env)
     if (s && s.playerConnected) return { connected: true }
     if (!announced) {
       announced = true
-      log(`  waiting up to ${Math.round(PLAYER_WAIT_MS / 1000)}s for a client to connect to ${clientCfg.connect || '127.0.0.1:30120'}...`)
+      const where = env.remote ? `${env.remote.cfg.server} on ${env.remote.cfg.host}` : (playerCfg.connect || '127.0.0.1:30120')
+      log(`  waiting up to ${Math.round(waitMs / 1000)}s for a client to connect to ${where}...`)
     }
-    sleep(POLL_MS)
+    sleep(pollMs(env))
   }
-  return { connected: false, why: 'client did not connect within 5 minutes' }
+  return { connected: false, why: `client did not connect within ${Math.round(waitMs / 60000)} minutes` }
 }
 
 // ------------------------------------------------------------------- results
 
 function currentRunId(env) {
-  const r = readJson(path.join(cisTestDir(env), 'results_latest.json'))
+  const r = harnessJson(env, 'results_latest.json')
   return r ? r.run : null
 }
 
@@ -269,9 +290,9 @@ function currentRunId(env) {
 function waitForRun(env, previousId, timeoutMs) {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    const r = readJson(path.join(cisTestDir(env), 'results_latest.json'))
+    const r = harnessJson(env, 'results_latest.json')
     if (r && r.run && r.run !== previousId) return r
-    sleep(POLL_MS)
+    sleep(pollMs(env))
   }
   return null
 }
@@ -311,24 +332,104 @@ function summarise(results) {
 
 // --------------------------------------------------------------------- main
 
-function main() {
-  const tierArg = (process.argv[2] || 'all').trim()
-  if (!tierArg) fail('usage: npm run live:run -- <tier|all>')
+// argv after the script: one tier or suite, plus
+//   --deploy-only  deploy, ensure and check the commit, then stop (no cases)
+//   --no-deploy    run against what is already deployed and running
+function parseArgs(argv) {
+  const flags = new Set(argv.filter(a => a.startsWith('--')))
+  for (const f of flags) {
+    if (f !== '--deploy-only' && f !== '--no-deploy') throw new Error(`unknown flag ${f}`)
+  }
+  if (flags.has('--deploy-only') && flags.has('--no-deploy')) throw new Error('--deploy-only and --no-deploy together do nothing')
+  const tier = (argv.find(a => !a.startsWith('--')) || 'all').trim()
+  return { tier, deployOnly: flags.has('--deploy-only'), noDeploy: flags.has('--no-deploy') }
+}
 
-  const env = loadEnv()
-  if ((env.mode || 'local') !== 'local') {
-    fail(`.live-env.json mode is "${env.mode}"; live:run only drives a local server.`)
+// CisFiveM: preflight (lock, active server), deploy over fivem-deploy, then the
+// same stop / refresh / ensure sequence over fivem-console, with the harness's
+// ACE grants first.
+function remoteDeployAndEnsure(env, noDeploy) {
+  const remote = require('./live-remote')
+  const t = env.remote
+  const why = remote.preflight(t)
+  if (why) fail(why + '\n  Nothing was sent.')
+  log(`  lock held by ${t.cfg.lockOwner}; ${t.cfg.server} is running on ${t.cfg.host}`)
+
+  log('')
+  if (noDeploy) {
+    log('[1/7] deploy -- skipped (--no-deploy)')
+  } else {
+    log(`[1/7] deploy to ${t.cfg.server} through fivem-deploy`)
+    const info = gitInfo()
+    try {
+      for (const line of remote.deployAll(t, info, new Date().toISOString())) log(line)
+    } catch (e) {
+      fail(`${e.message}\n  The deploy stopped there.`)
+    }
+    log(`  commit ${info.commit} on ${info.branch}${info.dirty ? ' (DIRTY WORKING TREE)' : ''}`)
   }
 
-  log(`live run: tier=${tierArg}`)
-
   log('')
-  log('[1/7] deploy')
-  deploy()
+  if (noDeploy) {
+    log('[2/7] stop / refresh / ensure -- skipped (--no-deploy)')
+    return
+  }
+  log('[2/7] harness ACEs, then stop / refresh / ensure through fivem-console')
+  for (const cmd of remote.HARNESS_ACES.concat(SEQUENCE)) {
+    const r = t.console(cmd)
+    if (!r.ok) fail(`fivem-console refused "${cmd}" (exit ${r.code}).\n${indent(r.out)}\n  Nothing was run.`)
+    log(`  ${cmd}`)
+  }
+}
 
-  log('')
-  log('[2/7] stop / refresh / ensure through cis_ctl')
-  sendSequence()
+function gitInfo() {
+  const git = args => (spawnSync('git', args, { cwd: root, encoding: 'utf8' }).stdout || '').trim()
+  return {
+    commit: git(['rev-parse', '--short', 'HEAD']) || 'unknown',
+    branch: git(['rev-parse', '--abbrev-ref', 'HEAD']) || 'unknown',
+    dirty: git(['status', '--porcelain']).length > 0,
+  }
+}
+
+function main() {
+  let args
+  try {
+    args = parseArgs(process.argv.slice(2))
+  } catch (e) {
+    fail(`${e.message}\n  usage: npm run live:run -- <tier|suite|all> [--deploy-only | --no-deploy]`)
+  }
+  const tierArg = args.tier
+
+  const env = loadEnv()
+  const mode = env.mode || 'local'
+  if (mode === 'cisfivem') {
+    const remote = require('./live-remote')
+    try {
+      env.remote = remote.transport(remote.remoteConfig(env))
+    } catch (e) {
+      fail(`.live-env.json: ${e.message}`)
+    }
+  } else if (mode !== 'local') {
+    fail(`.live-env.json mode is "${env.mode}"; live:run drives "local" or "cisfivem".`)
+  }
+
+  log(`live run: tier=${tierArg} mode=${mode}`)
+
+  if (env.remote) {
+    remoteDeployAndEnsure(env, args.noDeploy)
+  } else if (args.noDeploy) {
+    log('')
+    log('[1/7] deploy -- skipped (--no-deploy)')
+    log('[2/7] stop / refresh / ensure -- skipped (--no-deploy)')
+  } else {
+    log('')
+    log('[1/7] deploy')
+    deploy()
+
+    log('')
+    log('[2/7] stop / refresh / ensure through cis_ctl')
+    sendSequence()
+  }
 
   log('')
   log('[3/7] check the running build is the one just deployed')
@@ -337,9 +438,33 @@ function main() {
   log(`  commit ${status.commit} confirmed; cis_libs ${status.cisLibsVersion}` +
     (want.dirty ? '  (working tree was dirty at deploy time)' : ''))
 
+  if (args.deployOnly) {
+    log('')
+    log(`deployed and running; players connected: ${status.playerConnected ? 'yes' : 'no'}. No cases ran (--deploy-only).`)
+    process.exit(0)
+  }
+
+  const player = selectionNeedsPlayer(status, tierArg)
+
+  if (env.remote) {
+    // No client to start: a person connects their own game to the server.
+    let skippedRemote = null
+    log('')
+    log('[4/7] start the client -- not on CisFiveM: a person connects their own client')
+    log('')
+    if (player.any) {
+      log('[5/7] wait for a player')
+      const p = waitForPlayer(env, {})
+      log(p.connected ? '  a player is connected' : `  ${p.why}`)
+      if (!p.connected && player.all) skippedRemote = `every suite in '${tierArg}' needs a player, and ${p.why}`
+    } else {
+      log('[5/7] no player needed')
+    }
+    return finish(env, tierArg, skippedRemote, null, false)
+  }
+
   const client = require('./client.js')
   const clientCfg = client.loadClientConfig()
-  const player = selectionNeedsPlayer(status, tierArg)
 
   let startedClient = false
   let startDetail = null
@@ -389,6 +514,13 @@ function main() {
     log('[5/7] no player needed')
   }
 
+  finish(env, tierArg, skipped, startedClient ? () => client.stop(clientCfg) : null)
+}
+
+// Steps 6 and 7, shared by both modes: send the run, wait for a new
+// results_latest.json, keep a copy, exit with the verdict. `stopClient` is
+// called before any exit when this tool started the game.
+function finish(env, tierArg, skipped, stopClient) {
   let results = null
   if (skipped) {
     log('')
@@ -398,7 +530,7 @@ function main() {
     log('')
     log(`[6/7] cis_test run ${tierArg}`)
     const previous = currentRunId(env)
-    const r = fx(`cis_test run ${tierArg}`)
+    const r = env.remote ? env.remote.console(`cis_test run ${tierArg}`) : fx(`cis_test run ${tierArg}`)
     if (!r.ok) {
       fail(`the server refused "cis_test run ${tierArg}".\n${indent(r.out)}`)
     }
@@ -410,17 +542,19 @@ function main() {
     if (!results) {
       log(`  no new results after ${Math.round(RESULTS_TIMEOUT_MS / 60000)} minutes.`)
       log('  The run may still be going (the soak tier is 30 minutes by design), or')
-      log('  it may have died. Check: node tools/fx.js --log 200')
-      if (startedClient) client.stop(clientCfg)
+      log(env.remote
+        ? `  it may have died. Check: ssh ${env.remote.cfg.host} 'fivem-logs 200'`
+        : '  it may have died. Check: node tools/fx.js --log 200')
+      if (stopClient) stopClient()
       process.exit(1)
     }
     keepResults(results, results.run)
     log(`  run ${results.run} copied into test/live/results/`)
   }
 
-  if (startedClient) {
+  if (stopClient) {
     log('')
-    const r = client.stop(clientCfg)
+    const r = stopClient()
     log(`[stop] client ${r.ok ? 'stopped' : 'NOT stopped: ' + (r.detail || 'unknown')}`)
   }
 
@@ -445,4 +579,4 @@ function main() {
 // and the commit check rather than keeping a second copy of either.
 if (require.main === module) main()
 
-module.exports = { summarise, selectionNeedsPlayer, cisTestDir, deployedCommit, readStatus }
+module.exports = { summarise, selectionNeedsPlayer, cisTestDir, deployedCommit, readStatus, parseArgs }
