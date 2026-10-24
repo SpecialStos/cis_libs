@@ -61,15 +61,16 @@ list is `CHANGELOG.md` [Unreleased]; the decisions taken for you are in
 
 ## 2. What the agent already proved
 
-At commit `9c4c632` the release zip booted on all four VPS servers with no
+At commit `d7dcebb` the release zip booted on all four VPS servers with no
 `SCRIPT ERROR`, `cis_doctor` printed `self-check: ok`, and the server profile
 showed cis_libs at 0.002 to 0.005 ms per frame with no player and no consumer
-(`docs/V1.md` section 10, second run). What is left is the client side: that
-is this test.
+(`docs/V1.md` section 10, third run). The `cis_test` live suite passed with
+your PC connected (run-20261024-115302: pass 38, fail 0). What is left is
+client resmon and how it looks and feels: that is this test.
 
 ## 3. Before you start
 
-cis_libs `9c4c632` and the test consumer `cis_libs_ownertest` are installed in
+cis_libs `d7dcebb` and the test consumer `cis_libs_ownertest` are installed in
 `resources/[cis]/` on every server, but neither is in `server.cfg`, so a server
 restart leaves both stopped. Nothing in `server.cfg` was changed.
 
@@ -112,13 +113,28 @@ uses cis_libs. It is your call; the agent did not add it.
 ensure cis_libs
 ```
 
+### Enable resmon first
+
+A FiveM client on the normal (Release) update channel refuses `resmon 1` with
+"Command resmon is disabled in production mode", and F8 cannot change that.
+Pick one, then restart FiveM:
+
+- Add `+set moo 31337` to the end of the FiveM shortcut's Target field, after
+  the closing quote of the path. Or:
+- In FiveM Settings, set the update channel to Beta or Latest.
+
+Source: citizenfx `ConsoleHostGui.cpp` lines 1024-1040 and 1205-1207 at
+`46de79b`.
+
 ## 4. In game, on each server
 
 Do this on `esx`, `qbcore`, `qbox` and `cis_core`. The steps are the same on
 each; only the framework around them changes.
 
 1. **Connect and spawn.** Finish character selection. Stand still outdoors.
-2. **Idle resmon.** Press F8, type `resmon 1`. Wait 30 s after spawning, then
+2. **Idle resmon.** Press F8, type `resmon 1`. If F8 answers "Command resmon
+   is disabled in production mode", do section 3 "Enable resmon first" and
+   come back. Wait 30 s after spawning, then
    watch the `cis_libs` row for 60 s.
    - Expected: 0.00 ms. 0.01 to 0.02 ms is display noise and passes (D12).
    - Write down the value it shows most of the time, and the highest value you
@@ -194,5 +210,7 @@ Add the first red F8 line exactly as shown if there was one.
 - **The NUI escape handshake.** The test consumer opens no focused UI, so
   `escape` is never sent. Covered by unit tests only (`test/interface.lua`,
   `test/web/`).
-- **The `cis_test` live suite.** `npm run live:run` drives only a local
-  server, so it has no run on the Linux VPS (`docs/V1.md` section 10).
+- **The `cis_test` live suite** is not part of this test: the agent ran it on
+  the VPS `cis_core` server with your PC connected (run-20261024-115302 at
+  `d7dcebb`: pass 38, fail 0, skip 0, error 0; `docs/V1.md` section 10, third
+  run). It covers the client cases, not client resmon or how the UI looks.
