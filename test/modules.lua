@@ -2294,6 +2294,94 @@ do
     end
 end
 
+-- ------------------------------------- sparse: each survives its own visitor
+do
+    local Sp = CisSparse
+    -- each walked the live dense array: a visitor that removed the current value
+    -- moved the last one into the hole, so later values were skipped and the tail
+    -- was handed nil. The doc promises every value present when the walk started.
+    local set = Sp.new()
+    for i = 1, 5 do Sp.add(set, 'v' .. i) end
+    local seen = {}
+    local n = Sp.each(set, function(v)
+        seen[#seen + 1] = tostring(v)
+        Sp.remove(set, v)
+    end)
+    expect(n == 5 and table.concat(seen, ',') == 'v1,v2,v3,v4,v5' and Sp.count(set) == 0,
+        'sparse: each visits every value present at the start although the visitor removes them: ' .. table.concat(seen, ','))
+
+    -- add(NaN) raised on the slot write after size had already grown.
+    local s2 = Sp.new()
+    Sp.add(s2, 'a')
+    local ok, added = pcall(Sp.add, s2, 0 / 0)
+    expect(ok and added == false and Sp.count(s2) == 1 and #Sp.toArray(s2) == 1 and not Sp.has(s2, 0 / 0),
+        'sparse: add(NaN) is refused with false and leaves the set as it was')
+    expect(Sp.add(s2, 'b') == true and Sp.count(s2) == 2 and Sp.at(s2, 2) == 'b',
+        'sparse: and the set still takes values after the refused NaN')
+end
+
+-- ------------------------------- validate: a field spec keeps the options it names
+do
+    local V = CisValidate
+    -- field() built its string options by hand and left nonEmpty out; the table
+    -- branch passed nothing on, so min, max, of and nonEmpty did nothing.
+    -- `required` still means "not nil": an empty string is for nonEmpty to refuse.
+    expect(not V.field('', { type = 'string', nonEmpty = true }, 'name'), 'validate: a string field honours nonEmpty')
+    expect(V.field('', { type = 'string', required = true }, 'name') == true, 'validate: required alone is still only "not nil"')
+    expect(V.field('x', { type = 'string', nonEmpty = true }, 'name') == true, 'validate: and a non-empty string passes nonEmpty')
+    expect(not V.field({}, { type = 'table', nonEmpty = true }, 'cfg'), 'validate: a table field honours nonEmpty')
+    expect(not V.field({ 1, 2, 3 }, { type = 'table', max = 2 }, 'cfg') and not V.field({ 1 }, { type = 'table', min = 2 }, 'cfg')
+        and V.field({ 1, 2 }, { type = 'table', min = 2, max = 2 }, 'cfg') == true, 'validate: a table field honours min and max entries')
+    local okOf, whyOf = V.field({ a = 1, b = 'x' }, { type = 'table', of = { type = 'number' } }, 'cfg')
+    expect(okOf == false and type(whyOf) == 'string' and whyOf:find('cfg[b]', 1, true) ~= nil,
+        'validate: a table field checks every entry against of, naming the key: ' .. tostring(whyOf))
+    expect(V.field({ a = 1, b = 2 }, { type = 'table', of = { type = 'number' } }, 'cfg') == true, 'validate: and a table of valid entries passes')
+    expect(not V.field({}, { type = 'array', nonEmpty = true }, 'list') and not V.field({}, { type = 'map', nonEmpty = true }, 'list')
+        and V.field({ 1 }, { type = 'array', nonEmpty = true }, 'list') == true, 'validate: an array or map field honours nonEmpty')
+end
+
+-- ----------------------- table, validate: a deep or cyclic input answers nil, why
+do
+    local T, V = CisTable, CisValidate
+    local function chain(n)
+        local root = {}
+        local cur = root
+        for _ = 1, n do
+            local child = {}
+            cur.k = child
+            cur = child
+        end
+        return root
+    end
+    -- deepMerge took opts.maxDepth only for its cycle search, then copied and
+    -- recursed through a 300000-level overlay until the stack overflowed.
+    local ok, merged, why = pcall(T.deepMerge, {}, chain(300000))
+    expect(ok and merged == nil and type(why) == 'string' and why:find('deeper', 1, true) ~= nil,
+        'table: deepMerge of a 300000-level overlay answers nil, why instead of raising: ' .. tostring(merged) .. ' ' .. tostring(why))
+    ok, merged, why = pcall(T.deepMerge, chain(300000), { a = 1 })
+    expect(ok and merged == nil and type(why) == 'string', 'table: and so does a 300000-level base')
+    ok, merged, why = pcall(T.deepMerge, chain(100), { a = 1 }, nil, { maxDepth = 10 })
+    expect(ok and merged == nil and type(why) == 'string' and why:find('10', 1, true) ~= nil,
+        'table: deepMerge honours opts.maxDepth for the nesting too: ' .. tostring(why))
+    ok, merged = pcall(T.deepMerge, chain(5), { a = 1 }, nil, { maxDepth = 10 })
+    expect(ok and merged ~= nil and merged.a == 1 and merged.k.k.k.k.k ~= nil, 'table: and a tree within maxDepth still merges')
+
+    -- validate.defaults copied its input with a recursion that knew no cycle and no depth.
+    local cyc = {}
+    cyc.self = cyc
+    local okD, filled, whyD = pcall(V.defaults, cyc, { n = { default = 1 } })
+    expect(okD and filled == nil and type(whyD) == 'string' and whyD:find('cycle', 1, true) ~= nil,
+        'validate: defaults of a cyclic table answers nil, why instead of raising: ' .. tostring(filled) .. ' ' .. tostring(whyD))
+    okD, filled, whyD = pcall(V.defaults, chain(300000), {})
+    expect(okD and filled == nil and type(whyD) == 'string' and whyD:find('deeper', 1, true) ~= nil,
+        'validate: defaults of a 300000-level table answers nil, why: ' .. tostring(filled) .. ' ' .. tostring(whyD))
+    okD, filled = pcall(V.defaults, chain(10), { n = { default = 1 } })
+    expect(okD and filled ~= nil and filled.n == 1 and filled.k.k.k ~= nil, 'validate: and an ordinary nested table is still filled')
+    local shared = { x = 1 }
+    okD, filled = pcall(V.defaults, { a = shared, b = shared }, { n = { default = 1 } })
+    expect(okD and filled ~= nil and filled.a.x == 1 and filled.b.x == 1, 'validate: a table shared by two keys is not a cycle')
+end
+
 -- ------------------------------------------------- id: uuid takes a generator
 do
     local Id = CisId

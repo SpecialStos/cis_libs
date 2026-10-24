@@ -372,6 +372,17 @@ do
     expect(X.round(1.2345, 2) == 1.23 and X.round(1250, -2) == 1300 and X.round(-1250, -2) == -1300,
         'mathx: round to decimals, and to hundreds with a negative count')
     expect(X.round(0 / 0) ~= X.round(0 / 0) and X.round(math.huge) == math.huge, 'mathx: round leaves NaN and inf alone')
+    -- floor(x + 0.5) took 0.49999999999999994 to 1, an integer went through a
+    -- float (past 2^53 it changed, math.mininteger flipped sign), and a scale
+    -- of 10^400 made 0 * inf or inf / inf a NaN.
+    expect(X.round(0.49999999999999994) == 0 and X.round(-0.49999999999999994) == 0 and X.round(0.5) == 1,
+        'mathx: round only rounds up from a true half, 0.49999999999999994 stays 0')
+    expect(X.round(math.maxinteger - 1) == math.maxinteger - 1 and X.round(math.mininteger) == math.mininteger
+        and X.round(math.maxinteger, 3) == math.maxinteger and math.type(X.round(math.mininteger)) == 'integer' and math.type(X.round(7, 2)) == 'integer',
+        'mathx: round returns an integer unchanged, math.maxinteger - 1 and math.mininteger included')
+    expect(X.round(1.5, 400) == 1.5 and X.round(1.5, -400) == 0 and X.round(0, 400) == 0 and X.round(1e308, 1) == 1e308,
+        'mathx: round with an enormous decimals count or a huge value answers, never NaN or inf')
+    expect(X.round(math.mininteger, -2) <= 0 and X.round(2.5, 0) == 3, 'mathx: round of math.mininteger to hundreds keeps its sign')
     expect(X.clamp(5, 10, 0) == 5 and X.clamp(-1, 0, 10) == 0 and X.clamp(11, 0, 10) == 10, 'mathx: clamp, reversed bounds swapped')
     expect(X.lerp(0, 10, 0.25) == 2.5 and X.inverseLerp(0, 10, 2.5) == 0.25 and X.inverseLerp(3, 3, 9) == 0,
         'mathx: lerp and inverseLerp, with a == b safe')

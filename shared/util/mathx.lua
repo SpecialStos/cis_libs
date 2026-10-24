@@ -22,7 +22,7 @@ end
 --- Round half AWAY from zero, to a number of decimal places.
 ---@param n number
 ---@param decimals? integer  default 0; negative rounds to tens, hundreds...
----@return number  an integer when decimals is 0 and the result fits one; NaN and infinities come back unchanged
+---@return number  n itself when it is an integer and decimals is not negative; an integer when decimals is 0 and the result fits one; NaN and infinities come back unchanged
 function M.round(n, decimals)
     if type(n) ~= 'number' then
         error(('mathx.round: expected a number, got %s'):format(type(n)), 2)
@@ -34,16 +34,33 @@ function M.round(n, decimals)
     if type(d) ~= 'number' or d % 1 ~= 0 then
         error(('mathx.round: decimals must be a whole number, got %s'):format(tostring(decimals)), 2)
     end
-    local a = n >= 0 and n or -n
+    -- A whole number has nothing to round to a decimal place, and going through a
+    -- float would change an integer past 2^53 or flip math.mininteger's sign.
+    if d >= 0 and math.type(n) == 'integer' then
+        return n
+    end
+    -- Past 308 places the scale is infinite, and 0 * inf or inf / inf is NaN.
+    if d > 308 then d = 308 elseif d < -308 then d = -308 end
+    local a = n >= 0 and n or -(n + 0.0)
     local r
     if d >= 0 then
         local m = 10 ^ d
-        r = math.floor(a * m + 0.5) / m
+        local scaled = a * m
+        -- Beyond 2^52 every double is whole already, and the scale may overflow.
+        if scaled >= 2 ^ 52 then
+            return d == 0 and tidy(n) or n
+        end
+        local f = math.floor(scaled)
+        -- The fraction against one half, not floor(x + 0.5): that sum rounds
+        -- 0.49999999999999994 up to 1.0.
+        r = (scaled - f >= 0.5 and f + 1 or f) / m
     else
         -- Divide then multiply: 10 ^ -1 is not exactly 0.1, and n * 0.1 / 0.1
         -- drifts where n / 10 * 10 does not.
         local m = 10 ^ -d
-        r = math.floor(a / m + 0.5) * m
+        local scaled = a / m
+        local f = math.floor(scaled)
+        r = (scaled - f >= 0.5 and f + 1 or f) * m
     end
     if n < 0 then r = -r end
     if d <= 0 then

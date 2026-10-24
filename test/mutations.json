@@ -3277,6 +3277,111 @@
       "find": "    local v = negative and -(n + 0.0) or n",
       "replace": "    local v = negative and -n or n",
       "why": "-math.mininteger wraps back to itself again, and toHex loops forever on it."
+    },
+    {
+      "id": "M500",
+      "file": "shared/util/mathx.lua",
+      "find": "        r = (scaled - f >= 0.5 and f + 1 or f) / m",
+      "replace": "        r = math.floor(scaled + 0.5) / m",
+      "why": "round adds 0.5 before flooring again, so 0.49999999999999994 rounds up to 1."
+    },
+    {
+      "id": "M501",
+      "file": "shared/util/mathx.lua",
+      "find": "    if d >= 0 and math.type(n) == 'integer' then",
+      "replace": "    if false then",
+      "why": "An integer goes through a float again, so values past 2^53 change and math.mininteger flips sign."
+    },
+    {
+      "id": "M502",
+      "file": "shared/util/mathx.lua",
+      "find": "    if d > 308 then d = 308 elseif d < -308 then d = -308 end",
+      "replace": "",
+      "why": "The decimals count is not capped, so a scale of 10^400 is inf and the result is NaN."
+    },
+    {
+      "id": "M503",
+      "file": "shared/util/mathx.lua",
+      "find": "        if scaled >= 2 ^ 52 then",
+      "replace": "        if false then",
+      "why": "A huge value is scaled past the double range again, so round(1e308, 1) is inf."
+    },
+    {
+      "id": "M504",
+      "file": "shared/algo/sparse.lua",
+      "find": "        fn(values[i], i)",
+      "replace": "        fn(set.dense[i], i)",
+      "why": "each walks the live dense array again, so a visitor that removes the current value makes it skip values and hand nil to the visitor."
+    },
+    {
+      "id": "M505",
+      "file": "shared/algo/sparse.lua",
+      "find": "    if value == nil or value ~= value then",
+      "replace": "    if value == nil then",
+      "why": "add(NaN) is no longer refused, so it raises on the slot write after size has already grown."
+    },
+    {
+      "id": "M506",
+      "file": "shared/util/validate.lua",
+      "find": "min = spec.min, max = spec.max, nonEmpty = spec.nonEmpty, pattern = spec.pattern,",
+      "replace": "min = spec.min, max = spec.max, pattern = spec.pattern,",
+      "why": "A string field spec drops nonEmpty again, so an empty string passes."
+    },
+    {
+      "id": "M507",
+      "file": "shared/util/validate.lua",
+      "find": "min = spec.min, max = spec.max, nonEmpty = spec.nonEmpty, of = spec.of, name = path,",
+      "replace": "nonEmpty = spec.nonEmpty, of = spec.of, name = path,",
+      "why": "A table field spec drops min and max again, so any entry count passes."
+    },
+    {
+      "id": "M508",
+      "file": "shared/util/validate.lua",
+      "find": ", of = spec.of, name = path,",
+      "replace": ", name = path,",
+      "why": "A table field spec drops of again, so its entries are never checked."
+    },
+    {
+      "id": "M509",
+      "file": "shared/util/validate.lua",
+      "find": "max = spec.max, nonEmpty = spec.nonEmpty, of = spec.of",
+      "replace": "max = spec.max, of = spec.of",
+      "why": "A table field spec drops nonEmpty again, so an empty table passes."
+    },
+    {
+      "id": "M510",
+      "file": "shared/util/validate.lua",
+      "find": "local opts = { min = spec.min, max = spec.max, nonEmpty = spec.nonEmpty, name = path }",
+      "replace": "local opts = { min = spec.min, max = spec.max, name = path }",
+      "why": "An array or map field spec drops nonEmpty, so an empty list passes."
+    },
+    {
+      "id": "M511",
+      "file": "shared/util/table.lua",
+      "find": "    if M.depth(base, maxDepth) > maxDepth then",
+      "replace": "    if false then",
+      "why": "deepMerge does not check the base's nesting, so a 300k-level base overflows the stack."
+    },
+    {
+      "id": "M512",
+      "file": "shared/util/table.lua",
+      "find": "    if M.depth(overlay, maxDepth) > maxDepth then",
+      "replace": "    if false then",
+      "why": "deepMerge does not check the overlay's nesting, so a 300k-level overlay overflows the stack and opts.maxDepth is ignored."
+    },
+    {
+      "id": "M513",
+      "file": "shared/util/validate.lua",
+      "find": "        if onPath[t] then\n            return 'value has a cycle'",
+      "replace": "        if false then\n            return 'value has a cycle'",
+      "why": "defaults reports a cycle as plain over-deep nesting, so the caller is told the wrong thing."
+    },
+    {
+      "id": "M514",
+      "file": "shared/util/validate.lua",
+      "find": "        if depth > MAX_COPY_DEPTH then",
+      "replace": "        if false then",
+      "why": "defaults has no depth limit, so a 300k-level table overflows the stack in its copy."
     }
   ]
 }
