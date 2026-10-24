@@ -3,6 +3,17 @@
 
 local M = {}
 
+-- A key a table can hold: nil and NaN raise "index is nil/NaN" on a write.
+local function badKey(key)
+    return key == nil or key ~= key
+end
+
+-- A time a window can hold: a number that is neither NaN nor infinite. An
+-- infinite one became the newest bucket, and every later sample read as late.
+local function badTime(now)
+    return type(now) ~= 'number' or now ~= now or now == math.huge or now == -math.huge
+end
+
 
 -- `table.remove(t, 1)` on a Lua array is O(n): every remaining element shifts down one
 --- A fixed-capacity ring of the last N pushes.
@@ -144,8 +155,9 @@ end
 ---@param now number
 ---@return boolean  true when the key is let through (first time, or its window has passed)
 function M.seen(d, key, now)
-    -- A non-numeric or NaN `now` is REFUSED, not coerced.
-    if type(now) ~= 'number' or now ~= now then
+    -- A non-numeric, NaN or infinite `now` is REFUSED, not coerced; so is a key
+    -- a table cannot hold.
+    if badTime(now) or badKey(key) then
         return false
     end
     local last = d.entries[key]
@@ -224,7 +236,8 @@ end
 ---@return table  the aggregator
 function M.newStats(windowSec, bucketSec)
     local window = windowSec
-    if type(window) ~= 'number' or window ~= window or window <= 0 then
+    -- An infinite window built buckets no sample could ever fall in.
+    if type(window) ~= 'number' or window ~= window or window <= 0 or window == math.huge then
         window = 60
     end
     local bucket = bucketSec
@@ -278,7 +291,7 @@ function M.record(stats, key, value, now)
     if type(value) ~= 'number' or value ~= value then
         return false
     end
-    if type(now) ~= 'number' or now ~= now then
+    if badTime(now) or badKey(key) then
         return false
     end
 

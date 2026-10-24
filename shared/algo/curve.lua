@@ -4,6 +4,17 @@ local M = {}
 
 local DEFAULT_ALPHA = 0.5
 local DEFAULT_SAMPLES = 8
+-- Samples per segment past this buy no visible accuracy and cost a table walk each.
+local MAX_SAMPLES = 1024
+
+-- A knot exponent that is a finite number, else the centripetal default: a NaN
+-- one turned every point of the curve into NaN.
+local function finiteAlpha(alpha)
+    if type(alpha) ~= 'number' or alpha ~= alpha or alpha == math.huge or alpha == -math.huge then
+        return DEFAULT_ALPHA
+    end
+    return alpha
+end
 
 -- The FiveM vector types. `type(vector3(1, 2, 3))` is 'vector3', not 'table',
 -- so a reader that only accepts tables drops every native coordinate.
@@ -156,7 +167,7 @@ end
 ---@return number y
 ---@return number z
 function M.catmullRom(p0, p1, p2, p3, t, alpha)
-    alpha = alpha == nil and DEFAULT_ALPHA or alpha
+    alpha = finiteAlpha(alpha)
     local ax, ay, az = px(p1)
     local bx, by, bz = px(p2)
     if not ax or not bx then
@@ -185,13 +196,20 @@ end
 -- Build a path. See the header for what a path is and why it exists.
 --- Build an arc-length parameterised Catmull-Rom path.
 ---@param points table
----@param opts? table  { closed, alpha, samples }
+---@param opts? table  { closed, alpha, samples }; samples per segment is 1 to 1024, default 8
 ---@return table  a path handle: { points, closed, alpha, samples, segments, count, length, arcD }. A non-table or too-few points still yields a usable empty path rather than nil.
 function M.newPath(points, opts)
     opts = opts or {}
     local closed = opts.closed and true or false
-    local alpha = type(opts.alpha) == 'number' and opts.alpha or DEFAULT_ALPHA
-    local samples = type(opts.samples) == 'number' and math.floor(opts.samples) or DEFAULT_SAMPLES
+    local alpha = finiteAlpha(opts.alpha)
+    -- NaN falls back to the default; math.huge is capped, since the table walk
+    -- below is samples per segment and never ended.
+    local samples = opts.samples
+    if type(samples) ~= 'number' or samples ~= samples then
+        samples = DEFAULT_SAMPLES
+    end
+    if samples > MAX_SAMPLES then samples = MAX_SAMPLES end
+    samples = math.floor(samples)
     if samples < 1 then samples = 1 end
 
     local clean = {}

@@ -49,7 +49,11 @@ end
 function M.new(list)
     local s = setmetatable({ _index = {}, _list = {}, _slots = 0, _count = 0 }, SetMT)
     if type(list) == 'table' then
-        local n = type(list.n) == 'number' and list.n or #list
+        -- A NaN or infinite `n` is not a length: math.huge never ended the loop.
+        local n = list.n
+        if type(n) ~= 'number' or n ~= n or n == math.huge or n == -math.huge then
+            n = #list
+        end
         for i = 1, n do
             local v = list[i]
             if badMember(v) == nil then
