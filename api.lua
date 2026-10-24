@@ -607,28 +607,28 @@ return {
             use = 'exports.cis_libs:AddRadialItem(data)',
             realm = 'client',
             params = { { name = 'data', type = 'table', doc = 'one item or a list: { id, label, icon, iconColor, menu (a RegisterRadial id), onSelect, keepOpen }. onSelect is called (menuId, index)' } },
-            returns = { { type = 'boolean, string|nil', doc = 'true once added. The radial key (default Z) is registered with the first item' } }
+            returns = { { type = 'boolean, string|nil', doc = 'true once added. The radial key (default Z) is registered with the first item. false plus a reason for a bad item, the cap, or an id another resource holds ("radial item <id> is registered by <res>"); a list is all or nothing' } }
         },
         RemoveRadialItem = {
             since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
             use = 'exports.cis_libs:RemoveRadialItem(id)',
             realm = 'client',
             params = { { name = 'id', type = 'string', doc = 'the item id' } },
-            returns = { { type = 'boolean', doc = 'true when it existed' } }
+            returns = { { type = 'boolean, string|nil', doc = 'true once removed; false plus a reason for an unknown id or an item another resource registered (only its owner or cis_libs may remove it)' } }
         },
         ClearRadialItems = {
             since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
             use = 'exports.cis_libs:ClearRadialItems()',
             realm = 'client',
             params = {},
-            returns = { { type = 'boolean', doc = 'always true; removes every global item' } }
+            returns = { { type = 'boolean', doc = 'always true; removes only the global items the calling resource added (every item when cis_libs itself calls)' } }
         },
         RegisterRadial = {
             since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
             use = 'exports.cis_libs:RegisterRadial(radial)',
             realm = 'client',
             params = { { name = 'radial', type = 'table', doc = '{ id, items } -- a submenu opened by an item whose menu is this id' } },
-            returns = { { type = 'boolean, string|nil', doc = 'true once registered' } }
+            returns = { { type = 'boolean, string|nil', doc = 'true once registered; false plus a reason for a bad item or a submenu id another resource holds' } }
         },
         HideRadial = {
             since = '1.1.0', ['until'] = false, stable = true, deprecated = false,
@@ -2274,28 +2274,28 @@ return {
         realm = 'client',
         forwardsTo = 'AddRadialItem',
         params = { { name = 'data', type = 'table', doc = 'one item or a list: { id, label, icon, iconColor, menu (a RegisterRadial id), onSelect, keepOpen }. onSelect is called (menuId, index)' } },
-        returns = { { type = 'boolean, string|nil', doc = 'true once added; made again when cis_libs restarts. The radial key (default Z) is registered with the first item' } }
+        returns = { { type = 'boolean, string|nil', doc = 'true once added; made again when cis_libs restarts. The radial key (default Z) is registered with the first item. false plus a reason for a bad item, the cap, or an id another resource holds; a list is all or nothing' } }
     },
     ['Cis.ui.radial.remove'] = {
         since = '1.1.0',
         realm = 'client',
         forwardsTo = 'RemoveRadialItem',
         params = { { name = 'id', type = 'string', doc = 'the item id' } },
-        returns = { { type = 'boolean', doc = 'true when it existed' } }
+        returns = { { type = 'boolean, string|nil', doc = 'true once removed; false plus a reason for an unknown id or an item another resource registered (only its owner or cis_libs may remove it)' } }
     },
     ['Cis.ui.radial.clear'] = {
         since = '1.1.0',
         realm = 'client',
         forwardsTo = 'ClearRadialItems',
         params = {},
-        returns = { { type = 'boolean', doc = 'always true; removes every global item' } }
+        returns = { { type = 'boolean', doc = 'always true; removes only the global items the calling resource added (every item when cis_libs itself calls)' } }
     },
     ['Cis.ui.radial.register'] = {
         since = '1.1.0',
         realm = 'client',
         forwardsTo = 'RegisterRadial',
         params = { { name = 'radial', type = 'table', doc = '{ id, items } -- a submenu opened by an item whose menu is this id' } },
-        returns = { { type = 'boolean, string|nil', doc = 'true once registered; made again when cis_libs restarts' } }
+        returns = { { type = 'boolean, string|nil', doc = 'true once registered; made again when cis_libs restarts. false plus a reason for a bad item or a submenu id another resource holds' } }
     },
     ['Cis.ui.radial.hide'] = {
         since = '1.1.0',

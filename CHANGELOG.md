@@ -799,6 +799,15 @@ which is forgotten when that resource stops.
   same id got the menu silently; it now gets `false, 'context "<id>" is
   registered by <res>; pick a different id'`. The id is free once the holder
   stops.
+- **Radial items and submenus belong to their registrant.**
+  `RemoveRadialItem` and `ClearRadialItems` had no owner check, and
+  `AddRadialItem` / `RegisterRadial` replaced another resource's same id, so
+  any script could strip or swap every resource's entries. Adding or
+  registering a held id now answers `false, 'radial item "<id>" is registered
+  by <res>; ...'`; `RemoveRadialItem` answers `false` plus a reason for an
+  unknown or foreign item (it was a bare `false`); `ClearRadialItems` removes
+  only the caller's own items. cis_libs itself may still remove or clear
+  anything.
 
 ## [1.0.0] — 2026-10-07
 

@@ -1315,6 +1315,52 @@ do
     env.reset()
 end
 
+-- ===================================================== 10b. radial: an item and a submenu belong to their registrant
+--
+-- RemoveRadialItem and ClearRadialItems had no owner check, and AddRadialItem /
+-- RegisterRadial replaced another resource's same id: any script could strip or
+-- swap every resource's radial entries. Now a resource touches only its own;
+-- cis_libs (the library itself) may still remove or clear anything.
+do
+    local env = newEnv()
+    env.load()
+    local function as(by, fn, ...)
+        env.invoking = by
+        local r = { fn(...) }
+        env.invoking = nil
+        return r[1], r[2]
+    end
+    check(as('res_a', env.X.AddRadialItem, { id = 'phone', label = 'Phone' }) == true, 'radial N6: res_a adds phone')
+    as('res_a', env.X.AddRadialItem, { id = 'bag', label = 'Bag' })
+    check(as('res_b', env.X.AddRadialItem, { id = 'mine', label = 'Mine' }) == true, 'radial N6: res_b adds its own item')
+    local ok, why = as('res_b', env.X.RemoveRadialItem, 'phone')
+    check(ok == false and tostring(why):find('res_a', 1, true) ~= nil,
+        ('radial N6: res_b cannot remove res_a\'s item (got %s, %s)'):format(tostring(ok), tostring(why)))
+    local ok2, why2 = as('res_b', env.X.AddRadialItem, { id = 'phone', label = 'Fake phone' })
+    check(ok2 == false and tostring(why2):find('res_a', 1, true) ~= nil,
+        ('radial N6: res_b cannot replace res_a\'s item (got %s, %s)'):format(tostring(ok2), tostring(why2)))
+    check(as('res_b', env.X.ClearRadialItems) == true, 'radial N6: ClearRadialItems answers true')
+    env.commands['+cis_libs_radial']()
+    local o = env.last('radial:open')
+    check(o and #o.items == 2 and o.items[1].label == 'Phone' and o.items[2].label == 'Bag',
+        'radial N6: res_b clearing removes only res_b\'s items; res_a\'s are untouched')
+    env.escape()
+    check(as('res_a', env.X.RemoveRadialItem, 'phone') == true, 'radial N6: the owner removes its item')
+    local okMissing, whyMissing = as('res_a', env.X.RemoveRadialItem, 'phone')
+    check(okMissing == false and type(whyMissing) == 'string', 'radial N6: removing an unknown item is false plus a reason')
+
+    check(as('res_a', env.X.RegisterRadial, { id = 'sub', items = { { label = 'A' } } }) == true, 'radial N6: res_a registers a submenu')
+    local ok3, why3 = as('res_b', env.X.RegisterRadial, { id = 'sub', items = { { label = 'B' } } })
+    check(ok3 == false and tostring(why3):find('res_a', 1, true) ~= nil,
+        ('radial N6: res_b cannot take over res_a\'s submenu (got %s, %s)'):format(tostring(ok3), tostring(why3)))
+    check(as('res_a', env.X.RegisterRadial, { id = 'sub', items = { { label = 'A2' } } }) == true, 'radial N6: its owner re-registers it')
+
+    check(as(nil, env.X.ClearRadialItems) == true, 'radial N6: cis_libs clears')
+    check(as('res_a', env.X.RemoveRadialItem, 'bag') == false, 'radial N6: and cis_libs clearing removed every resource\'s items')
+    env.step()
+    env.reset()
+end
+
 -- ===================================================== 11. theme and locale
 do
     local env = newEnv()

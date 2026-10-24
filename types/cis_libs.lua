@@ -744,7 +744,7 @@ function AddDoorToSystem.client(data) end
 
 --- exports.cis_libs:AddRadialItem(data)
 ---@param data table #one item or a list: { id, label, icon, iconColor, menu (a RegisterRadial id), onSelect, keepOpen }. onSelect is called (menuId, index)
----@return boolean, string|nil #true once added. The radial key (default Z) is registered with the first item
+---@return boolean, string|nil #true once added. The radial key (default Z) is registered with the first item. false plus a reason for a bad item, the cap, or an id another resource holds ("radial item <id> is registered by <res>"); a list is all or nothing
 --- realm: client
 function AddRadialItem(data) end
 
@@ -866,7 +866,7 @@ function CancelProgress() end
 function CancelSkillCheck() end
 
 --- exports.cis_libs:ClearRadialItems()
----@return boolean #always true; removes every global item
+---@return boolean #always true; removes only the global items the calling resource added (every item when cis_libs itself calls)
 --- realm: client
 function ClearRadialItems() end
 
@@ -1766,7 +1766,7 @@ function RegisterMenu(data, cb) end
 
 --- exports.cis_libs:RegisterRadial(radial)
 ---@param radial table #{ id, items } -- a submenu opened by an item whose menu is this id
----@return boolean, string|nil #true once registered
+---@return boolean, string|nil #true once registered; false plus a reason for a bad item or a submenu id another resource holds
 --- realm: client
 function RegisterRadial(radial) end
 
@@ -1790,7 +1790,7 @@ function RemovePoint(id) end
 
 --- exports.cis_libs:RemoveRadialItem(id)
 ---@param id string #the item id
----@return boolean #true when it existed
+---@return boolean, string|nil #true once removed; false plus a reason for an unknown id or an item another resource registered (only its owner or cis_libs may remove it)
 --- realm: client
 function RemoveRadialItem(id) end
 
@@ -3196,14 +3196,14 @@ function Cis.ui.progressActive() end
 ---@field realm "client"
 ---@field forwardsTo string AddRadialItem
 ---@param data table #one item or a list: { id, label, icon, iconColor, menu (a RegisterRadial id), onSelect, keepOpen }. onSelect is called (menuId, index)
----@return boolean, string|nil #true once added; made again when cis_libs restarts. The radial key (default Z) is registered with the first item
+---@return boolean, string|nil #true once added; made again when cis_libs restarts. The radial key (default Z) is registered with the first item. false plus a reason for a bad item, the cap, or an id another resource holds; a list is all or nothing
 function Cis.ui.radial.add(data) end
 
 ---@class Cis.ui.radial.clear
 ---@field since string 1.1.0
 ---@field realm "client"
 ---@field forwardsTo string ClearRadialItems
----@return boolean #always true; removes every global item
+---@return boolean #always true; removes only the global items the calling resource added (every item when cis_libs itself calls)
 function Cis.ui.radial.clear() end
 
 ---@class Cis.ui.radial.disable
@@ -3226,7 +3226,7 @@ function Cis.ui.radial.hide() end
 ---@field realm "client"
 ---@field forwardsTo string RegisterRadial
 ---@param radial table #{ id, items } -- a submenu opened by an item whose menu is this id
----@return boolean, string|nil #true once registered; made again when cis_libs restarts
+---@return boolean, string|nil #true once registered; made again when cis_libs restarts. false plus a reason for a bad item or a submenu id another resource holds
 function Cis.ui.radial.register(radial) end
 
 ---@class Cis.ui.radial.remove
@@ -3234,7 +3234,7 @@ function Cis.ui.radial.register(radial) end
 ---@field realm "client"
 ---@field forwardsTo string RemoveRadialItem
 ---@param id string #the item id
----@return boolean #true when it existed
+---@return boolean, string|nil #true once removed; false plus a reason for an unknown id or an item another resource registered (only its owner or cis_libs may remove it)
 function Cis.ui.radial.remove(id) end
 
 ---@class Cis.ui.skillCheck

@@ -4182,6 +4182,34 @@
       "find": "        q[#q + 1] = id\n",
       "replace": "        self:enter(point, visitCoords)\n",
       "why": "onEnter runs inside the grid bucket walk, so a point created or removed from the hook changes the table `next` is iterating."
+    },
+    {
+      "id": "M722",
+      "file": "client/interface/radial.lua",
+      "find": "    if holder ~= caller and caller ~= LIB then",
+      "replace": "    if false then",
+      "why": "Any resource removes another resource's radial item by id."
+    },
+    {
+      "id": "M723",
+      "file": "client/interface/radial.lua",
+      "find": "        local holder = itemOwner(it.id)\n        if holder and holder ~= owner then",
+      "replace": "        local holder = itemOwner(it.id)\n        if false then",
+      "why": "Any resource replaces another resource's radial item by adding the same id, swapping its label and onSelect."
+    },
+    {
+      "id": "M724",
+      "file": "client/interface/radial.lua",
+      "find": "        if caller == LIB or items[i].owner == caller then",
+      "replace": "        if true then",
+      "why": "ClearRadialItems from any resource removes every resource's radial items."
+    },
+    {
+      "id": "M725",
+      "file": "client/interface/radial.lua",
+      "find": "    if held and held.owner ~= owner then",
+      "replace": "    if false then",
+      "why": "Any resource re-registers another resource's radial submenu and takes it over."
     }
   ]
 }

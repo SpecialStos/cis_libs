@@ -9,6 +9,11 @@
 --
 -- Items and submenus are owner-tracked; a resource stopping takes its items
 -- with it and the menu on screen is redrawn (or closed if it was theirs).
+--
+-- AN ITEM OR SUBMENU BELONGS TO ITS REGISTRANT. Another resource adding the
+-- same id, registering the same submenu, removing the item or clearing is
+-- refused or scoped to its own entries (the D3 rule); it could strip or swap
+-- every resource's entries. cis_libs itself may still remove or clear anything.
 
 local I = CisInterface
 
@@ -16,6 +21,7 @@ local COMMAND = '+cis_libs_radial'
 -- 22 (jump, Space): a click on a slot was also a jump while walking.
 local DISABLED_WHILE_OPEN = { 1, 2, 14, 15, 16, 17, 22, 24, 25, 37, 140, 141, 142, 199, 200, 257, 263 }
 local MAX_ITEMS = 64
+local LIB = GetCurrentResourceName() or 'cis_libs'
 
 local items = {}   -- ordered global items
 local radials = {} -- id -> { id, items, owner }
@@ -127,6 +133,15 @@ local function ensureKeybind()
     RegisterKeyMapping(COMMAND, 'Radial menu', 'keyboard', 'z')
 end
 
+local function itemOwner(id)
+    for i = 1, #items do
+        if items[i].id == id then
+            return items[i].owner
+        end
+    end
+    return nil
+end
+
 local function removeItem(id)
     for i = #items, 1, -1 do
         if items[i].id == id then
@@ -167,6 +182,12 @@ local function addRadialItem(data)
         return false, ('at most %d radial items'):format(MAX_ITEMS)
     end
     for _, it in ipairs(clean) do
+        local holder = itemOwner(it.id)
+        if holder and holder ~= owner then
+            return false, ('radial item %q is registered by %s; pick a different id'):format(it.id, tostring(holder))
+        end
+    end
+    for _, it in ipairs(clean) do
         removeItem(it.id)
         items[#items + 1] = it
         CisOwned.track(owned, owner, 'radialItem', it.id)
@@ -177,17 +198,31 @@ local function addRadialItem(data)
 end
 
 local function removeRadialItem(id)
-    local removed = removeItem(id)
-    if removed and open and #open.path == 0 then draw() end
-    return removed
+    local caller = I.caller()
+    local holder = itemOwner(id)
+    if holder == nil then
+        return false, ('no radial item %s'):format(tostring(id))
+    end
+    if holder ~= caller and caller ~= LIB then
+        return false, ('radial item %q is registered by %s'):format(id, tostring(holder))
+    end
+    removeItem(id)
+    if open and #open.path == 0 then draw() end
+    return true
 end
 
+-- The caller's own items; every item when cis_libs itself clears.
 local function clearRadialItems()
+    local caller = I.caller()
+    local removed = false
     for i = #items, 1, -1 do
-        CisOwned.forget(owned, 'radialItem', items[i].id)
-        items[i] = nil
+        if caller == LIB or items[i].owner == caller then
+            CisOwned.forget(owned, 'radialItem', items[i].id)
+            table.remove(items, i)
+            removed = true
+        end
     end
-    if open and #open.path == 0 then close() end
+    if removed and open and #open.path == 0 then draw() end
     return true
 end
 
@@ -210,6 +245,10 @@ local function registerRadial(radial)
             return false, ('item %d: %s'):format(i, err)
         end
         list[#list + 1] = it
+    end
+    local held = radials[radial.id]
+    if held and held.owner ~= owner then
+        return false, ('radial submenu %q is registered by %s; pick a different id'):format(radial.id, tostring(held.owner))
     end
     radials[radial.id] = { id = radial.id, items = list, owner = owner }
     CisOwned.track(owned, owner, 'radial', radial.id)
