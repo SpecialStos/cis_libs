@@ -333,6 +333,25 @@ Check these first; each is a line under **Changed** or **Deprecated**.
 - **`class` copies `__newindex` and `__gc` down to a subclass, and a parent
   `__index` function keeps answering after the subclass's own methods** (A-L9).
   A read-only parent was writable through a subclass.
+- **`random.integer`, `gen:int` and `gen:range` refuse instead of raising.**
+  A bound past 2^53 (`integer(-1e300, 1e300)` raised inside `math.random`),
+  or a span wider than 2^53 with an injected generator, answers `nil` and a
+  reason. `gen:range` refuses a NaN or infinite bound, as `random.float` does.
+- **`mathx.weightedPick` always picks an infinite weight** (the first one), as
+  `random.weighted` does; it was skipped as if it were 0.
+- **`validate.defaults` fails when a nested schema fails**, with its reason; it
+  used to drop the field silently. A default that contains itself, or a schema
+  nested deeper than 64, is refused.
+- **`id.draw` takes 1 to 65536 symbols**, and `id.normaliseName` refuses a
+  separator holding a letter or digit and a `maxLength` below 1 (a fraction is
+  floored).
+- **`string.levenshtein` and `string.suggest` refuse a negative or NaN
+  ceiling**; `levenshtein('abc', 'xyz', -1)` answered 0, "identical".
+- **`mathx.groupDigits` refuses a string with trailing garbage** (`'1234abc'`
+  was grouped as `'1,234abc'`). `mathx.clamp`, `validate.clamp` and
+  `interp.clamp` refuse a NaN bound, which handed the value back unclamped;
+  `mathx.clamp` and `validate.clamp` answer a reason for a non-number bound
+  instead of raising a compare error.
 
 ### Added
 
@@ -756,6 +775,29 @@ which is forgotten when that resource stops.
 - The seeded generator redraws up to 64 times instead of 8 before it folds a
   rejected draw. After 8 rejections the fold put roughly 1 draw in 512 of a
   half-period range on the top value (A-L14).
+- **No hang on `math.huge`.** `set.new({ n = math.huge })`, `array.from` with
+  an infinite count or `n`, `id.draw(math.huge)` and `curve.newPath` with
+  `samples = math.huge` looped forever. An infinite or NaN `n` is not a length
+  (`#t` is used), samples per segment are capped at 1024, and a NaN
+  `samples` or `alpha` falls back to the default.
+- **`table.deepCopy` and `array.flat` walk with an explicit stack**, so a
+  200k-deep (non-cyclic) chain copies or flattens instead of overflowing the C
+  stack. Cycles and shared tables are still copied once.
+- **`string.levenshtein` with a ceiling walks only the 2 * cap + 1 diagonal
+  band** (Ukkonen), so two long strings no longer cost the whole table.
+- **Rolling windows refuse an infinite timestamp and a nil or NaN key.** One
+  `record(s, k, v, math.huge)` blocked the key for good; `seen` and `record`
+  raised "table index is nil". `newStats(math.huge)` falls back to 60 s.
+- **Weighted picks survive finite weights that overflow.** Weights such as
+  `{ 1e308, 1e308, 1 }` summed to infinity, and one entry won every draw; they
+  are rescaled by the largest weight.
+- **`interp` keeps NaN and infinity out of its answers.** `clamp01(NaN)` is 0,
+  `wrap`/`wrapAngle` of infinity is the range start, `moveTowards` with a NaN
+  step stays put, and `normalize`/`clampLength` handle a component whose square
+  overflows.
+- **`time.roundTo` no longer wraps** an integer product negative (or to 0 in
+  a 32-bit build), and an infinite or NaN unit answers 0, not NaN.
+- **`locale.t(nil)` answers `"nil"` and warns** instead of raising.
 
 ### Security
 

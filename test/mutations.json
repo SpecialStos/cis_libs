@@ -1447,8 +1447,8 @@
     {
       "id": "M213",
       "file": "shared/algo/lru.lua",
-      "find": "        if lru.map[node.key] == node then",
-      "replace": "        if true then",
+      "find": "        -- makes a new node, and the old one must not be visited for it.\n        if lru.map[node.key] == node then",
+      "replace": "        -- makes a new node, and the old one must not be visited for it.\n        if true then",
       "why": "CisLRU.each visits entries the callback already removed, handing out keys that are no longer in the cache."
     },
     {
@@ -1832,9 +1832,9 @@
     {
       "id": "M268",
       "file": "shared/util/timer.lua",
-      "find": "    t._paused = true\n    t._gen = t._gen + 1\n    return true",
-      "replace": "    t._paused = true\n    return true",
-      "why": "Pause without retiring the sleeping thread. It wakes when the original time is up and finds the timer paused but its generation current -- and onEnd fires on a paused timer."
+      "find": "            if t._paused or t._ended then\n                t._sleeper = false\n                return\n            end\n            local left = remaining(t)\n",
+      "replace": "            if t._ended then\n                t._sleeper = false\n                return\n            end\n            local left = t._paused and 0 or remaining(t)\n",
+      "why": "The sleeping thread ignores a pause. It wakes when the original time is up, finds the timer paused, treats it as due -- and onEnd fires on a paused timer."
     },
     {
       "id": "M269",
@@ -1846,8 +1846,8 @@
     {
       "id": "M270",
       "file": "shared/util/mathx.lua",
-      "find": "        r = math.floor(a * m + 0.5) / m\n",
-      "replace": "        r = (n >= 0 and math.floor(a * m + 0.5) or math.ceil(a * m - 0.5)) / m\n",
+      "find": "        r = (scaled - f >= 0.5 and f + 1 or f) / m\n",
+      "replace": "        r = ((n >= 0 and scaled - f >= 0.5 or scaled - f > 0.5) and f + 1 or f) / m\n",
       "why": "Round negative halves toward zero (-2.5 -> -2) instead of away from zero, the asymmetry a naive floor(x + 0.5) has."
     },
     {
@@ -3203,7 +3203,7 @@
       "id": "M462",
       "file": "shared/algo/random.lua",
       "check": "lua54",
-      "find": "    local n = countOf(lo, hi)\n    if not n then\n        tooWide(lo, hi, 3)\n    end",
+      "find": "    local n = countOf(lo, hi)\n    if not n then\n        return nil, tooWide(lo, hi)\n    end",
       "replace": "    local n = hi - lo + 1",
       "why": "The injected-generator path counts its range with a subtraction that wraps again; the 64-bit integer range answers instead of being refused."
     },
@@ -4098,6 +4098,251 @@
       "find": "    if type(ok) ~= 'boolean' then\n        ok = false\n        packed = { n = 1, 'bad reply' }",
       "replace": "    if ok == nil then\n        ok = false\n        packed = { n = 1, 'bad reply' }",
       "why": "A client reply whose ok flag is a truthy string or table resolves the server-to-client callback and hands the caller that unbounded value as its first result."
+    },
+    {
+      "id": "M790",
+      "file": "shared/algo/random.lua",
+      "find": "    if rng == nil and math.type(lo) == 'integer' and math.type(hi) == 'integer' then",
+      "replace": "    if rng == nil then",
+      "why": "A float bound (past 2^31 in a 32-bit build) is handed to math.random, which raises 'number has no integer representation' instead of drawing."
+    },
+    {
+      "id": "M791",
+      "file": "shared/algo/random.lua",
+      "find": "            return nil, tooWide(a, b)",
+      "replace": "            error(tooWide(a, b))",
+      "why": "gen:int raises on a span wider than 2^53 again, so a caller passing a config value crashes its thread instead of reading a reason."
+    },
+    {
+      "id": "M792",
+      "file": "shared/algo/random.lua",
+      "find": "    if total == math.huge then\n        return largest\n    end\n    return 1",
+      "replace": "    return 1",
+      "why": "CisRandom.weighted sums finite weights past 1.8e308 unscaled; the total reads as infinite and one entry wins every draw."
+    },
+    {
+      "id": "M793",
+      "file": "shared/util/mathx.lua",
+      "find": "    if total == math.huge then\n        scale = largest",
+      "replace": "    if false then\n        scale = largest",
+      "why": "mathx.weightedPick sums finite weights past 1.8e308 unscaled; every comparison against the infinite total fails and the last entry wins every draw."
+    },
+    {
+      "id": "M794",
+      "file": "shared/util/mathx.lua",
+      "find": "            if w == math.huge then return values[i], i end",
+      "replace": "            if w == math.huge then w = 0 end",
+      "why": "mathx.weightedPick skips an infinite weight as if it were 0, disagreeing with CisRandom.weighted, which always picks it."
+    },
+    {
+      "id": "M795",
+      "file": "shared/util/validate.lua",
+      "find": "            local problem = treeProblem(spec.default)",
+      "replace": "            local problem = nil",
+      "why": "CisValidate.defaults copies a self-referencing default round its cycle until the stack overflows."
+    },
+    {
+      "id": "M796",
+      "file": "shared/util/validate.lua",
+      "find": "    if depth > MAX_COPY_DEPTH then\n        return nil, ('schema is nested",
+      "replace": "    if false then\n        return nil, ('schema is nested",
+      "why": "A schema whose fields contain the schema again builds nested containers until the stack overflows."
+    },
+    {
+      "id": "M797",
+      "file": "shared/util/validate.lua",
+      "find": "            if not filled then return nil, why end",
+      "replace": "            if not filled then filled = out end",
+      "why": "A nested defaults failure is dropped: the outer call answers a table with the bad field left as supplied."
+    },
+    {
+      "id": "M798",
+      "file": "shared/util/validate.lua",
+      "find": "    if (min ~= nil and (type(min) ~= 'number' or min ~= min))\n        or (max ~= nil and (type(max) ~= 'number' or max ~= max)) then",
+      "replace": "    if false then",
+      "why": "CisValidate.clamp with a NaN bound fails every comparison and hands v back unclamped."
+    },
+    {
+      "id": "M799",
+      "file": "shared/util/string.lua",
+      "find": "    if maxDistance ~= nil and (type(maxDistance) ~= 'number' or maxDistance ~= maxDistance or maxDistance < 0) then",
+      "replace": "    if maxDistance ~= nil and type(maxDistance) ~= 'number' then",
+      "why": "levenshtein with a negative ceiling answers cap + 1 (0 for -1), a 'distance' that reads as an exact match."
+    },
+    {
+      "id": "M800",
+      "file": "shared/util/string.lua",
+      "find": "        local lo = i - cap\n        if lo < 1 then lo = 1 end\n        local hi = i + cap\n        if hi > lb then hi = lb end",
+      "replace": "        local lo = 1\n        local hi = lb\n        for j = 0, lb do prev[j] = prev[j] or over end",
+      "why": "levenshtein walks the whole la x lb table even with a ceiling: two 3000-byte strings cost nine million cells for an answer the 2*cap+1 band gives."
+    },
+    {
+      "id": "M801",
+      "file": "shared/algo/window.lua",
+      "find": "    return type(now) ~= 'number' or now ~= now or now == math.huge or now == -math.huge",
+      "replace": "    return type(now) ~= 'number' or now ~= now",
+      "why": "An infinite timestamp becomes a key's newest bucket; every later sample reads as late and is dropped."
+    },
+    {
+      "id": "M802",
+      "file": "shared/algo/window.lua",
+      "find": "    return key == nil or key ~= key",
+      "replace": "    return false",
+      "why": "seen and record raise 'index is nil' (or NaN) on a nil or NaN key instead of refusing it."
+    },
+    {
+      "id": "M803",
+      "file": "shared/algo/curve.lua",
+      "find": "    if samples > MAX_SAMPLES then samples = MAX_SAMPLES end",
+      "replace": "    -- samples uncapped",
+      "why": "newPath with samples = math.huge walks a table that never ends: the thread hangs."
+    },
+    {
+      "id": "M804",
+      "file": "shared/algo/set.lua",
+      "find": "        if type(n) ~= 'number' or n ~= n or n == math.huge or n == -math.huge then\n            n = #list",
+      "replace": "        if type(n) ~= 'number' then\n            n = #list",
+      "why": "CisSet.new({ n = math.huge }) loops to infinity filling the set."
+    },
+    {
+      "id": "M805",
+      "file": "shared/util/array.lua",
+      "find": "    if type(n) == 'number' and n == n and n ~= math.huge and n ~= -math.huge then",
+      "replace": "    if type(n) == 'number' then",
+      "why": "An array whose n is math.huge is walked to infinity by every array function; a NaN n is a length of nothing."
+    },
+    {
+      "id": "M806",
+      "file": "shared/util/array.lua",
+      "find": "and n >= 0 and n ~= math.huge) and",
+      "replace": "and n >= 0) and",
+      "why": "array.from(list, math.huge) copies to infinity: the thread hangs."
+    },
+    {
+      "id": "M807",
+      "file": "shared/util/id.lua",
+      "find": "    if type(count) ~= 'number' or count ~= count or count < 1 or count > MAX_COUNT then",
+      "replace": "    if type(count) ~= 'number' or count < 1 then",
+      "why": "CisId.draw(math.huge) never ends, and draw(NaN) answers an empty id."
+    },
+    {
+      "id": "M808",
+      "file": "shared/util/id.lua",
+      "find": "    if separator:find('%w') then",
+      "replace": "    if false then",
+      "why": "A letter separator is stripped from the name itself: separator 'x' turns 'xavier' into 'avier'."
+    },
+    {
+      "id": "M809",
+      "file": "shared/util/id.lua",
+      "find": "    if type(maxLength) ~= 'number' or maxLength ~= maxLength or maxLength < 1 then",
+      "replace": "    if type(maxLength) ~= 'number' then",
+      "why": "A negative maxLength is silently ignored and the whole name comes back."
+    },
+    {
+      "id": "M810",
+      "file": "shared/algo/interp.lua",
+      "find": "    if lo ~= lo or hi ~= hi then\n        return nil, 'CisInterp.clamp",
+      "replace": "    if false then\n        return nil, 'CisInterp.clamp",
+      "why": "CisInterp.clamp with a NaN bound fails every comparison and hands v back unclamped."
+    },
+    {
+      "id": "M811",
+      "file": "shared/algo/interp.lua",
+      "find": "    if range ~= range or range <= 0 or range == math.huge or v ~= v or v == math.huge or v == -math.huge then",
+      "replace": "    if range <= 0 then",
+      "why": "wrap and wrapAngle of an infinite angle answer NaN, which spreads into every heading built from it."
+    },
+    {
+      "id": "M812",
+      "file": "shared/algo/interp.lua",
+      "find": "    if maxDelta ~= maxDelta or maxDelta < 0 then\n        maxDelta = 0",
+      "replace": "    if maxDelta < 0 then\n        maxDelta = 0",
+      "why": "moveTowards with a NaN step fails both comparisons and jumps straight to the target."
+    },
+    {
+      "id": "M813",
+      "file": "shared/algo/interp.lua",
+      "find": "    if sq ~= math.huge then\n        return math.sqrt(sq)\n    end",
+      "replace": "    do\n        return math.sqrt(sq)\n    end",
+      "why": "normalize and clampLength square a 1e200 component to infinity and answer a zero vector."
+    },
+    {
+      "id": "M814",
+      "file": "shared/util/time.lua",
+      "find": "    if math.type(r) == 'integer' and r + 0.0 ~= q * (unit + 0.0) then",
+      "replace": "    if false then",
+      "why": "time.roundTo multiplies back in integers, which wrap (32-bit in fengari) and answer 0 or a negative time."
+    },
+    {
+      "id": "M815",
+      "file": "shared/util/time.lua",
+      "find": "    if type(unit) ~= 'number' or unit ~= unit or unit <= 0 or unit == math.huge then",
+      "replace": "    if type(unit) ~= 'number' or unit <= 0 then",
+      "why": "time.roundTo with an infinite or NaN unit answers NaN instead of 0."
+    },
+    {
+      "id": "M816",
+      "file": "shared/util/locale.lua",
+      "find": "    key = tostring(key)\n    if state.warned[key] then",
+      "replace": "    if state.warned[key] then",
+      "why": "CisLocale.t(nil) raises 'index is nil' while warning about the missing phrase."
+    },
+    {
+      "id": "M817",
+      "file": "shared/util/mathx.lua",
+      "find": "    if lo ~= lo or hi ~= hi then\n        return nil, 'mathx.clamp",
+      "replace": "    if false then\n        return nil, 'mathx.clamp",
+      "why": "mathx.clamp with a NaN bound fails every comparison and hands v back unclamped."
+    },
+    {
+      "id": "M818",
+      "file": "shared/util/mathx.lua",
+      "find": "    if not (rest == '' or rest:find('^%.%d*$') or rest:find('^%.?%d*[eE][+-]?%d+$')) then",
+      "replace": "    if false then",
+      "why": "groupDigits groups '1234abc' into '1,234abc' as if it were a number."
+    },
+    {
+      "id": "M819",
+      "file": "shared/util/string.lua",
+      "find": "    elseif type(maxDistance) ~= 'number' or maxDistance ~= maxDistance or maxDistance < 0 then",
+      "replace": "    elseif false then",
+      "why": "suggest with a negative maxDistance compares a nil levenshtein answer and raises."
+    },
+    {
+      "id": "M820",
+      "file": "shared/algo/curve.lua",
+      "find": "    if type(alpha) ~= 'number' or alpha ~= alpha or alpha == math.huge or alpha == -math.huge then\n        return DEFAULT_ALPHA",
+      "replace": "    if type(alpha) ~= 'number' then\n        return DEFAULT_ALPHA",
+      "why": "A NaN knot exponent turns every point of the curve into NaN."
+    },
+    {
+      "id": "M821",
+      "file": "shared/algo/curve.lua",
+      "find": "    if type(samples) ~= 'number' or samples ~= samples then\n        samples = DEFAULT_SAMPLES",
+      "replace": "    if type(samples) ~= 'number' then\n        samples = DEFAULT_SAMPLES",
+      "why": "newPath with samples = NaN builds a path with a NaN sample count."
+    },
+    {
+      "id": "M822",
+      "file": "shared/algo/window.lua",
+      "find": "or window <= 0 or window == math.huge then",
+      "replace": "or window <= 0 then",
+      "why": "newStats(math.huge) builds buckets no sample can fall in: every record is dropped."
+    },
+    {
+      "id": "M823",
+      "file": "shared/algo/random.lua",
+      "find": "        local a, b = floatBounds(min, max, 'generator:range')",
+      "replace": "        local a, b = min, max",
+      "why": "gen:range(NaN, 1) answers NaN instead of refusing the bound."
+    },
+    {
+      "id": "M824",
+      "file": "shared/algo/interp.lua",
+      "find": "    if v ~= v then return 0 end\n    if v < 0 then return 0 end",
+      "replace": "    if v < 0 then return 0 end",
+      "why": "clamp01(NaN) answers NaN, which a smoothstep or lerp then spreads."
     }
   ]
 }

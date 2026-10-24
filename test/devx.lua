@@ -1099,6 +1099,240 @@ do
     expect(rawget(plain, '__index') == plain, 'class: a plain parent leaves the subclass __index as the class itself')
 end
 
+-- ============================================== wave 2: util and algo edges
+-- Inputs at the edge of the number line: NaN, infinity, bounds past 2^53, a
+-- size of math.huge, a 200k-deep chain, a cyclic default. Each used to hang,
+-- raise, or answer something that reads as valid. A hang is turned into a
+-- failure by an instruction-count hook, so a regression fails the suite
+-- instead of stalling it.
+do
+    local function bounded(fn, budget)
+        local ok, a, b, c = pcall(function()
+            debug.sethook(function() error('HUNG', 0) end, '', budget or 4000000)
+            local r1, r2, r3 = fn()
+            debug.sethook()
+            return r1, r2, r3
+        end)
+        debug.sethook()
+        return ok, a, b, c
+    end
+    local Rnd = load('shared/algo/random.lua')
+    local V = load('shared/util/validate.lua')
+    local Str = load('shared/util/string.lua')
+    local W = load('shared/algo/window.lua')
+    local Cv = load('shared/algo/curve.lua')
+    local St = load('shared/algo/set.lua')
+    local A = load('shared/util/array.lua')
+    local Id = load('shared/util/id.lua')
+    local X = load('shared/util/mathx.lua')
+    local I = load('shared/algo/interp.lua')
+    local Tm = load('shared/util/time.lua')
+    local Tb = load('shared/util/table.lua')
+    local NaN = 0 / 0
+
+    -- random: bounds past 2^53, or a span past it, are refused with a reason.
+    local ok, v, why = pcall(Rnd.integer, -1e300, 1e300)
+    expect(ok and v == nil and type(why) == 'string',
+        'random: integer(-1e300, 1e300) refuses with a reason instead of raising (' .. tostring(v) .. ')')
+    ok, v, why = pcall(Rnd.integer, 0.5, 2 ^ 63)
+    expect(ok and v == nil and type(why) == 'string',
+        'random: integer(0.5, 2^63) refuses with a reason instead of raising (' .. tostring(v) .. ')')
+    local g = Rnd.newGenerator(5)
+    ok, v, why = pcall(Rnd.integer, 0, 2 ^ 60, function() return g:float() end)
+    expect(ok and v == nil and type(why) == 'string' and why:find('2^53', 1, true) ~= nil,
+        'random: integer(0, 2^60, fn) refuses a span past 2^53 with a reason (' .. tostring(v) .. ')')
+    ok, v, why = pcall(g.int, g, 0, 1e18)
+    expect(ok and v == nil and type(why) == 'string',
+        'random: gen:int(0, 1e18) refuses with a reason instead of raising (' .. tostring(v) .. ')')
+    -- Bounds below 2^53 whose span is past it: floats in a 32-bit build, integers
+    -- in Lua 5.4, refused the same way in both.
+    ok, v, why = pcall(g.int, g, -(2 ^ 53 - 2), 2 ^ 53 - 2)
+    expect(ok and v == nil and type(why) == 'string' and why:find('2^53', 1, true) ~= nil,
+        'random: gen:int over a span past 2^53 refuses with a reason (' .. tostring(v) .. ')')
+    -- A bound past 2^31 stays a float in a 32-bit build; math.random raised on it.
+    ok, v = pcall(Rnd.integer, 0, 2 ^ 40)
+    expect(ok and type(v) == 'number' and v >= 0 and v <= 2 ^ 40 and v == math.floor(v),
+        'random: integer(0, 2^40) with no generator draws instead of raising (' .. tostring(v) .. ')')
+    ok, v, why = pcall(g.range, g, NaN, 1)
+    expect(ok and v == nil and type(why) == 'string', 'random: gen:range(NaN, 1) refuses instead of answering NaN')
+    ok, v = pcall(g.range, g, 2, 4)
+    expect(ok and type(v) == 'number' and v >= 2 and v < 4, 'random: gen:range still draws inside a normal range')
+
+    -- Finite weights whose sum overflows still draw in proportion.
+    local entries = { { weight = 1e308, value = 'a' }, { weight = 1e308, value = 'b' }, { weight = 1, value = 'c' } }
+    local wg = Rnd.newGenerator(9)
+    local got = { a = 0, b = 0, c = 0 }
+    local gotI = { 0, 0, 0 }
+    local gotX = { a = 0, b = 0, c = 0 }
+    for _ = 1, 400 do
+        local pick = Rnd.weighted(entries, wg)
+        got[pick] = got[pick] + 1
+        local idx = Rnd.weightedIndex({ 1e308, 1e308, 1 }, wg)
+        gotI[idx] = gotI[idx] + 1
+        local xv = X.weightedPick({ { 'a', 1e308 }, { 'b', 1e308 }, { 'c', 1 } }, wg)
+        gotX[xv] = gotX[xv] + 1
+    end
+    expect(got.a > 100 and got.b > 100 and got.c == 0,
+        ('random: weighted with overflowing weights draws a and b alike (%d/%d/%d)'):format(got.a, got.b, got.c))
+    expect(gotI[1] > 100 and gotI[2] > 100 and gotI[3] == 0,
+        ('random: weightedIndex with overflowing weights draws 1 and 2 alike (%d/%d/%d)'):format(gotI[1], gotI[2], gotI[3]))
+    expect(gotX.a > 100 and gotX.b > 100 and gotX.c == 0,
+        ('mathx: weightedPick with overflowing weights draws a and b alike (%d/%d/%d)'):format(gotX.a, gotX.b, gotX.c))
+    local alwaysB = true
+    for _ = 1, 50 do
+        if X.weightedPick({ { 'a', 5 }, { 'b', math.huge } }, wg) ~= 'b' then alwaysB = false end
+    end
+    expect(alwaysB, 'mathx: an infinite weight means "always this one", as in CisRandom.weighted')
+
+    -- validate: a cyclic default or a cyclic schema is refused, not followed.
+    local d = {}
+    d.self = d
+    ok, v, why = pcall(V.defaults, {}, { x = { default = d } })
+    expect(ok and v == nil and type(why) == 'string' and why:find('cycle', 1, true) ~= nil,
+        'validate: defaults refuses a cyclic default with a reason (' .. tostring(why) .. ')')
+    local schema = {}
+    schema.x = { fields = schema }
+    ok, v, why = pcall(V.defaults, {}, schema)
+    expect(ok and v == nil and type(why) == 'string',
+        'validate: defaults refuses a schema that nests itself (' .. tostring(why) .. ')')
+    ok, v, why = pcall(V.defaults, {}, { x = { fields = { y = { default = d } } } })
+    expect(ok and v == nil and type(why) == 'string',
+        'validate: a bad default deep in a nested schema fails the whole call, not just its field')
+    local filled = V.defaults({}, { x = { default = { a = { b = 1 } } }, y = { fields = { z = { default = 2 } } } })
+    expect(type(filled) == 'table' and filled.x.a.b == 1 and filled.y.z == 2,
+        'validate: defaults still fills plain nested defaults')
+    ok, v, why = pcall(V.clamp, 5, NaN, 10)
+    expect(ok and v == nil and type(why) == 'string', 'validate: clamp refuses a NaN bound')
+    ok, v, why = pcall(V.clamp, 5, 'a', 10)
+    expect(ok and v == nil and type(why) == 'string', 'validate: clamp refuses a non-number bound instead of raising')
+
+    -- string: a negative ceiling is refused; a ceiling bands the table.
+    ok, v, why = pcall(Str.levenshtein, 'abc', 'xyz', -1)
+    expect(ok and v == nil and type(why) == 'string', 'string: levenshtein refuses a negative maxDistance (' .. tostring(v) .. ')')
+    ok, v, why = pcall(Str.suggest, 'abc', { 'abd' }, { maxDistance = -1 })
+    expect(ok and v == nil and type(why) == 'string', 'string: suggest with a negative maxDistance answers nil and a reason instead of raising')
+    local long = ('a'):rep(3000)
+    ok, v = bounded(function() return Str.levenshtein(long .. 'x', long .. 'y', 2) end, 2000000)
+    expect(ok and v == 1, 'string: levenshtein with a ceiling walks a band, not the whole table (' .. tostring(v) .. ')')
+    expect(Str.levenshtein('kitten', 'sitting', 2.5) == 3 and Str.levenshtein('kitten', 'sitting', math.huge) == 3,
+        'string: a fractional ceiling counts as its floor, and an infinite one as none')
+
+    -- window: an infinite or nil input is refused, not stored.
+    local s = W.newStats(10, 1)
+    expect(W.record(s, 'k', 5, math.huge) == false, 'window: record refuses an infinite timestamp')
+    expect(W.record(s, 'k', 1, 10) == true and W.read(s, 'k', 10).count == 1 and W.read(s, 'k', 10).max == 1,
+        'window: a refused infinite timestamp does not block the key')
+    local dd = W.newDedupe(5)
+    ok, v = pcall(W.seen, dd, nil, 1)
+    expect(ok and v == false, 'window: seen refuses a nil key instead of raising')
+    ok, v = pcall(W.seen, dd, NaN, 1)
+    expect(ok and v == false, 'window: seen refuses a NaN key instead of raising')
+    ok, v = pcall(W.record, s, nil, 1, 1)
+    expect(ok and v == false, 'window: record refuses a nil key instead of raising')
+    local hs = W.newStats(math.huge)
+    expect(W.record(hs, 'k', 3, 1) == true and W.read(hs, 'k', 1) ~= nil,
+        'window: an infinite window falls back to the default instead of building dead stats')
+
+    -- curve: samples of math.huge or NaN, and a NaN alpha.
+    local pts = { { x = 0, y = 0, z = 0 }, { x = 10, y = 0, z = 0 }, { x = 10, y = 10, z = 0 } }
+    ok, v = bounded(function() return Cv.newPath(pts, { samples = math.huge }) end)
+    expect(ok and type(v) == 'table' and v.samples <= 1024, 'curve: samples = math.huge is capped instead of hanging')
+    local np = Cv.newPath(pts, { samples = NaN })
+    ok = pcall(Cv.pointAtXYZ, np, 5)
+    expect(ok and np.samples == np.samples, 'curve: samples = NaN falls back to the default')
+    local ap = Cv.newPath(pts, { alpha = NaN })
+    local cx = Cv.catmullRom(pts[1], pts[2], pts[3], nil, 0.5, NaN)
+    expect(ap.alpha == 0.5 and cx == cx, 'curve: a NaN alpha falls back to centripetal')
+
+    -- set, array, id: a size of math.huge.
+    ok = bounded(function() return St.new({ n = math.huge }) end)
+    expect(ok, 'set: new({ n = math.huge }) does not hang')
+    ok, v = bounded(function() return A.from({}, math.huge) end)
+    expect(ok and v.n == 0, 'array: from({}, math.huge) does not hang')
+    ok, v = bounded(function() return A.from({ 1, 2, n = math.huge }) end)
+    expect(ok and v.n == 2, 'array: a table whose n is math.huge is measured with #')
+    ok, v = bounded(function() return A.map({ 1, n = NaN }, function(x) return x end) end)
+    expect(ok and v.n == 1, 'array: a NaN n is not a length')
+    ok, v, why = bounded(function() return Id.draw(math.huge) end)
+    expect(ok and v == nil and type(why) == 'string', 'id: draw(math.huge) refuses instead of hanging')
+    v, why = Id.draw(NaN)
+    expect(v == nil and type(why) == 'string', 'id: draw(NaN) refuses instead of answering an empty id')
+
+    -- table.deepCopy and array.flat: deep but finite nesting.
+    local chain = {}
+    local cur = chain
+    for _ = 1, 200000 do
+        local nxt = {}
+        cur[1] = nxt
+        cur = nxt
+    end
+    ok, v = pcall(Tb.deepCopy, chain)
+    local depthOk = ok and type(v) == 'table'
+    if depthOk then
+        local walk, steps = v, 0
+        while walk[1] ~= nil do walk = walk[1]; steps = steps + 1 end
+        depthOk = steps == 200000 and v[1] ~= chain[1]
+    end
+    expect(depthOk, 'table: deepCopy copies a 200k-deep chain without a stack overflow')
+    local cyc = { 1 }
+    cyc.me = cyc
+    cyc[2] = { cyc }
+    local cc = Tb.deepCopy(cyc)
+    expect(cc.me == cc and cc[2][1] == cc and cc ~= cyc and cc[1] == 1, 'table: deepCopy still preserves cycles')
+    local deep = { 7 }
+    for _ = 1, 200000 do deep = { deep } end
+    ok, v = pcall(A.flat, deep, math.huge)
+    expect(ok and v.n == 1 and v[1] == 7, 'array: flat(chain, math.huge) flattens a 200k-deep array without a stack overflow')
+
+    -- clamp in all three modules: a NaN bound is refused; a non-number is a reason.
+    ok, v, why = pcall(X.clamp, 5, NaN, 10)
+    expect(ok and v == nil and type(why) == 'string', 'mathx: clamp refuses a NaN bound')
+    ok, v, why = pcall(X.clamp, '5', 0, 10)
+    expect(ok and v == nil and type(why) == 'string', 'mathx: clamp refuses a non-number instead of raising')
+    v, why = I.clamp(5, 0, NaN)
+    expect(v == nil and type(why) == 'string', 'interp: clamp refuses a NaN bound')
+
+    -- interp: NaN and infinity never come back as NaN or as a jump.
+    expect(I.clamp01(NaN) == 0, 'interp: clamp01(NaN) is 0')
+    local wv, wa = I.wrap(math.huge, 0, 10), I.wrapAngle(math.huge)
+    expect(wv == wv and wa == wa, 'interp: wrap and wrapAngle of infinity are numbers, not NaN')
+    expect(I.moveTowards(0, 10, NaN) == 0, 'interp: moveTowards with a NaN step stays put')
+    local nv = I.normalize({ x = 1e200, y = 0, z = 0 })
+    local cl = I.clampLength({ x = 1e200, y = 0, z = 0 }, 1)
+    expect(math.abs(nv.x - 1) < 1e-9 and math.abs(cl.x - 1) < 1e-9,
+        'interp: normalize and clampLength survive a component whose square overflows')
+
+    -- time.roundTo: no integer wrap, no NaN.
+    local big = Tm.roundTo(math.maxinteger - 1, 2)
+    expect(big > 0, 'time: roundTo near maxinteger does not wrap negative (' .. tostring(big) .. ')')
+    expect(Tm.roundTo(2 ^ 40, 1048576) == 2 ^ 40, 'time: roundTo past 32 bits does not wrap')
+    expect(Tm.roundTo(10, math.huge) == 0 and Tm.roundTo(10, NaN) == 0, 'time: roundTo with an infinite or NaN unit is 0')
+    expect(Tm.roundTo(125, 60) == 120 and math.type(Tm.roundTo(125, 60)) == 'integer',
+        'time: roundTo of integers still answers an integer')
+
+    -- id.normaliseName: maxLength and separator are checked.
+    v, why = Id.normaliseName('Hello World', nil, { maxLength = -1 })
+    expect(v == nil and type(why) == 'string', 'id: a negative maxLength is refused, not ignored')
+    ok, v = pcall(Id.normaliseName, 'Hello World', nil, { maxLength = 2.5 })
+    expect(ok and v == 'he', 'id: a fractional maxLength counts as its floor')
+    v, why = Id.normaliseName('xavier', nil, { separator = 'x' })
+    expect(v == nil and type(why) == 'string', 'id: a separator made of letters is refused')
+    expect(Id.normaliseName('Hello World', nil, { separator = '-' }) == 'hello-world', 'id: a punctuation separator still works')
+
+    -- locale.t(nil) answers instead of raising.
+    local Lc = load('shared/util/locale.lua')
+    capture()
+    ok, v = pcall(Lc.t, nil)
+    release()
+    expect(ok and v == 'nil', 'locale: t(nil) answers "nil" and warns instead of raising')
+
+    -- groupDigits: trailing garbage is refused.
+    v, why = X.groupDigits('1234abc')
+    expect(v == nil and type(why) == 'string', 'mathx: groupDigits refuses a numeric string with trailing garbage')
+    expect(X.groupDigits('1234.50') == '1,234.50' and X.groupDigits('-1234') == '-1,234'
+        and X.groupDigits('1e21') == '1e21', 'mathx: groupDigits keeps a well-formed numeric string')
+end
+
 io.write(('devx module tests: passed=%d failed=%d\n'):format(passed, failed))
 if failed > 0 then
     os.exit(1)
