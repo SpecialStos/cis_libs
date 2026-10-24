@@ -6530,8 +6530,8 @@ do
     for _, b in ipairs(bad) do
         local aabb = { minX = 0, maxX = 1, minY = 0, maxY = 1 }
         for k, v in pairs(b[1]) do aabb[k] = v end
-        local ok, why = G.insert(g, 'bad', aabb)
-        check(ok == false and type(why) == 'string',
+        local ran, ok, why = pcall(G.insert, g, 'bad', aabb)
+        check(ran and ok == false and type(why) == 'string',
             ('grid C13: %s is refused, with a reason (got %s, %s)'):format(b[2], tostring(ok), tostring(why)))
     end
     check(g.items.bad == nil, 'grid C13: and none of the refused AABBs was stored')
