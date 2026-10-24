@@ -36,6 +36,24 @@ test('ready is posted on load', () => {
   assert.ok(dom.posts.some((p) => p.name === 'ready'))
 })
 
+test('session: the page echoes the hello token on ready, and Escape carries it', () => {
+  dom.sendFrom({ other: true }, 'hello', { token: 'forged' })
+  assert.ok(!dom.posts.some((p) => p.body && p.body.token === 'forged'), 'a hello from another frame is ignored')
+  dom.send('hello', { token: 'tok-1' })
+  assert.deepEqual(dom.posts.at(-1), { name: 'ready', body: { token: 'tok-1' } })
+  dom.keydown('Escape')
+  assert.deepEqual(dom.posts.at(-1), { name: 'escape', body: { token: 'tok-1' } })
+})
+
+test('session: after init, a later hello is ignored, so a forged ready cannot make the live page reset', () => {
+  dom.send('init', { theme: {}, locale: {} })
+  const n = dom.posts.length
+  dom.send('hello', { token: 'tok-2' })
+  assert.equal(dom.posts.length, n, 'no second ready')
+  dom.keydown('Escape')
+  assert.deepEqual(dom.posts.at(-1), { name: 'escape', body: { token: 'tok-1' } })
+})
+
 test('XSS: <img onerror> in every user-supplied string of every component renders as text', () => {
   dom.send('notify', { id: P, title: P, description: P, icon: P, iconColor: P, type: P, position: P })
   dom.send('textui:show', { text: P, icon: P, iconColor: P, position: P, style: P })
