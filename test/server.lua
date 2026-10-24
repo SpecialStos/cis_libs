@@ -5051,6 +5051,28 @@ do
     env.reset()
 end
 
+-- IDLE. With no zone the pass loop woke every 500 ms for nothing. It now runs
+-- only while a zone exists: none at load, one for the first zone, still one for
+-- the second, ended once the last is gone, and started again by the next.
+do
+    local env = zonesEnv({ [1] = { coords = { x = 0.0, y = 0.0, z = 0.0 } } })
+    check(#env.threads == 0,
+        ('7.5: with no zone, no pass loop runs (%d thread(s) at load)'):format(#env.threads))
+    local a = env.EXPORTS.ServerZoneSphere({ x = 0.0, y = 0.0, z = 0.0 }, 5.0, { onEnterEvent = 'z:in' })
+    local b = env.EXPORTS.ServerZoneSphere({ x = 50.0, y = 0.0, z = 0.0 }, 5.0)
+    check(#env.threads == 1, ('7.5: the first zone starts one pass loop (%d)'):format(#env.threads))
+    env.tick()
+    check(env.count('z:in', 1, a) == 1, '7.5: and that loop runs the pass')
+    env.EXPORTS.ServerZoneRemove(a)
+    env.EXPORTS.ServerZoneRemove(b)
+    local clock = env.clock
+    env.tick(3)
+    check(env.clock == clock, '7.5: with the last zone gone, the loop ends without sleeping again')
+    env.EXPORTS.ServerZoneSphere({ x = 0.0, y = 0.0, z = 0.0 }, 5.0)
+    check(#env.threads == 2, ('7.5: the next zone starts the loop again (%d)'):format(#env.threads))
+    env.reset()
+end
+
 -- THE INDEX. One player and 500 zones on the far side of the map: the old pass
 -- ran 500 containment tests every 500 ms for a player near none of them.
 do

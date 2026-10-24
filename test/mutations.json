@@ -4063,6 +4063,34 @@
       "find": "local MAX_RETRIES = 64",
       "replace": "local MAX_RETRIES = 8",
       "why": "After 8 rejections a draw folds onto the top of the range, so 1 in 512 draws of a half-period range land on one value."
+    },
+    {
+      "id": "M674",
+      "file": "server/zones.lua",
+      "find": "while next(zones) ~= nil do",
+      "replace": "while true do",
+      "why": "The pass loop never ends once started, so a server whose last zone is gone wakes every 500 ms for nothing again."
+    },
+    {
+      "id": "M675",
+      "file": "server/zones.lua",
+      "find": "    if driving then\n        return\n    end\n    driving = true",
+      "replace": "    driving = true",
+      "why": "Every zone starts its own pass loop, so 500 zones run 500 passes every 500 ms instead of one."
+    },
+    {
+      "id": "M676",
+      "file": "server/zones.lua",
+      "find": "        end\n        driving = false\n    end)",
+      "replace": "        end\n    end)",
+      "why": "The flag stays set after the loop ends, so a zone made after the last one was removed is never passed: no player ever enters it."
+    },
+    {
+      "id": "M677",
+      "file": "server/security.lua",
+      "find": "print('  An empty list is always restrictive. It used to mean')",
+      "replace": "print('  Security.AuthorizedResources is empty, and an empty list is always restrictive. It used to mean')",
+      "why": "The restrictive warning states the empty list twice in a row, once as the reason and once as the explanation."
     }
   ]
 }

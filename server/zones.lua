@@ -30,6 +30,8 @@ local unindexed = {}
 local insideOf = {}
 
 local PASS_MS = 500
+-- Starts the pass loop when it is not running (defined beside the loop).
+local drive
 
 local function finite(v)
     return type(v) == 'number' and v == v and v ~= math.huge and v ~= -math.huge
@@ -200,6 +202,7 @@ local function insert(zone)
     zones[zone.id] = zone
     index(zone)
     CisOwned.track(owned, zone.owner, 'serverZone', zone.id)
+    drive()
     return zone.id
 end
 
@@ -426,19 +429,32 @@ local function zonePass()
     end
 end
 
-CreateThread(function()
-    local tick = CisLoopGuard.Body('server.zones.pass', function()
-        if CisTiming then
-            CisTiming.measure('zonePass', zonePass)
-        else
-            zonePass()
-        end
-        return PASS_MS
-    end)
-    while true do
-        Wait(tick() or PASS_MS)
+local passTick = CisLoopGuard.Body('server.zones.pass', function()
+    if CisTiming then
+        CisTiming.measure('zonePass', zonePass)
+    else
+        zonePass()
     end
+    return PASS_MS
 end)
+
+-- The pass runs only while a zone exists. With no zone the loop ends, so an
+-- idle server does not wake every PASS_MS for nothing; the next zone starts it
+-- again. There is no yield between the loop test and clearing the flag, so a
+-- zone added while the loop sleeps is always seen.
+local driving = false
+function drive()
+    if driving then
+        return
+    end
+    driving = true
+    CreateThread(function()
+        while next(zones) ~= nil do
+            Wait(passTick() or PASS_MS)
+        end
+        driving = false
+    end)
+end
 
 -- A player who leaves the server leaves every zone they were in.
 function leaveAll(src)

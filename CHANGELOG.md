@@ -36,6 +36,11 @@ Check these first; each is a line under **Changed** or **Deprecated**.
 
 ### Changed
 
+- **The server zone pass runs only while a zone exists.** Its loop woke every
+  500 ms from boot, with no zone and no player (0.05 to 0.08 ms each on the
+  VPS profile). The first zone starts it, and it ends once the last zone is
+  removed or its owner stops.
+
 - **`SetConfig`'s `security` is merged over the default `Security`.** It
   replaced it outright, so a supplier that set only `AuthorizedResources` left
   `DropPlayer` nil and a player the guard reported was no longer kicked. A key
@@ -475,6 +480,9 @@ which is forgotten when that resource stops.
 
 ### Fixed
 
+- The restrictive-posture warning printed
+  `Security.AuthorizedResources is empty` twice in a row, as the reason and
+  again in the explanation. It prints it once.
 - **A forged `onResourceStart` replayed a consumer's records.** Any script can
   fire `onResourceStart` with `'cis_libs'` as its argument. Before, each
   consumer then re-registered every capability, net handler and hook onto the

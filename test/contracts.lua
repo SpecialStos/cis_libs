@@ -673,6 +673,15 @@ do
     check(env.EXPORTS.InvokingAllowed() == false,
         'new install with an empty store is restrictive')
     check(mentions(env, 'REFUSED'), 'new install with a store: the refusal is announced')
+    -- The reason and the explanation both said the list was empty, so the
+    -- warning printed the same fact twice in a row.
+    local said = 0
+    for i = 1, #env.lines do
+        if env.lines[i]:find('AuthorizedResources is empty', 1, true) then
+            said = said + 1
+        end
+    end
+    check(said == 1, ('the warning says the list is empty once, not %d times'):format(said))
     CisInvokingAllowed = nil
     env.reset()
 
