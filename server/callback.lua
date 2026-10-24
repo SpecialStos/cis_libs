@@ -15,56 +15,13 @@ local function timeoutMs()
     return (Config and Config.CallbackTimeout) or 10000
 end
 
--- How much of a client's payload is worth walking before it is refused.
+-- How many arguments a callback request or reply may carry. The walker, and its
+-- entry and nesting bounds, live in server/security.lua: one implementation, so
+-- a net event and a callback cannot disagree about what is too large.
 local MAX_CALLBACK_ARGS = 32
-local MAX_TABLE_KEYS = 256
-local MAX_NESTING = 8
-
--- Walks a packed argument list ONCE, bounded on every axis, so the guard cannot itself
--- be the expensive part. Strings are measured too, keys and values both: a 4 MB
--- string is one "key" to every other bound here and costs every consumer that logs it.
-local function withinLimits(value, budget, depth, maxLen)
-    local kind = type(value)
-    if kind == 'string' then
-        return #value <= maxLen
-    end
-    if kind ~= 'table' then
-        return true
-    end
-    if depth > MAX_NESTING then
-        return false
-    end
-    local seen = 0
-    for k, v in pairs(value) do
-        seen = seen + 1
-        if seen > MAX_TABLE_KEYS then
-            return false
-        end
-        budget.n = budget.n + 1
-        if budget.n > MAX_TABLE_KEYS then
-            return false
-        end
-        if not withinLimits(k, budget, depth + 1, maxLen) then
-            return false
-        end
-        if not withinLimits(v, budget, depth + 1, maxLen) then
-            return false
-        end
-    end
-    return true
-end
 
 local function payloadWithinLimits(packed, maxArgs, maxLen)
-    if packed.n > maxArgs then
-        return false
-    end
-    local budget = { n = 0 }
-    for i = 1, packed.n do
-        if not withinLimits(packed[i], budget, 1, maxLen) then
-            return false
-        end
-    end
-    return true
+    return CisPayloadWithinLimits(packed, maxArgs, maxLen)
 end
 
 -- Returns true, <pack of handler results> on success, or false, <reason>, <trapped

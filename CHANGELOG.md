@@ -40,7 +40,20 @@ under **Changed** so nobody upgrades into them blind.
 - **A net event's owner is always the caller.** `SecureNetOn` refuses a
   resource that binds another resource's export (`'bank:Withdraw'` from
   `thief`). The rate limit runs before the schema, and a bad payload is
-  reported once per player and event, not once per event.
+  reported once per player and event per run of them, not once per event.
+- **Net event payloads are size-bounded, like callbacks.** Before the schema
+  and the handler, `SecureNetOn` refuses more than 32 arguments, a string
+  (key or value) longer than `Config.CallbackLimits.MaxStringLen` (4096),
+  more than 256 table entries across the payload, or nesting deeper than 8.
+  A handler may set its own `maxArgs`, `maxStringLen`, `maxEntries` and
+  `maxDepth`; a malformed one refuses the registration. An oversized
+  payload is counted as `netSchemaRefused` and reported like a schema
+  failure. Callbacks and net events share the one walker.
+- **The payload schema refuses infinity and can say `integer`.** A
+  `number` that is +inf or -inf is refused unless the rule sets
+  `finite = false`; NaN is always refused. `type = 'integer'` accepts a
+  whole, finite number within +-2^53 (`3.0` counts). This applies to
+  `SecureNetOn` and `RegisterCallback` schemas alike.
 - **Server callback names are owned.** `RegisterCallback` refuses a name
   another resource holds (cis_libs may replace any).
 - **The rate limiter evicts expired buckets** instead of refusing every new
@@ -335,6 +348,14 @@ which is forgotten when that resource stops.
 
 ### Fixed
 
+- **Security: a bad net payload is reported again after a pause.** The
+  report was once per player and event for the whole connection, so a
+  security provider that bans after N strikes never saw strike two. A run
+  of bad payloads now ends after max(5000, 2 * windowMs) ms without one, and
+  the next is a new report; a flood that keeps going is still one report.
+- **Security: net events had no payload bounding** (only the first
+  argument's schema), and `+inf`/`-inf` passed any schema rule without a
+  `max` or `min`. Both are refused now; see **Changed**.
 - **`mathx.toHex(math.mininteger)` looped forever**: `-n` wrapped back to a
   negative number. The magnitude is now taken in floats, so Lua 5.4 refuses
   it as beyond 2^53.
