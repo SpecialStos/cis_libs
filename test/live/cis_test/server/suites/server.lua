@@ -554,25 +554,15 @@ CisTestRunner.Suite('syncnetwork', { tier = 'server', realm = 'server' }, functi
         t.allowCounter('errors', 1)
         local before, probes = probe()
         local made, why = exports['cis_test']:SyncCreateUnsupportedNetworked()
-        t.eq(made, nil, 'an unsupported networked kind gets no record')
+        t.eq(made, false, 'an unsupported networked kind gets no record')
         t.eq(probes.entities, before,
             '4.5: and nothing was created for it')
 
-        -- WHY THERE IS NO ASSERTION THAT THE REASON ARRIVED, which is the whole
-        -- point of writing it down rather than leaving it out silently:
-        --
-        -- `SyncCreate` answers `nil, reason`, and the `boundary` suite above
-        -- MEASURED that a nil first value truncates the return list across the
-        -- exports boundary. `why` is therefore nil here on a correct library,
-        -- and asserting otherwise would be a failing test on working code.
-        --
-        -- The reason is not lost, it is routed to the log -- which is where every
-        -- other refusal in this library already puts it, and the one error this
-        -- case allows above IS that log line. Changing the refusal to
-        -- `false, reason` would carry it, and would also change the return shape
-        -- of a 1.0.0 export that a sibling may already be branching on
-        -- (`id ~= nil`), so it is not this task's to take.
-        print(('[cis_test] unsupported networked kind -> refused (reason %s, in the log)')
-            :format(why == nil and 'truncated by the boundary' or tostring(why)))
+        -- SyncCreate answers `false, reason` on every refusal (api.lua): a nil
+        -- first value truncates the return list at the exports boundary (the
+        -- `boundary` suite measures it), so the refusal is `false` and the
+        -- reason crosses. The one error this case allows is the refusal's log line.
+        t.ok(type(why) == 'string' and why ~= '',
+            ('and the reason crosses the boundary (%s)'):format(tostring(why)))
     end)
 end)

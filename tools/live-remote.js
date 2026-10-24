@@ -46,6 +46,16 @@ const HARNESS_ACES = [
   'add_ace resource.cis_test command.cis_audit allow',
 ]
 
+// The convars the CI server.cfg sets (RUNBOOK.md, CI step 3; ci-live-lib.js).
+// The VPS servers' own server.cfg has none of them, so they are set for this
+// server process only, before cis_libs is ensured: without the supplier the
+// fake providers claim no slot and the registry and lifecycle suites fail.
+const HARNESS_CONVARS = [
+  'set cis_config_supplier cis_test_providers',
+  'set cis_authorized_resources cis_test,cis_test_providers,cis_test_c',
+  'set cis_check_version false',
+]
+
 const DEFAULT_PLAYER_WAIT_MS = 5 * 60 * 1000
 
 // Reads the remote fields from the loaded live env. Throws with a reason.
@@ -74,9 +84,10 @@ function shq(s) {
 }
 
 // A console command crosses a remote shell, so it is held to the characters
-// the harness's own commands use.
+// the harness's own commands use. A comma separates the authorized list and is
+// not special to the remote shell.
 function safeCommand(cmd) {
-  if (!/^[A-Za-z0-9_ .:-]+$/.test(cmd)) throw new Error(`refusing console command with shell characters: ${cmd}`)
+  if (!/^[A-Za-z0-9_ .:,-]+$/.test(cmd)) throw new Error(`refusing console command with shell characters: ${cmd}`)
   return cmd
 }
 
@@ -194,6 +205,6 @@ function deployAll(t, info, timestamp) {
 }
 
 module.exports = {
-  SERVERS, HARNESS, HARNESS_ACES, LOCK,
+  SERVERS, HARNESS, HARNESS_ACES, HARNESS_CONVARS, LOCK,
   remoteConfig, resourceDir, transport, preflight, buildEntries, deployAll, safeCommand, shq,
 }

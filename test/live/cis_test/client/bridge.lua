@@ -102,3 +102,20 @@ RegisterNetEvent('cis_test:client_suite', function(suiteName)
         result.restoreWhy and (': ' .. tostring(result.restoreWhy)) or ''))
     send('<suite:' .. tostring(suiteName) .. '>', result)
 end)
+
+-- The client's own error counts, for a driver that cannot read this client's
+-- F8 or its CitizenFX log: every loop cis_libs runs on this client and how many
+-- times it raised, which is what the console prints as "loop X raised N
+-- time(s)" and as a SCRIPT ERROR.
+RegisterNetEvent('cis_test:client_health', function()
+    local ok, d = pcall(function() return exports['cis_libs']:GetDiagnostics() end)
+    if not ok or type(d) ~= 'table' then
+        send('<health>', { error = 'GetDiagnostics raised: ' .. tostring(d) })
+        return
+    end
+    send('<health>', {
+        loops = (d.probes and d.probes.loops) or {},
+        counters = d.counters or {},
+        memoryKb = d.memoryKb,
+    })
+end)

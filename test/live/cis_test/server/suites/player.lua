@@ -30,9 +30,8 @@ end)
 -- unfocused FiveM client throttles its own frame loop.
 local SUITE_TIMEOUT_MS = 60000
 
--- Asks the client to run one suite and waits for the answer.
-local function runClientSuite(suiteName, timeoutMs)
-    local key = '<suite:' .. tostring(suiteName) .. '>'
+-- Asks the client for one answer and waits for it.
+local function askClient(eventName, key, arg, timeoutMs)
     local answered, payload = false, nil
     pending[key] = function(p)
         answered, payload = true, p
@@ -47,7 +46,7 @@ local function runClientSuite(suiteName, timeoutMs)
     end
     if not src then return nil, 'no player connected' end
 
-    TriggerClientEvent('cis_test:client_suite', src, suiteName)
+    TriggerClientEvent(eventName, src, arg)
 
     local deadline = GetGameTimer() + (timeoutMs or 30000)
     while GetGameTimer() < deadline do
@@ -55,7 +54,12 @@ local function runClientSuite(suiteName, timeoutMs)
         Wait(50)
     end
     pending[key] = nil
-    return nil, ('the client did not answer %q within %d ms'):format(tostring(suiteName), timeoutMs or 30000)
+    return nil, ('the client did not answer %q within %d ms'):format(tostring(key), timeoutMs or 30000)
+end
+
+-- Asks the client to run one suite and waits for the answer.
+local function runClientSuite(suiteName, timeoutMs)
+    return askClient('cis_test:client_suite', '<suite:' .. tostring(suiteName) .. '>', suiteName, timeoutMs)
 end
 
 -- Every client suite the server knows about, asked for in turn.
@@ -139,6 +143,30 @@ CisTestRunner.Suite('player', { tier = 'player', realm = 'client', needsPlayer =
 
         ::continue::
         t.ok(firstResult ~= nil, 'at least one client suite answered')
+    end)
+
+    -- THE CLIENT'S SCRIPT ERRORS, without the client's log. A cis_libs loop that
+    -- raises on the client prints a SCRIPT ERROR to F8 and nowhere the driver
+    -- can read; its count is in the client's own diagnostics, so the server
+    -- asks for it. Run after the suites, so it covers everything they drove.
+    t.case('no cis_libs loop raised on the client during the run', function()
+        local health, why = askClient('cis_test:client_health', '<health>', nil, 15000)
+        if not health then
+            t.fail('the client answered its health check', tostring(why))
+            return
+        end
+        if health.error then
+            t.fail('the client answered its health check', tostring(health.error))
+            return
+        end
+        local raised = {}
+        for name, n in pairs(health.loops or {}) do
+            if type(n) == 'number' and n > 0 then raised[#raised + 1] = ('%s=%d'):format(name, n) end
+        end
+        table.sort(raised)
+        t.eq(#raised, 0, ('client loops that raised: %s'):format(#raised > 0 and table.concat(raised, ', ') or 'none'))
+        print(('[cis_test] client health: loops raised [%s], memory %.0f KB')
+            :format(table.concat(raised, ', '), tonumber(health.memoryKb) or -1))
     end)
 end)
 

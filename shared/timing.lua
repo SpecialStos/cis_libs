@@ -36,14 +36,18 @@ local function nowMs()
     if type(CisTiming._now) == 'function' then
         return CisTiming._now()
     end
-    -- rawget: these are CfxLua extensions, absent from stock Lua's os table.
-    local nano = rawget(os, 'nanotime')
-    if type(nano) == 'function' then
-        return nano() / 1e6
-    end
-    local micro = rawget(os, 'microtime')
-    if type(micro) == 'function' then
-        return micro() / 1e3
+    -- rawget: these are CfxLua extensions, absent from stock Lua's os table. The
+    -- FiveM CLIENT has no os table at all, so the table itself is checked first.
+    local osLib = os
+    if type(osLib) == 'table' then
+        local nano = rawget(osLib, 'nanotime')
+        if type(nano) == 'function' then
+            return nano() / 1e6
+        end
+        local micro = rawget(osLib, 'microtime')
+        if type(micro) == 'function' then
+            return micro() / 1e3
+        end
     end
     if type(GetGameTimer) == 'function' then
         return GetGameTimer()

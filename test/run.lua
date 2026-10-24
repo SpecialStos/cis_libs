@@ -1314,6 +1314,18 @@ do
     expect(wallSnap and wallSnap.last == 4,
         ('8.1b: a raising body does not leak its exclusions (got %s)'):format(tostring(wallSnap and wallSnap.last)))
 
+    -- The FiveM CLIENT runtime has no `os` table at all: rawget(os, ...) raised
+    -- there, so every zone pass on a real client errored and no zone ever fired.
+    local realOs = os
+    CisTiming.reset()
+    os = nil -- luacheck: ignore 121
+    local noOsOk, noOsWhy = pcall(CisTiming.measure, 'zonePass', function() wallMs = wallMs + 2 end)
+    os = realOs -- luacheck: ignore 121
+    wallSnap = CisTiming.snapshot().zonePass
+    expect(noOsOk and wallSnap and wallSnap.last == 2,
+        ('8.1b: with no os table (the FiveM client) the clock falls back to GetGameTimer (ok=%s why=%s last=%s)')
+            :format(tostring(noOsOk), tostring(noOsWhy), tostring(wallSnap and wallSnap.last)))
+
     os.clock, os.nanotime, os.microtime, GetGameTimer = realClock, realNano, realMicro, realTimer
     CisTiming.reset()
 end

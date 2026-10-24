@@ -283,15 +283,28 @@ end)
 -- a comment: cis_libs' own realms install NONE of the fifteen. An empty
 -- `present` is the proof, and the probe publishes it precisely because an empty
 -- answer is the whole claim.
+-- The module count is read from cis_libs' own manifest rather than written
+-- here: it was fifteen, then grew, and a hard-coded number went stale.
+local function moduleFileCount()
+    local n = 0
+    for i = 0, GetNumResourceMetadata('cis_libs', 'file') - 1 do
+        local path = GetResourceMetadata('cis_libs', 'file', i) or ''
+        if path:match('^shared/algo/[%w_]+%.lua$') or path:match('^shared/util/[%w_]+%.lua$') then
+            n = n + 1
+        end
+    end
+    return n
+end
+
 CisTestRunner.Suite('modules', { tier = 'lifecycle', realm = 'server' }, function(t)
-    t.case('cis_libs installs none of its fifteen module globals', function()
+    t.case('cis_libs installs none of its module globals', function()
         local probes = exports['cis_libs']:GetDiagnostics().probes.modules or {}
         local present = probes.present or {}
         t.eq(#present, 0, ('no module global exists on the server realm (%s)')
             :format(json.encode(present)))
-        t.eq(probes.known, 15,
-            ('and the probe knows about all fifteen, so an empty answer is a real '
-                .. 'one and not a probe that found nothing (got %s)')
+        t.eq(probes.known, moduleFileCount(),
+            ('and the probe knows about every module in files {}, so an empty answer '
+                .. 'is a real one and not a probe that found nothing (got %s)')
                 :format(tostring(probes.known)))
     end)
 
@@ -355,7 +368,8 @@ CisTestRunner.Suite('modules', { tier = 'lifecycle', realm = 'server' }, functio
         t.eq(bogus.ok, false, 'an unknown name is refused')
         t.ok(bogus.why and tostring(bogus.why):find('not_a_module', 1, true) ~= nil,
             ('and the refusal names what was asked for (%s)'):format(tostring(bogus.why)))
-        t.ok(type(bogus.valid) == 'table' and #bogus.valid == 15,
-            'and it lists the valid names, so the caller can fix the call')
+        t.ok(type(bogus.valid) == 'table' and #bogus.valid == moduleFileCount(),
+            ('and it lists the valid names, so the caller can fix the call (%s of %d)')
+                :format(type(bogus.valid) == 'table' and #bogus.valid or 'none', moduleFileCount()))
     end)
 end)

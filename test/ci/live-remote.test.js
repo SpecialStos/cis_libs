@@ -117,8 +117,20 @@ test('every ssh call is non-interactive and goes to the configured host', () => 
 })
 
 test('the harness ACE and sequence lines all pass the console filter', () => {
-  for (const cmd of remote.HARNESS_ACES) assert.equal(remote.safeCommand(cmd), cmd)
+  for (const cmd of remote.HARNESS_ACES.concat(remote.HARNESS_CONVARS)) assert.equal(remote.safeCommand(cmd), cmd)
   assert.ok(!remote.HARNESS.includes('cis_ctl'), 'cis_ctl is the Windows bridge; rcon replaces it')
+})
+
+test('the harness convars match the CI server.cfg', () => {
+  const cfg = require('../../tools/ci-live-lib.js').buildServerCfg({})
+  const ciSets = cfg.split('\n').filter((l) => /^set cis_/.test(l)).map((l) => l.replace(/"/g, ''))
+  assert.deepEqual(remote.HARNESS_CONVARS, ciSets)
+})
+
+test('a semicolon, quote or substitution is still refused after commas were allowed', () => {
+  for (const bad of ['set a b;rm', 'set a "b"', 'set a $(id)', 'set a `id`', 'set a b|c', 'set a b&c']) {
+    assert.throws(() => remote.safeCommand(bad))
+  }
 })
 
 // --------------------------------------------------------------- preflight

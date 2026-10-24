@@ -5151,6 +5151,13 @@
       "find": "    -- source == '' and could point a real key at any entity.\n    if source == nil or source == '' then\n        return\n    end\n",
       "replace": "    -- source == '' and could point a real key at any entity.\n",
       "why": "Accept a local TriggerEvent of cis_libs:client:syncNet. Any client resource can point a real networked key at an entity it owns, and its forged cis_sync bag is then trusted."
+    },
+    {
+      "id": "M880",
+      "file": "shared/timing.lua",
+      "find": "    if type(osLib) == 'table' then\n",
+      "replace": "    if true then\n",
+      "why": "Drop the os-table check. The FiveM client has no os table, so rawget(os, ...) raises in every timed pass and the client zone loop dies: no zone ever fires."
     }
   ]
 }
