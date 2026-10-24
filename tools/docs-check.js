@@ -23,6 +23,7 @@ const DOC_FILES = [
   'DOCUMENTATION.md',
   'CHANGELOG.md',
   'LICENSE.md',
+  'SECURITY.md',
   'test/LIVE.md',
   'test/live/RUNBOOK.md',
   'test/live/UNRUN.md',

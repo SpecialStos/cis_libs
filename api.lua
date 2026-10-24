@@ -31,13 +31,10 @@ return {
     -- cis_bridge. The contract major below did NOT move, because no `Cis.*`
     -- name or signature changed -- that was the constraint the split was
     -- designed around, and it is the reason a 1.0 consumer needs no edit.
-    version = '1.0.0',
-    -- The release this branch ships as (docs/V1.md D7). The three version strings
-    -- above stay at the current release until the bump, while new entries already
-    -- say `since = '1.1.0'`. The validator allows a `since` up to this number and
-    -- no further, and fails when it is not ahead of `version`: at the bump, set
-    -- `version` to this number and DELETE this line.
-    unreleased = '1.1.0',
+    -- 1.1.0 is the first release published on GitHub (docs/V1.md D27). A new
+    -- entry written before the next bump says `since` the release it will ship
+    -- in; add an `unreleased` field naming it so the validator accepts that.
+    version = '1.1.0',
     -- Contract major. Bumped only by a breaking change. An older consumer
     -- pinned to a prior major gets an explicit
     -- typed refusal, never a silently wrong answer.

@@ -1,6 +1,6 @@
 # cis_libs — documentation
 
-**Version 1.0.0**, the first public release. Contract **`api = 1`**.
+**Version 1.1.0**. Contract **`api = 1`**.
 `docs/archive/DOCUMENTATION-1.x.md` describes the unpublished development
 builds that preceded 1.0.0. It is not current and documents no release.
 
@@ -18,7 +18,7 @@ Three facts the suite enforces:
 1. **`cis_libs` owns no table, reads no config file, and calls no third-party
    resource by name.** It is a boundary, not an implementation.
 2. **The contract is versioned on its own.** `api.lua` declares `api = 1`; the
-   product version (1.0.0) can move without it. A consumer checks the
+   product version (1.1.0) can move without it. A consumer checks the
    contract major, not the product version.
 3. **A missing product is a refusal with a reason**, not a nil that looks like
    "not found". Run `cis_debug` on the server console.
@@ -38,6 +38,10 @@ points, commands, diagnostics. Every capability call with no provider answers
 ---
 
 ## 1. Install
+
+Server owners: follow the steps in README.md § Install (download the release
+zip, check it, keep the folder name, ensure order, `cis_doctor`). This section
+is for resource authors.
 
 OneSync on. Server build ≥ 4500. Both are declared on the manifest.
 
@@ -1221,6 +1225,10 @@ slot.
 | A zone of another resource is not found by `Cis.zones.contains` | Expected: through `init.lua` it tests the calling resource's own zones (§5.2) |
 | A zone is at the wrong coordinates | Bracket-form export call — argument 1 was the exports table |
 | `GetDiagnostics().memoryKb` climbs for 30 minutes then drops | You collected in the **caller** VM. Pass `{ collect = true }` |
+| Boot prints `[cis_libs] SECURITY: door and sync mutations are REFUSED` | Expected until a resource is authorised. Add the resources that need door or sync writes (§3) |
+| `cis_libs: <resource> uses "<name>", deprecated since 1.1.0` | Not an error: that resource still works, once per name. Its author moves to the named replacement before 2.0.0 |
+| A resource will not start and names `cis_libs` as a missing dependency | The folder is not named exactly `cis_libs` (a `cis_libs-main` or `cis_libs-1.1.0` folder), or `ensure cis_libs` comes after that resource |
+| `cis_doctor` prints nothing | Run it in the server console, not F8 or chat: it answers only the console |
 
 ---
 

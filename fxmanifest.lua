@@ -8,7 +8,7 @@ game 'gta5'
 name "Cisoko - Library System"
 description "Zero-dependency shared library. Owns no table, no config, no framework."
 author "Cisoko"
-version "1.0.0"
+version "1.1.0"
 lua54 'yes'
 
 dependencies {

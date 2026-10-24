@@ -8,9 +8,27 @@ The **contract** is versioned separately and is still `api = 1`.
 
 ## [Unreleased]
 
-Correctness, security and performance work across every layer, plus a
-first-party NUI. Several fixes change a documented answer; they are listed
-under **Changed** so nobody upgrades into them blind.
+## [1.1.0] — 2026-10-28
+
+The first release published on GitHub. Correctness, security and performance
+work across every layer, plus a first-party NUI. Several fixes change a
+documented answer; they are listed under **Changed** so nobody upgrades into
+them blind.
+
+### For server owners
+
+- **Install from the release zip** and keep the folder name `cis_libs`;
+  README.md § Install has the steps, including the checksum.
+- **Nothing to configure for a fresh install.** At boot, a
+  `SECURITY: door and sync mutations are REFUSED` block is expected until a
+  resource that needs those writes is authorised (DOCUMENTATION.md §3).
+- **Idle cost** measured on Linux FXServer with no player and no consumer:
+  0.002 to 0.005 ms per server frame on the ESX, QBCore, Qbox and cis_core
+  test servers.
+- **A resource built on 1.0.0 keeps working.** Names it uses that move to
+  cis_bridge or cis_core log one `deprecated` line each; they are removed in
+  2.0.0, not in this release.
+- **Report a vulnerability privately** (SECURITY.md).
 
 ### Upgrading from 1.0.0
 
@@ -359,6 +377,11 @@ Check these first; each is a line under **Changed** or **Deprecated**.
 
 ### Added
 
+- **Release documentation.** README.md § Install covers a fresh download
+  (release zip, `SHA256SUMS`, folder name, ensure order, `cis_doctor`);
+  SECURITY.md says how to report a vulnerability; DOCUMENTATION.md §9 lists
+  the boot security block, the deprecation line, a wrong folder name and
+  `cis_doctor` outside the console.
 - **The rest of the built-in interface under `Cis.ui`** (ox_lib names):
   `Cis.ui.context.register/show/hide/getOpen`, `Cis.ui.menu.register/show/
   hide/getOpen/setOptions`, `Cis.ui.radial.add/remove/clear/register/hide/

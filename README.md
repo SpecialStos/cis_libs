@@ -1,7 +1,7 @@
 # cis_libs
 
 A FiveM library. Zero runtime dependencies. Cisoko Community Source & Identity
-License 1.0 (the folder must stay named `cis_libs`). Product **1.0.0**,
+License 1.0 (the folder must stay named `cis_libs`). Product **1.1.0**,
 contract **`api = 1`**.
 
 It is the shared boundary of the Cisoko platform: naming, marshalling, gating,
@@ -16,11 +16,46 @@ from `api.lua`.
 
 ## Install
 
-OneSync on. Server build 4500+.
+You need OneSync on and server build 4500 or later. You do not need a
+framework, ox_lib or oxmysql for cis_libs itself.
 
-```cfg
-ensure cis_libs
-```
+1. **Download the release, not the source.** On the
+   [releases page](https://github.com/SpecialStos/cis_libs/releases), download
+   `cis_libs-<version>.zip` and `SHA256SUMS`. Do not use the green
+   **Code → Download ZIP** button: that is the development tree, with tests,
+   in a folder named `cis_libs-main`.
+2. **Check the download.** In the folder that holds both files, on Linux:
+
+   ```bash
+   sha256sum -c SHA256SUMS
+   ```
+
+   It must print `OK`. On Windows, run
+   `Get-FileHash cis_libs-<version>.zip` in PowerShell and compare the hash
+   with the line in `SHA256SUMS` (case does not matter).
+3. **Unzip into your `resources` folder.** The zip already holds a folder
+   named `cis_libs`. Keep that name exactly: resources load
+   `@cis_libs/init.lua` by it, and the licence requires it. Replacing an older
+   copy: stop the server, delete the old `cis_libs` folder, then unzip.
+4. **Add it to `server.cfg`**, after your framework and `oxmysql` and before
+   every resource that uses cis_libs:
+
+   ```cfg
+   ensure cis_libs
+   ```
+
+5. **Start the server and check it.** In the server console, run `cis_doctor`.
+   It prints `[cis_libs] self-check: ok`. At boot, a
+   `[cis_libs] SECURITY: door and sync mutations are REFUSED` block is
+   expected on a fresh install: no resource is authorised yet (see
+   [Trust](#trust)). Each resource that needs those writes says so in its own
+   install steps.
+
+A resource built on an older cis_libs may log one line per name it uses,
+`cis_libs: <resource> uses "<name>", deprecated since 1.1.0 and removed in
+2.0.0`. It still works; the line is for that resource's author.
+
+### For resource authors
 
 ```lua example
 -- consumer fxmanifest.lua — both lines, always
@@ -130,10 +165,11 @@ caller VM does not collect cis_libs.
 - [docs/MIGRATING-FROM-OX_LIB.md](docs/MIGRATING-FROM-OX_LIB.md) — ox_lib calls mapped to cis_libs
 - [CHANGELOG.md](CHANGELOG.md)
 - [LICENSE.md](LICENSE.md)
+- [SECURITY.md](SECURITY.md) — how to report a vulnerability
 - [test/LIVE.md](test/LIVE.md) — live run ids
 
-Report a still-exploitable mutator bypass as a **private** GitHub security
-advisory on this repository. Do not file a public issue for that.
+Report a security problem privately, as [SECURITY.md](SECURITY.md) says. Do
+not file a public issue for it.
 
 ## Development
 
