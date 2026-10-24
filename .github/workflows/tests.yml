@@ -120,6 +120,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Lua 5.4
+        # Rows with "check": "lua54" (M433, M434, M462, M463) run
+        # tools/run-lua54.js. Without an interpreter that script fails with "no
+        # Lua 5.4 interpreter found", which looks like a killed mutation
+        # whatever the mutation does. tools/mutate.js also refuses to count that
+        # case as killed, but the job must install the interpreter so the rows
+        # really test something.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.4
+          lua5.4 -v
+
       - name: Apply every mutation and require the suite to fail
         # A mutation that still passes is a SURVIVOR and means the check it was
         # written for does not exist. A row whose find no longer matches is
