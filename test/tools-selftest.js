@@ -193,6 +193,48 @@ check('mutate: test/mutations.json has no duplicate id', () => {
   assert.deepStrictEqual(mutate.duplicateIds(spec.mutations), [])
 })
 
+check('mutate: --shard=K/N is parsed, and a malformed shard is refused', () => {
+  assert.strictEqual(mutate.parseShard(['M1', '--no-copy-modules']), null)
+  assert.deepStrictEqual(mutate.parseShard(['--shard=3/16']), { k: 3, n: 16 })
+  assert.deepStrictEqual(mutate.parseShard(['--shard=1/1']), { k: 1, n: 1 })
+  for (const bad of ['--shard', '--shard=', '--shard=0/4', '--shard=5/4', '--shard=1/0', '--shard=a/4',
+    '--shard=1/4x', '--shard=1-4', '--shard=1/2/3', '--shard=-1/4']) {
+    assert.throws(() => mutate.parseShard([bad]), /shard/, bad)
+  }
+  assert.throws(() => mutate.parseShard(['--shard=1/2', '--shard=2/2']), /more than once/)
+})
+
+check('mutate: the shards partition the rows, each row in exactly one', () => {
+  const rows = Array.from({ length: 53 }, (_, i) => ({ id: 'M' + i }))
+  for (const n of [1, 2, 7, 16, 53, 80]) {
+    const seen = new Map()
+    for (let k = 1; k <= n; k++) {
+      for (const r of mutate.selectShard(rows, { k, n })) seen.set(r.id, (seen.get(r.id) || 0) + 1)
+    }
+    assert.strictEqual(seen.size, rows.length, `n=${n}: a row lands in no shard`)
+    assert.ok([...seen.values()].every(c => c === 1), `n=${n}: a row lands in more than one shard`)
+  }
+  // No shard asked for: every row, untouched.
+  assert.strictEqual(mutate.selectShard(rows, null), rows)
+  // Shards are by index after the filter, so they stay within one row of equal.
+  const sizes = [1, 2, 3].map(k => mutate.selectShard(rows, { k, n: 3 }).length)
+  assert.deepStrictEqual(sizes, [18, 18, 17])
+})
+
+check('mutate: the real table is split into N shards that together hold every row', () => {
+  const spec = JSON.parse(fs.readFileSync(path.join(root, 'test', 'mutations.json'), 'utf8'))
+  const got = []
+  for (let k = 1; k <= 20; k++) got.push(...mutate.selectShard(spec.mutations, { k, n: 20 }).map(r => r.id))
+  assert.deepStrictEqual(got.slice().sort(), spec.mutations.map(r => r.id).sort())
+})
+
+check('mutate: a bad --shard exits 2 before any row runs', () => {
+  const r = require('child_process').spawnSync(process.execPath, [path.join(root, 'tools', 'mutate.js'), '--shard=0/16'],
+    { encoding: 'utf8' })
+  assert.strictEqual(r.status, 2)
+  assert.match(r.stderr, /malformed shard/)
+})
+
 // ---------------------------------------------------------- suite-verdict.js
 const { judge } = require('../test/suite-verdict.js')
 

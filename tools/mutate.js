@@ -36,6 +36,30 @@ function duplicateIds(rows) {
   return [...dup]
 }
 
+// `--shard=K/N`: run the K-th of N slices of the rows (K is 1-based). CI runs
+// the rows as a matrix of shards, because one job running every row takes hours.
+// A row belongs to shard K when its index, after the id filter, is K-1 modulo N,
+// so the N shards partition the rows: every row runs in exactly one of them.
+// Returns null when no shard was asked for, { k, n } when one was, and throws on
+// anything else -- a shard that is silently ignored makes every job run every
+// row, and a shard that is silently wrong drops rows from the gate.
+function parseShard(argv) {
+  const given = argv.filter(a => a === '--shard' || a.startsWith('--shard=') || a.startsWith('--shard '))
+  if (!given.length) return null
+  if (given.length > 1) throw new Error('--shard given more than once')
+  const m = /^--shard=([1-9]\d{0,5})\/([1-9]\d{0,5})$/.exec(given[0])
+  if (!m) throw new Error(`malformed shard '${given[0]}', expected --shard=K/N with 1 <= K <= N`)
+  const k = Number(m[1])
+  const n = Number(m[2])
+  if (k > n) throw new Error(`shard ${k}/${n}: K must not be greater than N`)
+  return { k, n }
+}
+
+function selectShard(rows, shard) {
+  if (!shard) return rows
+  return rows.filter((_, i) => i % shard.n === shard.k - 1)
+}
+
 // What a gate that CAUGHT a defect looks like in its output: a suite FAIL line,
 // a `failed=N` summary, a validator E-code, or node:test's `not ok` / `# fail`
 // (TAP) and its spec reporter's `✖ name` / `ℹ fail N` lines.
@@ -112,16 +136,33 @@ function runSuite(dir) {
 }
 
 function main() {
+  let shard
+  try {
+    shard = parseShard(process.argv.slice(2))
+  } catch (e) {
+    console.error(`mutate: ${e.message}`)
+    process.exit(2)
+  }
   const spec = JSON.parse(fs.readFileSync(path.join(root, 'test', 'mutations.json'), 'utf8'))
+  // Checked over ALL rows, whatever the shard: a duplicate id must fail every
+  // shard, not hide in the one that happens to hold both.
   const dups = duplicateIds(spec.mutations)
   if (dups.length) {
     console.error(`duplicate mutation id(s) in test/mutations.json: ${dups.join(', ')}`)
     process.exit(2)
   }
-  const rows = spec.mutations.filter(m => !only.length || only.includes(m.id))
-  if (!rows.length) {
+  const filtered = spec.mutations.filter(m => !only.length || only.includes(m.id))
+  if (!filtered.length) {
     console.error(`no mutations matched ${JSON.stringify(only)}`)
     process.exit(2)
+  }
+  const rows = selectShard(filtered, shard)
+  const shardLabel = shard ? ` (shard ${shard.k}/${shard.n} of ${filtered.length} rows)` : ''
+  if (!rows.length) {
+    // More shards than rows. Nothing to prove here, and not a failure: the
+    // other shards hold every row.
+    console.log(`0 mutations${shardLabel}: this shard holds no row`)
+    process.exit(0)
   }
 
   const results = []
@@ -239,7 +280,7 @@ function main() {
   const stale = results.filter(r => r.state === 'STALE')
   const errored = results.filter(r => r.state === 'ERROR')
   console.log('-'.repeat(120))
-  console.log(`${results.length} mutations: ${killed} killed, ${survivors.length} survivors, ${stale.length} stale, ${errored.length} errored`)
+  console.log(`${results.length} mutations${shardLabel}: ${killed} killed, ${survivors.length} survivors, ${stale.length} stale, ${errored.length} errored`)
   if (survivors.length) {
     console.log('')
     console.log('SURVIVORS -- the suite passed with the defect still in place:')
@@ -260,4 +301,4 @@ function main() {
 
 if (require.main === module) main()
 
-module.exports = { classify, duplicateIds, CHECKS }
+module.exports = { classify, duplicateIds, parseShard, selectShard, CHECKS }
