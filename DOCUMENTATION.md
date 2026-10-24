@@ -45,7 +45,7 @@ OneSync on. Server build ≥ 4500. Both are declared on the manifest.
 ensure cis_libs
 ```
 
-```lua
+```lua example
 dependency 'cis_libs'
 shared_script '@cis_libs/init.lua'
 ```
@@ -56,7 +56,7 @@ registry that nothing else can see.
 
 Call with a colon:
 
-```lua
+```lua example
 exports['cis_libs']:GetCapabilities()
 ```
 
@@ -98,7 +98,7 @@ the first real `SetConfig` is accepted.
 
 `security` **replaces** `Security` outright. It is not merged.
 
-```lua
+```lua example
 exports['cis_libs']:SetConfig({
     UpdateInterval = { Player = 500, Weapon = 500 },
 }, {

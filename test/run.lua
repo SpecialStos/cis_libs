@@ -42,6 +42,7 @@ if not CIS_TEST_FILES then
     -- api.lua is not in the manifest, so the walk above never reaches it.
     CIS_TEST_FILES['api.lua'] = assert(readDisk('api.lua'))
     CIS_TEST_FILES['README.md'] = assert(readDisk('README.md'))
+    CIS_TEST_FILES['DOCUMENTATION.md'] = assert(readDisk('DOCUMENTATION.md'))
     CIS_TEST_FILES['LICENSE.md'] = assert(readDisk('LICENSE.md'))
 end
 
@@ -77,10 +78,33 @@ if not CIS_SUITE_MODE then
         'shared/zonegeom.lua', 'shared/hooks.lua',
         'shared/pending.lua', 'shared/utf8.lua', 'shared/owned.lua', 'shared/config.lua',
         'shared/histogram.lua', 'shared/ready.lua', 'shared/detect.lua',
-        -- shared/statebag.lua is last in the manifest but not preloaded: it calls
-        -- IsDuplicityVersion at load, so the suites that cover it load it
-        -- themselves once their native stubs exist.
+        -- Last, like the manifest. statebag.lua calls IsDuplicityVersion,
+        -- AddEventHandler and exports at load, which no suite has stubbed yet,
+        -- so exec() gives it three throwaway stubs and takes them away again.
+        'shared/statebag.lua',
     }
+    local LOAD_STUBS = { ['shared/statebag.lua'] = true }
+    -- SHARED IS THE MANIFEST'S shared_scripts, in the manifest's order, minus
+    -- init.lua. A hand-kept copy drifted twice (histogram and ready swapped,
+    -- statebag missing), so it is compared here, as test/suite-runner.js does.
+    do
+        local manifest = assert(readDisk('fxmanifest.lua'))
+        local block = assert(manifest:match('shared_scripts%s*(%b{})'), 'fxmanifest.lua has no shared_scripts block')
+        local expected = {}
+        for entry in block:gmatch("'([^']+%.lua)'") do
+            if entry ~= 'init.lua' then expected[#expected + 1] = entry end
+        end
+        local same = #expected == #SHARED
+        for i = 1, #expected do
+            if SHARED[i] ~= expected[i] then same = false end
+        end
+        if not same then
+            io.stderr:write('FAIL test preload order differs from fxmanifest.lua shared_scripts\n')
+            io.stderr:write('  manifest: ' .. table.concat(expected, ' ') .. '\n')
+            io.stderr:write('  driver:   ' .. table.concat(SHARED, ' ') .. '\n')
+            os.exit(2)
+        end
+    end
     local ALGO_UTIL = {
         'shared/algo/curve.lua', 'shared/algo/heap.lua', 'shared/algo/interp.lua',
         'shared/algo/lru.lua', 'shared/algo/random.lua', 'shared/algo/rate.lua',
@@ -167,7 +191,26 @@ if not CIS_SUITE_MODE then
             local src = assert(readDisk(rel_))
             local chunk, err = load(src, '@' .. rel_, 't', env)
             if not chunk then error(err, 0) end
-            chunk()
+            if not LOAD_STUBS[rel_] then
+                chunk()
+                return
+            end
+            -- The same stubs as test/suite-runner.js, present only while the
+            -- file loads: a suite that reads the global afterwards must see
+            -- what it set up itself.
+            local saved = {
+                IsDuplicityVersion = rawget(env, 'IsDuplicityVersion'),
+                AddEventHandler = rawget(env, 'AddEventHandler'),
+                exports = rawget(env, 'exports'),
+            }
+            env.IsDuplicityVersion = function() return false end
+            env.AddEventHandler = function() end
+            env.exports = function() end
+            local ok, e2 = pcall(chunk)
+            env.IsDuplicityVersion = saved.IsDuplicityVersion
+            env.AddEventHandler = saved.AddEventHandler
+            env.exports = saved.exports
+            if not ok then error(e2, 0) end
         end
 
         local EXITED = {}

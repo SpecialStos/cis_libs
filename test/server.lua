@@ -2167,10 +2167,8 @@ do
     env.reset()
 end
 
--- ==================================================================== report
-for i = 1, #failures do
-    io.stderr:write('FAIL(server): ' .. failures[i] .. '\n')
-end
+-- (The suite reports once, at the very end. A copy of the failure loop here used
+-- to print every failure so far a second time, and run.js counts FAIL lines.)
 -- ===================== the net guard and the limiter, tested for their defaults
 --
 -- These exist because two mutations survived the whole suite at the baseline:

@@ -22,7 +22,7 @@ OneSync on. Server build 4500+.
 ensure cis_libs
 ```
 
-```lua
+```lua example
 -- consumer fxmanifest.lua — both lines, always
 dependency 'cis_libs'
 shared_script '@cis_libs/init.lua'
@@ -34,7 +34,7 @@ chunk, and a second copy of the zone grid is an empty grid.
 
 Call exports with a colon, never a bracket:
 
-```lua
+```lua example
 exports['cis_libs']:GetCapabilities()   -- yes
 ```
 
@@ -53,7 +53,7 @@ assert(type(caps) == 'table')
 Twenty-four pure-Lua modules (`Cis.requireList()` names them) load on demand
 into the calling resource's own Lua state, with no global left behind:
 
-```lua
+```lua example
 local semver = Cis.require('semver')
 local ok = semver.satisfies('1.4.2', '^1.2')   -- true
 ```
@@ -73,7 +73,7 @@ local ok = semver.satisfies('1.4.2', '^1.2')   -- true
 | Easing, damping, splines, rate limits, sliding windows | `interp`, `curve`, `rate`, `window` |
 | Deep copy, merge, sorted keys | `table` |
 
-```lua
+```lua example
 local locale, print = Cis.require('locale'), Cis.require('print')
 print.info(locale.t('shop.welcome', { name = 'Ana' }))
 
@@ -95,7 +95,7 @@ Zones, points and keybinds made through `init.lua` run in **your** resource's
 VM, so their handlers are plain functions and nothing crosses per frame
 (DOCUMENTATION.md §5.2). They survive a cis_libs restart.
 
-```lua
+```lua example
 Cis.zones.box('shop', vector3(1.0, 2.0, 3.0), vector3(4.0, 4.0, 3.0), {
     onEnter = function(zone) Cis.ui.textUI.show('[E] Shop') end,
     onExit = function(zone) Cis.ui.textUI.hide() end,

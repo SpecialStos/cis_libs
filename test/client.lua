@@ -888,7 +888,10 @@ do
     end
     check(created == 0,
         'a networked record is NOT spawned again on the client')
-    check(env.EXPORTS and true or true, 'the export table is present')
+    -- And it is not tracked as a locally created entity either: the handle only
+    -- arrives through the cis_sync state bag (the 4.5 case below).
+    check(env.EXPORTS.GetSyncedEntities()[wireKeyOf('prop_3')] == nil,
+        'a networked record is not tracked as a local spawn')
     env.reset()
 end
 
