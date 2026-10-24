@@ -2039,14 +2039,30 @@ do
         ('SecureNetOn returns whether the event was actually bound (got %s)')
             :format(tostring(got)))
 
-    -- And opts are passed through: a tight limit must actually take effect.
-    local before = 0
-    for _ = 1, 3 do
-        if CisRateOk(1, 'cis_test:limited', 1000, 1) == false then before = before + 1 end
+    -- And opts are passed through: a tight limit must actually take effect. The
+    -- event is bound, then raised twice by one player inside the window; with
+    -- `maxHits = 1` the second raise must not reach the handler. An export that
+    -- dropped `opts` would run on the default limit and let both through.
+    local bound = {}
+    local savedRegister = RegisterNetEvent
+    function RegisterNetEvent(name, fn) bound[name] = fn end
+    local reached = 0
+    local bindOk = env.EXPORTS.SecureNetOn('cis_test:limited', function() reached = reached + 1 end,
+        { maxHits = 1, windowMs = 1000 })
+    local savedSrc = source
+    source = 3
+    if bound['cis_test:limited'] then
+        bound['cis_test:limited']()
+        bound['cis_test:limited']()
     end
-    env.EXPORTS.SecureNetOn('cis_test:limited', function() end, { maxHits = 1, windowMs = 1000 })
+    source = savedSrc
+    RegisterNetEvent = savedRegister
+    check(bindOk == true and bound['cis_test:limited'] ~= nil,
+        'opts: the limited event is bound through SecureNetOn')
+    check(reached == 1,
+        ('opts reach CisNetOn: maxHits = 1 lets exactly one of two raises through (got %d)')
+            :format(reached))
     env.reset()
-    check(true, 'opts reach CisNetOn, so a caller limit is not ignored')
 end
 
 -- 7.11 typed net payloads. Without schema, dispatch is unchanged. With schema,

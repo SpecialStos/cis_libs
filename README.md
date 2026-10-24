@@ -22,7 +22,7 @@ OneSync on. Server build 4500+.
 ensure cis_libs
 ```
 
-```lua
+```lua example
 -- consumer fxmanifest.lua — both lines, always
 dependency 'cis_libs'
 shared_script '@cis_libs/init.lua'
@@ -34,7 +34,7 @@ chunk, and a second copy of the zone grid is an empty grid.
 
 Call exports with a colon, never a bracket:
 
-```lua
+```lua example
 exports['cis_libs']:GetCapabilities()   -- yes
 ```
 
@@ -53,7 +53,7 @@ assert(type(caps) == 'table')
 Twenty-four pure-Lua modules (`Cis.requireList()` names them) load on demand
 into the calling resource's own Lua state, with no global left behind:
 
-```lua
+```lua example
 local semver = Cis.require('semver')
 local ok = semver.satisfies('1.4.2', '^1.2')   -- true
 ```
@@ -73,7 +73,7 @@ local ok = semver.satisfies('1.4.2', '^1.2')   -- true
 | Easing, damping, splines, rate limits, sliding windows | `interp`, `curve`, `rate`, `window` |
 | Deep copy, merge, sorted keys | `table` |
 
-```lua
+```lua example
 local locale, print = Cis.require('locale'), Cis.require('print')
 print.info(locale.t('shop.welcome', { name = 'Ana' }))
 
@@ -95,7 +95,7 @@ Zones, points and keybinds made through `init.lua` run in **your** resource's
 VM, so their handlers are plain functions and nothing crosses per frame
 (DOCUMENTATION.md §5.2). They survive a cis_libs restart.
 
-```lua
+```lua example
 Cis.zones.box('shop', vector3(1.0, 2.0, 3.0), vector3(4.0, 4.0, 3.0), {
     onEnter = function(zone) Cis.ui.textUI.show('[E] Shop') end,
     onExit = function(zone) Cis.ui.textUI.hide() end,
@@ -153,15 +153,19 @@ After a `cis_libs` restart, they reconnect. Never log player names or IPs.
 
 Three tiers, from cheapest to most real:
 
-- **Stubbed** (`npm run test:all`, every push): the suites under fengari and a
-  real Lua 5.4 against hand-written native stubs.
-- **Live server** (the `live-server` CI job, every pull request): a real
-  headless Linux FXServer boots with cis_libs and the harness in
-  `test/live/`, and runs the `server` and `lifecycle` tiers on FiveM's own
-  natives. Any FAIL, script error or boot error fails the build. To turn it
-  on, add a licence key from <https://portal.cfx.re> as the repository secret
-  `FIVEM_LICENSE_KEY` (Settings → Secrets and variables → Actions). Without it
-  the job is skipped with a notice, as it is for pull requests from forks.
+- **Stubbed** (`npm run test:all`, the `test` CI job on every pull request,
+  every push to main and nightly): the suites under fengari and a real Lua 5.4
+  against hand-written native stubs.
+- **Live server** (the `live-server` CI job, started on every pull request and
+  push to main but skipped until the secret below exists): a real headless
+  Linux FXServer boots with cis_libs and the harness in `test/live/`, and runs
+  the `server` and `lifecycle` tiers on FiveM's own natives. Any FAIL, script
+  error or boot error fails the build. To turn it on, add a licence key from
+  <https://portal.cfx.re> as the repository secret `FIVEM_LICENSE_KEY`
+  (Settings → Secrets and variables → Actions). Without it the job is skipped
+  with a notice, as it is for pull requests from forks. That secret is not set
+  on this repository today, so the job skips on every run and CI does not
+  exercise this tier yet.
 - **Player** (`npm run live:run -- player`, by hand): zones, points, the debug
   draw, the client sync spawn path and the `perf` tier need a real game
   client, which CI does not have.

@@ -21,9 +21,44 @@ const path = require('path')
 const { spawnSync } = require('child_process')
 
 const root = path.join(__dirname, '..')
-const spec = JSON.parse(fs.readFileSync(path.join(root, 'test', 'mutations.json'), 'utf8'))
 const only = process.argv.slice(2).filter(a => !a.startsWith('-'))
 const skipNodeModules = process.argv.includes('--no-copy-modules')
+
+// Two rows with one id make `node tools/mutate.js M12` ambiguous and let a
+// later row hide an earlier one in the table. Returns the ids that repeat.
+function duplicateIds(rows) {
+  const seen = new Set()
+  const dup = new Set()
+  for (const r of rows) {
+    if (seen.has(r.id)) dup.add(r.id)
+    seen.add(r.id)
+  }
+  return [...dup]
+}
+
+// What a gate that CAUGHT a defect looks like in its output: a suite FAIL line,
+// a `failed=N` summary, a validator E-code, or node:test's `not ok` / `# fail`
+// (TAP) and its spec reporter's `✖ name` / `ℹ fail N` lines.
+const TEST_FAILURE = /(^|\n)\s*(FAIL|not ok)\b|FAIL\(|failed=[1-9]|\[E\d+\]|# fail [1-9]|\u2139 fail [1-9]|\u2716 /
+
+// A non-zero exit is only evidence that a mutation was caught when the gate says
+// it found a failure. A spawn error (the runner could not start), a signal or
+// timeout, or a crash before any test ran (a missing module, a syntax error in
+// a file the runner itself loads) also exit non-zero, and counting them as
+// "killed" reports a gate that tested nothing as a gate that worked.
+//   'passed'  exit 0: the defect was not caught
+//   'failed'  non-zero exit with a test failure in the output: caught
+//   'error'   anything else: not evidence either way, and fails the build
+function classify(run) {
+  if (run.error) return { state: 'error', detail: `could not run: ${run.error.message}` }
+  if (run.code === null || run.code === undefined) {
+    return { state: 'error', detail: `no exit code (${run.signal || 'killed by a signal'})` }
+  }
+  if (run.code === 0) return { state: 'passed' }
+  if (TEST_FAILURE.test(run.out || '')) return { state: 'failed' }
+  const last = String(run.out || '').trim().split('\n').pop().slice(0, 100)
+  return { state: 'error', detail: `exit ${run.code} with no test failure in the output: ${last}` }
+}
 
 // Copy the working tree, minus .git and node_modules. node_modules is restored
 // as a junction-free directory copy only when fengari is not resolvable, which
@@ -51,11 +86,19 @@ function runSuite(dir) {
   })
   return {
     code: r.status,
+    signal: r.signal,
+    error: r.error,
     out: `${r.stdout || ''}${r.stderr || ''}`,
   }
 }
 
 function main() {
+  const spec = JSON.parse(fs.readFileSync(path.join(root, 'test', 'mutations.json'), 'utf8'))
+  const dups = duplicateIds(spec.mutations)
+  if (dups.length) {
+    console.error(`duplicate mutation id(s) in test/mutations.json: ${dups.join(', ')}`)
+    process.exit(2)
+  }
   const rows = spec.mutations.filter(m => !only.length || only.includes(m.id))
   if (!rows.length) {
     console.error(`no mutations matched ${JSON.stringify(only)}`)
@@ -136,7 +179,7 @@ function main() {
             encoding: 'utf8',
             maxBuffer: 64 * 1024 * 1024,
           })
-          extra = { code: c.status, out: `${c.stdout || ''}${c.stderr || ''}` }
+          extra = { code: c.status, signal: c.signal, error: c.error, out: `${c.stdout || ''}${c.stderr || ''}` }
         }
       } finally {
         // Always put it back, even if the run threw, or the next mutation is
@@ -144,9 +187,16 @@ function main() {
         fs.writeFileSync(target, original, 'utf8')
       }
 
-      const suiteKilled = r.code !== 0
-      const extraKilled = extra !== null && extra.code !== 0
-      if (!suiteKilled && !extraKilled) {
+      const suiteGate = classify(r)
+      const extraGate = extra === null ? null : classify(extra)
+      const suiteKilled = suiteGate.state === 'failed'
+      const extraKilled = extraGate !== null && extraGate.state === 'failed'
+      const broken = [suiteGate, extraGate].find(g => g && g.state === 'error')
+      if (!suiteKilled && !extraKilled && broken) {
+        // Neither gate caught it and one could not even run. Not a survivor
+        // (the suite never ran), not killed: the row proved nothing.
+        results.push({ ...m, state: 'ERROR', detail: broken.detail })
+      } else if (!suiteKilled && !extraKilled) {
         results.push({ ...m, state: 'SURVIVOR', detail: m.check ? 'both the suite and the named check still passed' : 'the suite still passed' })
       } else {
         // Name the failing gate when the output says, so the row is diagnosable
@@ -173,8 +223,9 @@ function main() {
   const killed = results.filter(r => r.state === 'killed').length
   const survivors = results.filter(r => r.state === 'SURVIVOR')
   const stale = results.filter(r => r.state === 'STALE')
+  const errored = results.filter(r => r.state === 'ERROR')
   console.log('-'.repeat(120))
-  console.log(`${results.length} mutations: ${killed} killed, ${survivors.length} survivors, ${stale.length} stale`)
+  console.log(`${results.length} mutations: ${killed} killed, ${survivors.length} survivors, ${stale.length} stale, ${errored.length} errored`)
   if (survivors.length) {
     console.log('')
     console.log('SURVIVORS -- the suite passed with the defect still in place:')
@@ -185,7 +236,14 @@ function main() {
     console.log('STALE -- the pattern no longer matches the code exactly once:')
     for (const r of stale) console.log(`  ${r.id}  ${r.file}  ${r.detail}`)
   }
-  process.exit(survivors.length || stale.length ? 1 : 0)
+  if (errored.length) {
+    console.log('')
+    console.log('ERROR -- a gate could not run, so the row proves nothing:')
+    for (const r of errored) console.log(`  ${r.id}  ${r.file}  ${r.detail}`)
+  }
+  process.exit(survivors.length || stale.length || errored.length ? 1 : 0)
 }
 
-main()
+if (require.main === module) main()
+
+module.exports = { classify, duplicateIds }

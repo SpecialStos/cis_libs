@@ -58,6 +58,8 @@ function injectFiles() {
   }
   lua.lua_pushstring(L, toLua(fs.readFileSync(path.join(root, 'README.md'), 'utf8')))
   lua.lua_setfield(L, -2, toLua('README.md'))
+  lua.lua_pushstring(L, toLua(fs.readFileSync(path.join(root, 'DOCUMENTATION.md'), 'utf8')))
+  lua.lua_setfield(L, -2, toLua('DOCUMENTATION.md'))
   lua.lua_pushstring(L, toLua(fs.readFileSync(path.join(root, 'LICENSE.md'), 'utf8')))
   lua.lua_setfield(L, -2, toLua('LICENSE.md'))
   lua.lua_setglobal(L, toLua('CIS_TEST_FILES'))
@@ -73,16 +75,33 @@ injectFiles()
 // time a suite runs, the most recent file loaded is the SUITE -- not the thing
 // it wants to reload.
 
+// Natives a preloaded file calls at load. They exist only while that file loads: a
+// suite that reads the global afterwards must see what it set up itself, not ours.
+const LOAD_STUBS = ['shared/statebag.lua']
+const STUB_ON = `
+  _preload_saved = { IsDuplicityVersion = IsDuplicityVersion, AddEventHandler = AddEventHandler, exports = exports }
+  IsDuplicityVersion = function() return false end
+  AddEventHandler = function() end
+  exports = function() end
+`
+const STUB_OFF = `
+  IsDuplicityVersion = _preload_saved.IsDuplicityVersion
+  AddEventHandler = _preload_saved.AddEventHandler
+  exports = _preload_saved.exports
+  _preload_saved = nil
+`
 function run(rel) {
   const src = fs.readFileSync(path.join(root, rel), 'utf8')
   if (/cis_ctl[\\/]server[\\/]allow\.lua$/.test(rel)) {
     lua.lua_pushstring(L, toLua(src))
     lua.lua_setglobal(L, toLua('CIS_CTL_ALLOW_SOURCE'))
   }
+  const stubbed = LOAD_STUBS.includes(rel)
+  if (stubbed) lauxlib.luaL_dostring(L, toLua(STUB_ON))
   const status = lauxlib.luaL_dostring(L, toLua(src))
-  if (status !== lua.LUA_OK) {
-    throw new Error(`${rel}: ${lua.lua_tojsstring(L, -1)}`)
-  }
+  const err = status !== lua.LUA_OK ? lua.lua_tojsstring(L, -1) : null
+  if (stubbed) lauxlib.luaL_dostring(L, toLua(STUB_OFF))
+  if (err !== null) throw new Error(`${rel}: ${err}`)
 }
 
 // Exactly what each suite saw before isolation, so no suite changes behaviour.
@@ -103,10 +122,28 @@ const SHARED = [
   'shared/zonegeom.lua', 'shared/hooks.lua',
   'shared/pending.lua', 'shared/utf8.lua', 'shared/owned.lua', 'shared/config.lua',
   'shared/histogram.lua', 'shared/ready.lua', 'shared/detect.lua',
-  // shared/statebag.lua is last in the manifest but not preloaded: it calls
-  // IsDuplicityVersion at load, so the suites that cover it load it
-  // themselves once their native stubs exist.
+  // Last, like the manifest. statebag.lua calls IsDuplicityVersion, AddEventHandler
+  // and exports at load, which no suite has stubbed yet, so run() gives it three
+  // throwaway stubs (LOAD_STUBS) and takes them away again.
+  'shared/statebag.lua',
 ]
+// SHARED IS THE MANIFEST'S shared_scripts, in the manifest's order, minus init.lua
+// (which the suites load themselves). It used to be a hand-kept copy that had
+// drifted twice -- histogram and ready swapped, statebag missing -- so it is
+// compared here and a drift stops the run before any suite does.
+function manifestSharedScripts() {
+  const manifest = fs.readFileSync(path.join(root, 'fxmanifest.lua'), 'utf8')
+  const block = /shared_scripts\s*\{([^}]*)\}/.exec(manifest)
+  if (!block) throw new Error('fxmanifest.lua has no shared_scripts block')
+  return [...block[1].matchAll(/'([^']+\.lua)'/g)].map(m => m[1]).filter(f => f !== 'init.lua')
+}
+const expectedShared = manifestSharedScripts()
+if (JSON.stringify(SHARED) !== JSON.stringify(expectedShared)) {
+  console.error('test preload order differs from fxmanifest.lua shared_scripts')
+  console.error(`  manifest: ${expectedShared.join(' ')}`)
+  console.error(`  runner:   ${SHARED.join(' ')}`)
+  process.exit(2)
+}
 const ALGO_UTIL = [
   'shared/algo/curve.lua', 'shared/algo/heap.lua', 'shared/algo/interp.lua',
   'shared/algo/lru.lua', 'shared/algo/random.lua', 'shared/algo/rate.lua',

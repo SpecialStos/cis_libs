@@ -9,7 +9,7 @@ not PolyZone. It sits beside ESX / QBCore / QBOX and normalises the differences
 so your resource can be written once.
 
 Version **1.0.0**. Requires OneSync and server build 4500+.
-See [LICENSE.md](LICENSE.md); the original author's name and the resource
+See [LICENSE.md](../../LICENSE.md); the original author's name and the resource
 name must be retained in all copies. The current tree is not MIT.
 
 ---
@@ -2226,7 +2226,7 @@ were unsure rather than presenting it as settled.
 
 - Docs: https://docs.cisoko.net
 - Discord: https://discord.gg/cisoko
-- License: [LICENSE.md](LICENSE.md)
+- License: [LICENSE.md](../../LICENSE.md)
 , x)` matches the
   literal string `a|b` and passes silently. Any range or choice validation built
   on a pattern containing `|` is wrong.
