@@ -767,6 +767,10 @@ which is forgotten when that resource stops.
   with write permission runs no repository code.
 - **Releases carry a `SHA256SUMS` asset** and cannot be built from a tag that
   is not on main.
+- **A client's reply to a server-to-client callback must carry a boolean
+  `ok`.** A truthy string, number or table in its place resolved the call and
+  reached the caller unbounded as its first value. It now reaches the caller
+  as `false, 'bad reply'`.
 
 ## [1.0.0] — 2026-10-07
 

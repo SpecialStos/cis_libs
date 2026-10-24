@@ -402,9 +402,15 @@ RegisterNetEvent('cis_libs:cb:serverRes', function(key, ok, ...)
     end
     -- PACKED, with the count, on this side too.
     local packed = table.pack(...)
+    -- The `ok` flag is client data too. Only a boolean decides the outcome: a
+    -- truthy string or table would otherwise resolve the call and reach the
+    -- caller unbounded as its first value.
+    if type(ok) ~= 'boolean' then
+        ok = false
+        packed = { n = 1, 'bad reply' }
     -- The reply is client data like any request, and is bounded the same way. The
     -- caller is still answered -- with a refusal -- rather than left to time out.
-    if not payloadWithinLimits(packed, MAX_CALLBACK_ARGS, CisCallbackLimits().maxStringLen) then
+    elseif not payloadWithinLimits(packed, MAX_CALLBACK_ARGS, CisCallbackLimits().maxStringLen) then
         ok = false
         packed = { n = 1, 'too large' }
     end

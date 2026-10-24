@@ -4091,6 +4091,13 @@
       "find": "print('  An empty list is always restrictive. It used to mean')",
       "replace": "print('  Security.AuthorizedResources is empty, and an empty list is always restrictive. It used to mean')",
       "why": "The restrictive warning states the empty list twice in a row, once as the reason and once as the explanation."
+    },
+    {
+      "id": "M709",
+      "file": "server/callback.lua",
+      "find": "    if type(ok) ~= 'boolean' then\n        ok = false\n        packed = { n = 1, 'bad reply' }",
+      "replace": "    if ok == nil then\n        ok = false\n        packed = { n = 1, 'bad reply' }",
+      "why": "A client reply whose ok flag is a truthy string or table resolves the server-to-client callback and hands the caller that unbounded value as its first result."
     }
   ]
 }

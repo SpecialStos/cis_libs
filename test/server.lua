@@ -2192,6 +2192,17 @@ do
             ('C1: and carries the client\'s reason (got %s)'):format(tostring(reason)))
     end
 
+    -- A truthy `ok` that is not a boolean is a malformed reply, not a success:
+    -- it used to resolve the await with whatever followed it.
+    do
+        env.sent = {}
+        replyFrom(7, 'yes', 'forged')
+        local ok, reason = env.EXPORTS.AwaitCallbackClient('okflag', 7)
+        check(ok == false and tostring(reason):find('bad reply', 1, true) ~= nil,
+            ('C1: a non-boolean ok is refused as a bad reply (got %s, %s)')
+                :format(tostring(ok), tostring(reason)))
+    end
+
     -- A client that never answers must still be bounded, and must say so. This
     -- is the timeout the sweep produces, and it is the case that used to look
     -- most like success: an empty result indistinguishable from a real one.
@@ -5775,6 +5786,18 @@ do
     check(answer and answer[1] == false and answer[2] == 'too large',
         ('CB4: an oversized reply reaches the caller as a refusal (got %s, %s)')
             :format(tostring(answer and answer[1]), tostring(answer and answer[2])))
+
+    -- The `ok` flag is client data too: only a boolean decides the outcome. A
+    -- string or a table in its place used to reach the caller as its first value,
+    -- unbounded, and a truthy one resolved the promise.
+    for _, forged in ipairs({ string.rep('x', 100000), { nested = { deep = true } }, 1 }) do
+        answer = nil
+        key = env.EXPORTS.CallCallbackClient('cb4:ok', 9, function(ok, why) answer = { ok, why } end)
+        env.emit('cis_libs:cb:serverRes', 9, key, forged, 'fine')
+        check(answer and answer[1] == false and answer[2] == 'bad reply',
+            ('CB4: a %s in place of ok reaches the caller as a refusal (got %s, %s)')
+                :format(type(forged), type(answer and answer[1]), tostring(answer and answer[2])))
+    end
     env.reset()
 end
 
